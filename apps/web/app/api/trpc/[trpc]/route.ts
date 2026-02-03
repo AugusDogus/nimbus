@@ -5,6 +5,9 @@ import { createContext } from "@nimbus/api/context";
 import { appRouter } from "@nimbus/api/routers";
 
 import { auth } from "@/lib/auth";
+import { ensureFileWatcher } from "@/server/file-watcher";
+
+ensureFileWatcher();
 
 const handler = async (req: NextRequest) => {
   return fetchRequestHandler({

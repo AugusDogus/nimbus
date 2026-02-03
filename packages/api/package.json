@@ -6,7 +6,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./context": "./src/context.ts",
-    "./routers": "./src/routers.ts"
+    "./routers": "./src/routers.ts",
+    "./file-events": "./src/file-events.ts",
+    "./data-root": "./src/data-root.ts"
   },
   "types": "./src/index.ts",
   "dependencies": {
