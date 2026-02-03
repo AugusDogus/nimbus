@@ -8,5 +8,4 @@ export default {
   dbCredentials: {
     url: databaseUrl,
   },
-  tablesFilter: ["nimbus_*"],
 } satisfies Config;

@@ -20,3 +20,6 @@ export const notes = createTable(
   }),
   (t) => [index("note_title_idx").on(t.title)],
 );
+
+export * from "./auth-schema";
+
