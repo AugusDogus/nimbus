@@ -1,8 +1,16 @@
-import { EventEmitter } from "node:events";
+import { EventEmitter, on } from "node:events";
 
 export type FileEvent = {
   path: string;
   event: "rename" | "change" | "delete" | "unknown";
+  ts: number;
+};
+
+export type FileDelta = {
+  path: string;
+  name: string;
+  type: "dir" | "file" | "other";
+  action: "added" | "removed" | "changed";
   ts: number;
 };
 
@@ -26,4 +34,8 @@ export const subscribeFileEvents = (listener: FileEventListener) => {
   return () => {
     fileEvents.off("file-change", listener);
   };
+};
+
+export const iterateFileEvents = (signal: AbortSignal) => {
+  return on(fileEvents, "file-change", { signal });
 };

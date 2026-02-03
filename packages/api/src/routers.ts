@@ -1,9 +1,12 @@
-import { observable } from "@trpc/server/observable";
-import { readdir } from "node:fs/promises";
+import { TRPCError, tracked } from "@trpc/server";
+import type { Dirent } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
+import path from "node:path";
+import { z } from "zod";
 
 import { getDataRoot } from "./data-root";
 
-import { subscribeFileEvents, type FileEvent } from "./file-events";
+import { iterateFileEvents, type FileDelta, type FileEvent } from "./file-events";
 import { protectedProcedure, publicProcedure, router } from "./index";
 
 export const appRouter = router({
@@ -17,26 +20,139 @@ export const appRouter = router({
     };
   }),
   files: router({
-    list: protectedProcedure.query(async () => {
+    list: protectedProcedure
+      .input(z.object({ path: z.string().optional() }))
+      .query(async ({ input }) => {
+        const root = getDataRoot();
+        const requested = input.path ? decodeURIComponent(input.path) : "";
+        const resolved = path.resolve(root, requested);
+        const relative = path.relative(root, resolved);
+
+        if (relative.startsWith("..") || path.isAbsolute(relative)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Invalid path.",
+          });
+        }
+
+        if (relative.split(path.sep).includes(".nimbus")) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Access denied.",
+          });
+        }
+
+        let entries: Dirent[];
+        try {
+          entries = await readdir(resolved, { withFileTypes: true });
+        } catch (error) {
+          const cause = error as { code?: string };
+          if (cause.code === "ENOENT") {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Folder not found.",
+            });
+          }
+          throw error;
+        }
+
+        return entries
+          .filter((entry) => entry.name !== ".nimbus")
+          .map((entry) => {
+            const entryPath = relative
+              ? path.join(relative, entry.name)
+              : entry.name;
+            const normalizedPath = entryPath.split(path.sep).join("/");
+
+            return {
+              name: entry.name,
+              path: normalizedPath,
+              type: entry.isDirectory()
+                ? "dir"
+                : entry.isFile()
+                  ? "file"
+                  : "other",
+            };
+          });
+      }),
+    onChange: protectedProcedure
+      .input(z.object({ path: z.string().optional() }))
+      .subscription(async function* ({ input, signal }) {
+      if (!signal) {
+        return;
+      }
       const root = getDataRoot();
-      const entries = await readdir(root, { withFileTypes: true });
+      const requested = input.path ? decodeURIComponent(input.path) : "";
+      const requestedAbs = path.resolve(root, requested);
+      const requestedRel = path.relative(root, requestedAbs);
 
-      return entries.map((entry) => ({
-        name: entry.name,
-        path: entry.name,
-        type: entry.isDirectory() ? "dir" : entry.isFile() ? "file" : "other",
-      }));
-    }),
-    onChange: protectedProcedure.subscription(() => {
-      return observable<FileEvent>((emit) => {
-        const unsubscribe = subscribeFileEvents((event) => {
-          emit.next(event);
+      if (requestedRel.startsWith("..") || path.isAbsolute(requestedRel)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Invalid path.",
         });
+      }
 
-        return () => {
-          unsubscribe();
+      for await (const [event] of iterateFileEvents(signal)) {
+        const fileEvent = event as FileEvent;
+        const eventAbs = path.isAbsolute(fileEvent.path)
+          ? fileEvent.path
+          : path.resolve(root, fileEvent.path);
+        const eventRel = path.relative(requestedAbs, eventAbs);
+
+        if (
+          eventRel.startsWith("..") ||
+          path.isAbsolute(eventRel) ||
+          eventRel.includes(path.sep)
+        ) {
+          continue;
+        }
+
+        if (eventRel === "" || eventRel === ".") {
+          continue;
+        }
+
+        if (eventRel.split(path.sep).includes(".nimbus")) {
+          continue;
+        }
+
+        let entryType: FileDelta["type"] = "other";
+        let action: FileDelta["action"] = "changed";
+
+        try {
+          const stats = await stat(eventAbs);
+          entryType = stats.isDirectory()
+            ? "dir"
+            : stats.isFile()
+              ? "file"
+              : "other";
+          action = fileEvent.event === "change" ? "changed" : "added";
+        } catch (error) {
+          const cause = error as { code?: string };
+          if (cause.code === "ENOENT") {
+            action = "removed";
+          } else {
+            continue;
+          }
+        }
+
+        const normalizedPath = [requestedRel, eventRel]
+          .filter(Boolean)
+          .join(path.sep)
+          .split(path.sep)
+          .join("/");
+
+        const delta: FileDelta = {
+          path: normalizedPath,
+          name: eventRel,
+          type: entryType,
+          action,
+          ts: fileEvent.ts,
         };
-      });
+
+        const id = `${delta.ts}:${delta.path}:${delta.action}`;
+        yield tracked(id, delta);
+      }
     }),
   }),
 });

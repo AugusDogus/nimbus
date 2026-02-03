@@ -12,6 +12,10 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
-    "@trpc/server": "^11.9.0"
+    "@trpc/server": "^11.9.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.0"
   }
 }
