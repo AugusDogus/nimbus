@@ -1,13 +1,45 @@
 "use client";
 
-import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { Cloud } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 
 import { signOut, useSession } from "@/lib/auth-client";
+import { queryClient, trpcClient } from "@/lib/trpc";
+import type { FileEvent } from "@nimbus/api/file-events";
 
 export default function Home() {
   const { data, isPending } = useSession();
   const email = data?.user?.email ?? "Signed in";
+  const [latestEvent, setLatestEvent] = useState<FileEvent | null>(null);
+  const [eventError, setEventError] = useState<string | null>(null);
+  const listQuery = useQuery({
+    queryKey: ["files.list"],
+    queryFn: () => trpcClient.files.list.query(),
+    enabled: Boolean(data),
+  });
+
+  useEffect(() => {
+    if (!data) {
+      return;
+    }
+
+    const subscription = trpcClient.files.onChange.subscribe(undefined, {
+      onData: (event) => {
+        setLatestEvent(event);
+        setEventError(null);
+        queryClient.invalidateQueries({ queryKey: ["files.list"] });
+      },
+      onError: (error) => {
+        setEventError(error.message);
+      },
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [data]);
 
   return (
     <div className="min-h-dvh bg-zinc-50 px-6 py-12 text-zinc-900 dark:bg-black dark:text-zinc-50">
@@ -65,6 +97,76 @@ export default function Home() {
               </Link>
             </div>
           )}
+        </section>
+
+        {data ? (
+          <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                Files (root)
+              </p>
+              {listQuery.isLoading ? (
+                <p className="text-pretty text-sm text-zinc-600 dark:text-zinc-400">
+                  Loading files...
+                </p>
+              ) : listQuery.isError ? (
+                <p className="text-pretty text-sm text-red-600 dark:text-red-400">
+                  {listQuery.error instanceof Error
+                    ? listQuery.error.message
+                    : "Failed to load files."}
+                </p>
+              ) : listQuery.data && listQuery.data.length > 0 ? (
+                <ul className="space-y-2 text-sm">
+                  {listQuery.data.slice(0, 20).map((entry) => (
+                    <li
+                      key={entry.path}
+                      className="flex items-center justify-between rounded-md border border-zinc-200 px-3 py-2 text-zinc-700 dark:border-zinc-800 dark:text-zinc-200"
+                    >
+                      <span className="truncate">{entry.name}</span>
+                      <span className="text-xs uppercase text-zinc-400 dark:text-zinc-500">
+                        {entry.type}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-pretty text-sm text-zinc-600 dark:text-zinc-400">
+                  No files found in the data root.
+                </p>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+              Live file events
+            </p>
+            {eventError ? (
+              <p className="text-pretty text-sm text-red-600 dark:text-red-400">
+                {eventError}
+              </p>
+            ) : latestEvent ? (
+              <div className="space-y-1 text-pretty text-sm">
+                <p>
+                  <span className="font-medium">Event:</span>{" "}
+                  {latestEvent.event}
+                </p>
+                <p>
+                  <span className="font-medium">Path:</span> {latestEvent.path}
+                </p>
+                <p>
+                  <span className="font-medium">Time:</span>{" "}
+                  {new Date(latestEvent.ts).toLocaleTimeString()}
+                </p>
+              </div>
+            ) : (
+              <p className="text-pretty text-sm text-zinc-600 dark:text-zinc-400">
+                Waiting for file changes in /data.
+              </p>
+            )}
+          </div>
         </section>
       </main>
     </div>
