@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { Fragment, useMemo } from "react";
 import {
   ArrowDownAZ,
   ArrowUpAZ,
@@ -19,10 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import {
-  useParams,
-} from "next/navigation";
-import React, { useMemo } from "react";
+import { useParams } from "next/navigation";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -62,8 +59,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { signOut, useSession } from "@/lib/auth-client";
-import { trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import { useFileList } from "./use-file-list";
 import { useFilePreferences } from "./use-file-preferences";
 import { useFileSubscription } from "./use-file-subscription";
 
@@ -211,12 +208,9 @@ export default function FilesPage() {
 
   const includeStats =
     prefs.sortField === "modified" || prefs.sortField === "size";
-  const listQuery = useQuery({
-    queryKey: ["files.list", currentPath, includeStats],
-    queryFn: () =>
-      trpcClient.files.list.query(
-        currentPath ? { path: currentPath, includeStats } : { includeStats },
-      ),
+  const { entries, listQuery } = useFileList({
+    currentPath,
+    includeStats,
     enabled: Boolean(data),
   });
 
@@ -226,7 +220,6 @@ export default function FilesPage() {
     enabled: Boolean(data),
   });
 
-  const entries = useMemo(() => listQuery.data ?? [], [listQuery.data]);
   const sortedEntries = useMemo(() => {
     const sorted = [...entries].sort((a, b) => {
       // When grouping, always sort folders first
@@ -349,7 +342,7 @@ export default function FilesPage() {
                     }
                   })();
                   return (
-                    <React.Fragment key={crumbPath}>
+                    <Fragment key={crumbPath}>
                       <BreadcrumbSeparator />
                       <BreadcrumbItem>
                         {isLast ? (
@@ -362,7 +355,7 @@ export default function FilesPage() {
                           </BreadcrumbLink>
                         )}
                       </BreadcrumbItem>
-                    </React.Fragment>
+                    </Fragment>
                   );
                 })}
               </BreadcrumbList>
