@@ -1,0 +1,26 @@
+.DS_Store
+Thumbs.db
+*.log
+
+# dependencies
+node_modules/
+
+# bun
+.bun/
+
+# turbo
+.turbo/
+
+# build outputs
+dist/
+build/
+.next/
+out/
+
+# env
+.env
+.env.*.local
+
+# editor
+.vscode/
+.idea/
