@@ -17,6 +17,13 @@ const safeDecode = (value: string) => {
   }
 };
 
+const preferencesSchema = z.object({
+  view: z.enum(["list", "grid"]),
+  sortField: z.enum(["name", "type", "modified", "size"]),
+  sortDirection: z.enum(["asc", "desc"]),
+  groupByType: z.boolean(),
+});
+
 export const appRouter = router({
   healthCheck: publicProcedure.query(() => {
     return "OK";
@@ -26,6 +33,24 @@ export const appRouter = router({
       message: "Authenticated",
       session: ctx.session,
     };
+  }),
+  prefs: router({
+    get: protectedProcedure.query(async ({ ctx }) => {
+      const userId = getUserId(ctx.session);
+      const stored = await ctx.preferences.getUserPreferences(userId);
+      return stored ?? {
+        view: "list",
+        sortField: "name",
+        sortDirection: "asc",
+        groupByType: true,
+      };
+    }),
+    set: protectedProcedure
+      .input(preferencesSchema)
+      .mutation(async ({ ctx, input }) => {
+        const userId = getUserId(ctx.session);
+        return ctx.preferences.setUserPreferences(userId, input);
+      }),
   }),
   files: router({
     list: protectedProcedure
@@ -186,3 +211,21 @@ export const appRouter = router({
 });
 
 export type AppRouter = typeof appRouter;
+
+const getUserId = (session: unknown) => {
+  if (!session || typeof session !== "object") {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+
+  const user = (session as { user?: unknown }).user;
+  if (!user || typeof user !== "object") {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+
+  const id = (user as { id?: unknown }).id;
+  if (typeof id !== "string" || id.length === 0) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+
+  return id;
+};

@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowDownAZ,
   ArrowUpAZ,
@@ -21,11 +21,8 @@ import {
 import Link from "next/link";
 import {
   useParams,
-  usePathname,
-  useRouter,
-  useSearchParams,
 } from "next/navigation";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -67,6 +64,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { signOut, useSession } from "@/lib/auth-client";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
+import type { UserPreferences } from "@nimbus/api/context";
 import type { FileDelta } from "@nimbus/api/file-events";
 
 type Params = {
@@ -208,26 +206,38 @@ function LoadingSkeleton({ view }: { view: "list" | "grid" }) {
 
 export default function FilesPage() {
   const params = useParams<Params>();
-  const pathname = usePathname();
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const pathSegments = useMemo(
     () => normalizePathSegments(params?.path),
     [params?.path],
   );
   const currentPath = pathSegments.join("/");
-  const view = searchParams.get("view") === "grid" ? "grid" : "list";
-  const viewQuery = view === "grid" ? "?view=grid" : "";
 
   const { data, isPending } = useSession();
 
-  const [sortField, setSortField] = useState<
-    "name" | "type" | "modified" | "size"
-  >("name");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [groupByType, setGroupByType] = useState(true);
+  const prefsQuery = useQuery<UserPreferences, Error>({
+    queryKey: ["prefs"] as const,
+    queryFn: () => trpcClient.prefs.get.query() as Promise<UserPreferences>,
+    enabled: Boolean(data),
+  });
+  const defaultPreferences: UserPreferences = {
+    view: "list",
+    sortField: "name",
+    sortDirection: "asc",
+    groupByType: true,
+  };
+  const prefs = prefsQuery.data ?? defaultPreferences;
+  const prefsMutation = useMutation({
+    mutationFn: (next: UserPreferences) => trpcClient.prefs.set.mutate(next),
+  });
+  const view = prefs.view;
+  const updatePreferences = (partial: Partial<UserPreferences>) => {
+    const next: UserPreferences = { ...prefs, ...partial };
+    queryClient.setQueryData(["prefs"], next);
+    prefsMutation.mutate(next);
+  };
 
-  const includeStats = sortField === "modified" || sortField === "size";
+  const includeStats =
+    prefs.sortField === "modified" || prefs.sortField === "size";
   const listQuery = useQuery({
     queryKey: ["files.list", currentPath, includeStats],
     queryFn: () =>
@@ -289,12 +299,12 @@ export default function FilesPage() {
   const sortedEntries = useMemo(() => {
     const sorted = [...entries].sort((a, b) => {
       // When grouping, always sort folders first
-      if (groupByType && a.type !== b.type) {
+      if (prefs.groupByType && a.type !== b.type) {
         return a.type === "dir" ? -1 : 1;
       }
 
       let comparison = 0;
-      switch (sortField) {
+      switch (prefs.sortField) {
         case "name":
           comparison = a.name.localeCompare(b.name);
           break;
@@ -311,15 +321,15 @@ export default function FilesPage() {
           comparison = 0;
       }
 
-      return sortDirection === "desc" ? -comparison : comparison;
+      return prefs.sortDirection === "desc" ? -comparison : comparison;
     });
     return sorted;
-  }, [entries, sortField, sortDirection, groupByType]);
+  }, [entries, prefs.groupByType, prefs.sortDirection, prefs.sortField]);
 
-  const folders = groupByType
+  const folders = prefs.groupByType
     ? sortedEntries.filter((e) => e.type === "dir")
     : [];
-  const files = groupByType
+  const files = prefs.groupByType
     ? sortedEntries.filter((e) => e.type !== "dir")
     : [];
 
@@ -393,7 +403,7 @@ export default function FilesPage() {
                     <BreadcrumbPage>My Drive</BreadcrumbPage>
                   ) : (
                     <BreadcrumbLink asChild>
-                      <Link href={`/files${viewQuery}`}>My Drive</Link>
+                      <Link href="/files">My Drive</Link>
                     </BreadcrumbLink>
                   )}
                 </BreadcrumbItem>
@@ -415,7 +425,7 @@ export default function FilesPage() {
                           <BreadcrumbPage>{label}</BreadcrumbPage>
                         ) : (
                           <BreadcrumbLink asChild>
-                            <Link href={`/files/${crumbPath}${viewQuery}`}>
+                            <Link href={`/files/${crumbPath}`}>
                               {label}
                             </Link>
                           </BreadcrumbLink>
@@ -431,7 +441,7 @@ export default function FilesPage() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-2">
-                    {sortDirection === "asc" ? (
+                    {prefs.sortDirection === "asc" ? (
                       <ArrowDownAZ className="size-4" />
                     ) : (
                       <ArrowUpAZ className="size-4" />
@@ -442,49 +452,63 @@ export default function FilesPage() {
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuLabel>Sort by</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setSortField("name")}>
+                  <DropdownMenuItem
+                    onClick={() => updatePreferences({ sortField: "name" })}
+                  >
                     Name
-                    {sortField === "name" && (
+                    {prefs.sortField === "name" && (
                       <Check className="ml-auto size-4" />
                     )}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortField("modified")}>
+                  <DropdownMenuItem
+                    onClick={() => updatePreferences({ sortField: "modified" })}
+                  >
                     Date modified
-                    {sortField === "modified" && (
+                    {prefs.sortField === "modified" && (
                       <Check className="ml-auto size-4" />
                     )}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortField("type")}>
+                  <DropdownMenuItem
+                    onClick={() => updatePreferences({ sortField: "type" })}
+                  >
                     Type
-                    {sortField === "type" && (
+                    {prefs.sortField === "type" && (
                       <Check className="ml-auto size-4" />
                     )}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortField("size")}>
+                  <DropdownMenuItem
+                    onClick={() => updatePreferences({ sortField: "size" })}
+                  >
                     Size
-                    {sortField === "size" && (
+                    {prefs.sortField === "size" && (
                       <Check className="ml-auto size-4" />
                     )}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>Direction</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setSortDirection("asc")}>
+                  <DropdownMenuItem
+                    onClick={() => updatePreferences({ sortDirection: "asc" })}
+                  >
                     Ascending
-                    {sortDirection === "asc" && (
+                    {prefs.sortDirection === "asc" && (
                       <Check className="ml-auto size-4" />
                     )}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortDirection("desc")}>
+                  <DropdownMenuItem
+                    onClick={() => updatePreferences({ sortDirection: "desc" })}
+                  >
                     Descending
-                    {sortDirection === "desc" && (
+                    {prefs.sortDirection === "desc" && (
                       <Check className="ml-auto size-4" />
                     )}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuCheckboxItem
-                    checked={groupByType}
-                    onCheckedChange={setGroupByType}
+                    checked={prefs.groupByType}
+                    onCheckedChange={(checked) =>
+                      updatePreferences({ groupByType: Boolean(checked) })
+                    }
                   >
                     Group by type
                   </DropdownMenuCheckboxItem>
@@ -495,10 +519,8 @@ export default function FilesPage() {
                 type="single"
                 value={view}
                 onValueChange={(value) => {
-                  if (value === "grid") {
-                    router.replace(`${pathname}?view=grid`);
-                  } else if (value === "list") {
-                    router.replace(pathname);
+                  if (value === "grid" || value === "list") {
+                    updatePreferences({ view: value });
                   }
                 }}
                 variant="outline"
@@ -527,10 +549,10 @@ export default function FilesPage() {
                     : "Failed to load files."}
                 </div>
               ) : entries.length > 0 ? (
-                groupByType ? (
+                prefs.groupByType ? (
                   <>
                     {/* Folders section */}
-                    {folders.length > 0 && (
+                  {folders.length > 0 && (
                       <section>
                         <h2 className="mb-3 text-sm font-medium text-muted-foreground">
                           Folders
@@ -546,7 +568,7 @@ export default function FilesPage() {
                             view === "list" ? (
                               <Link
                                 key={entry.path}
-                                href={`/files/${entry.path}${viewQuery}`}
+                                href={`/files/${entry.path}`}
                                 className="flex items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
                               >
                                 <Folder className="size-6 fill-muted text-muted-foreground" />
@@ -557,7 +579,7 @@ export default function FilesPage() {
                             ) : (
                               <Link
                                 key={entry.path}
-                                href={`/files/${entry.path}${viewQuery}`}
+                                href={`/files/${entry.path}`}
                                 className="flex flex-col items-center gap-3 rounded-xl border bg-muted/50 p-4 hover:border-border hover:bg-accent"
                               >
                                 <Folder className="size-12 fill-muted text-muted-foreground" />
@@ -572,7 +594,7 @@ export default function FilesPage() {
                     )}
 
                     {/* Files section */}
-                    {files.length > 0 && (
+                  {files.length > 0 && (
                       <section>
                         <h2 className="mb-3 text-sm font-medium text-muted-foreground">
                           Files
@@ -629,7 +651,7 @@ export default function FilesPage() {
                         view === "list" ? (
                           <Link
                             key={entry.path}
-                            href={`/files/${entry.path}${viewQuery}`}
+                            href={`/files/${entry.path}`}
                             className="flex items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
                           >
                             <Folder className="size-6 fill-muted text-muted-foreground" />
@@ -640,7 +662,7 @@ export default function FilesPage() {
                         ) : (
                           <Link
                             key={entry.path}
-                            href={`/files/${entry.path}${viewQuery}`}
+                            href={`/files/${entry.path}`}
                             className="flex flex-col items-center gap-3 rounded-xl border bg-muted/50 p-4 hover:border-border hover:bg-accent"
                           >
                             <Folder className="size-12 fill-muted text-muted-foreground" />

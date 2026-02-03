@@ -6,6 +6,7 @@ import { appRouter } from "@nimbus/api/routers";
 
 import { auth } from "@/lib/auth";
 import { ensureFileWatcher } from "@/server/file-watcher";
+import { preferencesStore } from "@/server/preferences";
 
 ensureFileWatcher();
 
@@ -18,6 +19,7 @@ const handler = async (req: NextRequest) => {
       createContext({
         auth,
         headers: req.headers,
+        preferences: preferencesStore,
       }),
     onError({ error, path }) {
       console.error(`>>> tRPC Error on '${path ?? "unknown"}'`, error);
