@@ -24,6 +24,41 @@ const preferencesSchema = z.object({
   groupByType: z.boolean(),
 });
 
+const getDirectorySize = async (directory: string): Promise<number> => {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
+  const sizes = await Promise.all(
+    entries.map(async (entry) => {
+      if (entry.name === ".nimbus" || entry.isSymbolicLink()) {
+        return 0;
+      }
+
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        return getDirectorySize(fullPath);
+      }
+
+      if (!entry.isFile()) {
+        return 0;
+      }
+
+      try {
+        const stats = await stat(fullPath);
+        return stats.size;
+      } catch {
+        return 0;
+      }
+    }),
+  );
+
+  return sizes.reduce((total, size) => total + size, 0);
+};
+
 export const appRouter = router({
   healthCheck: publicProcedure.query(() => {
     return "OK";
@@ -53,6 +88,11 @@ export const appRouter = router({
       }),
   }),
   files: router({
+    storage: protectedProcedure.query(async () => {
+      const root = getDataRoot();
+      const usedBytes = await getDirectorySize(root);
+      return { usedBytes };
+    }),
     list: protectedProcedure
       .input(z.object({ path: z.string().optional(), includeStats: z.boolean().optional() }))
       .query(async ({ input }) => {

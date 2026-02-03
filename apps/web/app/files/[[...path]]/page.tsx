@@ -1,60 +1,60 @@
 "use client";
 
-import { Fragment, useMemo } from "react";
 import {
-  ArrowDownAZ,
-  ArrowUpAZ,
-  Check,
-  Clock,
-  Cloud,
-  FileText,
-  Folder,
-  Grid2X2,
-  HardDrive,
-  List,
-  Plus,
-  Search,
-  Star,
-  Trash2,
-  Users,
+    ArrowDownAZ,
+    ArrowUpAZ,
+    Check,
+    Clock,
+    Cloud,
+    FileText,
+    Folder,
+    Grid2X2,
+    HardDrive,
+    List,
+    Plus,
+    Search,
+    Star,
+    Trash2,
+    Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { Fragment, useMemo } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
+    Breadcrumb,
+    BreadcrumbItem,
+    BreadcrumbLink,
+    BreadcrumbList,
+    BreadcrumbPage,
+    BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
+    Sidebar,
+    SidebarContent,
+    SidebarFooter,
+    SidebarGroup,
+    SidebarGroupContent,
+    SidebarHeader,
+    SidebarInset,
+    SidebarMenu,
+    SidebarMenuButton,
+    SidebarMenuItem,
+    SidebarProvider,
+    SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -62,6 +62,7 @@ import { signOut, useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { useFileList } from "./use-file-list";
 import { useFilePreferences } from "./use-file-preferences";
+import { useFileStorage } from "./use-file-storage";
 import { useFileSubscription } from "./use-file-subscription";
 
 type Params = {
@@ -86,7 +87,14 @@ const navItems = [
   { icon: Trash2, label: "Trash", href: "", disabled: true },
 ];
 
-function AppSidebar() {
+type StorageSummary = {
+  usedBytes: number | null;
+  label: string;
+  progressValue: number;
+  isLoading: boolean;
+};
+
+function AppSidebar({ storage }: { storage: StorageSummary }) {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -155,8 +163,12 @@ function AppSidebar() {
       <SidebarFooter className="p-4">
         <div className="space-y-2 group-data-[collapsible=icon]:hidden">
           <p className="text-xs text-muted-foreground">Storage</p>
-          <Progress value={21} className="h-1.5" />
-          <p className="text-xs text-muted-foreground">3.2 GB of 15 GB used</p>
+          <Progress
+            value={storage.progressValue}
+            className="h-1.5"
+            aria-valuetext={storage.label}
+          />
+          <p className="text-xs text-muted-foreground">{storage.label}</p>
         </div>
       </SidebarFooter>
     </Sidebar>
@@ -219,6 +231,7 @@ export default function FilesPage() {
     includeStats,
     enabled: Boolean(data),
   });
+  const storage = useFileStorage(Boolean(data));
 
   const sortedEntries = useMemo(() => {
     const sorted = [...entries].sort((a, b) => {
@@ -259,7 +272,7 @@ export default function FilesPage() {
 
   return (
     <SidebarProvider>
-      <AppSidebar />
+      <AppSidebar storage={storage} />
       <SidebarInset>
         {/* Header */}
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-4 border-b bg-background/80 px-4 backdrop-blur-sm">
