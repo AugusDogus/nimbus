@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDownAZ,
   ArrowUpAZ,
@@ -22,7 +22,7 @@ import Link from "next/link";
 import {
   useParams,
 } from "next/navigation";
-import React, { useEffect, useMemo } from "react";
+import React, { useMemo } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -62,21 +62,13 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { signOut, useSession } from "@/lib/auth-client";
-import { queryClient, trpcClient } from "@/lib/trpc";
+import { trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
-import type { UserPreferences } from "@nimbus/api/context";
-import type { FileDelta } from "@nimbus/api/file-events";
+import { useFilePreferences } from "./use-file-preferences";
+import { useFileSubscription } from "./use-file-subscription";
 
 type Params = {
   path?: string[] | string;
-};
-
-type FileEntry = {
-  name: string;
-  path: string;
-  type: string;
-  mtime: number | null;
-  size: number | null;
 };
 
 const normalizePathSegments = (pathParam: Params["path"]) => {
@@ -214,27 +206,8 @@ export default function FilesPage() {
 
   const { data, isPending } = useSession();
 
-  const prefsQuery = useQuery<UserPreferences, Error>({
-    queryKey: ["prefs"] as const,
-    queryFn: () => trpcClient.prefs.get.query() as Promise<UserPreferences>,
-    enabled: Boolean(data),
-  });
-  const defaultPreferences: UserPreferences = {
-    view: "list",
-    sortField: "name",
-    sortDirection: "asc",
-    groupByType: true,
-  };
-  const prefs = prefsQuery.data ?? defaultPreferences;
-  const prefsMutation = useMutation({
-    mutationFn: (next: UserPreferences) => trpcClient.prefs.set.mutate(next),
-  });
+  const { prefs, updatePreferences } = useFilePreferences(Boolean(data));
   const view = prefs.view;
-  const updatePreferences = (partial: Partial<UserPreferences>) => {
-    const next: UserPreferences = { ...prefs, ...partial };
-    queryClient.setQueryData(["prefs"], next);
-    prefsMutation.mutate(next);
-  };
 
   const includeStats =
     prefs.sortField === "modified" || prefs.sortField === "size";
@@ -247,53 +220,11 @@ export default function FilesPage() {
     enabled: Boolean(data),
   });
 
-  useEffect(() => {
-    if (!data) {
-      return;
-    }
-
-    const subscription = trpcClient.files.onChange.subscribe(
-      currentPath ? { path: currentPath } : {},
-      {
-        onData: ({ data: delta }: { data: FileDelta }) => {
-          queryClient.setQueryData(
-            ["files.list", currentPath, includeStats],
-            (prev: FileEntry[] | undefined) => {
-              const next = [...(prev ?? [])];
-              const index = next.findIndex((entry) => entry.path === delta.path);
-
-              if (delta.action === "removed") {
-                if (index >= 0) {
-                  next.splice(index, 1);
-                }
-                return next;
-              }
-
-              const updated = {
-                name: delta.name,
-                path: delta.path,
-                type: delta.type,
-                mtime: index >= 0 ? next[index].mtime ?? null : null,
-                size: index >= 0 ? next[index].size ?? null : null,
-              };
-
-              if (index >= 0) {
-                next[index] = updated;
-                return next;
-              }
-
-              next.push(updated);
-              return next;
-            },
-          );
-        },
-      },
-    );
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [data, currentPath, includeStats]);
+  useFileSubscription({
+    currentPath,
+    includeStats,
+    enabled: Boolean(data),
+  });
 
   const entries = useMemo(() => listQuery.data ?? [], [listQuery.data]);
   const sortedEntries = useMemo(() => {
