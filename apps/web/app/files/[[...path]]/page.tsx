@@ -3,7 +3,7 @@
 import {
     ArrowDownAZ,
     ArrowUpAZ,
-    Check,
+    Calendar,
     Clock,
     Cloud,
     FileText,
@@ -16,6 +16,7 @@ import {
     Star,
     Trash2,
     Users,
+    Weight,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -33,7 +34,6 @@ import {
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
-    DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuLabel,
@@ -42,6 +42,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import {
     Sidebar,
     SidebarContent,
@@ -375,82 +382,62 @@ export default function FilesPage() {
             </Breadcrumb>
 
             <div className="flex items-center gap-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-2">
-                    {prefs.sortDirection === "asc" ? (
-                      <ArrowDownAZ className="size-4" />
-                    ) : (
-                      <ArrowUpAZ className="size-4" />
-                    )}
-                    <span className="hidden sm:inline">Sort</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => updatePreferences({ sortField: "name" })}
-                  >
-                    Name
-                    {prefs.sortField === "name" && (
-                      <Check className="ml-auto size-4" />
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => updatePreferences({ sortField: "modified" })}
-                  >
-                    Date modified
-                    {prefs.sortField === "modified" && (
-                      <Check className="ml-auto size-4" />
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => updatePreferences({ sortField: "type" })}
-                  >
-                    Type
-                    {prefs.sortField === "type" && (
-                      <Check className="ml-auto size-4" />
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => updatePreferences({ sortField: "size" })}
-                  >
-                    Size
-                    {prefs.sortField === "size" && (
-                      <Check className="ml-auto size-4" />
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>Direction</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => updatePreferences({ sortDirection: "asc" })}
-                  >
-                    Ascending
-                    {prefs.sortDirection === "asc" && (
-                      <Check className="ml-auto size-4" />
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => updatePreferences({ sortDirection: "desc" })}
-                  >
-                    Descending
-                    {prefs.sortDirection === "desc" && (
-                      <Check className="ml-auto size-4" />
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuCheckboxItem
-                    checked={prefs.groupByType}
-                    onCheckedChange={(checked) =>
-                      updatePreferences({ groupByType: Boolean(checked) })
-                    }
-                  >
-                    Group by type
-                  </DropdownMenuCheckboxItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Select
+                value={`${prefs.sortField}-${prefs.sortDirection}`}
+                onValueChange={(value) => {
+                  const [field, direction] = value.split("-") as [
+                    typeof prefs.sortField,
+                    typeof prefs.sortDirection,
+                  ];
+                  updatePreferences({ sortField: field, sortDirection: direction });
+                }}
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name-asc">
+                    <ArrowDownAZ className="size-4" />
+                    Name (A to Z)
+                  </SelectItem>
+                  <SelectItem value="name-desc">
+                    <ArrowUpAZ className="size-4" />
+                    Name (Z to A)
+                  </SelectItem>
+                  <SelectItem value="modified-desc">
+                    <Calendar className="size-4" />
+                    Modified (Newest)
+                  </SelectItem>
+                  <SelectItem value="modified-asc">
+                    <Calendar className="size-4" />
+                    Modified (Oldest)
+                  </SelectItem>
+                  <SelectItem value="size-desc">
+                    <Weight className="size-4" />
+                    Size (Largest)
+                  </SelectItem>
+                  <SelectItem value="size-asc">
+                    <Weight className="size-4" />
+                    Size (Smallest)
+                  </SelectItem>
+                  <SelectItem value="type-asc">
+                    <FileText className="size-4" />
+                    Type (A to Z)
+                  </SelectItem>
+                  <SelectItem value="type-desc">
+                    <FileText className="size-4" />
+                    Type (Z to A)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Button
+                variant={prefs.groupByType ? "secondary" : "outline"}
+                size="sm"
+                onClick={() => updatePreferences({ groupByType: !prefs.groupByType })}
+              >
+                Group
+              </Button>
 
               <ToggleGroup
                 type="single"
