@@ -185,14 +185,14 @@ function AppSidebar({ storage }: { storage: StorageSummary }) {
 function LoadingSkeleton({ view }: { view: "list" | "grid" }) {
   if (view === "grid") {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-        {Array.from({ length: 10 }).map((_, i) => (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        {Array.from({ length: 12 }).map((_, i) => (
           <div
             key={i}
-            className="flex flex-col gap-3 rounded-xl border bg-card p-4"
+            className="flex flex-col gap-2 rounded-xl border bg-card p-3 sm:gap-3 sm:p-4"
           >
-            <Skeleton className="h-24 w-full rounded-lg" />
-            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-16 w-full rounded-lg sm:h-24" />
+            <Skeleton className="h-3 w-3/4 sm:h-4" />
           </div>
         ))}
       </div>
@@ -337,64 +337,62 @@ export default function FilesPage() {
           </div>
         </header>
 
-        <main className="flex-1 p-4 lg:p-6">
-          {/* Breadcrumbs and view toggle */}
-          <div className="mb-6 flex items-center justify-between gap-4">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  {pathSegments.length === 0 ? (
-                    <BreadcrumbPage>My Drive</BreadcrumbPage>
-                  ) : (
-                    <BreadcrumbLink asChild>
-                      <Link href="/files">My Drive</Link>
-                    </BreadcrumbLink>
-                  )}
-                </BreadcrumbItem>
-                {pathSegments.map((segment, index) => {
-                  const crumbPath = pathSegments.slice(0, index + 1).join("/");
-                  const isLast = index === pathSegments.length - 1;
-                  const label = (() => {
-                    try {
-                      return decodeURIComponent(segment);
-                    } catch {
-                      return segment;
-                    }
-                  })();
-                  return (
-                    <Fragment key={crumbPath}>
-                      <BreadcrumbSeparator />
-                      <BreadcrumbItem>
-                        {isLast ? (
-                          <BreadcrumbPage>{label}</BreadcrumbPage>
-                        ) : (
-                          <BreadcrumbLink asChild>
-                            <Link href={`/files/${crumbPath}`}>
-                              {label}
-                            </Link>
-                          </BreadcrumbLink>
-                        )}
-                      </BreadcrumbItem>
-                    </Fragment>
-                  );
-                })}
-              </BreadcrumbList>
-            </Breadcrumb>
+        <main className="flex-1 overflow-x-hidden p-4 lg:p-6">
+          {/* Breadcrumbs */}
+          <Breadcrumb className="mb-4">
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                {pathSegments.length === 0 ? (
+                  <BreadcrumbPage>My Drive</BreadcrumbPage>
+                ) : (
+                  <BreadcrumbLink asChild>
+                    <Link href="/files">My Drive</Link>
+                  </BreadcrumbLink>
+                )}
+              </BreadcrumbItem>
+              {pathSegments.map((segment, index) => {
+                const crumbPath = pathSegments.slice(0, index + 1).join("/");
+                const isLast = index === pathSegments.length - 1;
+                const label = (() => {
+                  try {
+                    return decodeURIComponent(segment);
+                  } catch {
+                    return segment;
+                  }
+                })();
+                return (
+                  <Fragment key={crumbPath}>
+                    <BreadcrumbSeparator />
+                    <BreadcrumbItem>
+                      {isLast ? (
+                        <BreadcrumbPage>{label}</BreadcrumbPage>
+                      ) : (
+                        <BreadcrumbLink asChild>
+                          <Link href={`/files/${crumbPath}`}>{label}</Link>
+                        </BreadcrumbLink>
+                      )}
+                    </BreadcrumbItem>
+                  </Fragment>
+                );
+              })}
+            </BreadcrumbList>
+          </Breadcrumb>
 
-            <div className="flex items-center gap-2">
-              <Select
-                value={`${prefs.sortField}-${prefs.sortDirection}`}
-                onValueChange={(value) => {
-                  const [field, direction] = value.split("-") as [
-                    typeof prefs.sortField,
-                    typeof prefs.sortDirection,
-                  ];
-                  updatePreferences({ sortField: field, sortDirection: direction });
-                }}
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue />
-                </SelectTrigger>
+          {/* Filters row */}
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <Select
+              value={`${prefs.sortField}-${prefs.sortDirection}`}
+              onValueChange={(value) => {
+                const [field, direction] = value.split("-") as [
+                  typeof prefs.sortField,
+                  typeof prefs.sortDirection,
+                ];
+                updatePreferences({ sortField: field, sortDirection: direction });
+              }}
+            >
+              <SelectTrigger className="w-auto min-w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="name-asc">
                     <ArrowDownAZ className="size-4" />
@@ -431,32 +429,31 @@ export default function FilesPage() {
                 </SelectContent>
               </Select>
 
-              <Button
-                variant={prefs.groupByType ? "secondary" : "outline"}
-                size="sm"
-                onClick={() => updatePreferences({ groupByType: !prefs.groupByType })}
-              >
-                Group
-              </Button>
+            <Button
+              variant={prefs.groupByType ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => updatePreferences({ groupByType: !prefs.groupByType })}
+            >
+              Group
+            </Button>
 
-              <ToggleGroup
-                type="single"
-                value={view}
-                onValueChange={(value) => {
-                  if (value === "grid" || value === "list") {
-                    updatePreferences({ view: value });
-                  }
-                }}
-                variant="outline"
-              >
-                <ToggleGroupItem value="list" aria-label="List view">
-                  <List className="size-4" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="grid" aria-label="Grid view">
-                  <Grid2X2 className="size-4" />
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
+            <ToggleGroup
+              type="single"
+              value={view}
+              onValueChange={(value) => {
+                if (value === "grid" || value === "list") {
+                  updatePreferences({ view: value });
+                }
+              }}
+              variant="outline"
+            >
+              <ToggleGroupItem value="list" aria-label="List view">
+                <List className="size-4" />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="grid" aria-label="Grid view">
+                <Grid2X2 className="size-4" />
+              </ToggleGroupItem>
+            </ToggleGroup>
           </div>
 
           {/* Content */}
@@ -485,7 +482,7 @@ export default function FilesPage() {
                           className={cn(
                             view === "list"
                               ? "space-y-1"
-                              : "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
+                              : "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6",
                           )}
                         >
                           {folders.map((entry) =>
@@ -504,10 +501,10 @@ export default function FilesPage() {
                               <Link
                                 key={entry.path}
                                 href={`/files/${entry.path}`}
-                                className="flex flex-col items-center gap-3 rounded-xl border bg-muted/50 p-4 hover:border-border hover:bg-accent"
+                                className="flex flex-col items-center gap-2 rounded-xl border bg-muted/50 p-3 hover:border-border hover:bg-accent sm:gap-3 sm:p-4"
                               >
-                                <Folder className="size-12 fill-muted text-muted-foreground" />
-                                <span className="w-full truncate text-center text-sm font-medium">
+                                <Folder className="size-10 fill-muted text-muted-foreground sm:size-12" />
+                                <span className="w-full truncate text-center text-xs font-medium sm:text-sm">
                                   {entry.name}
                                 </span>
                               </Link>
@@ -518,7 +515,7 @@ export default function FilesPage() {
                     )}
 
                     {/* Files section */}
-                  {files.length > 0 && (
+                    {files.length > 0 && (
                       <section>
                         <h2 className="mb-3 text-sm font-medium text-muted-foreground">
                           Files
@@ -527,7 +524,7 @@ export default function FilesPage() {
                           className={cn(
                             view === "list"
                               ? "space-y-1"
-                              : "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
+                              : "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6",
                           )}
                         >
                           {files.map((entry) =>
@@ -546,11 +543,11 @@ export default function FilesPage() {
                                 key={entry.path}
                                 className="flex cursor-default flex-col rounded-xl border bg-card hover:border-border hover:shadow-sm"
                               >
-                                <div className="flex h-28 items-center justify-center rounded-t-xl bg-muted">
-                                  <FileText className="size-10 text-primary" />
+                                <div className="flex h-20 items-center justify-center rounded-t-xl bg-muted sm:h-28">
+                                  <FileText className="size-8 text-primary sm:size-10" />
                                 </div>
-                                <div className="border-t p-3">
-                                  <span className="line-clamp-2 text-sm">
+                                <div className="border-t p-2 sm:p-3">
+                                  <span className="line-clamp-2 text-xs sm:text-sm">
                                     {entry.name}
                                   </span>
                                 </div>
@@ -567,7 +564,7 @@ export default function FilesPage() {
                     className={cn(
                       view === "list"
                         ? "space-y-1"
-                        : "grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
+                        : "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6",
                     )}
                   >
                     {sortedEntries.map((entry) =>
@@ -587,10 +584,10 @@ export default function FilesPage() {
                           <Link
                             key={entry.path}
                             href={`/files/${entry.path}`}
-                            className="flex flex-col items-center gap-3 rounded-xl border bg-muted/50 p-4 hover:border-border hover:bg-accent"
+                            className="flex flex-col items-center gap-2 rounded-xl border bg-muted/50 p-3 hover:border-border hover:bg-accent sm:gap-3 sm:p-4"
                           >
-                            <Folder className="size-12 fill-muted text-muted-foreground" />
-                            <span className="w-full truncate text-center text-sm font-medium">
+                            <Folder className="size-10 fill-muted text-muted-foreground sm:size-12" />
+                            <span className="w-full truncate text-center text-xs font-medium sm:text-sm">
                               {entry.name}
                             </span>
                           </Link>
@@ -610,11 +607,11 @@ export default function FilesPage() {
                           key={entry.path}
                           className="flex cursor-default flex-col rounded-xl border bg-card hover:border-border hover:shadow-sm"
                         >
-                          <div className="flex h-28 items-center justify-center rounded-t-xl bg-muted">
-                            <FileText className="size-10 text-primary" />
+                          <div className="flex h-20 items-center justify-center rounded-t-xl bg-muted sm:h-28">
+                            <FileText className="size-8 text-primary sm:size-10" />
                           </div>
-                          <div className="border-t p-3">
-                            <span className="line-clamp-2 text-sm">
+                          <div className="border-t p-2 sm:p-3">
+                            <span className="line-clamp-2 text-xs sm:text-sm">
                               {entry.name}
                             </span>
                           </div>
