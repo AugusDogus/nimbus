@@ -194,6 +194,19 @@ const scheduleRecompute = () => {
   }, EVENT_DEBOUNCE_MS);
 };
 
+export const resetStorageCacheForTest = () => {
+  if (storageCache.pendingTimeout) {
+    clearTimeout(storageCache.pendingTimeout);
+  }
+  storageCache.usedBytes = null;
+  storageCache.fileSizes = new Map<string, number>();
+  storageCache.lastComputedAt = 0;
+  storageCache.lastFullScanAt = 0;
+  storageCache.pendingTimeout = null;
+  storageCache.inFlight = null;
+  storageCache.dirty = false;
+};
+
 export const noteFileEvent = (event: {
   path: string;
   event: string;
