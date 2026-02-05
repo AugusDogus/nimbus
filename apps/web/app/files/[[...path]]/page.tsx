@@ -1,38 +1,11 @@
 "use client";
 
-import {
-  ArrowDownAZ,
-  ArrowUpAZ,
-  Calendar,
-  Clock,
-  Cloud,
-  FileText,
-  Folder,
-  Grid2X2,
-  HardDrive,
-  Layers,
-  List,
-  Plus,
-  Search,
-  Star,
-  Trash2,
-  Users,
-  Weight,
-} from "lucide-react";
+import { Folder, HardDrive, Search } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Slot } from "radix-ui";
-import { ComponentProps, ElementType, forwardRef, Fragment, useMemo } from "react";
+import { useMemo } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -43,72 +16,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Toggle } from "@/components/ui/toggle";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { signOut, useSession } from "@/lib/auth-client";
-import { cn } from "@/lib/utils";
+import { AppSidebar } from "./app-sidebar";
+import { FileBreadcrumbs } from "./breadcrumbs";
+import { EntriesView } from "./entries-view";
+import { FiltersRow } from "./filters-row";
+import { LoadingSkeleton } from "./loading-skeleton";
 import { useFileList } from "./use-file-list";
 import { useFilePreferences } from "./use-file-preferences";
 import { useFileStorage } from "./use-file-storage";
 import { useFileSubscription } from "./use-file-subscription";
-
-/**
- * Workaround for Radix data-state clash when composing Tooltip with Toggle/ToggleGroup.
- * Intercepts data-state and puts it on a wrapper span, while passing other props to the child.
- * Uses display:contents so the span doesn't affect layout (preserves ToggleGroup styling).
- * @see https://github.com/radix-ui/primitives/discussions/560#discussioncomment-11420432
- */
-const TooltipTriggerInterceptor = forwardRef<
-  HTMLElement,
-  ComponentProps<ElementType>
->((props, ref) => {
-  const { "data-state": dataState, children, ...rest } = props;
-
-  if (dataState) {
-    return (
-      <span data-state={dataState} className="contents">
-        <Slot.Root {...rest} ref={ref}>
-          {children}
-        </Slot.Root>
-      </span>
-    );
-  }
-
-  return (
-    <Slot.Root {...rest} ref={ref}>
-      {children}
-    </Slot.Root>
-  );
-});
-TooltipTriggerInterceptor.displayName = "TooltipTriggerInterceptor";
 
 type Params = {
   path?: string[] | string;
@@ -123,132 +41,6 @@ const normalizePathSegments = (pathParam: Params["path"]) => {
   }
   return [pathParam];
 };
-
-const navItems = [
-  { icon: HardDrive, label: "My Drive", href: "/files", isActive: true },
-  { icon: Users, label: "Shared with me", href: "", disabled: true },
-  { icon: Clock, label: "Recent", href: "", disabled: true },
-  { icon: Star, label: "Starred", href: "", disabled: true },
-  { icon: Trash2, label: "Trash", href: "", disabled: true },
-];
-
-type StorageSummary = {
-  usedBytes: number | null;
-  label: string;
-  progressValue: number;
-  isLoading: boolean;
-};
-
-function AppSidebar({ storage }: { storage: StorageSummary }) {
-  return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip="Nimbus">
-              <Link href="/files">
-                <Cloud className="text-primary" />
-                <span className="font-semibold">Nimbus</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
-
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="New"
-                  className="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
-                >
-                  <Plus />
-                  <span>New</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.label}>
-                  <SidebarMenuButton
-                    asChild={!item.disabled}
-                    isActive={item.isActive}
-                    tooltip={item.label}
-                    className={cn(
-                      item.disabled &&
-                        "cursor-not-allowed text-muted-foreground/60 hover:bg-transparent hover:text-muted-foreground/60",
-                    )}
-                  >
-                    {item.disabled ? (
-                      <span className="flex items-center gap-2">
-                        <item.icon className="size-5" />
-                        <span>{item.label}</span>
-                      </span>
-                    ) : (
-                      <Link href={item.href}>
-                        <item.icon className="size-5" />
-                        <span>{item.label}</span>
-                      </Link>
-                    )}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-
-      <SidebarFooter className="p-4">
-        <div className="space-y-2 group-data-[collapsible=icon]:hidden">
-          <p className="text-xs text-muted-foreground">Storage</p>
-          <Progress
-            value={storage.progressValue}
-            className="h-1.5"
-            aria-valuetext={storage.label}
-          />
-          <p className="text-xs text-muted-foreground">{storage.label}</p>
-        </div>
-      </SidebarFooter>
-    </Sidebar>
-  );
-}
-
-function LoadingSkeleton({ view }: { view: "list" | "grid" }) {
-  if (view === "grid") {
-    return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <div
-            key={i}
-            className="flex flex-col gap-2 rounded-xl border bg-card p-3 sm:gap-3 sm:p-4"
-          >
-            <Skeleton className="h-16 w-full rounded-lg sm:h-24" />
-            <Skeleton className="h-3 w-3/4 sm:h-4" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4 rounded-lg px-4 py-3">
-          <Skeleton className="size-6 rounded" />
-          <Skeleton className="h-4 flex-1" />
-          <Skeleton className="h-4 w-24" />
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export default function FilesPage() {
   const params = useParams<Params>();
@@ -378,157 +170,12 @@ export default function FilesPage() {
         <main className="flex-1 overflow-x-hidden p-2 md:p-4 lg:p-6">
           {/* Breadcrumbs and filters */}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  {pathSegments.length === 0 ? (
-                    <BreadcrumbPage>My Drive</BreadcrumbPage>
-                  ) : (
-                    <BreadcrumbLink asChild>
-                      <Link href="/files">My Drive</Link>
-                    </BreadcrumbLink>
-                  )}
-                </BreadcrumbItem>
-                {pathSegments.map((segment, index) => {
-                  const crumbPath = pathSegments.slice(0, index + 1).join("/");
-                  const isLast = index === pathSegments.length - 1;
-                  const label = (() => {
-                    try {
-                      return decodeURIComponent(segment);
-                    } catch {
-                      return segment;
-                    }
-                  })();
-                  return (
-                    <Fragment key={crumbPath}>
-                      <BreadcrumbSeparator />
-                      <BreadcrumbItem>
-                        {isLast ? (
-                          <BreadcrumbPage>{label}</BreadcrumbPage>
-                        ) : (
-                          <BreadcrumbLink asChild>
-                            <Link href={`/files/${crumbPath}`}>{label}</Link>
-                          </BreadcrumbLink>
-                        )}
-                      </BreadcrumbItem>
-                    </Fragment>
-                  );
-                })}
-              </BreadcrumbList>
-            </Breadcrumb>
-
-            <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={`${prefs.sortField}-${prefs.sortDirection}`}
-              onValueChange={(value) => {
-                const [field, direction] = value.split("-") as [
-                  typeof prefs.sortField,
-                  typeof prefs.sortDirection,
-                ];
-                updatePreferences({ sortField: field, sortDirection: direction });
-              }}
-            >
-              <SelectTrigger size="sm" className="w-auto min-w-[140px]">
-                <SelectValue />
-              </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="name-asc">
-                    <ArrowDownAZ className="size-4" />
-                    Name (A to Z)
-                  </SelectItem>
-                  <SelectItem value="name-desc">
-                    <ArrowUpAZ className="size-4" />
-                    Name (Z to A)
-                  </SelectItem>
-                  <SelectItem value="modified-desc">
-                    <Calendar className="size-4" />
-                    Modified (Newest)
-                  </SelectItem>
-                  <SelectItem value="modified-asc">
-                    <Calendar className="size-4" />
-                    Modified (Oldest)
-                  </SelectItem>
-                  <SelectItem value="size-desc">
-                    <Weight className="size-4" />
-                    Size (Largest)
-                  </SelectItem>
-                  <SelectItem value="size-asc">
-                    <Weight className="size-4" />
-                    Size (Smallest)
-                  </SelectItem>
-                  <SelectItem value="type-asc">
-                    <FileText className="size-4" />
-                    Type (A to Z)
-                  </SelectItem>
-                  <SelectItem value="type-desc">
-                    <FileText className="size-4" />
-                    Type (Z to A)
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Toggle
-                  variant="outline"
-                  size="sm"
-                  pressed={prefs.groupByType}
-                  onPressedChange={(pressed) =>
-                    updatePreferences({ groupByType: pressed })
-                  }
-                  aria-label="Group files by type"
-                  className={prefs.groupByType ? "bg-accent" : ""}
-                >
-                  <Layers className="size-4" />
-                  <span className="sm:hidden">Group</span>
-                </Toggle>
-              </TooltipTrigger>
-              <TooltipContent className="hidden sm:block">
-                <p>Group by type</p>
-              </TooltipContent>
-            </Tooltip>
-
-            <ToggleGroup
-              type="single"
-              value={view}
-              onValueChange={(value) => {
-                if (value === "grid" || value === "list") {
-                  updatePreferences({ view: value });
-                }
-              }}
-              variant="outline"
-              size="sm"
-            >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <ToggleGroupItem
-                    value="list"
-                    aria-label="List view"
-                    className={view === "list" ? "bg-accent" : ""}
-                  >
-                    <List className="size-4" />
-                  </ToggleGroupItem>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>List view</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <ToggleGroupItem
-                    value="grid"
-                    aria-label="Grid view"
-                    className={view === "grid" ? "bg-accent" : ""}
-                  >
-                    <Grid2X2 className="size-4" />
-                  </ToggleGroupItem>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Grid view</p>
-                </TooltipContent>
-              </Tooltip>
-            </ToggleGroup>
-            </div>
+            <FileBreadcrumbs pathSegments={pathSegments} />
+            <FiltersRow
+              prefs={prefs}
+              view={view}
+              updatePreferences={updatePreferences}
+            />
           </div>
 
           {/* Content */}
@@ -545,156 +192,13 @@ export default function FilesPage() {
                     : "Failed to load files."}
                 </div>
               ) : entries.length > 0 ? (
-                prefs.groupByType ? (
-                  <>
-                    {/* Folders section */}
-                  {folders.length > 0 && (
-                      <section>
-                        <h2 className="mb-3 text-sm font-medium text-muted-foreground">
-                          Folders
-                        </h2>
-                        <div
-                          className={cn(
-                            view === "list"
-                              ? "space-y-1"
-                              : "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6",
-                          )}
-                        >
-                          {folders.map((entry) =>
-                            view === "list" ? (
-                              <Link
-                                key={entry.path}
-                                href={`/files/${entry.path}`}
-                                className="flex items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
-                              >
-                                <Folder className="size-6 fill-muted text-muted-foreground" />
-                                <span className="flex-1 truncate text-sm font-medium">
-                                  {entry.name}
-                                </span>
-                              </Link>
-                            ) : (
-                              <Link
-                                key={entry.path}
-                                href={`/files/${entry.path}`}
-                                className="flex flex-col items-center gap-2 rounded-xl border bg-muted/50 p-3 hover:border-border hover:bg-accent sm:gap-3 sm:p-4"
-                              >
-                                <Folder className="size-10 fill-muted text-muted-foreground sm:size-12" />
-                                <span className="w-full truncate text-center text-xs font-medium sm:text-sm">
-                                  {entry.name}
-                                </span>
-                              </Link>
-                            ),
-                          )}
-                        </div>
-                      </section>
-                    )}
-
-                    {/* Files section */}
-                    {files.length > 0 && (
-                      <section>
-                        <h2 className="mb-3 text-sm font-medium text-muted-foreground">
-                          Files
-                        </h2>
-                        <div
-                          className={cn(
-                            view === "list"
-                              ? "space-y-1"
-                              : "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6",
-                          )}
-                        >
-                          {files.map((entry) =>
-                            view === "list" ? (
-                              <div
-                                key={entry.path}
-                                className="flex cursor-default items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
-                              >
-                                <FileText className="size-6 text-primary" />
-                                <span className="flex-1 truncate text-sm">
-                                  {entry.name}
-                                </span>
-                              </div>
-                            ) : (
-                              <div
-                                key={entry.path}
-                                className="flex cursor-default flex-col rounded-xl border bg-card hover:border-border hover:shadow-sm"
-                              >
-                                <div className="flex h-20 items-center justify-center rounded-t-xl bg-muted sm:h-28">
-                                  <FileText className="size-8 text-primary sm:size-10" />
-                                </div>
-                                <div className="border-t p-2 sm:p-3">
-                                  <span className="line-clamp-2 text-xs sm:text-sm">
-                                    {entry.name}
-                                  </span>
-                                </div>
-                              </div>
-                            ),
-                          )}
-                        </div>
-                      </section>
-                    )}
-                  </>
-                ) : (
-                  /* Mixed mode - all items together */
-                  <div
-                    className={cn(
-                      view === "list"
-                        ? "space-y-1"
-                        : "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6",
-                    )}
-                  >
-                    {sortedEntries.map((entry) =>
-                      entry.type === "dir" ? (
-                        view === "list" ? (
-                          <Link
-                            key={entry.path}
-                            href={`/files/${entry.path}`}
-                            className="flex items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
-                          >
-                            <Folder className="size-6 fill-muted text-muted-foreground" />
-                            <span className="flex-1 truncate text-sm font-medium">
-                              {entry.name}
-                            </span>
-                          </Link>
-                        ) : (
-                          <Link
-                            key={entry.path}
-                            href={`/files/${entry.path}`}
-                            className="flex flex-col items-center gap-2 rounded-xl border bg-muted/50 p-3 hover:border-border hover:bg-accent sm:gap-3 sm:p-4"
-                          >
-                            <Folder className="size-10 fill-muted text-muted-foreground sm:size-12" />
-                            <span className="w-full truncate text-center text-xs font-medium sm:text-sm">
-                              {entry.name}
-                            </span>
-                          </Link>
-                        )
-                      ) : view === "list" ? (
-                        <div
-                          key={entry.path}
-                          className="flex cursor-default items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
-                        >
-                          <FileText className="size-6 text-primary" />
-                          <span className="flex-1 truncate text-sm">
-                            {entry.name}
-                          </span>
-                        </div>
-                      ) : (
-                        <div
-                          key={entry.path}
-                          className="flex cursor-default flex-col rounded-xl border bg-card hover:border-border hover:shadow-sm"
-                        >
-                          <div className="flex h-20 items-center justify-center rounded-t-xl bg-muted sm:h-28">
-                            <FileText className="size-8 text-primary sm:size-10" />
-                          </div>
-                          <div className="border-t p-2 sm:p-3">
-                            <span className="line-clamp-2 text-xs sm:text-sm">
-                              {entry.name}
-                            </span>
-                          </div>
-                        </div>
-                      ),
-                    )}
-                  </div>
-                )
+                <EntriesView
+                  view={view}
+                  groupByType={prefs.groupByType}
+                  folders={folders}
+                  files={files}
+                  sortedEntries={sortedEntries}
+                />
               ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-center">
                   <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-muted">
