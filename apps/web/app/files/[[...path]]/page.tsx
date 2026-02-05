@@ -1,76 +1,114 @@
 "use client";
 
 import {
-    ArrowDownAZ,
-    ArrowUpAZ,
-    Calendar,
-    Clock,
-    Cloud,
-    FileText,
-    Folder,
-    Grid2X2,
-    HardDrive,
-    List,
-    Plus,
-    Search,
-    Star,
-    Trash2,
-    Users,
-    Weight,
+  ArrowDownAZ,
+  ArrowUpAZ,
+  Calendar,
+  Clock,
+  Cloud,
+  FileText,
+  Folder,
+  Grid2X2,
+  HardDrive,
+  Layers,
+  List,
+  Plus,
+  Search,
+  Star,
+  Trash2,
+  Users,
+  Weight,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Fragment, useMemo } from "react";
+import { Slot } from "radix-ui";
+import { ComponentProps, ElementType, forwardRef, Fragment, useMemo } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
-    Breadcrumb,
-    BreadcrumbItem,
-    BreadcrumbLink,
-    BreadcrumbList,
-    BreadcrumbPage,
-    BreadcrumbSeparator,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import {
-    Sidebar,
-    SidebarContent,
-    SidebarFooter,
-    SidebarGroup,
-    SidebarGroupContent,
-    SidebarHeader,
-    SidebarInset,
-    SidebarMenu,
-    SidebarMenuButton,
-    SidebarMenuItem,
-    SidebarProvider,
-    SidebarTrigger,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { signOut, useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { useFileList } from "./use-file-list";
 import { useFilePreferences } from "./use-file-preferences";
 import { useFileStorage } from "./use-file-storage";
 import { useFileSubscription } from "./use-file-subscription";
+
+/**
+ * Workaround for Radix data-state clash when composing Tooltip with Toggle/ToggleGroup.
+ * Intercepts data-state and puts it on a wrapper span, while passing other props to the child.
+ * Uses display:contents so the span doesn't affect layout (preserves ToggleGroup styling).
+ * @see https://github.com/radix-ui/primitives/discussions/560#discussioncomment-11420432
+ */
+const TooltipTriggerInterceptor = forwardRef<
+  HTMLElement,
+  ComponentProps<ElementType>
+>((props, ref) => {
+  const { "data-state": dataState, children, ...rest } = props;
+
+  if (dataState) {
+    return (
+      <span data-state={dataState} className="contents">
+        <Slot.Root {...rest} ref={ref}>
+          {children}
+        </Slot.Root>
+      </span>
+    );
+  }
+
+  return (
+    <Slot.Root {...rest} ref={ref}>
+      {children}
+    </Slot.Root>
+  );
+});
+TooltipTriggerInterceptor.displayName = "TooltipTriggerInterceptor";
 
 type Params = {
   path?: string[] | string;
@@ -337,49 +375,49 @@ export default function FilesPage() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-x-hidden p-4 lg:p-6">
-          {/* Breadcrumbs */}
-          <Breadcrumb className="mb-4">
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                {pathSegments.length === 0 ? (
-                  <BreadcrumbPage>My Drive</BreadcrumbPage>
-                ) : (
-                  <BreadcrumbLink asChild>
-                    <Link href="/files">My Drive</Link>
-                  </BreadcrumbLink>
-                )}
-              </BreadcrumbItem>
-              {pathSegments.map((segment, index) => {
-                const crumbPath = pathSegments.slice(0, index + 1).join("/");
-                const isLast = index === pathSegments.length - 1;
-                const label = (() => {
-                  try {
-                    return decodeURIComponent(segment);
-                  } catch {
-                    return segment;
-                  }
-                })();
-                return (
-                  <Fragment key={crumbPath}>
-                    <BreadcrumbSeparator />
-                    <BreadcrumbItem>
-                      {isLast ? (
-                        <BreadcrumbPage>{label}</BreadcrumbPage>
-                      ) : (
-                        <BreadcrumbLink asChild>
-                          <Link href={`/files/${crumbPath}`}>{label}</Link>
-                        </BreadcrumbLink>
-                      )}
-                    </BreadcrumbItem>
-                  </Fragment>
-                );
-              })}
-            </BreadcrumbList>
-          </Breadcrumb>
+        <main className="flex-1 overflow-x-hidden p-2 md:p-4 lg:p-6">
+          {/* Breadcrumbs and filters */}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  {pathSegments.length === 0 ? (
+                    <BreadcrumbPage>My Drive</BreadcrumbPage>
+                  ) : (
+                    <BreadcrumbLink asChild>
+                      <Link href="/files">My Drive</Link>
+                    </BreadcrumbLink>
+                  )}
+                </BreadcrumbItem>
+                {pathSegments.map((segment, index) => {
+                  const crumbPath = pathSegments.slice(0, index + 1).join("/");
+                  const isLast = index === pathSegments.length - 1;
+                  const label = (() => {
+                    try {
+                      return decodeURIComponent(segment);
+                    } catch {
+                      return segment;
+                    }
+                  })();
+                  return (
+                    <Fragment key={crumbPath}>
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem>
+                        {isLast ? (
+                          <BreadcrumbPage>{label}</BreadcrumbPage>
+                        ) : (
+                          <BreadcrumbLink asChild>
+                            <Link href={`/files/${crumbPath}`}>{label}</Link>
+                          </BreadcrumbLink>
+                        )}
+                      </BreadcrumbItem>
+                    </Fragment>
+                  );
+                })}
+              </BreadcrumbList>
+            </Breadcrumb>
 
-          {/* Filters row */}
-          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
             <Select
               value={`${prefs.sortField}-${prefs.sortDirection}`}
               onValueChange={(value) => {
@@ -390,7 +428,7 @@ export default function FilesPage() {
                 updatePreferences({ sortField: field, sortDirection: direction });
               }}
             >
-              <SelectTrigger className="w-auto min-w-[140px]">
+              <SelectTrigger size="sm" className="w-auto min-w-[140px]">
                 <SelectValue />
               </SelectTrigger>
                 <SelectContent>
@@ -429,13 +467,26 @@ export default function FilesPage() {
                 </SelectContent>
               </Select>
 
-            <Button
-              variant={prefs.groupByType ? "secondary" : "outline"}
-              size="sm"
-              onClick={() => updatePreferences({ groupByType: !prefs.groupByType })}
-            >
-              Group
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Toggle
+                  variant="outline"
+                  size="sm"
+                  pressed={prefs.groupByType}
+                  onPressedChange={(pressed) =>
+                    updatePreferences({ groupByType: pressed })
+                  }
+                  aria-label="Group files by type"
+                  className={prefs.groupByType ? "bg-accent" : ""}
+                >
+                  <Layers className="size-4" />
+                  <span className="sm:hidden">Group</span>
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent className="hidden sm:block">
+                <p>Group by type</p>
+              </TooltipContent>
+            </Tooltip>
 
             <ToggleGroup
               type="single"
@@ -446,14 +497,38 @@ export default function FilesPage() {
                 }
               }}
               variant="outline"
+              size="sm"
             >
-              <ToggleGroupItem value="list" aria-label="List view">
-                <List className="size-4" />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="grid" aria-label="Grid view">
-                <Grid2X2 className="size-4" />
-              </ToggleGroupItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="list"
+                    aria-label="List view"
+                    className={view === "list" ? "bg-accent" : ""}
+                  >
+                    <List className="size-4" />
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>List view</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="grid"
+                    aria-label="Grid view"
+                    className={view === "grid" ? "bg-accent" : ""}
+                  >
+                    <Grid2X2 className="size-4" />
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Grid view</p>
+                </TooltipContent>
+              </Tooltip>
             </ToggleGroup>
+            </div>
           </div>
 
           {/* Content */}
