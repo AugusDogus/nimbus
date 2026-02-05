@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -10,6 +10,7 @@ import {
 } from "./storage-cache";
 
 const waitForAsync = () => new Promise((resolve) => setTimeout(resolve, 20));
+const waitForRescan = () => new Promise((resolve) => setTimeout(resolve, 2200));
 
 describe("storage cache", () => {
   let root: string;
@@ -57,5 +58,38 @@ describe("storage cache", () => {
 
     const afterDelete = await getStorageUsage();
     expect(afterDelete).toBe(0);
+  });
+
+  it("ignores symlinks", async () => {
+    const targetPath = path.join(root, "target.txt");
+    const linkPath = path.join(root, "link.txt");
+    const content = "hello";
+    await writeFile(targetPath, content);
+
+    try {
+      await symlink(targetPath, linkPath);
+    } catch {
+      return;
+    }
+
+    const used = await getStorageUsage();
+    expect(used).toBe(Buffer.byteLength(content));
+  });
+
+  it("rebuilds after directory changes", async () => {
+    const baseline = await getStorageUsage();
+    expect(baseline).toBe(0);
+
+    const nestedDir = path.join(root, "nested");
+    await mkdir(nestedDir);
+    const filePath = path.join(nestedDir, "nested.txt");
+    const content = "nested";
+    await writeFile(filePath, content);
+
+    noteFileEvent({ path: nestedDir, event: "change", ts: Date.now() });
+    await waitForRescan();
+
+    const used = await getStorageUsage();
+    expect(used).toBe(Buffer.byteLength(content));
   });
 });
