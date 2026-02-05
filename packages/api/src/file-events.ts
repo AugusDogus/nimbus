@@ -1,5 +1,7 @@
 import { EventEmitter, on } from "node:events";
 
+import { noteFileEvent } from "./storage-cache";
+
 export type FileEvent = {
   path: string;
   event: "rename" | "change" | "delete" | "unknown";
@@ -26,6 +28,7 @@ if (!globalForEvents.__nimbusFileEvents) {
 }
 
 export const publishFileEvent = (event: FileEvent) => {
+  noteFileEvent(event);
   fileEvents.emit("file-change", event);
 };
 
