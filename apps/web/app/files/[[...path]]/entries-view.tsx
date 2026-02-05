@@ -36,7 +36,7 @@ const EntryItem = ({ entry, view }: { entry: FileEntry; view: "list" | "grid" })
       <Link
         key={entry.path}
         href={`/files/${entry.path}`}
-        className="flex flex-col items-center gap-2 rounded-xl border bg-muted/50 p-3 hover:border-border hover:bg-accent sm:gap-3 sm:p-4"
+        className="flex flex-col items-center justify-center gap-2 rounded-xl border bg-muted/50 p-3 hover:border-border hover:bg-accent sm:gap-3 sm:p-4"
       >
         <Folder className="size-10 fill-muted text-muted-foreground sm:size-12" />
         <span className="w-full truncate text-center text-xs font-medium sm:text-sm">
