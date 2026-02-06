@@ -1,22 +1,28 @@
 import { TRPCError, tracked } from "@trpc/server";
 import type { Dirent } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
 import { getDataRoot } from "./data-root";
+import { resolveSafePath } from "./safe-path";
 import { getStorageUsage } from "./storage-cache";
 
 import { iterateFileEvents, type FileDelta, type FileEvent } from "./file-events";
 import { protectedProcedure, publicProcedure, router } from "./index";
 
-const safeDecode = (value: string) => {
+/** Convert safe-path errors to TRPCErrors. */
+function safePath(requested: string) {
   try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
+    return resolveSafePath(requested);
+  } catch (err) {
+    const e = err as { code?: string; message?: string };
+    if (e.code === "FORBIDDEN") {
+      throw new TRPCError({ code: "FORBIDDEN", message: e.message ?? "Access denied." });
+    }
+    throw new TRPCError({ code: "BAD_REQUEST", message: e.message ?? "Invalid path." });
   }
-};
+}
 
 const preferencesSchema = z.object({
   view: z.enum(["list", "grid"]),
@@ -61,24 +67,7 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ path: z.string().optional(), includeStats: z.boolean().optional() }))
       .query(async ({ input }) => {
-        const root = getDataRoot();
-        const requested = input.path ? safeDecode(input.path) : "";
-        const resolved = path.resolve(root, requested);
-        const relative = path.relative(root, resolved);
-
-        if (relative.startsWith("..") || path.isAbsolute(relative)) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Invalid path.",
-          });
-        }
-
-        if (relative.split(path.sep).includes(".nimbus")) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Access denied.",
-          });
-        }
+        const { absolute: resolved, relative } = safePath(input.path ?? "");
 
         let entries: Dirent[];
         try {
@@ -100,9 +89,8 @@ export const appRouter = router({
         const results = await Promise.all(
           filtered.map(async (entry) => {
             const entryPath = relative
-              ? path.join(relative, entry.name)
+              ? [relative, entry.name].join("/")
               : entry.name;
-            const normalizedPath = entryPath.split(path.sep).join("/");
             let mtime: number | null = null;
             let size: number | null = null;
 
@@ -119,7 +107,7 @@ export const appRouter = router({
 
             return {
               name: entry.name,
-              path: normalizedPath,
+              path: entryPath,
               type: entry.isDirectory()
                 ? "dir"
                 : entry.isFile()
@@ -133,6 +121,119 @@ export const appRouter = router({
 
         return results;
       }),
+
+    createFolder: protectedProcedure
+      .input(z.object({ path: z.string().optional(), name: z.string().min(1) }))
+      .mutation(async ({ input }) => {
+        const parent = safePath(input.path ?? "");
+        const folderName = input.name.trim();
+
+        if (folderName.includes("/") || folderName.includes("\\") || folderName === ".." || folderName === ".") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid folder name." });
+        }
+
+        const target = path.join(parent.absolute, folderName);
+        try {
+          await mkdir(target);
+        } catch (error) {
+          const cause = error as { code?: string };
+          if (cause.code === "EEXIST") {
+            throw new TRPCError({ code: "CONFLICT", message: "A folder with that name already exists." });
+          }
+          throw error;
+        }
+
+        return { name: folderName, path: parent.relative ? `${parent.relative}/${folderName}` : folderName };
+      }),
+
+    rename: protectedProcedure
+      .input(z.object({ path: z.string(), newName: z.string().min(1) }))
+      .mutation(async ({ input }) => {
+        const source = safePath(input.path);
+        const newName = input.newName.trim();
+
+        if (newName.includes("/") || newName.includes("\\") || newName === ".." || newName === ".") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid name." });
+        }
+
+        const parentDir = path.dirname(source.absolute);
+        const target = path.join(parentDir, newName);
+
+        try {
+          await stat(source.absolute);
+        } catch {
+          throw new TRPCError({ code: "NOT_FOUND", message: "File or folder not found." });
+        }
+
+        try {
+          await stat(target);
+          throw new TRPCError({ code: "CONFLICT", message: "An item with that name already exists." });
+        } catch (error) {
+          if (error instanceof TRPCError) throw error;
+          // ENOENT means target doesn't exist — that's what we want
+        }
+
+        await rename(source.absolute, target);
+
+        const parentRelative = source.relative.includes("/")
+          ? source.relative.substring(0, source.relative.lastIndexOf("/"))
+          : "";
+        return { name: newName, path: parentRelative ? `${parentRelative}/${newName}` : newName };
+      }),
+
+    move: protectedProcedure
+      .input(z.object({ sourcePath: z.string(), destinationPath: z.string() }))
+      .mutation(async ({ input }) => {
+        const source = safePath(input.sourcePath);
+        const dest = safePath(input.destinationPath);
+
+        try {
+          await stat(source.absolute);
+        } catch {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Source not found." });
+        }
+
+        // Destination should be a directory
+        try {
+          const destStat = await stat(dest.absolute);
+          if (!destStat.isDirectory()) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Destination is not a folder." });
+          }
+        } catch (error) {
+          if (error instanceof TRPCError) throw error;
+          throw new TRPCError({ code: "NOT_FOUND", message: "Destination folder not found." });
+        }
+
+        const fileName = path.basename(source.absolute);
+        const target = path.join(dest.absolute, fileName);
+
+        try {
+          await stat(target);
+          throw new TRPCError({ code: "CONFLICT", message: "An item with that name already exists in the destination." });
+        } catch (error) {
+          if (error instanceof TRPCError) throw error;
+          // ENOENT — good
+        }
+
+        await rename(source.absolute, target);
+        return { name: fileName, path: dest.relative ? `${dest.relative}/${fileName}` : fileName };
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ path: z.string() }))
+      .mutation(async ({ input }) => {
+        const target = safePath(input.path);
+
+        try {
+          await stat(target.absolute);
+        } catch {
+          throw new TRPCError({ code: "NOT_FOUND", message: "File or folder not found." });
+        }
+
+        await rm(target.absolute, { recursive: true });
+        return { path: target.relative };
+      }),
+
     onChange: protectedProcedure
       .input(z.object({ path: z.string().optional() }))
       .subscription(async function* ({ input, signal }) {
@@ -140,16 +241,7 @@ export const appRouter = router({
           return;
         }
         const root = getDataRoot();
-        const requested = input.path ? safeDecode(input.path) : "";
-        const requestedAbs = path.resolve(root, requested);
-        const requestedRel = path.relative(root, requestedAbs);
-
-        if (requestedRel.startsWith("..") || path.isAbsolute(requestedRel)) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Invalid path.",
-          });
-        }
+        const { absolute: requestedAbs, relative: requestedRel } = safePath(input.path ?? "");
 
         for await (const [event] of iterateFileEvents(signal)) {
           const fileEvent = event as FileEvent;
@@ -194,7 +286,8 @@ export const appRouter = router({
             }
           }
 
-          const normalizedPath = [requestedRel, eventRel]
+          const requestedRelNative = requestedRel.split("/").join(path.sep);
+          const normalizedPath = [requestedRelNative, eventRel]
             .filter(Boolean)
             .join(path.sep)
             .split(path.sep)

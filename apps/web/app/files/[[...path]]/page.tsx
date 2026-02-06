@@ -3,17 +3,17 @@
 import { Folder, HardDrive, Search } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -23,10 +23,12 @@ import { FileBreadcrumbs } from "./breadcrumbs";
 import { EntriesView } from "./entries-view";
 import { FiltersRow } from "./filters-row";
 import { LoadingSkeleton } from "./loading-skeleton";
+import { useFileActions } from "./use-file-actions";
 import { useFileList } from "./use-file-list";
 import { useFilePreferences } from "./use-file-preferences";
 import { useFileStorage } from "./use-file-storage";
 import { useFileSubscription } from "./use-file-subscription";
+import { useUpload } from "./use-upload";
 
 type Params = {
   path?: string[] | string;
@@ -70,6 +72,16 @@ export default function FilesPage() {
   });
   const storage = useFileStorage(Boolean(data));
 
+  const actions = useFileActions({ currentPath, includeStats });
+  const upload = useUpload({ currentPath, includeStats });
+
+  const handleUploadFiles = useCallback(
+    (files: FileList) => {
+      upload.uploadFiles(Array.from(files));
+    },
+    [upload],
+  );
+
   const sortedEntries = useMemo(() => {
     const sorted = [...entries].sort((a, b) => {
       // When grouping, always sort folders first
@@ -109,7 +121,12 @@ export default function FilesPage() {
 
   return (
     <SidebarProvider>
-      <AppSidebar storage={storage} />
+      <AppSidebar
+        storage={storage}
+        onCreateFolder={actions.createFolder}
+        onUploadFiles={handleUploadFiles}
+        uploadProgress={upload}
+      />
       <SidebarInset>
         {/* Header */}
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-4 border-b bg-background/80 px-4 backdrop-blur-sm">
@@ -198,6 +215,7 @@ export default function FilesPage() {
                   folders={folders}
                   files={files}
                   sortedEntries={sortedEntries}
+                  actions={actions}
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-center">

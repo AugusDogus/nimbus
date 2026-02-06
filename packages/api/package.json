@@ -8,7 +8,8 @@
     "./context": "./src/context.ts",
     "./routers": "./src/routers.ts",
     "./file-events": "./src/file-events.ts",
-    "./data-root": "./src/data-root.ts"
+    "./data-root": "./src/data-root.ts",
+    "./safe-path": "./src/safe-path.ts"
   },
   "types": "./src/index.ts",
   "dependencies": {
