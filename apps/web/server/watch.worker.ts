@@ -1,4 +1,58 @@
 import { getDataRoot } from "@nimbus/api/data-root";
+import { watch } from "node:fs";
+import path from "node:path";
+
+export type WatchEvent = "rename" | "change" | "delete" | "unknown";
+
+export type FileEvent = {
+  path: string;
+  event: WatchEvent;
+  ts: number;
+};
+
+export type FileWatchHandle = {
+  close: () => void;
+};
+
+export const startFileWatch = (
+  root: string,
+  debounceMs: number,
+  emit: (event: FileEvent) => void,
+): FileWatchHandle => {
+  const pending = new Map<string, FileEvent>();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const flush = () => {
+    for (const event of pending.values()) {
+      emit(event);
+    }
+    pending.clear();
+    timer = null;
+  };
+
+  const watcher = watch(root, { recursive: true }, (event, relativePath) => {
+    if (!relativePath) return;
+
+    const fullPath = path.resolve(root, relativePath);
+    const normalizedEvent: WatchEvent =
+      event === "rename" || event === "change" ? event : "unknown";
+
+    const payload: FileEvent = {
+      path: fullPath,
+      event: normalizedEvent,
+      ts: Date.now(),
+    };
+
+    pending.set(fullPath, payload);
+    if (!timer) {
+      timer = setTimeout(flush, debounceMs);
+    }
+  });
+
+  return {
+    close: () => watcher.close(),
+  };
+};
 
 const dataRoot = getDataRoot();
 const debounceMs = Number.parseInt(
@@ -6,41 +60,6 @@ const debounceMs = Number.parseInt(
   10,
 );
 
-type WatchEvent = "rename" | "change" | "delete" | "unknown";
-
-type FileEvent = {
-  path: string;
-  event: WatchEvent;
-  ts: number;
-};
-
-const pending = new Map<string, FileEvent>();
-let timer: ReturnType<typeof setTimeout> | null = null;
-
-const flush = () => {
-  for (const event of pending.values()) {
-    postMessage(event);
-  }
-  pending.clear();
-  timer = null;
-};
-
-Bun.watch({
-  paths: [dataRoot],
-  recursive: true,
-  onChange(event, path) {
-    const normalizedEvent: WatchEvent =
-      event === "rename" || event === "change" ? event : "unknown";
-
-    const payload: FileEvent = {
-      path,
-      event: normalizedEvent,
-      ts: Date.now(),
-    };
-
-    pending.set(path, payload);
-    if (!timer) {
-      timer = setTimeout(flush, debounceMs);
-    }
-  },
+startFileWatch(dataRoot, debounceMs, (event) => {
+  postMessage(event);
 });

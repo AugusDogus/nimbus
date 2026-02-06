@@ -149,6 +149,9 @@ export const appRouter = router({
     rename: protectedProcedure
       .input(z.object({ path: z.string(), newName: z.string().min(1) }))
       .mutation(async ({ input }) => {
+        // #region agent log
+        fetch('http://127.0.0.1:7260/ingest/4532980a-ee6e-43d2-97fa-6b4c40b76dab',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre',hypothesisId:'H2',location:'routers.ts:files.rename:start',message:'rename mutation start',data:{path:input.path,newName:input.newName},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         const source = safePath(input.path);
         const newName = input.newName.trim();
 
@@ -178,6 +181,9 @@ export const appRouter = router({
         const parentRelative = source.relative.includes("/")
           ? source.relative.substring(0, source.relative.lastIndexOf("/"))
           : "";
+        // #region agent log
+        fetch('http://127.0.0.1:7260/ingest/4532980a-ee6e-43d2-97fa-6b4c40b76dab',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'pre',hypothesisId:'H2',location:'routers.ts:files.rename:done',message:'rename mutation done',data:{path:input.path,newName,returnedPath:parentRelative ? `${parentRelative}/${newName}` : newName},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         return { name: newName, path: parentRelative ? `${parentRelative}/${newName}` : newName };
       }),
 

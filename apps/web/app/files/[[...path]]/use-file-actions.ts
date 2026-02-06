@@ -3,9 +3,43 @@ import { toast } from "sonner";
 
 import { queryClient, trpcClient } from "@/lib/trpc";
 
+import type { FileEntry } from "./types";
+
 function invalidateFileQueries(currentPath: string, includeStats: boolean) {
-  queryClient.invalidateQueries({ queryKey: ["files.list", currentPath, includeStats] });
+  const listKey = ["files.list", currentPath, includeStats];
+  queryClient.invalidateQueries({ queryKey: listKey });
+  queryClient.refetchQueries({ queryKey: listKey, exact: true });
   queryClient.invalidateQueries({ queryKey: ["files.storage"] });
+}
+
+function buildRenamedPath(entryPath: string, newName: string) {
+  const slashIndex = entryPath.lastIndexOf("/");
+  if (slashIndex < 0) {
+    return newName;
+  }
+  return `${entryPath.slice(0, slashIndex)}/${newName}`;
+}
+
+function updateRenameInCache(
+  currentPath: string,
+  includeStats: boolean,
+  entryPath: string,
+  newName: string,
+) {
+  const listKey = ["files.list", currentPath, includeStats];
+  queryClient.setQueryData(listKey, (prev: FileEntry[] | undefined) => {
+    if (!prev) return prev;
+    const newPath = buildRenamedPath(entryPath, newName);
+    return prev.map((entry) =>
+      entry.path === entryPath
+        ? {
+            ...entry,
+            name: newName,
+            path: newPath,
+          }
+        : entry,
+    );
+  });
 }
 
 type UseFileActionsOptions = {
@@ -36,6 +70,7 @@ export function useFileActions({ currentPath, includeStats }: UseFileActionsOpti
     async (entryPath: string, newName: string) => {
       try {
         await trpcClient.files.rename.mutate({ path: entryPath, newName });
+        updateRenameInCache(currentPath, includeStats, entryPath, newName);
         invalidateFileQueries(currentPath, includeStats);
         toast.success(`Renamed to "${newName}"`);
       } catch (error) {

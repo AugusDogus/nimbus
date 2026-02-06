@@ -1,8 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import { Readable } from "node:stream";
 
 import { auth } from "@/lib/auth";
 import { resolveSafePath } from "@nimbus/api/safe-path";
@@ -44,11 +42,10 @@ export async function GET(req: NextRequest) {
   const ext = path.extname(fileName).toLowerCase();
   const contentType = getContentType(ext);
 
-  // Stream the file
-  const nodeStream = createReadStream(resolved);
-  const webStream = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
+  // Stream the file using Bun's native file API
+  const file = Bun.file(resolved);
 
-  return new Response(webStream, {
+  return new Response(file.stream(), {
     headers: {
       "Content-Type": contentType,
       "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
