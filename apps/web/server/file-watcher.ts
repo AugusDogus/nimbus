@@ -39,7 +39,7 @@ const startWatcher = () => {
     return;
   }
 
-  const worker = new Worker(new URL("./watch.worker.ts", import.meta.url), {
+  const worker = new Worker(new URL("./watch.worker-entry.ts", import.meta.url), {
     type: "module",
   });
 
