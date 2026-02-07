@@ -138,7 +138,7 @@ export const invalidateListCache = (eventPath: string) => {
   for (const key of listCache.entries.keys()) {
     const keyParts = key.split("|");
     const keyPath = keyParts.at(-1);
-    if (keyPath && targets.has(keyPath)) {
+    if (keyPath !== undefined && targets.has(keyPath)) {
       listCache.entries.delete(key);
     }
   }

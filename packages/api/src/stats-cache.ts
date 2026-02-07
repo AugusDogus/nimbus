@@ -155,3 +155,7 @@ export const getForDir = (dirRelativePath: string) => {
 
   return result;
 };
+
+export const resetStatsCacheForTest = () => {
+  statsCache.entries.clear();
+};
