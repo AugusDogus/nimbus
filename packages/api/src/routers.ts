@@ -9,7 +9,7 @@ import { resolveSafePath } from "./safe-path";
 import { getStorageUsage } from "./storage-cache";
 
 import { iterateFileEvents, type FileDelta, type FileEvent } from "./file-events";
-import { protectedProcedure, publicProcedure, router } from "./index";
+import { createCallerFactory, protectedProcedure, publicProcedure, router } from "./index";
 
 /** Convert safe-path errors to TRPCErrors. */
 function safePath(requested: string) {
@@ -327,3 +327,5 @@ const getUserId = (session: unknown) => {
 
   return id;
 };
+
+export const createCaller = createCallerFactory(appRouter);

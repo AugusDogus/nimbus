@@ -18,6 +18,7 @@
     "@nimbus/api": "workspace:*",
     "@tanstack/react-query": "^5.90.20",
     "@trpc/client": "^11.9.0",
+    "@trpc/react-query": "^11.9.0",
     "@trpc/server": "^11.9.0",
     "@trpc/tanstack-react-query": "^11.9.0",
     "@tus/file-store": "^2.0.0",

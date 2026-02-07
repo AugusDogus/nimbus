@@ -1,17 +1,18 @@
 "use client";
 
 import type { AppRouter } from "@nimbus/api/routers";
-import { QueryClient } from "@tanstack/react-query";
 import {
-    createTRPCClient,
-    httpBatchLink,
-    httpSubscriptionLink,
-    loggerLink,
-    splitLink,
+  createTRPCClient,
+  httpBatchLink,
+  httpSubscriptionLink,
+  loggerLink,
+  splitLink,
 } from "@trpc/client";
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 
-export const queryClient = new QueryClient();
+import { createQueryClient } from "./query-client";
+
+export const queryClient = createQueryClient();
 
 const trpcClient = createTRPCClient<AppRouter>({
   links: [

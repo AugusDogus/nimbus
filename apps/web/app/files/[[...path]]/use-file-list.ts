@@ -10,12 +10,14 @@ type UseFileListOptions = {
   currentPath: string;
   includeStats: boolean;
   enabled: boolean;
+  initialData?: FileEntry[];
 };
 
 export const useFileList = ({
   currentPath,
   includeStats,
   enabled,
+  initialData,
 }: UseFileListOptions) => {
   const listQuery = useQuery({
     queryKey: ["files.list", currentPath, includeStats],
@@ -24,6 +26,7 @@ export const useFileList = ({
         currentPath ? { path: currentPath, includeStats } : { includeStats },
       ),
     enabled,
+    initialData,
   });
 
   const entries = useMemo<FileEntry[]>(() => {
