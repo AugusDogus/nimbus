@@ -9,7 +9,10 @@
     "./routers": "./src/routers.ts",
     "./file-events": "./src/file-events.ts",
     "./data-root": "./src/data-root.ts",
-    "./safe-path": "./src/safe-path.ts"
+    "./safe-path": "./src/safe-path.ts",
+    "./fs-utils": "./src/fs-utils.ts",
+    "./stats-cache": "./src/stats-cache.ts",
+    "./dir-list-cache": "./src/dir-list-cache.ts"
   },
   "types": "./src/index.ts",
   "dependencies": {

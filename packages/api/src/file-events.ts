@@ -1,5 +1,7 @@
 import { EventEmitter, on } from "node:events";
 
+import { invalidateDirCache } from "./dir-list-cache";
+import { invalidateListCache } from "./list-cache";
 import { noteFileEvent } from "./storage-cache";
 
 export type FileEvent = {
@@ -25,10 +27,13 @@ const globalForEvents = globalThis as typeof globalThis & {
 const fileEvents = globalForEvents.__nimbusFileEvents ?? new EventEmitter();
 if (!globalForEvents.__nimbusFileEvents) {
   globalForEvents.__nimbusFileEvents = fileEvents;
+  fileEvents.setMaxListeners(0);
 }
 
 export const publishFileEvent = (event: FileEvent) => {
   noteFileEvent(event);
+  invalidateDirCache(event.path);
+  invalidateListCache(event.path);
   fileEvents.emit("file-change", event);
 };
 

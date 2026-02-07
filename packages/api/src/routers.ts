@@ -1,11 +1,16 @@
 import { TRPCError, tracked } from "@trpc/server";
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
 import { getDataRoot } from "./data-root";
+import { getDirEntries, invalidateDirCache, setDirEntries } from "./dir-list-cache";
+import { statPath } from "./fs-utils";
+import { getListCache, getListCacheKey, setListCache } from "./list-cache";
+import { getPermissionsHash } from "./perms-hash";
 import { resolveSafePath } from "./safe-path";
+import { getForDir, setStats } from "./stats-cache";
 import { getStorageUsage } from "./storage-cache";
 
 import { iterateFileEvents, type FileDelta, type FileEvent } from "./file-events";
@@ -66,12 +71,16 @@ export const appRouter = router({
     }),
     list: protectedProcedure
       .input(z.object({ path: z.string().optional(), includeStats: z.boolean().optional() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const { absolute: resolved, relative } = safePath(input.path ?? "");
 
-        let entries: Dirent[];
+        const includeStats = input.includeStats ?? false;
+        const cachedStats = includeStats ? getForDir(relative) : null;
+
+        let dirMtimeMs: number | null = null;
         try {
-          entries = await readdir(resolved, { withFileTypes: true });
+          const dirStats = await statPath(resolved);
+          dirMtimeMs = dirStats.mtimeMs;
         } catch (error) {
           const cause = error as { code?: string };
           if (cause.code === "ENOENT") {
@@ -83,28 +92,40 @@ export const appRouter = router({
           throw error;
         }
 
-        const filtered = entries.filter((entry) => entry.name !== ".nimbus");
+        const permsHash = getPermissionsHash(ctx.session);
+        const listCacheKey = getListCacheKey({
+          relativePath: relative,
+          includeStats,
+          dirMtimeMs,
+          permsHash,
+        });
+        const memoized = getListCache(listCacheKey);
+        if (memoized) {
+          return memoized;
+        }
 
-        const includeStats = input.includeStats ?? false;
-        const results = await Promise.all(
-          filtered.map(async (entry) => {
+        let baseEntries = getDirEntries(relative, dirMtimeMs);
+
+        if (!baseEntries) {
+          let entries: Dirent[];
+          try {
+            entries = await readdir(resolved, { withFileTypes: true });
+          } catch (error) {
+            const cause = error as { code?: string };
+            if (cause.code === "ENOENT") {
+              throw new TRPCError({
+                code: "NOT_FOUND",
+                message: "Folder not found.",
+              });
+            }
+            throw error;
+          }
+
+          const filtered = entries.filter((entry) => entry.name !== ".nimbus");
+          baseEntries = filtered.map((entry) => {
             const entryPath = relative
               ? [relative, entry.name].join("/")
               : entry.name;
-            let mtime: number | null = null;
-            let size: number | null = null;
-
-            if (includeStats) {
-              const fullPath = path.join(resolved, entry.name);
-              try {
-                const stats = await stat(fullPath);
-                mtime = stats.mtimeMs;
-                size = stats.size;
-              } catch {
-                // Ignore stat errors
-              }
-            }
-
             return {
               name: entry.name,
               path: entryPath,
@@ -113,12 +134,45 @@ export const appRouter = router({
                 : entry.isFile()
                   ? "file"
                   : "other",
+            };
+          });
+          setDirEntries(relative, baseEntries, dirMtimeMs);
+        }
+
+        const results = await Promise.all(
+          baseEntries.map(async (entry) => {
+            let mtime: number | null = null;
+            let size: number | null = null;
+
+            if (includeStats) {
+              const cached = cachedStats?.get(entry.name);
+              if (cached) {
+                mtime = cached.mtime;
+                size = cached.size;
+              } else {
+                const fullPath = path.join(resolved, entry.name);
+                try {
+                    const stats = await statPath(fullPath);
+                    mtime = stats.mtimeMs;
+                    size = stats.size;
+                  setStats(entry.path, { size, mtime });
+                } catch {
+                  // Ignore stat errors
+                }
+              }
+            }
+
+            return {
+              name: entry.name,
+              path: entry.path,
+              type: entry.type,
               mtime,
               size,
             };
           }),
         );
 
+        setListCache(listCacheKey, results);
         return results;
       }),
 
@@ -143,6 +197,7 @@ export const appRouter = router({
           throw error;
         }
 
+        invalidateDirCache(parent.absolute);
         return { name: folderName, path: parent.relative ? `${parent.relative}/${folderName}` : folderName };
       }),
 
@@ -160,13 +215,13 @@ export const appRouter = router({
         const target = path.join(parentDir, newName);
 
         try {
-          await stat(source.absolute);
+          await statPath(source.absolute);
         } catch {
           throw new TRPCError({ code: "NOT_FOUND", message: "File or folder not found." });
         }
 
         try {
-          await stat(target);
+          await statPath(target);
           throw new TRPCError({ code: "CONFLICT", message: "An item with that name already exists." });
         } catch (error) {
           if (error instanceof TRPCError) throw error;
@@ -174,6 +229,8 @@ export const appRouter = router({
         }
 
         await rename(source.absolute, target);
+        invalidateDirCache(source.absolute);
+        invalidateDirCache(target);
 
         const parentRelative = source.relative.includes("/")
           ? source.relative.substring(0, source.relative.lastIndexOf("/"))
@@ -188,15 +245,15 @@ export const appRouter = router({
         const dest = safePath(input.destinationPath);
 
         try {
-          await stat(source.absolute);
+          await statPath(source.absolute);
         } catch {
           throw new TRPCError({ code: "NOT_FOUND", message: "Source not found." });
         }
 
         // Destination should be a directory
         try {
-          const destStat = await stat(dest.absolute);
-          if (!destStat.isDirectory()) {
+          const destStat = await statPath(dest.absolute);
+          if (!destStat.isDirectory) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "Destination is not a folder." });
           }
         } catch (error) {
@@ -208,7 +265,7 @@ export const appRouter = router({
         const target = path.join(dest.absolute, fileName);
 
         try {
-          await stat(target);
+          await statPath(target);
           throw new TRPCError({ code: "CONFLICT", message: "An item with that name already exists in the destination." });
         } catch (error) {
           if (error instanceof TRPCError) throw error;
@@ -216,6 +273,8 @@ export const appRouter = router({
         }
 
         await rename(source.absolute, target);
+        invalidateDirCache(source.absolute);
+        invalidateDirCache(dest.absolute);
         return { name: fileName, path: dest.relative ? `${dest.relative}/${fileName}` : fileName };
       }),
 
@@ -231,6 +290,7 @@ export const appRouter = router({
         }
 
         await rm(target.absolute, { recursive: true });
+        invalidateDirCache(target.absolute);
         return { path: target.relative };
       }),
 
@@ -241,6 +301,7 @@ export const appRouter = router({
           return;
         }
         const root = getDataRoot();
+        const hasFilter = typeof input.path === "string" && input.path.length > 0;
         const { absolute: requestedAbs, relative: requestedRel } = safePath(input.path ?? "");
 
         for await (const [event] of iterateFileEvents(signal)) {
@@ -253,7 +314,7 @@ export const appRouter = router({
           if (
             eventRel.startsWith("..") ||
             path.isAbsolute(eventRel) ||
-            eventRel.includes(path.sep)
+            (hasFilter && eventRel.includes(path.sep))
           ) {
             continue;
           }
@@ -295,7 +356,7 @@ export const appRouter = router({
 
           const delta: FileDelta = {
             path: normalizedPath,
-            name: eventRel,
+            name: path.basename(normalizedPath),
             type: entryType,
             action,
             ts: fileEvent.ts,
