@@ -122,11 +122,28 @@ export function useFileActions({ currentPath, includeStats }: UseFileActionsOpti
     a.remove();
   }, []);
 
+  const prefetchFolder = useCallback(
+    (entry: FileEntry) => {
+      if (entry.type !== "dir") return;
+      const listKey = ["files.list", entry.path, includeStats];
+      queryClient.prefetchQuery({
+        queryKey: listKey,
+        queryFn: () =>
+          trpcClient.files.list.query(
+            entry.path ? { path: entry.path, includeStats } : { includeStats },
+          ),
+        staleTime: 30_000,
+      });
+    },
+    [includeStats],
+  );
+
   return {
     createFolder,
     renameEntry,
     moveEntry,
     deleteEntry,
     downloadFile,
+    prefetchFolder,
   };
 }

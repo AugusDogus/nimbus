@@ -40,6 +40,7 @@ type FileActions = {
   downloadFile: (path: string) => void;
   renameEntry: (path: string, newName: string) => Promise<void>;
   deleteEntry: (path: string) => Promise<void>;
+  prefetchFolder: (entry: FileEntry) => void;
 };
 
 type EntriesViewProps = {
@@ -203,12 +204,14 @@ function EntryItem({
   onStartRename,
   onStartDelete,
   onDownload,
+  onPrefetch,
 }: {
   entry: FileEntry;
   view: "list" | "grid";
   onStartRename: (entry: FileEntry) => void;
   onStartDelete: (entry: FileEntry) => void;
   onDownload: (path: string) => void;
+  onPrefetch?: (entry: FileEntry) => void;
 }) {
   const isDir = entry.type === "dir";
 
@@ -216,6 +219,8 @@ function EntryItem({
     view === "list" ? (
       <Link
         href={`/files/${entry.path}`}
+        onMouseEnter={() => onPrefetch?.(entry)}
+        onFocus={() => onPrefetch?.(entry)}
         className="flex items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
       >
         <Folder className="size-6 fill-muted text-muted-foreground" />
@@ -224,6 +229,8 @@ function EntryItem({
     ) : (
       <Link
         href={`/files/${entry.path}`}
+        onMouseEnter={() => onPrefetch?.(entry)}
+        onFocus={() => onPrefetch?.(entry)}
         className="flex flex-col items-center justify-center gap-2 rounded-xl border bg-muted/50 p-3 hover:border-border hover:bg-accent sm:gap-3 sm:p-4"
       >
         <Folder className="size-10 fill-muted text-muted-foreground sm:size-12" />
@@ -290,12 +297,14 @@ function EntriesGrid({
   onStartRename,
   onStartDelete,
   onDownload,
+  onPrefetch,
 }: {
   entries: FileEntry[];
   view: "list" | "grid";
   onStartRename: (entry: FileEntry) => void;
   onStartDelete: (entry: FileEntry) => void;
   onDownload: (path: string) => void;
+  onPrefetch?: (entry: FileEntry) => void;
 }) {
   return (
     <div className={gridClassName(view)}>
@@ -307,6 +316,7 @@ function EntriesGrid({
           onStartRename={onStartRename}
           onStartDelete={onStartDelete}
           onDownload={onDownload}
+          onPrefetch={onPrefetch}
         />
       ))}
     </div>
@@ -342,6 +352,7 @@ export function EntriesView({
     onStartRename: handleStartRename,
     onStartDelete: handleStartDelete,
     onDownload: actions.downloadFile,
+    onPrefetch: actions.prefetchFolder,
   };
 
   return (
