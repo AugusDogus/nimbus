@@ -4,10 +4,11 @@ import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
+import type { UserPreferences } from "./context";
 import { getDataRoot } from "./data-root";
 import { getDirEntries, invalidateDirCache, setDirEntries } from "./dir-list-cache";
 import { statPath } from "./fs-utils";
-import { getListCache, getListCacheKey, setListCache } from "./list-cache";
+import { getListCache, getListCacheKey, invalidateListCache, setListCache } from "./list-cache";
 import { getPermissionsHash } from "./perms-hash";
 import { resolveSafePath } from "./safe-path";
 import { getForDir, setStats } from "./stats-cache";
@@ -36,6 +37,13 @@ const preferencesSchema = z.object({
   groupByType: z.boolean(),
 });
 
+const defaultPreferences: UserPreferences = {
+  view: "list",
+  sortField: "name",
+  sortDirection: "asc",
+  groupByType: true,
+};
+
 export const appRouter = router({
   healthCheck: publicProcedure.query(() => {
     return "OK";
@@ -50,12 +58,7 @@ export const appRouter = router({
     get: protectedProcedure.query(async ({ ctx }) => {
       const userId = getUserId(ctx.session);
       const stored = await ctx.preferences.getUserPreferences(userId);
-      return stored ?? {
-        view: "list",
-        sortField: "name",
-        sortDirection: "asc",
-        groupByType: true,
-      };
+      return stored ?? defaultPreferences;
     }),
     set: protectedProcedure
       .input(preferencesSchema)
@@ -198,6 +201,7 @@ export const appRouter = router({
         }
 
         invalidateDirCache(parent.absolute);
+        invalidateListCache(target);
         return { name: folderName, path: parent.relative ? `${parent.relative}/${folderName}` : folderName };
       }),
 
@@ -231,6 +235,8 @@ export const appRouter = router({
         await rename(source.absolute, target);
         invalidateDirCache(source.absolute);
         invalidateDirCache(target);
+        invalidateListCache(source.absolute);
+        invalidateListCache(target);
 
         const parentRelative = source.relative.includes("/")
           ? source.relative.substring(0, source.relative.lastIndexOf("/"))
@@ -275,6 +281,8 @@ export const appRouter = router({
         await rename(source.absolute, target);
         invalidateDirCache(source.absolute);
         invalidateDirCache(dest.absolute);
+        invalidateListCache(source.absolute);
+        invalidateListCache(dest.absolute);
         return { name: fileName, path: dest.relative ? `${dest.relative}/${fileName}` : fileName };
       }),
 
@@ -284,13 +292,14 @@ export const appRouter = router({
         const target = safePath(input.path);
 
         try {
-          await stat(target.absolute);
+          await statPath(target.absolute);
         } catch {
           throw new TRPCError({ code: "NOT_FOUND", message: "File or folder not found." });
         }
 
         await rm(target.absolute, { recursive: true });
         invalidateDirCache(target.absolute);
+        invalidateListCache(target.absolute);
         return { path: target.relative };
       }),
 
@@ -331,10 +340,10 @@ export const appRouter = router({
           let action: FileDelta["action"] = "changed";
 
           try {
-            const stats = await stat(eventAbs);
-            entryType = stats.isDirectory()
+            const stats = await statPath(eventAbs);
+            entryType = stats.isDirectory
               ? "dir"
-              : stats.isFile()
+              : stats.isFile
                 ? "file"
                 : "other";
             action = fileEvent.event === "change" ? "changed" : "added";

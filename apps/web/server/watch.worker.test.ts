@@ -68,33 +68,33 @@ describe("watch.worker", () => {
 
   it("emits event when a file is modified", async () => {
     const filePath = path.join(root, "modified.txt");
-    let nextMessage = waitForEvent(queue);
+    const nextMessage = waitForEvent(queue);
     await writeFile(filePath, "v1");
     await nextMessage;
 
-    nextMessage = waitForEvent(queue);
+    const nextMessageAfterUpdate = waitForEvent(queue);
     await writeFile(filePath, "v2");
-    const message = await nextMessage;
+    const message = await nextMessageAfterUpdate;
     expect(message.path).toBe(filePath);
     expect(["rename", "change"]).toContain(message.event);
   });
 
   it("emits event when a file is deleted", async () => {
     const filePath = path.join(root, "deleted.txt");
-    let nextMessage = waitForEvent(queue);
+    const nextMessage = waitForEvent(queue);
     await writeFile(filePath, "v1");
     await nextMessage;
 
-    nextMessage = waitForEvent(queue);
+    const nextMessageAfterDelete = waitForEvent(queue);
     await unlink(filePath);
-    const message = await nextMessage;
+    const message = await nextMessageAfterDelete;
     expect(message.path).toBe(filePath);
     expect(["rename", "change"]).toContain(message.event);
   });
 
   it("debounces rapid changes to the same file", async () => {
     const filePath = path.join(root, "debounce.txt");
-    let nextMessage = waitForEvent(queue);
+    const nextMessage = waitForEvent(queue);
     await writeFile(filePath, "start");
     await nextMessage;
 

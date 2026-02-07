@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as tus from "tus-js-client";
 
@@ -31,6 +31,7 @@ export function useUpload({ currentPath, includeStats }: UseUploadOptions) {
   const uploadRef = useRef<tus.Upload | null>(null);
   const queueRef = useRef<File[]>([]);
   const processingRef = useRef(false);
+  const processNextRef = useRef<() => void>(() => {});
 
   const invalidateQueries = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["files.list", currentPath, includeStats] });
@@ -66,13 +67,13 @@ export function useUpload({ currentPath, includeStats }: UseUploadOptions) {
         invalidateQueries();
         // Remove completed file from queue and process next
         queueRef.current.shift();
-        processNext();
+        processNextRef.current();
       },
       onError(error) {
         toast.error(`Upload failed for "${file.name}": ${error.message}`);
         // Remove failed file from queue and continue with next
         queueRef.current.shift();
-        processNext();
+        processNextRef.current();
       },
     });
 
@@ -85,6 +86,10 @@ export function useUpload({ currentPath, includeStats }: UseUploadOptions) {
       upload.start();
     });
   }, [currentPath, invalidateQueries]);
+
+  useEffect(() => {
+    processNextRef.current = processNext;
+  }, [processNext]);
 
   const uploadFiles = useCallback(
     (files: File[]) => {

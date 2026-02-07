@@ -1,8 +1,9 @@
 import type { Dirent } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 
 import { getDataRoot } from "./data-root";
+import { statPath } from "./fs-utils";
 
 type StorageCacheState = {
   usedBytes: number | null;
@@ -68,7 +69,7 @@ const getDirectorySize = async (
       }
 
       try {
-        const stats = await stat(fullPath);
+        const stats = await statPath(fullPath);
         fileSizes.set(fullPath, stats.size);
         return stats.size;
       } catch {
@@ -131,8 +132,8 @@ const applyDelta = async (event: { path: string; event: string }) => {
   }
 
   try {
-    const stats = await stat(absolute);
-    if (stats.isDirectory() || !stats.isFile()) {
+    const stats = await statPath(absolute);
+    if (stats.isDirectory || !stats.isFile) {
       storageCache.dirty = true;
       scheduleRecompute();
       return;

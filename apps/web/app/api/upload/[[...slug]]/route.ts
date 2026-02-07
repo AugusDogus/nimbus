@@ -1,11 +1,12 @@
 import { FileStore } from "@tus/file-store";
 import { Server } from "@tus/server";
 import { mkdirSync } from "node:fs";
-import { mkdir, rename, stat, unlink } from "node:fs/promises";
+import { mkdir, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 
 import { auth } from "@/lib/auth";
 import { getDataRoot } from "@nimbus/api/data-root";
+import { statPath } from "@nimbus/api/fs-utils";
 import { resolveSafePath } from "@nimbus/api/safe-path";
 
 const dataRoot = getDataRoot();
@@ -90,7 +91,7 @@ async function deconflictPath(filePath: string): Promise<string> {
 
   while (true) {
     try {
-      await stat(candidate);
+      await statPath(candidate);
       // File exists — try next suffix
       counter++;
       candidate = path.join(dir, `${base} (${counter})${ext}`);

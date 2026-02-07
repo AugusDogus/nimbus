@@ -90,11 +90,6 @@ const listDir = async (absolutePath: string) => {
     }
 
     dirMtimeMs = afterMtime;
-    const entryHashes = mapped.map((entry) =>
-      entry.name
-        .split("")
-        .reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) | 0, 0),
-    );
     if (beforeMtime === afterMtime) {
       break;
     }

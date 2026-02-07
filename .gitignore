@@ -17,6 +17,10 @@ build/
 .next/
 out/
 
+# tests
+test-results/
+playwright-report/
+
 # env
 .env
 .env.*.local

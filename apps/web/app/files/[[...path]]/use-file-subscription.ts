@@ -64,7 +64,7 @@ export const useFileSubscription = ({
               queryClient.invalidateQueries({ queryKey: listKey });
               queryClient.refetchQueries({ queryKey: listKey, exact: true });
             })
-            .catch((error) => {
+            .catch(() => {
               queryClient.invalidateQueries({ queryKey: listKey });
               queryClient.refetchQueries({ queryKey: listKey, exact: true });
             });

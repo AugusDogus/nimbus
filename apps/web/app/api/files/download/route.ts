@@ -1,8 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { stat } from "node:fs/promises";
 import path from "node:path";
 
 import { auth } from "@/lib/auth";
+import { statPath } from "@nimbus/api/fs-utils";
 import { resolveSafePath } from "@nimbus/api/safe-path";
 
 export async function GET(req: NextRequest) {
@@ -27,14 +27,14 @@ export async function GET(req: NextRequest) {
   }
 
   // Stat the file
-  let fileStats: Awaited<ReturnType<typeof stat>>;
+  let fileStats: Awaited<ReturnType<typeof statPath>>;
   try {
-    fileStats = await stat(resolved);
+    fileStats = await statPath(resolved);
   } catch {
     return NextResponse.json({ error: "File not found." }, { status: 404 });
   }
 
-  if (!fileStats.isFile()) {
+  if (!fileStats.isFile) {
     return NextResponse.json({ error: "Not a file." }, { status: 400 });
   }
 

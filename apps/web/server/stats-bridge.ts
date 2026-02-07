@@ -6,7 +6,6 @@ import { deleteStats, setStats } from "@nimbus/api/stats-cache";
 type StatRequest = { type: "stat-request"; path: string };
 type WarmUpRequest = { type: "warm-up"; root: string };
 type SweepRequest = { type: "sweep"; root: string };
-type WorkerRequest = StatRequest | WarmUpRequest | SweepRequest;
 
 type StatResult = {
   type: "stat-result";

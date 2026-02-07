@@ -221,6 +221,8 @@ function EntryItem({
         href={`/files/${entry.path}`}
         onMouseEnter={() => onPrefetch?.(entry)}
         onFocus={() => onPrefetch?.(entry)}
+        data-entry-name={entry.name}
+        data-entry-path={entry.path}
         className="flex items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
       >
         <Folder className="size-6 fill-muted text-muted-foreground" />
@@ -231,6 +233,8 @@ function EntryItem({
         href={`/files/${entry.path}`}
         onMouseEnter={() => onPrefetch?.(entry)}
         onFocus={() => onPrefetch?.(entry)}
+        data-entry-name={entry.name}
+        data-entry-path={entry.path}
         className="flex flex-col items-center justify-center gap-2 rounded-xl border bg-muted/50 p-3 hover:border-border hover:bg-accent sm:gap-3 sm:p-4"
       >
         <Folder className="size-10 fill-muted text-muted-foreground sm:size-12" />
@@ -240,12 +244,20 @@ function EntryItem({
       </Link>
     )
   ) : view === "list" ? (
-    <div className="flex cursor-default items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent">
+    <div
+      data-entry-name={entry.name}
+      data-entry-path={entry.path}
+      className="flex cursor-default items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
+    >
       <FileText className="size-6 text-primary" />
       <span className="flex-1 truncate text-sm">{entry.name}</span>
     </div>
   ) : (
-    <div className="flex cursor-default flex-col rounded-xl border bg-card hover:border-border hover:shadow-sm">
+    <div
+      data-entry-name={entry.name}
+      data-entry-path={entry.path}
+      className="flex cursor-default flex-col rounded-xl border bg-card hover:border-border hover:shadow-sm"
+    >
       <div className="flex h-20 items-center justify-center rounded-t-xl bg-muted sm:h-28">
         <FileText className="size-8 text-primary sm:size-10" />
       </div>

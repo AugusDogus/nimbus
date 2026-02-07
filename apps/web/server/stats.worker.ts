@@ -59,7 +59,7 @@ const post = (message: WorkerResponse) => {
   postMessage(message);
 };
 
-const statPath = async (absolutePath: string) => {
+const statEntry = async (absolutePath: string) => {
   const relative = toRelative(absolutePath);
   if (!relative) {
     return;
@@ -111,7 +111,7 @@ const runScan = async (root: string) => {
   let scanned = 0;
   await walkTree(root, async (absolutePath) => {
     scanned += 1;
-    await statPath(absolutePath);
+    await statEntry(absolutePath);
   });
   return scanned;
 };
@@ -123,7 +123,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   }
 
   if (message.type === "stat-request") {
-    await statPath(message.path);
+    await statEntry(message.path);
     return;
   }
 
