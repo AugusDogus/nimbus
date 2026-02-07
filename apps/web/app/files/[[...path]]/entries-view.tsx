@@ -2,7 +2,7 @@
 
 import { Download, FileText, Folder, Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import {
   AlertDialog,
@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useDialogInputSelect } from "@/hooks/use-dialog-input-select";
 import { cn } from "@/lib/utils";
 
 import type { FileEntry } from "./types";
@@ -63,37 +64,42 @@ function RenameDialog({
   onOpenChange: (open: boolean) => void;
   onRename: (path: string, newName: string) => Promise<void>;
 }) {
-  const [name, setName] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const handleOpen = useCallback(
-    (isOpen: boolean) => {
-      if (isOpen && entry) {
-        setName(entry.name);
-        // Select filename without extension for files
-        requestAnimationFrame(() => {
-          const input = inputRef.current;
-          if (!input) return;
-          input.focus();
-          if (entry.type === "file") {
-            const dotIdx = entry.name.lastIndexOf(".");
-            if (dotIdx > 0) {
-              input.setSelectionRange(0, dotIdx);
-              return;
-            }
-          }
-          input.select();
-        });
-      }
-      onOpenChange(isOpen);
-    },
-    [entry, onOpenChange],
+  if (!entry) return null;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <RenameForm key={entry.path} entry={entry} onOpenChange={onOpenChange} onRename={onRename} />
+    </Dialog>
   );
+}
+
+function RenameForm({
+  entry,
+  onOpenChange,
+  onRename,
+}: {
+  entry: FileEntry;
+  onOpenChange: (open: boolean) => void;
+  onRename: (path: string, newName: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(entry.name);
+  const [submitting, setSubmitting] = useState(false);
+
+  const getSelectionRange = useCallback(
+    (value: string): [number, number] | null => {
+      if (entry.type === "file") {
+        const dotIdx = value.lastIndexOf(".");
+        if (dotIdx > 0) return [0, dotIdx];
+      }
+      return null;
+    },
+    [entry],
+  );
+
+  const { inputRef, handleOpenAutoFocus } = useDialogInputSelect(getSelectionRange);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!entry || !name.trim() || name.trim() === entry.name) {
+    if (!name.trim() || name.trim() === entry.name) {
       onOpenChange(false);
       return;
     }
@@ -109,35 +115,33 @@ function RenameDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogContent>
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>Rename</DialogTitle>
-            <DialogDescription>
-              Enter a new name for &ldquo;{entry?.name}&rdquo;
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <Input
-              ref={inputRef}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoComplete="off"
-              data-1p-ignore
-            />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={submitting || !name.trim()}>
-              Rename
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <DialogContent onOpenAutoFocus={handleOpenAutoFocus}>
+      <form onSubmit={handleSubmit}>
+        <DialogHeader>
+          <DialogTitle>Rename</DialogTitle>
+          <DialogDescription>
+            Enter a new name for &ldquo;{entry.name}&rdquo;
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-4">
+          <Input
+            ref={inputRef}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoComplete="off"
+            data-1p-ignore
+          />
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={submitting || !name.trim()}>
+            Rename
+          </Button>
+        </DialogFooter>
+      </form>
+    </DialogContent>
   );
 }
 
