@@ -1,6 +1,8 @@
 # Nimbus
 
-Nimbus is a self-hosted cloud.
+Your files. Your server. No compromise.
+
+Nimbus is a self-hosted file storage and sharing platform. Deploy it on your own hardware, keep full ownership of your data, and get a fast, modern interface for managing files.
 
 ## Current features
 
