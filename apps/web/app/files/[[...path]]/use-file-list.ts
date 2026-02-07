@@ -26,10 +26,17 @@ export const useFileList = ({
     enabled,
   });
 
-  const entries = useMemo<FileEntry[]>(
-    () => listQuery.data ?? [],
-    [listQuery.data],
-  );
+  const entries = useMemo<FileEntry[]>(() => {
+    const data = listQuery.data ?? [];
+    // Multiple cache updaters (optimistic rename, subscription, refetch)
+    // can briefly produce duplicates. Deduplicate by path, keeping the
+    // last occurrence (most recently written).
+    const seen = new Map<string, FileEntry>();
+    for (const entry of data) {
+      seen.set(entry.path, entry);
+    }
+    return seen.size === data.length ? data : [...seen.values()];
+  }, [listQuery.data]);
 
   return {
     entries,
