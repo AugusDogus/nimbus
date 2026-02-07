@@ -1,3 +1,4 @@
+import type { LucideIcon } from "lucide-react";
 import {
     ArrowDownAZ,
     ArrowUpAZ,
@@ -33,10 +34,32 @@ type FiltersRowProps = {
 };
 
 export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) {
+  type SortValue = `${UserPreferences["sortField"]}-${UserPreferences["sortDirection"]}`;
+  type SortOption = {
+    value: SortValue;
+    label: string;
+    icon: LucideIcon;
+  };
+
+  const sortOptions: SortOption[] = [
+    { value: "name-asc", label: "Name (A to Z)", icon: ArrowDownAZ },
+    { value: "name-desc", label: "Name (Z to A)", icon: ArrowUpAZ },
+    { value: "modified-desc", label: "Modified (Newest)", icon: Calendar },
+    { value: "modified-asc", label: "Modified (Oldest)", icon: Calendar },
+    { value: "size-desc", label: "Size (Largest)", icon: Weight },
+    { value: "size-asc", label: "Size (Smallest)", icon: Weight },
+    { value: "type-asc", label: "Type (A to Z)", icon: FileText },
+    { value: "type-desc", label: "Type (Z to A)", icon: FileText },
+  ];
+
+  const sortValue = `${prefs.sortField}-${prefs.sortDirection}` as SortValue;
+  const selectedSort =
+    sortOptions.find((option) => option.value === sortValue) ?? sortOptions[0];
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Select
-        value={`${prefs.sortField}-${prefs.sortDirection}`}
+        value={selectedSort.value}
         onValueChange={(value) => {
           const [field, direction] = value.split("-") as [
             typeof prefs.sortField,
@@ -46,41 +69,18 @@ export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) 
         }}
       >
         <SelectTrigger size="sm" className="w-auto min-w-[140px]">
-          <SelectValue />
+          <SelectValue>
+            <selectedSort.icon className="size-4" />
+            <span>{selectedSort.label}</span>
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="name-asc">
-            <ArrowDownAZ className="size-4" />
-            Name (A to Z)
-          </SelectItem>
-          <SelectItem value="name-desc">
-            <ArrowUpAZ className="size-4" />
-            Name (Z to A)
-          </SelectItem>
-          <SelectItem value="modified-desc">
-            <Calendar className="size-4" />
-            Modified (Newest)
-          </SelectItem>
-          <SelectItem value="modified-asc">
-            <Calendar className="size-4" />
-            Modified (Oldest)
-          </SelectItem>
-          <SelectItem value="size-desc">
-            <Weight className="size-4" />
-            Size (Largest)
-          </SelectItem>
-          <SelectItem value="size-asc">
-            <Weight className="size-4" />
-            Size (Smallest)
-          </SelectItem>
-          <SelectItem value="type-asc">
-            <FileText className="size-4" />
-            Type (A to Z)
-          </SelectItem>
-          <SelectItem value="type-desc">
-            <FileText className="size-4" />
-            Type (Z to A)
-          </SelectItem>
+          {sortOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              <option.icon className="size-4" />
+              {option.label}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
 

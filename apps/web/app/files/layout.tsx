@@ -1,9 +1,6 @@
 import type { ReactNode } from "react";
 
-import { headers } from "next/headers";
-
-import { auth } from "@/lib/auth";
-
+import { getInitialPrefs, getSession } from "@/server/files-data";
 import { FilesShell } from "./files-shell";
 
 type FilesLayoutProps = {
@@ -11,6 +8,12 @@ type FilesLayoutProps = {
 };
 
 export default async function FilesLayout({ children }: FilesLayoutProps) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  return <FilesShell initialSession={session ?? null}>{children}</FilesShell>;
+  const session = await getSession();
+  const initialPrefs = await getInitialPrefs();
+
+  return (
+    <FilesShell initialSession={session ?? null} initialPrefs={initialPrefs}>
+      {children}
+    </FilesShell>
+  );
 }

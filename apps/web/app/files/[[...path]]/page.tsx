@@ -1,11 +1,5 @@
-import { headers } from "next/headers";
-
-import { createContext } from "@nimbus/api/context";
-import { createCaller } from "@nimbus/api/routers";
-
-import { auth } from "@/lib/auth";
 import { api, HydrateClient } from "@/lib/trpc-server";
-import { preferencesStore } from "@/server/preferences";
+import { getCaller, getInitialPrefs, getSession } from "@/server/files-data";
 
 import { FilesPageClient } from "./files-page-client";
 
@@ -32,32 +26,27 @@ export default async function FilesPage({
   const pathSegments = normalizePathSegments(resolvedParams.path);
   const currentPath = pathSegments.join("/");
 
-  const requestHeaders = await headers();
-  const session = await auth.api.getSession({ headers: requestHeaders });
-
+  const session = await getSession();
   let initialPrefs = null;
   let initialEntries = null;
 
   if (session) {
-    const caller = createCaller(
-      await createContext({
-        auth,
-        headers: requestHeaders,
-        preferences: preferencesStore,
-      }),
-    );
-    initialPrefs = await caller.prefs.get();
-    const includeStats =
-      initialPrefs.sortField === "modified" || initialPrefs.sortField === "size";
-    initialEntries = await caller.files.list({
-      path: currentPath || undefined,
-      includeStats,
-    });
-    await api.prefs.get.prefetch();
-    await api.files.list.prefetch({
-      path: currentPath || undefined,
-      includeStats,
-    });
+    const caller = await getCaller();
+    const fetchedPrefs = await getInitialPrefs();
+    if (fetchedPrefs) {
+      initialPrefs = fetchedPrefs;
+      const includeStats =
+        fetchedPrefs.sortField === "modified" || fetchedPrefs.sortField === "size";
+      initialEntries = await caller.files.list({
+        path: currentPath || undefined,
+        includeStats,
+      });
+      await api.prefs.get.prefetch();
+      await api.files.list.prefetch({
+        path: currentPath || undefined,
+        includeStats,
+      });
+    }
   }
 
   return (

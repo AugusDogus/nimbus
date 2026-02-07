@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { trpcClient } from "@/lib/trpc";
 
@@ -27,8 +27,8 @@ export const useFileList = ({
       ),
     enabled,
     initialData,
+    placeholderData: keepPreviousData,
   });
-
   const entries = useMemo<FileEntry[]>(() => {
     const data = listQuery.data ?? [];
     // Multiple cache updaters (optimistic rename, subscription, refetch)

@@ -20,15 +20,19 @@ import { Input } from "@/components/ui/input";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { signOut, useSession } from "@/lib/auth-client";
 
+import type { UserPreferences } from "@nimbus/api/context";
+
 import { AppSidebar } from "./[[...path]]/app-sidebar";
 import { useFileActions } from "./[[...path]]/use-file-actions";
 import { useFilePreferences } from "./[[...path]]/use-file-preferences";
 import { useFileStorage } from "./[[...path]]/use-file-storage";
+import { useFileSubscription } from "./[[...path]]/use-file-subscription";
 import { useUpload } from "./[[...path]]/use-upload";
 
 type FilesShellProps = {
   children: ReactNode;
   initialSession: SessionData | null;
+  initialPrefs: UserPreferences | null;
 };
 
 type SessionData = ReturnType<typeof useSession>["data"];
@@ -47,7 +51,11 @@ const normalizePathSegments = (pathParam: Params["path"]) => {
   return [pathParam];
 };
 
-export function FilesShell({ children, initialSession }: FilesShellProps) {
+export function FilesShell({
+  children,
+  initialSession,
+  initialPrefs,
+}: FilesShellProps) {
   const params = useParams<Params>();
   const pathSegments = normalizePathSegments(params?.path);
   const currentPath = pathSegments.join("/");
@@ -56,13 +64,19 @@ export function FilesShell({ children, initialSession }: FilesShellProps) {
   const session = sessionData ?? initialSession;
   const isAuthed = Boolean(session);
 
-  const { prefs } = useFilePreferences(isAuthed);
+  const { prefs } = useFilePreferences(isAuthed, initialPrefs ?? undefined);
   const includeStats =
     prefs.sortField === "modified" || prefs.sortField === "size";
 
   const storage = useFileStorage(isAuthed);
   const actions = useFileActions({ currentPath, includeStats });
   const upload = useUpload({ currentPath, includeStats });
+
+  useFileSubscription({
+    currentPath,
+    includeStats,
+    enabled: isAuthed,
+  });
 
   const handleUploadFiles = useCallback(
     (files: FileList) => {

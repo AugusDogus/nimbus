@@ -13,7 +13,6 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import { useFileActions } from "./use-file-actions";
 import { useFileList } from "./use-file-list";
 import { useFilePreferences } from "./use-file-preferences";
-import { useFileSubscription } from "./use-file-subscription";
 
 type SessionData = ReturnType<typeof useSession>["data"];
 
@@ -55,7 +54,10 @@ export function FilesPageClient({
   const session = sessionData ?? initialSession;
   const isAuthed = Boolean(session);
 
-  const { prefs, updatePreferences } = useFilePreferences(isAuthed, initialPrefs ?? undefined);
+  const { prefs, updatePreferences } = useFilePreferences(
+    isAuthed,
+    initialPrefs ?? undefined,
+  );
   const view = prefs.view;
 
   const includeStats =
@@ -67,12 +69,6 @@ export function FilesPageClient({
     initialData: initialEntries ?? undefined,
   });
   const actions = useFileActions({ currentPath, includeStats });
-
-  useFileSubscription({
-    currentPath,
-    includeStats,
-    enabled: isAuthed,
-  });
 
   const sortedEntries = useMemo(() => {
     const sorted = [...entries].sort((a, b) => {

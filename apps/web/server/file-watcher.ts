@@ -1,6 +1,9 @@
 import "server-only";
 
+import { getParentDir } from "@nimbus/api/dir-list-cache";
 import { publishFileEvent, type FileEvent } from "@nimbus/api/file-events";
+import { ensureDirListBridge, requestDirRecache } from "./dir-list-bridge";
+import { ensureStatsBridge, requestStat } from "./stats-bridge";
 
 type WorkerMessage = FileEvent;
 
@@ -27,6 +30,8 @@ const startWatcher = () => {
     return;
   }
 
+  ensureStatsBridge();
+  ensureDirListBridge();
   if (typeof Worker === "undefined") {
     console.warn(
       "[nimbus] File watcher requires Bun Worker. Start the server with Bun runtime to enable file events.",
@@ -44,6 +49,11 @@ const startWatcher = () => {
       return;
     }
     publishFileEvent(payload);
+    requestStat(payload.path);
+    const parentDir = getParentDir(payload.path);
+    if (parentDir !== null) {
+      requestDirRecache(parentDir);
+    }
   };
 
   globalForWatcher.__nimbusFileWatcher = worker;
