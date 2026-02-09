@@ -36,7 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { icon: HardDrive, label: "My Drive", href: "/files", isActive: true },
+  { icon: HardDrive, label: "My Drive", href: "/", isActive: true },
   { icon: Users, label: "Shared with me", href: "", disabled: true },
   { icon: Clock, label: "Recent", href: "", disabled: true },
   { icon: Star, label: "Starred", href: "", disabled: true },
@@ -99,7 +99,7 @@ export function AppSidebar({ storage, onCreateFolder, onUploadFiles, uploadProgr
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton asChild tooltip="Nimbus">
-                <Link href="/files">
+                <Link href="/">
                   <Cloud className="text-primary" />
                   <span className="font-semibold">Nimbus</span>
                 </Link>

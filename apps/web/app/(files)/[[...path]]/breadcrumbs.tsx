@@ -19,7 +19,7 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
             <BreadcrumbPage>My Drive</BreadcrumbPage>
           ) : (
             <BreadcrumbLink asChild>
-              <Link href="/files">My Drive</Link>
+              <Link href="/">My Drive</Link>
             </BreadcrumbLink>
           )}
         </BreadcrumbItem>
@@ -41,7 +41,7 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
                   <BreadcrumbPage>{label}</BreadcrumbPage>
                 ) : (
                   <BreadcrumbLink asChild>
-                    <Link href={`/files/${crumbPath}`}>{label}</Link>
+                    <Link href={`/${crumbPath}`}>{label}</Link>
                   </BreadcrumbLink>
                 )}
               </BreadcrumbItem>

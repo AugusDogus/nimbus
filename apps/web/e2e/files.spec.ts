@@ -47,7 +47,7 @@ test("renames a file", async ({ page }) => {
   const target = `renamed-${Date.now()}.txt`;
   await writeFile(path.join(dataRoot, source), "hello");
 
-  await page.goto("/files");
+  await page.goto("/");
   const sourceEntry = page.locator(`[data-entry-name="${source}"]`).first();
   await expect(sourceEntry).toBeVisible();
 
@@ -83,7 +83,7 @@ test("deletes a file", async ({ page }) => {
     ],
   });
 
-  await page.goto("/files");
+  await page.goto("/");
   const entry = page.locator(`[data-entry-name="${filename}"]`).first();
   await expect(entry).toBeVisible();
 
@@ -111,7 +111,7 @@ test("deletes a file", async ({ page }) => {
 test("navigates into a folder", async ({ page }) => {
   await ensureFixtures();
   await cleanupTestFiles();
-  await page.goto("/files");
+  await page.goto("/");
   await page.getByRole("link", { name: "docs" }).click();
   await expect(page.getByText("readme.md")).toBeVisible();
 });
