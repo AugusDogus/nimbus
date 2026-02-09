@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useCallback } from "react";
 
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -108,6 +109,7 @@ export function FilesShell({
           </div>
 
           <div className="flex items-center gap-3">
+            <ThemeToggle />
             {session ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
