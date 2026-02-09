@@ -10,7 +10,7 @@
     "dev": "turbo dev",
     "lint": "turbo lint",
     "test": "turbo test",
-    "test:e2e": "playwright test"
+    "test:e2e": "bun playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
