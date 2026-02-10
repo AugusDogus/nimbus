@@ -1,14 +1,23 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { Cloud, FolderPlus, Plus, Search, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { ReactNode } from "react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
+import { DrawerActionItem } from "@/components/drawer-action-item";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+    Drawer,
+    DrawerClose,
+    DrawerContent,
+    DrawerDescription,
+    DrawerHeader,
+    DrawerTitle,
+} from "@/components/ui/drawer";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -24,10 +33,12 @@ import { signOut, useSession } from "@/lib/auth-client";
 import type { UserPreferences } from "@nimbus/api/context";
 
 import { AppSidebar } from "./[[...path]]/app-sidebar";
+import { HiddenFileInput, NewFolderDialog } from "./[[...path]]/new-content-ui";
 import { useFileActions } from "./[[...path]]/use-file-actions";
 import { useFilePreferences } from "./[[...path]]/use-file-preferences";
 import { useFileStorage } from "./[[...path]]/use-file-storage";
 import { useFileSubscription } from "./[[...path]]/use-file-subscription";
+import { useNewContent } from "./[[...path]]/use-new-content";
 import { useUpload } from "./[[...path]]/use-upload";
 
 type FilesShellProps = {
@@ -86,29 +97,43 @@ export function FilesShell({
     [upload],
   );
 
+  // Single new-content instance shared by sidebar (desktop) and FAB (mobile)
+  const [fabDrawerOpen, setFabDrawerOpen] = useState(false);
+  const newContent = useNewContent({
+    onCreateFolder: actions.createFolder,
+    onUploadFiles: handleUploadFiles,
+  });
+
   return (
     <SidebarProvider>
       <AppSidebar
         storage={storage}
-        onCreateFolder={actions.createFolder}
-        onUploadFiles={handleUploadFiles}
+        newContent={newContent}
         uploadProgress={upload}
       />
       <SidebarInset>
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-4 border-b bg-background/80 px-4 backdrop-blur-sm">
-          <div className="flex flex-1 items-center gap-4">
-            <SidebarTrigger />
+        <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b bg-background/80 px-3 backdrop-blur-sm md:h-16 md:gap-4 md:px-4">
+          <div className="flex flex-1 items-center gap-2 md:gap-4">
+            {/* Desktop: sidebar trigger */}
+            <SidebarTrigger className="hidden md:inline-flex" />
+
+            {/* Mobile: brand logo */}
+            <Link href="/" className="shrink-0 md:hidden" aria-label="Nimbus home">
+              <Cloud className="size-5 text-primary" />
+            </Link>
+
+            {/* Search bar -- always visible */}
             <div className="relative max-w-md flex-1">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="text"
                 placeholder="Search in Drive"
-                className="h-10 rounded-full bg-muted pl-10"
+                className="h-9 rounded-full bg-muted pl-10 md:h-10"
               />
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 md:gap-3">
             <ThemeToggle />
             {session ? (
               <DropdownMenu>
@@ -151,9 +176,52 @@ export function FilesShell({
           </div>
         </header>
 
-        <main className="flex-1 overflow-x-hidden p-2 md:p-4 lg:p-6">
+        <main className="flex-1 overflow-x-hidden p-2 pb-20 md:p-4 md:pb-4 lg:p-6">
           {children}
         </main>
+
+        {/* Mobile FAB for New actions */}
+        {isAuthed && (
+          <>
+            <Button
+              size="icon-lg"
+              className="fixed bottom-6 right-4 z-20 size-14 rounded-full shadow-lg md:hidden"
+              onClick={() => setFabDrawerOpen(true)}
+              aria-label="New file or folder"
+            >
+              <Plus className="size-6" />
+            </Button>
+
+            <Drawer open={fabDrawerOpen} onOpenChange={setFabDrawerOpen}>
+              <DrawerContent>
+                <DrawerHeader>
+                  <DrawerTitle>Create new</DrawerTitle>
+                  <DrawerDescription className="sr-only">
+                    Create a new file or folder
+                  </DrawerDescription>
+                </DrawerHeader>
+                <div className="flex flex-col gap-1 px-4 pb-6">
+                  <DrawerClose asChild>
+                    <DrawerActionItem onClick={newContent.openFolderDialog}>
+                      <FolderPlus className="size-5 text-muted-foreground" />
+                      New folder
+                    </DrawerActionItem>
+                  </DrawerClose>
+                  <DrawerClose asChild>
+                    <DrawerActionItem onClick={newContent.triggerFileInput}>
+                      <Upload className="size-5 text-muted-foreground" />
+                      Upload file
+                    </DrawerActionItem>
+                  </DrawerClose>
+                </div>
+              </DrawerContent>
+            </Drawer>
+
+          </>
+        )}
+
+        <HiddenFileInput state={newContent} />
+        <NewFolderDialog state={newContent} />
       </SidebarInset>
     </SidebarProvider>
   );

@@ -1,26 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useRef, useState } from "react";
 
 import { Clock, Cloud, FolderPlus, HardDrive, Plus, Star, Trash2, Upload, Users } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import {
     Sidebar,
@@ -34,6 +23,8 @@ import {
     SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
+
+import type { NewContentState } from "./use-new-content";
 
 const navItems = [
   { icon: HardDrive, label: "My Drive", href: "/", isActive: true },
@@ -52,46 +43,11 @@ export type StorageSummary = {
 
 type AppSidebarProps = {
   storage: StorageSummary;
-  onCreateFolder: (name: string) => Promise<void>;
-  onUploadFiles: (files: FileList) => void;
+  newContent: NewContentState;
   uploadProgress: { isUploading: boolean; progress: number; fileName: string | null };
 };
 
-export function AppSidebar({ storage, onCreateFolder, onUploadFiles, uploadProgress }: AppSidebarProps) {
-  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
-  const [folderName, setFolderName] = useState("");
-  const [creating, setCreating] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleCreateFolder = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!folderName.trim()) return;
-      setCreating(true);
-      try {
-        await onCreateFolder(folderName.trim());
-        setFolderDialogOpen(false);
-        setFolderName("");
-      } catch {
-        // error toast from hook
-      } finally {
-        setCreating(false);
-      }
-    },
-    [folderName, onCreateFolder],
-  );
-
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files && e.target.files.length > 0) {
-        onUploadFiles(e.target.files);
-        // Reset so the same file can be selected again
-        e.target.value = "";
-      }
-    },
-    [onUploadFiles],
-  );
-
+export function AppSidebar({ storage, newContent, uploadProgress }: AppSidebarProps) {
   return (
     <>
       <Sidebar collapsible="icon">
@@ -124,16 +80,11 @@ export function AppSidebar({ storage, onCreateFolder, onUploadFiles, uploadProgr
                       </SidebarMenuButton>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent side="right" align="start" className="w-48">
-                      <DropdownMenuItem
-                        onClick={() => {
-                          setFolderName("");
-                          setFolderDialogOpen(true);
-                        }}
-                      >
+                      <DropdownMenuItem onClick={newContent.openFolderDialog}>
                         <FolderPlus />
                         New folder
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                      <DropdownMenuItem onClick={newContent.triggerFileInput}>
                         <Upload />
                         Upload file
                       </DropdownMenuItem>
@@ -201,48 +152,6 @@ export function AppSidebar({ storage, onCreateFolder, onUploadFiles, uploadProgr
         </SidebarFooter>
       </Sidebar>
 
-      {/* Hidden file input for uploads */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={handleFileChange}
-      />
-
-      {/* New folder dialog */}
-      <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
-        <DialogContent>
-          <form onSubmit={handleCreateFolder}>
-            <DialogHeader>
-              <DialogTitle>New folder</DialogTitle>
-              <DialogDescription>Enter a name for the new folder</DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              <Input
-                value={folderName}
-                onChange={(e) => setFolderName(e.target.value)}
-                placeholder="Untitled folder"
-                autoFocus
-                autoComplete="off"
-                data-1p-ignore
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setFolderDialogOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={creating || !folderName.trim()}>
-                Create
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

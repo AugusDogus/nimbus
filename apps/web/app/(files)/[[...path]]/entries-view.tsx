@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, FileText, Folder, Pencil, Trash2 } from "lucide-react";
+import { Download, EllipsisVertical, FileText, Folder, Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
@@ -30,8 +30,18 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import {
+    Drawer,
+    DrawerClose,
+    DrawerContent,
+    DrawerDescription,
+    DrawerHeader,
+    DrawerTitle,
+} from "@/components/ui/drawer";
+import { DrawerActionItem } from "@/components/drawer-action-item";
 import { Input } from "@/components/ui/input";
 import { useDialogInputSelect } from "@/hooks/use-dialog-input-select";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 import type { FileEntry } from "./types";
@@ -196,24 +206,124 @@ function DeleteDialog({
   );
 }
 
-// ─── Entry Item with Context Menu ───────────────────────────────────────────
+// ─── Mobile File Action Drawer ──────────────────────────────────────────────
+
+function FileActionDrawer({
+  entry,
+  open,
+  onOpenChange,
+  onStartRename,
+  onStartDelete,
+  onDownload,
+}: {
+  entry: FileEntry | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onStartRename: (entry: FileEntry) => void;
+  onStartDelete: (entry: FileEntry) => void;
+  onDownload: (path: string) => void;
+}) {
+  if (!entry) return null;
+  const isDir = entry.type === "dir";
+
+  return (
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle className="truncate">{entry.name}</DrawerTitle>
+          <DrawerDescription className="sr-only">
+            Actions for {entry.name}
+          </DrawerDescription>
+        </DrawerHeader>
+        <div className="flex flex-col gap-1 px-4 pb-6">
+          {!isDir && (
+            <DrawerClose asChild>
+              <DrawerActionItem onClick={() => onDownload(entry.path)}>
+                <Download className="size-5 text-muted-foreground" />
+                Download
+              </DrawerActionItem>
+            </DrawerClose>
+          )}
+          <DrawerClose asChild>
+            <DrawerActionItem onClick={() => onStartRename(entry)}>
+              <Pencil className="size-5 text-muted-foreground" />
+              Rename
+            </DrawerActionItem>
+          </DrawerClose>
+          <DrawerClose asChild>
+            <DrawerActionItem
+              className="text-destructive hover:bg-destructive/10 active:bg-destructive/10"
+              onClick={() => onStartDelete(entry)}
+            >
+              <Trash2 className="size-5" />
+              Delete
+            </DrawerActionItem>
+          </DrawerClose>
+        </div>
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
+// ─── More Button (opens Drawer on mobile, visible on hover for desktop) ─────
+
+function MoreButton({
+  entry,
+  view,
+  onOpen,
+}: {
+  entry: FileEntry;
+  view: "list" | "grid";
+  onOpen: (entry: FileEntry) => void;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className={cn(
+        "shrink-0",
+        view === "list"
+          ? "md:opacity-0 md:group-hover/entry:opacity-100 md:group-focus-within/entry:opacity-100"
+          : "absolute right-1 top-1 md:opacity-0 md:group-hover/entry:opacity-100 md:group-focus-within/entry:opacity-100",
+      )}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onOpen(entry);
+      }}
+      aria-label={`Actions for ${entry.name}`}
+    >
+      <EllipsisVertical className="size-4" />
+    </Button>
+  );
+}
+
+// ─── Entry Item with Context Menu (desktop) / Drawer (mobile) ───────────────
 
 function EntryItem({
   entry,
   view,
+  isMobile,
   onStartRename,
   onStartDelete,
   onDownload,
   onPrefetch,
+  onOpenDrawer,
 }: {
   entry: FileEntry;
   view: "list" | "grid";
+  isMobile: boolean;
   onStartRename: (entry: FileEntry) => void;
   onStartDelete: (entry: FileEntry) => void;
   onDownload: (path: string) => void;
   onPrefetch?: (entry: FileEntry) => void;
+  onOpenDrawer: (entry: FileEntry) => void;
 }) {
   const isDir = entry.type === "dir";
+
+  const moreButton = (
+    <MoreButton entry={entry} view={view} onOpen={onOpenDrawer} />
+  );
 
   const content = isDir ? (
     view === "list" ? (
@@ -223,40 +333,45 @@ function EntryItem({
         onFocus={() => onPrefetch?.(entry)}
         data-entry-name={entry.name}
         data-entry-path={entry.path}
-        className="flex items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
+        className="group/entry flex min-h-12 items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
       >
-        <Folder className="size-6 fill-muted text-muted-foreground" />
+        <Folder className="size-6 shrink-0 fill-muted text-muted-foreground" />
         <span className="flex-1 truncate text-sm font-medium">{entry.name}</span>
+        {moreButton}
       </Link>
     ) : (
-      <Link
-        href={`/${entry.path}`}
-        onMouseEnter={() => onPrefetch?.(entry)}
-        onFocus={() => onPrefetch?.(entry)}
-        data-entry-name={entry.name}
-        data-entry-path={entry.path}
-        className="flex flex-col items-center justify-center gap-2 rounded-xl border bg-muted/50 p-3 hover:border-border hover:bg-accent sm:gap-3 sm:p-4"
-      >
-        <Folder className="size-10 fill-muted text-muted-foreground sm:size-12" />
-        <span className="w-full truncate text-center text-xs font-medium sm:text-sm">
-          {entry.name}
-        </span>
-      </Link>
+      <div className="group/entry relative">
+        <Link
+          href={`/${entry.path}`}
+          onMouseEnter={() => onPrefetch?.(entry)}
+          onFocus={() => onPrefetch?.(entry)}
+          data-entry-name={entry.name}
+          data-entry-path={entry.path}
+          className="flex flex-col items-center justify-center gap-2 rounded-xl border bg-muted/50 p-3 hover:border-border hover:bg-accent sm:gap-3 sm:p-4"
+        >
+          <Folder className="size-10 fill-muted text-muted-foreground sm:size-12" />
+          <span className="w-full truncate text-center text-xs font-medium sm:text-sm">
+            {entry.name}
+          </span>
+        </Link>
+        {moreButton}
+      </div>
     )
   ) : view === "list" ? (
     <div
       data-entry-name={entry.name}
       data-entry-path={entry.path}
-      className="flex cursor-default items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
+      className="group/entry flex min-h-12 cursor-default items-center gap-4 rounded-lg px-4 py-3 hover:bg-accent"
     >
-      <FileText className="size-6 text-primary" />
+      <FileText className="size-6 shrink-0 text-primary" />
       <span className="flex-1 truncate text-sm">{entry.name}</span>
+      {moreButton}
     </div>
   ) : (
     <div
       data-entry-name={entry.name}
       data-entry-path={entry.path}
-      className="flex cursor-default flex-col rounded-xl border bg-card hover:border-border hover:shadow-sm"
+      className="group/entry relative flex cursor-default flex-col rounded-xl border bg-card hover:border-border hover:shadow-sm"
     >
       <div className="flex h-20 items-center justify-center rounded-t-xl bg-muted sm:h-28">
         <FileText className="size-8 text-primary sm:size-10" />
@@ -264,8 +379,14 @@ function EntryItem({
       <div className="border-t p-2 sm:p-3">
         <span className="line-clamp-2 text-xs sm:text-sm">{entry.name}</span>
       </div>
+      {moreButton}
     </div>
   );
+
+  // On mobile, skip ContextMenu wrapper entirely -- use the Drawer via more button
+  if (isMobile) {
+    return content;
+  }
 
   return (
     <ContextMenu>
@@ -306,17 +427,21 @@ const gridClassName = (view: "list" | "grid") =>
 function EntriesGrid({
   entries,
   view,
+  isMobile,
   onStartRename,
   onStartDelete,
   onDownload,
   onPrefetch,
+  onOpenDrawer,
 }: {
   entries: FileEntry[];
   view: "list" | "grid";
+  isMobile: boolean;
   onStartRename: (entry: FileEntry) => void;
   onStartDelete: (entry: FileEntry) => void;
   onDownload: (path: string) => void;
   onPrefetch?: (entry: FileEntry) => void;
+  onOpenDrawer: (entry: FileEntry) => void;
 }) {
   return (
     <div className={gridClassName(view)}>
@@ -325,10 +450,12 @@ function EntriesGrid({
           key={entry.path}
           entry={entry}
           view={view}
+          isMobile={isMobile}
           onStartRename={onStartRename}
           onStartDelete={onStartDelete}
           onDownload={onDownload}
           onPrefetch={onPrefetch}
+          onOpenDrawer={onOpenDrawer}
         />
       ))}
     </div>
@@ -345,10 +472,13 @@ export function EntriesView({
   sortedEntries,
   actions,
 }: EntriesViewProps) {
+  const isMobile = useIsMobile();
   const [renameTarget, setRenameTarget] = useState<FileEntry | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [drawerTarget, setDrawerTarget] = useState<FileEntry | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const handleStartRename = useCallback((entry: FileEntry) => {
     setRenameTarget(entry);
@@ -360,11 +490,18 @@ export function EntriesView({
     setDeleteOpen(true);
   }, []);
 
+  const handleOpenDrawer = useCallback((entry: FileEntry) => {
+    setDrawerTarget(entry);
+    setDrawerOpen(true);
+  }, []);
+
   const sharedProps = {
+    isMobile,
     onStartRename: handleStartRename,
     onStartDelete: handleStartDelete,
     onDownload: actions.downloadFile,
     onPrefetch: actions.prefetchFolder,
+    onOpenDrawer: handleOpenDrawer,
   };
 
   return (
@@ -392,6 +529,15 @@ export function EntriesView({
       ) : (
         <EntriesGrid entries={sortedEntries} view={view} {...sharedProps} />
       )}
+
+      <FileActionDrawer
+        entry={drawerTarget}
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        onStartRename={handleStartRename}
+        onStartDelete={handleStartDelete}
+        onDownload={actions.downloadFile}
+      />
 
       <RenameDialog
         entry={renameTarget}

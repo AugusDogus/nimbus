@@ -20,10 +20,10 @@ export function LoadingSkeleton({ view }: { view: "list" | "grid" }) {
   return (
     <div className="space-y-1">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4 rounded-lg px-4 py-3">
-          <Skeleton className="size-6 rounded" />
+        <div key={i} className="flex min-h-12 items-center gap-4 rounded-lg px-4 py-3">
+          <Skeleton className="size-6 shrink-0 rounded" />
           <Skeleton className="h-4 flex-1" />
-          <Skeleton className="h-4 w-24" />
+          <Skeleton className="size-8 shrink-0 rounded md:hidden" />
         </div>
       ))}
     </div>
