@@ -74,7 +74,7 @@ export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) 
     sortOptions.find((option) => option.value === sortValue) ?? sortOptions[0];
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="ml-auto flex shrink-0 items-center gap-2">
       {/* Mobile: single filter button that opens a Drawer */}
       <Button
         variant="outline"

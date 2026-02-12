@@ -1,17 +1,27 @@
 "use client";
 
-import { ChevronLeft } from "lucide-react";
+import { Home } from "lucide-react";
 import Link from "next/link";
 import { Fragment } from "react";
 
 import {
-    Breadcrumb,
-    BreadcrumbItem,
-    BreadcrumbLink,
-    BreadcrumbList,
-    BreadcrumbPage,
-    BreadcrumbSeparator,
+  Breadcrumb,
+  BreadcrumbEllipsis,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 function decodeSegment(segment: string) {
   try {
@@ -21,69 +31,127 @@ function decodeSegment(segment: string) {
   }
 }
 
-export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
+/**
+ * Maximum number of middle segments (between root and current page) to keep
+ * visible before collapsing the rest into an ellipsis dropdown.
+ *
+ * Desktop keeps 1 parent visible: `My Drive > ... > Parent > Current`
+ * Mobile keeps 0 to save space:   `Home > ... > Current`
+ */
+const MAX_VISIBLE_MIDDLE_DESKTOP = 1;
+const MAX_VISIBLE_MIDDLE_MOBILE = 0;
+
+export function FileBreadcrumbs({
+  pathSegments,
+}: {
+  pathSegments: string[];
+}) {
+  const isMobile = useIsMobile();
   const isNested = pathSegments.length > 0;
-  const currentLabel = isNested
-    ? decodeSegment(pathSegments[pathSegments.length - 1])
-    : "My Drive";
-  const parentHref = isNested
-    ? pathSegments.length === 1
-      ? "/"
-      : `/${pathSegments.slice(0, -1).join("/")}`
+  const maxVisible = isMobile
+    ? MAX_VISIBLE_MIDDLE_MOBILE
+    : MAX_VISIBLE_MIDDLE_DESKTOP;
+
+  const segmentCrumbs = pathSegments.map((segment, i) => ({
+    label: decodeSegment(segment),
+    href: `/${pathSegments.slice(0, i + 1).join("/")}`,
+  }));
+
+  // The last segment is always rendered as the current (non-link) page.
+  const currentPage = isNested
+    ? segmentCrumbs[segmentCrumbs.length - 1]
     : null;
 
-  return (
-    <>
-      {/* Mobile: back arrow + current folder name */}
-      {isNested ? (
-        <div className="flex items-center gap-1 md:hidden">
-          <Link
-            href={parentHref!}
-            className="flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label="Go back"
-          >
-            <ChevronLeft className="size-5" />
-          </Link>
-          <span className="truncate text-sm font-medium">{currentLabel}</span>
-        </div>
-      ) : (
-        /* At root on mobile: show nothing (the sidebar trigger is already there) */
-        <div className="md:hidden" />
-      )}
+  // Middle crumbs sit between root and the current page.
+  const middleCrumbs = segmentCrumbs.slice(0, -1);
+  const needsCollapse = middleCrumbs.length > maxVisible;
+  const collapsedCrumbs = needsCollapse
+    ? middleCrumbs.slice(0, middleCrumbs.length - maxVisible)
+    : [];
+  const visibleMiddleCrumbs = needsCollapse
+    ? middleCrumbs.slice(middleCrumbs.length - maxVisible)
+    : middleCrumbs;
+  const labelClassName = isMobile ? "max-w-[38vw] truncate" : "";
 
-      {/* Desktop: full breadcrumb trail */}
-      <Breadcrumb className="hidden md:block">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            {pathSegments.length === 0 ? (
-              <BreadcrumbPage>My Drive</BreadcrumbPage>
-            ) : (
+  return (
+    <Breadcrumb className="min-w-0">
+      <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden">
+        {/* Root: icon on mobile, text on desktop */}
+        <BreadcrumbItem>
+          {!isNested ? (
+            <BreadcrumbPage>
+              {isMobile ? (
+                <Home className="size-4" />
+              ) : (
+                "My Drive"
+              )}
+            </BreadcrumbPage>
+          ) : (
+            <BreadcrumbLink asChild>
+              <Link href="/" className={labelClassName}>
+                {isMobile ? (
+                  <Home className="size-4" />
+                ) : (
+                  "My Drive"
+                )}
+                <span className="sr-only">My Drive</span>
+              </Link>
+            </BreadcrumbLink>
+          )}
+        </BreadcrumbItem>
+
+        {/* Ellipsis with collapsed segments */}
+        {needsCollapse && (
+          <>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="icon-sm" variant="ghost">
+                    <BreadcrumbEllipsis />
+                    <span className="sr-only">Toggle menu</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuGroup>
+                    {collapsedCrumbs.map((crumb) => (
+                      <DropdownMenuItem key={crumb.href} asChild>
+                        <Link href={crumb.href}>{crumb.label}</Link>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </BreadcrumbItem>
+          </>
+        )}
+
+        {/* Visible middle segments (links) */}
+        {visibleMiddleCrumbs.map((crumb) => (
+          <Fragment key={crumb.href}>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/">My Drive</Link>
+                <Link href={crumb.href} className={labelClassName}>
+                  {crumb.label}
+                </Link>
               </BreadcrumbLink>
-            )}
-          </BreadcrumbItem>
-          {pathSegments.map((segment, index) => {
-            const crumbPath = pathSegments.slice(0, index + 1).join("/");
-            const isLast = index === pathSegments.length - 1;
-            const label = decodeSegment(segment);
-            return (
-              <Fragment key={crumbPath}>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  {isLast ? (
-                    <BreadcrumbPage>{label}</BreadcrumbPage>
-                  ) : (
-                    <BreadcrumbLink asChild>
-                      <Link href={`/${crumbPath}`}>{label}</Link>
-                    </BreadcrumbLink>
-                  )}
-                </BreadcrumbItem>
-              </Fragment>
-            );
-          })}
-        </BreadcrumbList>
-      </Breadcrumb>
-    </>
+            </BreadcrumbItem>
+          </Fragment>
+        ))}
+
+        {/* Current page */}
+        {currentPage && (
+          <>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage className={labelClassName}>
+                {currentPage.label}
+              </BreadcrumbPage>
+            </BreadcrumbItem>
+          </>
+        )}
+      </BreadcrumbList>
+    </Breadcrumb>
   );
 }

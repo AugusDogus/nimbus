@@ -109,8 +109,10 @@ export function FilesPageClient({
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <FileBreadcrumbs pathSegments={effectiveSegments} />
+      <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-4 md:mb-4 md:flex md:justify-between md:px-0">
+        <div className="min-w-0 overflow-hidden">
+          <FileBreadcrumbs pathSegments={effectiveSegments} />
+        </div>
         <FiltersRow
           prefs={prefs}
           view={view}
