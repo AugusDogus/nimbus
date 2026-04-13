@@ -31,6 +31,13 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
     Drawer,
     DrawerClose,
     DrawerContent,
@@ -265,18 +272,30 @@ function FileActionDrawer({
   );
 }
 
-// ─── More Button (opens Drawer on mobile, visible on hover for desktop) ─────
+// ─── More Button (opens Drawer on mobile, dropdown on desktop) ───────────────
 
 function MoreButton({
   entry,
   view,
-  onOpen,
+  isMobile,
+  onDownload,
+  onDesktopMenuOpenChange,
+  onOpenDrawer,
+  onStartDelete,
+  onStartRename,
 }: {
   entry: FileEntry;
   view: "list" | "grid";
-  onOpen: (entry: FileEntry) => void;
+  isMobile: boolean;
+  onDownload: (path: string) => void;
+  onDesktopMenuOpenChange?: (open: boolean) => void;
+  onOpenDrawer: (entry: FileEntry) => void;
+  onStartDelete: (entry: FileEntry) => void;
+  onStartRename: (entry: FileEntry) => void;
 }) {
-  return (
+  const isDir = entry.type === "dir";
+
+  const trigger = (
     <Button
       variant="ghost"
       size="icon-sm"
@@ -289,12 +308,50 @@ function MoreButton({
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        onOpen(entry);
+        if (isMobile) {
+          onOpenDrawer(entry);
+        }
+      }}
+      onContextMenu={(e) => {
+        if (!isMobile) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       }}
       aria-label={`Actions for ${entry.name}`}
     >
       <EllipsisVertical className="size-4" />
     </Button>
+  );
+
+  if (isMobile) {
+    return trigger;
+  }
+
+  return (
+    <DropdownMenu onOpenChange={onDesktopMenuOpenChange}>
+      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {!isDir && (
+          <>
+            <DropdownMenuItem onClick={() => onDownload(entry.path)}>
+              <Download />
+              Download
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <DropdownMenuItem onClick={() => onStartRename(entry)}>
+          <Pencil />
+          Rename
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={() => onStartDelete(entry)}>
+          <Trash2 />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -320,9 +377,23 @@ function EntryItem({
   onOpenDrawer: (entry: FileEntry) => void;
 }) {
   const isDir = entry.type === "dir";
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
 
   const moreButton = (
-    <MoreButton entry={entry} view={view} onOpen={onOpenDrawer} />
+    <MoreButton
+      entry={entry}
+      view={view}
+      isMobile={isMobile}
+      onDownload={onDownload}
+      onDesktopMenuOpenChange={(open) => {
+        if (open) {
+          setContextMenuOpen(false);
+        }
+      }}
+      onOpenDrawer={onOpenDrawer}
+      onStartDelete={onStartDelete}
+      onStartRename={onStartRename}
+    />
   );
 
   const content = isDir ? (
@@ -389,7 +460,7 @@ function EntryItem({
   }
 
   return (
-    <ContextMenu>
+    <ContextMenu open={contextMenuOpen} onOpenChange={setContextMenuOpen}>
       <ContextMenuTrigger asChild>{content}</ContextMenuTrigger>
       <ContextMenuContent>
         {!isDir && (
