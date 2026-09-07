@@ -1,15 +1,18 @@
-import { useMemo } from "react";
-
 import { useQuery } from "@tanstack/react-query";
 
 import { trpcClient } from "@/lib/trpc";
 
-type StorageSummary = {
-  usedBytes: number | null;
-  label: string;
-  progressValue: number;
-  isLoading: boolean;
-};
+export type StorageSummary =
+  | { status: "loading" | "unavailable" }
+  | {
+      status: "ready";
+      usedLabel: string;
+      capacity: {
+        usedPercent: number;
+        availableLabel: string;
+        totalLabel: string;
+      } | null;
+    };
 
 const formatBytes = (bytes: number) => {
   const units = ["B", "KB", "MB", "GB", "TB", "PB"];
@@ -26,7 +29,7 @@ const formatBytes = (bytes: number) => {
 };
 
 export const useFileStorage = (enabled: boolean): StorageSummary => {
-  const storageQuery = useQuery<{ usedBytes: number }, Error>({
+  const storageQuery = useQuery({
     queryKey: ["files.storage"] as const,
     queryFn: () => trpcClient.files.storage.query(),
     enabled,
@@ -34,42 +37,22 @@ export const useFileStorage = (enabled: boolean): StorageSummary => {
     refetchInterval: 60_000,
   });
 
-  const summary = useMemo<StorageSummary>(() => {
-    if (!enabled) {
-      return {
-        usedBytes: null,
-        label: "Sign in to see usage",
-        progressValue: 0,
-        isLoading: false,
-      };
-    }
+  if (!enabled) return { status: "unavailable" };
+  if (storageQuery.isPending) return { status: "loading" };
+  if (!storageQuery.data) return { status: "unavailable" };
 
-    if (storageQuery.isLoading) {
-      return {
-        usedBytes: null,
-        label: "Calculating usage…",
-        progressValue: 0,
-        isLoading: true,
-      };
-    }
-
-    if (!storageQuery.data) {
-      return {
-        usedBytes: null,
-        label: "Usage unavailable",
-        progressValue: 0,
-        isLoading: false,
-      };
-    }
-
-    const used = storageQuery.data.usedBytes;
-    return {
-      usedBytes: used,
-      label: `${formatBytes(used)} used (no limit)`,
-      progressValue: 100,
-      isLoading: false,
-    };
-  }, [enabled, storageQuery.data, storageQuery.isLoading]);
-
-  return summary;
+  const { usedBytes, capacity } = storageQuery.data;
+  return {
+    status: "ready",
+    usedLabel: formatBytes(usedBytes),
+    capacity: capacity
+      ? {
+          usedPercent: Math.round(
+            (1 - capacity.availableBytes / capacity.totalBytes) * 100,
+          ),
+          availableLabel: formatBytes(capacity.availableBytes),
+          totalLabel: formatBytes(capacity.totalBytes),
+        }
+      : null,
+  };
 };

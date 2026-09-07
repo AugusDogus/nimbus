@@ -2,7 +2,7 @@
 
 import { Folder, HardDrive } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { useSession } from "@/lib/auth-client";
 
@@ -48,10 +48,11 @@ export function FilesPageClient({
     () => normalizePathSegments(params?.path),
     [params?.path],
   );
-  const effectiveSegments = paramSegments.length > 0 ? paramSegments : pathSegments;
+  const effectiveSegments =
+    paramSegments.length > 0 ? paramSegments : pathSegments;
   const currentPath = effectiveSegments.join("/");
-  const { data: sessionData } = useSession();
-  const session = sessionData ?? initialSession;
+  const { data: sessionData, isPending } = useSession();
+  const session = isPending ? initialSession : sessionData;
   const isAuthed = Boolean(session);
 
   const { prefs, updatePreferences } = useFilePreferences(
@@ -69,6 +70,10 @@ export function FilesPageClient({
     initialData: initialEntries ?? undefined,
   });
   const actions = useFileActions({ currentPath, includeStats });
+  const { recordVisit } = actions;
+  useEffect(() => {
+    if (isAuthed && currentPath) void recordVisit(currentPath);
+  }, [currentPath, isAuthed, recordVisit]);
 
   const sortedEntries = useMemo(() => {
     const sorted = [...entries].sort((a, b) => {
@@ -109,7 +114,7 @@ export function FilesPageClient({
 
   return (
     <>
-      <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-4 md:mb-4 md:flex md:justify-between md:px-0">
+      <div className="mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 pb-5 md:flex md:justify-between">
         <div className="min-w-0 overflow-hidden">
           <FileBreadcrumbs pathSegments={effectiveSegments} />
         </div>
@@ -129,8 +134,7 @@ export function FilesPageClient({
             Welcome to Nimbus Drive
           </h2>
           <p className="text-pretty mt-2 max-w-md text-sm text-muted-foreground">
-            Sign in to access your files, photos, and documents from
-            anywhere.
+            Sign in to access your files, photos, and documents from anywhere.
           </p>
         </div>
       ) : (
