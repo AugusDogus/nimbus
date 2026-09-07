@@ -18,9 +18,9 @@ import { iterateFileEvents, type FileDelta, type FileEvent } from "./file-events
 import { createCallerFactory, protectedProcedure, publicProcedure, router } from "./index";
 
 /** Convert safe-path errors to TRPCErrors. */
-function safePath(requested: string) {
+async function safePath(requested: string) {
   try {
-    return resolveSafePath(requested);
+    return await resolveSafePath(requested);
   } catch (err) {
     const e = err as { code?: string; message?: string };
     if (e.code === "FORBIDDEN") {
@@ -75,7 +75,7 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ path: z.string().optional(), includeStats: z.boolean().optional() }))
       .query(async ({ ctx, input }) => {
-        const { absolute: resolved, relative } = safePath(input.path ?? "");
+        const { absolute: resolved, relative } = await safePath(input.path ?? "");
 
         const includeStats = input.includeStats ?? false;
         const cachedStats = includeStats ? getForDir(relative) : null;
@@ -182,7 +182,7 @@ export const appRouter = router({
     createFolder: protectedProcedure
       .input(z.object({ path: z.string().optional(), name: z.string().min(1) }))
       .mutation(async ({ input }) => {
-        const parent = safePath(input.path ?? "");
+        const parent = await safePath(input.path ?? "");
         const folderName = input.name.trim();
 
         if (folderName.includes("/") || folderName.includes("\\") || folderName === ".." || folderName === ".") {
@@ -208,7 +208,7 @@ export const appRouter = router({
     rename: protectedProcedure
       .input(z.object({ path: z.string(), newName: z.string().min(1) }))
       .mutation(async ({ input }) => {
-        const source = safePath(input.path);
+        const source = await safePath(input.path);
         const newName = input.newName.trim();
 
         if (newName.includes("/") || newName.includes("\\") || newName === ".." || newName === ".") {
@@ -247,8 +247,8 @@ export const appRouter = router({
     move: protectedProcedure
       .input(z.object({ sourcePath: z.string(), destinationPath: z.string() }))
       .mutation(async ({ input }) => {
-        const source = safePath(input.sourcePath);
-        const dest = safePath(input.destinationPath);
+        const source = await safePath(input.sourcePath);
+        const dest = await safePath(input.destinationPath);
 
         try {
           await statPath(source.absolute);
@@ -289,7 +289,7 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ path: z.string() }))
       .mutation(async ({ input }) => {
-        const target = safePath(input.path);
+        const target = await safePath(input.path);
 
         try {
           await statPath(target.absolute);
@@ -311,7 +311,7 @@ export const appRouter = router({
         }
         const root = getDataRoot();
         const hasFilter = typeof input.path === "string" && input.path.length > 0;
-        const { absolute: requestedAbs, relative: requestedRel } = safePath(input.path ?? "");
+        const { absolute: requestedAbs, relative: requestedRel } = await safePath(input.path ?? "");
 
         for await (const [event] of iterateFileEvents(signal)) {
           const fileEvent = event as FileEvent;

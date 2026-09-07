@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   let resolved: string;
   try {
-    const safe = resolveSafePath(filePath);
+    const safe = await resolveSafePath(filePath);
     resolved = safe.absolute;
   } catch {
     return NextResponse.json({ error: "Invalid path." }, { status: 400 });
