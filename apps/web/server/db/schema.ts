@@ -36,3 +36,5 @@ export const userPreferences = createTable("user_preferences", {
 
 export * from "./auth-schema";
 
+
+export * from "./drive-schema";
