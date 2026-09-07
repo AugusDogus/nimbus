@@ -1,81 +1,84 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import type { FormEvent } from "react"
-import { useState } from "react"
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { FormEvent } from "react";
+import { useState } from "react";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card"
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
-    Field,
-    FieldDescription,
-    FieldGroup,
-    FieldLabel,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { signIn } from "@/lib/auth-client"
-import { cn } from "@/lib/utils"
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { signIn } from "@/lib/auth-client";
+import { queryClient } from "@/lib/trpc";
+import { cn } from "@/lib/utils";
 
 const getErrorMessage = (error: unknown) => {
   if (typeof error === "string") {
-    return error
+    return error;
   }
 
   if (error && typeof error === "object" && "message" in error) {
-    const message = error.message
+    const message = error.message;
     if (typeof message === "string") {
-      return message
+      return message;
     }
   }
 
-  return "Something went wrong. Please try again."
-}
+  return "Something went wrong. Please try again.";
+};
 
 export function LoginForm({
+  setupAvailable = false,
   className,
   ...props
-}: React.ComponentProps<"div">) {
-  const router = useRouter()
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+}: React.ComponentProps<"div"> & { setupAvailable?: boolean }) {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setError(null)
-    setSuccess(null)
+    event.preventDefault();
+    setError(null);
+    setSuccess(null);
 
     if (!email || !password) {
-      setError("Enter an email and password to continue.")
-      return
+      setError("Enter an email and password to continue.");
+      return;
     }
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
     try {
-      const result = await signIn.email({ email, password })
+      const result = await signIn.email({ email, password });
       if (result?.error) {
-        setError(getErrorMessage(result.error))
-        return
+        setError(getErrorMessage(result.error));
+        return;
       }
-      setSuccess("Signed in successfully.")
-      router.push("/")
+      queryClient.clear();
+      setSuccess("Signed in successfully.");
+      router.push("/");
     } catch (err) {
-      setError(getErrorMessage(err))
+      setError(getErrorMessage(err));
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
-  const isDisabled = !email || !password || isSubmitting
+  const isDisabled = !email || !password || isSubmitting;
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
@@ -93,12 +96,13 @@ export function LoginForm({
                 <FieldLabel htmlFor="email">Email</FieldLabel>
                 <Input
                   id="email"
+                  autoComplete="email"
                   type="email"
                   placeholder="m@example.com"
                   value={email}
                   onChange={(event) => {
-                    setEmail(event.target.value)
-                    setError(null)
+                    setEmail(event.target.value);
+                    setError(null);
                   }}
                   required
                 />
@@ -107,16 +111,17 @@ export function LoginForm({
                 <FieldLabel htmlFor="password">Password</FieldLabel>
                 <Input
                   id="password"
+                  autoComplete="current-password"
                   type="password"
                   value={password}
                   onChange={(event) => {
-                    setPassword(event.target.value)
-                    setError(null)
+                    setPassword(event.target.value);
+                    setError(null);
                   }}
                   required
                 />
                 <FieldDescription className="text-pretty">
-                  Passwords are hashed and never stored in plaintext.
+                  Use the password for your Nimbus account.
                 </FieldDescription>
               </Field>
               <Field>
@@ -133,11 +138,17 @@ export function LoginForm({
                     {success}
                   </FieldDescription>
                 ) : null}
-                <FieldDescription className="text-center">
-                  Don&apos;t have an account?{" "}
-                  <Link className="underline-offset-4 hover:underline" href="/signup">
-                    Sign up
-                  </Link>
+                <FieldDescription className="text-pretty text-center">
+                  {setupAvailable ? (
+                    <Link
+                      className="underline underline-offset-4"
+                      href="/signup"
+                    >
+                      Set up your server
+                    </Link>
+                  ) : (
+                    "Need an account? Ask your server administrator."
+                  )}
                 </FieldDescription>
               </Field>
             </FieldGroup>
@@ -145,5 +156,5 @@ export function LoginForm({
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
