@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { FileEvent, FileWatchHandle } from "./watch.worker";
@@ -52,8 +52,11 @@ describe("watch.worker", () => {
     handle?.close();
     handle = null;
     await rm(root, { recursive: true, force: true });
-    process.env.NIMBUS_DATA_ROOT = previousRoot;
-    process.env.NIMBUS_WATCH_DEBOUNCE_MS = previousDebounce;
+    if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
+    else process.env.NIMBUS_DATA_ROOT = previousRoot;
+    if (previousDebounce === undefined)
+      delete process.env.NIMBUS_WATCH_DEBOUNCE_MS;
+    else process.env.NIMBUS_WATCH_DEBOUNCE_MS = previousDebounce;
   });
 
   it("emits event when a file is created", async () => {
@@ -90,6 +93,23 @@ describe("watch.worker", () => {
     const message = await nextMessageAfterDelete;
     expect(message.path).toBe(filePath);
     expect(["rename", "change"]).toContain(message.event);
+  });
+
+  it("observes files in directories created after the watcher starts", async () => {
+    const directory = path.join(root, "new-folder", "nested");
+    await mkdir(directory, { recursive: true });
+    await collectEvents(queue, debounceMs * 2);
+    const filename = path.join(directory, "external.txt");
+    await writeFile(filename, "external");
+    const messages = await collectEvents(queue, debounceMs * 4);
+    expect(messages.some((event) => event.path === filename)).toBe(true);
+  });
+
+  it("does not emit changes from private Nimbus storage", async () => {
+    const directory = path.join(root, ".NIMBUS", "uploads");
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "private.json"), "internal metadata");
+    expect(await collectEvents(queue, debounceMs * 4)).toEqual([]);
   });
 
   it("debounces rapid changes to the same file", async () => {

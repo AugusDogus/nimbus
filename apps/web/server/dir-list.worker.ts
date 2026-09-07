@@ -28,7 +28,9 @@ const dataRoot = getDataRoot();
 const normalizeRelative = (value: string) => value.split(path.sep).join("/");
 
 const shouldIgnoreRelative = (value: string) =>
-  normalizeRelative(value).split("/").includes(".nimbus");
+  normalizeRelative(value)
+    .split("/")
+    .some((segment) => segment.toLowerCase() === ".nimbus");
 
 const toRelativeDir = (absolutePath: string) => {
   const relative = path.relative(dataRoot, absolutePath);
@@ -67,17 +69,19 @@ const listDir = async (absolutePath: string) => {
       return;
     }
 
-    const filtered = entries.filter((entry) => entry.name !== ".nimbus");
+    const filtered = entries.filter(
+      (entry) =>
+        entry.name.toLowerCase() !== ".nimbus" &&
+        (entry.isFile() || entry.isDirectory()),
+    );
     mapped = filtered.map((entry) => {
-      const entryPath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+      const entryPath = relativeDir
+        ? `${relativeDir}/${entry.name}`
+        : entry.name;
       return {
         name: entry.name,
         path: entryPath,
-        type: entry.isDirectory()
-          ? "dir"
-          : entry.isFile()
-            ? "file"
-            : "other",
+        type: entry.isDirectory() ? "dir" : entry.isFile() ? "file" : "other",
       };
     });
 
