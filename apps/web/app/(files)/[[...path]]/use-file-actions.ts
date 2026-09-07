@@ -5,10 +5,11 @@ import { queryClient, trpcClient } from "@/lib/trpc";
 
 import type { FileEntry } from "./types";
 
-function invalidateFileQueries(currentPath: string, includeStats: boolean) {
-  const listKey = ["files.list", currentPath, includeStats];
-  queryClient.invalidateQueries({ queryKey: listKey });
-  queryClient.refetchQueries({ queryKey: listKey, exact: true });
+function invalidateFileQueries() {
+  void queryClient.invalidateQueries({ queryKey: ["files.list"] });
+  void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+  void queryClient.invalidateQueries({ queryKey: ["trash"] });
+  void queryClient.invalidateQueries({ queryKey: ["shares"] });
   queryClient.invalidateQueries({ queryKey: ["files.storage"] });
 }
 
@@ -47,7 +48,10 @@ type UseFileActionsOptions = {
   includeStats: boolean;
 };
 
-export function useFileActions({ currentPath, includeStats }: UseFileActionsOptions) {
+export function useFileActions({
+  currentPath,
+  includeStats,
+}: UseFileActionsOptions) {
   const createFolder = useCallback(
     async (name: string) => {
       try {
@@ -55,15 +59,16 @@ export function useFileActions({ currentPath, includeStats }: UseFileActionsOpti
           path: currentPath || undefined,
           name,
         });
-        invalidateFileQueries(currentPath, includeStats);
+        invalidateFileQueries();
         toast.success(`Created folder "${name}"`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to create folder.";
+        const message =
+          error instanceof Error ? error.message : "Failed to create folder.";
         toast.error(message);
         throw error;
       }
     },
-    [currentPath, includeStats],
+    [currentPath],
   );
 
   const renameEntry = useCallback(
@@ -71,10 +76,11 @@ export function useFileActions({ currentPath, includeStats }: UseFileActionsOpti
       try {
         await trpcClient.files.rename.mutate({ path: entryPath, newName });
         updateRenameInCache(currentPath, includeStats, entryPath, newName);
-        invalidateFileQueries(currentPath, includeStats);
+        invalidateFileQueries();
         toast.success(`Renamed to "${newName}"`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to rename.";
+        const message =
+          error instanceof Error ? error.message : "Failed to rename.";
         toast.error(message);
         throw error;
       }
@@ -86,40 +92,71 @@ export function useFileActions({ currentPath, includeStats }: UseFileActionsOpti
     async (sourcePath: string, destinationPath: string) => {
       try {
         await trpcClient.files.move.mutate({ sourcePath, destinationPath });
-        invalidateFileQueries(currentPath, includeStats);
+        invalidateFileQueries();
         toast.success("Moved successfully");
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to move.";
+        const message =
+          error instanceof Error ? error.message : "Failed to move.";
         toast.error(message);
         throw error;
       }
     },
-    [currentPath, includeStats],
+    [],
   );
 
-  const deleteEntry = useCallback(
-    async (entryPath: string) => {
-      try {
-        await trpcClient.files.delete.mutate({ path: entryPath });
-        invalidateFileQueries(currentPath, includeStats);
-        toast.success("Deleted");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to delete.";
-        toast.error(message);
-        throw error;
-      }
-    },
-    [currentPath, includeStats],
-  );
+  const deleteEntry = useCallback(async (entryPath: string) => {
+    try {
+      await trpcClient.files.delete.mutate({ path: entryPath });
+      invalidateFileQueries();
+      toast.success("Moved to trash");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to delete.";
+      toast.error(message);
+      throw error;
+    }
+  }, []);
 
-  const downloadFile = useCallback((filePath: string) => {
-    const url = `/api/files/download?path=${encodeURIComponent(filePath)}`;
+  const downloadFile = useCallback((filePath: string, zip = false) => {
+    const url = `/api/files/download?path=${encodeURIComponent(filePath)}${zip ? "&zip=1" : ""}`;
     const a = document.createElement("a");
     a.href = url;
     a.download = "";
     document.body.appendChild(a);
     a.click();
     a.remove();
+  }, []);
+
+  const toggleStar = useCallback(async (filePath: string) => {
+    try {
+      const existing = await trpcClient.catalog.bookmarks.query();
+      const starred = !existing.find((entry) => entry.path === filePath)
+        ?.starred;
+      await trpcClient.catalog.bookmark.mutate({ path: filePath, starred });
+      void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      toast.success(starred ? "Added to Starred" : "Removed from Starred");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not update starred files.",
+      );
+    }
+  }, []);
+
+  const recordVisit = useCallback(async (filePath: string) => {
+    try {
+      await trpcClient.catalog.bookmark.mutate({ path: filePath });
+      await queryClient.invalidateQueries({
+        queryKey: ["catalog", "bookmarks"],
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not update Recent files. Try opening the item again.",
+      );
+    }
   }, []);
 
   const prefetchFolder = useCallback(
@@ -144,6 +181,8 @@ export function useFileActions({ currentPath, includeStats }: UseFileActionsOpti
     moveEntry,
     deleteEntry,
     downloadFile,
+    toggleStar,
+    recordVisit,
     prefetchFolder,
   };
 }

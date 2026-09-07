@@ -1,157 +1,200 @@
 "use client";
 
 import Link from "next/link";
-
-import { Clock, Cloud, FolderPlus, HardDrive, Plus, Star, Trash2, Upload, Users } from "lucide-react";
-
+import { usePathname } from "next/navigation";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+  Clock,
+  FolderPlus,
+  HardDrive,
+  Plus,
+  Settings,
+  Star,
+  Trash2,
+  Upload,
+  Users,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { NimbusLogo } from "@/components/nimbus-logo";
+import { NimbusWordmark } from "@/components/nimbus-wordmark";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Progress } from "@/components/ui/progress";
 import {
-    Sidebar,
-    SidebarContent,
-    SidebarFooter,
-    SidebarGroup,
-    SidebarGroupContent,
-    SidebarHeader,
-    SidebarMenu,
-    SidebarMenuButton,
-    SidebarMenuItem,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
-import { cn } from "@/lib/utils";
-
 import type { NewContentState } from "./use-new-content";
+import type { StorageSummary } from "./use-file-storage";
+import { StorageIndicator } from "./storage-indicator";
 
 const navItems = [
-  { icon: HardDrive, label: "My Drive", href: "/", isActive: true },
-  { icon: Users, label: "Shared with me", href: "", disabled: true },
-  { icon: Clock, label: "Recent", href: "", disabled: true },
-  { icon: Star, label: "Starred", href: "", disabled: true },
-  { icon: Trash2, label: "Trash", href: "", disabled: true },
+  { icon: HardDrive, label: "My Drive", href: "/" },
+  { icon: Users, label: "Shared with me", href: "/shared" },
+  { icon: Clock, label: "Recent", href: "/recent" },
+  { icon: Star, label: "Starred", href: "/starred" },
 ];
-
-export type StorageSummary = {
-  usedBytes: number | null;
-  label: string;
-  progressValue: number;
-  isLoading: boolean;
-};
 
 type AppSidebarProps = {
   storage: StorageSummary;
+  canWrite: boolean;
+  isAdmin: boolean;
   newContent: NewContentState;
-  uploadProgress: { isUploading: boolean; progress: number; fileName: string | null };
 };
 
-export function AppSidebar({ storage, newContent, uploadProgress }: AppSidebarProps) {
+export function AppSidebar({
+  storage,
+  newContent,
+  canWrite,
+  isAdmin,
+}: AppSidebarProps) {
+  const pathname = usePathname();
+  const { setOpenMobile } = useSidebar();
+  const closeNavigation = () => setOpenMobile(false);
+
   return (
-    <>
-      <Sidebar collapsible="icon">
-        <SidebarHeader>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Nimbus">
-                <Link href="/">
-                  <Cloud className="text-primary" />
-                  <span className="font-semibold">Nimbus</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarHeader>
+    <Sidebar collapsible="icon" variant="inset">
+      <SidebarHeader className="h-16 justify-center px-3 group-data-[collapsible=icon]:px-0">
+        <Link
+          href="/"
+          aria-label="Nimbus home"
+          onClick={closeNavigation}
+          className="flex h-12 items-center gap-3 rounded-xl px-2 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+        >
+          <NimbusLogo className="size-8 shrink-0" />
+          <NimbusWordmark className="group-data-[collapsible=icon]:hidden" />
+        </Link>
+      </SidebarHeader>
 
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <SidebarMenuButton
-                        tooltip="New"
-                        className="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
-                      >
-                        <Plus />
-                        <span>New</span>
-                      </SidebarMenuButton>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent side="right" align="start" className="w-48">
-                      <DropdownMenuItem onClick={newContent.openFolderDialog}>
-                        <FolderPlus />
-                        New folder
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={newContent.triggerFileInput}>
-                        <Upload />
-                        Upload file
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+      <SidebarContent className="gap-4 px-3 pt-4 group-data-[collapsible=icon]:px-0">
+        <div className="flex justify-center">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="lg"
+                aria-label="New"
+                title="New"
+                disabled={!canWrite}
+                className="h-12 w-full rounded-full bg-create text-create-foreground hover:bg-create/90 group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:p-0"
+              >
+                <span className="relative flex items-center">
+                  <Plus
+                    className="absolute right-full mr-2 size-5 group-data-[collapsible=icon]:static group-data-[collapsible=icon]:mr-0"
+                    strokeWidth={1.8}
+                  />
+                  <span className="group-data-[collapsible=icon]:hidden">
+                    New
+                  </span>
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              sideOffset={8}
+              className="w-48 rounded-xl p-1.5"
+            >
+              <DropdownMenuItem
+                onSelect={() => {
+                  closeNavigation();
+                  newContent.openFolderDialog();
+                }}
+              >
+                <FolderPlus />
+                New folder
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
+                  closeNavigation();
+                  newContent.triggerFileInput();
+                }}
+              >
+                <Upload />
+                Upload file
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
 
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {navItems.map((item) => (
-                  <SidebarMenuItem key={item.label}>
-                    <SidebarMenuButton
-                      asChild={!item.disabled}
-                      isActive={item.isActive}
-                      tooltip={item.label}
-                      className={cn(
-                        item.disabled &&
-                          "cursor-not-allowed text-muted-foreground/60 hover:bg-transparent hover:text-muted-foreground/60",
-                      )}
+        <nav aria-label="Files">
+          <SidebarMenu className="gap-1">
+            {navItems.map((item) => {
+              const active =
+                pathname === item.href ||
+                (item.href === "/" && pathname.startsWith("/browse/"));
+              return (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={active}
+                    tooltip={item.label}
+                    className="h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto"
+                  >
+                    <Link
+                      href={item.href}
+                      aria-current={active ? "page" : undefined}
+                      onClick={closeNavigation}
                     >
-                      {item.disabled ? (
-                        <span className="flex items-center gap-2">
-                          <item.icon className="size-5" />
-                          <span>{item.label}</span>
-                        </span>
-                      ) : (
-                        <Link href={item.href}>
-                          <item.icon className="size-5" />
-                          <span>{item.label}</span>
-                        </Link>
-                      )}
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
+                      <item.icon strokeWidth={1.7} />
+                      <span>{item.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            })}
+          </SidebarMenu>
+        </nav>
+      </SidebarContent>
 
-        <SidebarFooter className="p-4">
-          <div className="space-y-2 group-data-[collapsible=icon]:hidden">
-            {uploadProgress.isUploading && (
-              <div className="space-y-1">
-                <p className="truncate text-xs text-muted-foreground">
-                  Uploading {uploadProgress.fileName}
-                </p>
-                <Progress value={uploadProgress.progress} className="h-1.5" />
-                <p className="text-xs tabular-nums text-muted-foreground">
-                  {uploadProgress.progress}%
-                </p>
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground">Storage</p>
-            <Progress
-              value={storage.progressValue}
-              className="h-1.5"
-              aria-valuetext={storage.label}
-            />
-            <p className="text-xs text-muted-foreground">{storage.label}</p>
-          </div>
-        </SidebarFooter>
-      </Sidebar>
-
-    </>
+      <SidebarFooter className="gap-3 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-4 group-data-[collapsible=icon]:px-0">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              tooltip="Trash"
+              isActive={pathname === "/trash"}
+              className="h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto"
+            >
+              <Link
+                href="/trash"
+                aria-current={pathname === "/trash" ? "page" : undefined}
+                onClick={closeNavigation}
+              >
+                <Trash2 strokeWidth={1.7} />
+                <span>Trash</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+        {isAdmin && <StorageIndicator storage={storage} />}
+        <SidebarMenu className="gap-1">
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              tooltip="Settings"
+              isActive={pathname === "/settings"}
+              className="size-10 justify-center rounded-xl p-0 group-data-[collapsible=icon]:mx-auto"
+            >
+              <Link
+                href="/settings"
+                aria-label="Settings"
+                title="Settings"
+                aria-current={pathname === "/settings" ? "page" : undefined}
+                onClick={closeNavigation}
+              >
+                <Settings strokeWidth={1.7} />
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+    </Sidebar>
   );
 }
