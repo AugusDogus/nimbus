@@ -1,3 +1,4 @@
+import { driveStore } from "@/server/services";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import type { NextRequest } from "next/server";
 
@@ -20,6 +21,7 @@ const handler = async (req: NextRequest) => {
         auth,
         headers: req.headers,
         preferences: preferencesStore,
+      drive: driveStore,
       }),
     onError({ error, path }) {
       console.error(`>>> tRPC Error on '${path ?? "unknown"}'`, error);

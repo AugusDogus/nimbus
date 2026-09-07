@@ -1,3 +1,4 @@
+import { createTestDriveStore } from "./testing";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -8,6 +9,7 @@ import { appRouter } from "./routers";
 const createCaller = () => {
   return appRouter.createCaller({
     headers: new Headers(),
+    drive: createTestDriveStore().store,
     session: { user: { id: "user-1" } },
     preferences: {
       getUserPreferences: async () => null,

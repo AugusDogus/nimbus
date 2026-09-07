@@ -1,3 +1,4 @@
+import { createTestDriveStore } from "./testing";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -17,6 +18,7 @@ import { statPath } from "./fs-utils";
 const createCaller = () => {
   return appRouter.createCaller({
     headers: new Headers(),
+    drive: createTestDriveStore().store,
     session: { user: { id: "user-1" } },
     preferences: {
       getUserPreferences: async () => null,
@@ -53,12 +55,12 @@ describe("list-cache", () => {
       permsHash,
     });
     const memoized = [
-      { name: "cached.txt", path: "cached.txt", type: "file", mtime: null, size: null },
+      { name: "cached.txt", path: "cached.txt", type: "file" as const, mtime: null, size: null },
     ];
     setListCache(listKey, memoized);
 
     const results = await caller.files.list({});
-    expect(results).toEqual(memoized);
+    expect(results).toEqual(memoized.map((entry) => ({ ...entry, permission: "admin" })));
   });
 
   it("invalidates list cache on file events", async () => {
