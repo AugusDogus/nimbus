@@ -35,7 +35,7 @@ const tusServer = new Server({
 
     // Validate path is safe (empty string = root, which is valid)
     try {
-      resolveSafePath(targetPath);
+      await resolveSafePath(targetPath);
     } catch {
       throw { status_code: 400, body: "Invalid target path." };
     }
@@ -52,7 +52,7 @@ const tusServer = new Server({
     const targetPath = upload.metadata?.targetPath ?? "";
     const fileName = upload.metadata?.filename ?? upload.id;
 
-    const dest = resolveSafePath(targetPath);
+    const dest = await resolveSafePath(targetPath);
 
     // Ensure destination directory exists
     await mkdir(dest.absolute, { recursive: true });
