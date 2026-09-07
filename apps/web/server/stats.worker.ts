@@ -41,7 +41,9 @@ const dataRoot = getDataRoot();
 const normalizeRelative = (value: string) => value.split(path.sep).join("/");
 
 const shouldIgnoreRelative = (value: string) =>
-  normalizeRelative(value).split("/").includes(".nimbus");
+  normalizeRelative(value)
+    .split("/")
+    .some((segment) => segment.toLowerCase() === ".nimbus");
 
 const toRelative = (absolutePath: string) => {
   const relative = path.relative(dataRoot, absolutePath);
@@ -92,7 +94,7 @@ const walkTree = async (
   }
 
   for (const entry of entries) {
-    if (entry.name === ".nimbus" || entry.isSymbolicLink()) {
+    if (entry.name.toLowerCase() === ".nimbus" || entry.isSymbolicLink()) {
       continue;
     }
     const fullPath = path.join(root, entry.name);
