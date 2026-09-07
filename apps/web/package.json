@@ -3,15 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "bun --bun node_modules/next/dist/bin/next dev",
+    "dev": "bun server/start.ts",
     "build": "bun --bun node_modules/next/dist/bin/next build",
-    "start": "bun --bun node_modules/next/dist/bin/next start",
+    "start": "NODE_ENV=production bun server/start.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "bun server/db/migrate.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "lint": "eslint",
-    "watch:smoke": "bun --bun server/watch.smoke.ts"
+    "watch:smoke": "bun --bun server/watch.smoke.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@libsql/client": "^0.17.0",
