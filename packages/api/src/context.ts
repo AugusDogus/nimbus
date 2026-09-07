@@ -1,3 +1,5 @@
+import type { DriveStore } from "./drive-store";
+
 export type AuthApi = {
   getSession: (options: { headers: Headers }) => Promise<unknown>;
 };
@@ -25,47 +27,21 @@ export type CreateContextOptions = {
   auth: AuthLike;
   headers: Headers;
   preferences: PreferencesStore;
-};
-
-const getTestSession = () => {
-  if (process.env.NIMBUS_TEST_SESSION !== "1") {
-    return null;
-  }
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
-  return {
-    user: {
-      id: "test-user",
-      createdAt: now,
-      updatedAt: now,
-      name: "Test User",
-      email: "test@nimbus.local",
-      emailVerified: true,
-      image: null,
-    },
-    session: {
-      id: "test-session",
-      createdAt: now,
-      updatedAt: now,
-      userId: "test-user",
-      expiresAt,
-      token: "test-token",
-      ipAddress: null,
-      userAgent: null,
-    },
-  };
+  drive: DriveStore;
 };
 
 export async function createContext({
   auth,
   headers,
   preferences,
+  drive,
 }: CreateContextOptions) {
-  const session = getTestSession() ?? (await auth.api.getSession({ headers }));
+  const session = await auth.api.getSession({ headers });
   return {
     headers,
     session,
     preferences,
+    drive,
   };
 }
 
