@@ -21,15 +21,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { fileHref } from "./types";
 import { useIsMobile } from "@/hooks/use-mobile";
-
-function decodeSegment(segment: string) {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
-}
 
 /**
  * Maximum number of middle segments (between root and current page) to keep
@@ -41,11 +34,7 @@ function decodeSegment(segment: string) {
 const MAX_VISIBLE_MIDDLE_DESKTOP = 1;
 const MAX_VISIBLE_MIDDLE_MOBILE = 0;
 
-export function FileBreadcrumbs({
-  pathSegments,
-}: {
-  pathSegments: string[];
-}) {
+export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
   const isMobile = useIsMobile();
   const isNested = pathSegments.length > 0;
   const maxVisible = isMobile
@@ -53,14 +42,12 @@ export function FileBreadcrumbs({
     : MAX_VISIBLE_MIDDLE_DESKTOP;
 
   const segmentCrumbs = pathSegments.map((segment, i) => ({
-    label: decodeSegment(segment),
-    href: `/${pathSegments.slice(0, i + 1).join("/")}`,
+    label: segment,
+    href: fileHref(pathSegments.slice(0, i + 1).join("/")),
   }));
 
   // The last segment is always rendered as the current (non-link) page.
-  const currentPage = isNested
-    ? segmentCrumbs[segmentCrumbs.length - 1]
-    : null;
+  const currentPage = isNested ? segmentCrumbs[segmentCrumbs.length - 1] : null;
 
   // Middle crumbs sit between root and the current page.
   const middleCrumbs = segmentCrumbs.slice(0, -1);
@@ -73,31 +60,24 @@ export function FileBreadcrumbs({
     : middleCrumbs;
   const labelClassName = isMobile ? "max-w-[38vw] truncate" : "";
 
+  if (!isNested) {
+    return (
+      <h1 className="truncate text-balance text-xl font-medium sm:text-2xl">
+        My Drive
+      </h1>
+    );
+  }
+
   return (
     <Breadcrumb className="min-w-0">
-      <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden">
+      <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden text-sm sm:text-base">
         {/* Root: icon on mobile, text on desktop */}
         <BreadcrumbItem>
-          {!isNested ? (
-            <BreadcrumbPage>
-              {isMobile ? (
-                <Home className="size-4" />
-              ) : (
-                "My Drive"
-              )}
-            </BreadcrumbPage>
-          ) : (
-            <BreadcrumbLink asChild>
-              <Link href="/" className={labelClassName}>
-                {isMobile ? (
-                  <Home className="size-4" />
-                ) : (
-                  "My Drive"
-                )}
-                <span className="sr-only">My Drive</span>
-              </Link>
-            </BreadcrumbLink>
-          )}
+          <BreadcrumbLink asChild>
+            <Link href="/" className={labelClassName} aria-label="My Drive">
+              {isMobile ? <Home className="size-4" /> : "My Drive"}
+            </Link>
+          </BreadcrumbLink>
         </BreadcrumbItem>
 
         {/* Ellipsis with collapsed segments */}

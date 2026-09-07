@@ -2,12 +2,12 @@
 
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
@@ -15,15 +15,21 @@ import type { NewContentState } from "./use-new-content";
 
 export function NewFolderDialog({ state }: { state: NewContentState }) {
   return (
-    <Dialog open={state.folderDialogOpen} onOpenChange={state.setFolderDialogOpen}>
+    <Dialog
+      open={state.folderDialogOpen}
+      onOpenChange={state.setFolderDialogOpen}
+    >
       <DialogContent>
         <form onSubmit={state.handleCreateFolder}>
           <DialogHeader>
             <DialogTitle>New folder</DialogTitle>
-            <DialogDescription>Enter a name for the new folder</DialogDescription>
+            <DialogDescription>
+              Enter a name for the new folder
+            </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Input
+              aria-label="Folder name"
               value={state.folderName}
               onChange={(e) => state.setFolderName(e.target.value)}
               placeholder="Untitled folder"
@@ -32,6 +38,14 @@ export function NewFolderDialog({ state }: { state: NewContentState }) {
               data-1p-ignore
             />
           </div>
+          {state.folderError && (
+            <p
+              role="alert"
+              className="mb-3 text-pretty text-sm text-destructive"
+            >
+              {state.folderError}
+            </p>
+          )}
           <DialogFooter>
             <Button
               type="button"
@@ -40,7 +54,10 @@ export function NewFolderDialog({ state }: { state: NewContentState }) {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={state.creating || !state.folderName.trim()}>
+            <Button
+              type="submit"
+              disabled={state.creating || !state.folderName.trim()}
+            >
               Create
             </Button>
           </DialogFooter>
@@ -50,14 +67,17 @@ export function NewFolderDialog({ state }: { state: NewContentState }) {
   );
 }
 
-export function HiddenFileInput({ state }: { state: NewContentState }) {
+export function HiddenFileInput({
+  fileInputRef,
+  handleFileChange,
+}: Pick<NewContentState, "fileInputRef" | "handleFileChange">) {
   return (
     <input
-      ref={state.fileInputRef}
+      ref={fileInputRef}
       type="file"
       multiple
       className="hidden"
-      onChange={state.handleFileChange}
+      onChange={handleFileChange}
     />
   );
 }

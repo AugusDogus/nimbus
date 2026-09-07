@@ -2,42 +2,42 @@
 
 import type { LucideIcon } from "lucide-react";
 import {
-    ArrowDownAZ,
-    ArrowUpAZ,
-    Calendar,
-    Check,
-    FileText,
-    Grid2X2,
-    Layers,
-    List,
-    SlidersHorizontal,
-    Weight,
+  ArrowDownAZ,
+  ArrowUpAZ,
+  Calendar,
+  Check,
+  FileText,
+  Grid2X2,
+  Layers,
+  List,
+  SlidersHorizontal,
+  Weight,
 } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { DrawerActionItem } from "@/components/drawer-action-item";
 import {
-    Drawer,
-    DrawerClose,
-    DrawerContent,
-    DrawerDescription,
-    DrawerHeader,
-    DrawerTitle,
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
 } from "@/components/ui/drawer";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@/components/ui/tooltip";
 
 import type { UserPreferences } from "@nimbus/api/context";
@@ -48,7 +48,8 @@ type FiltersRowProps = {
   updatePreferences: (partial: Partial<UserPreferences>) => void;
 };
 
-type SortValue = `${UserPreferences["sortField"]}-${UserPreferences["sortDirection"]}`;
+type SortValue =
+  `${UserPreferences["sortField"]}-${UserPreferences["sortDirection"]}`;
 type SortOption = {
   value: SortValue;
   label: string;
@@ -66,7 +67,11 @@ const sortOptions: SortOption[] = [
   { value: "type-desc", label: "Type (Z to A)", icon: FileText },
 ];
 
-export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) {
+export function FiltersRow({
+  prefs,
+  view,
+  updatePreferences,
+}: FiltersRowProps) {
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
   const sortValue = `${prefs.sortField}-${prefs.sortDirection}` as SortValue;
@@ -77,7 +82,7 @@ export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) 
     <div className="ml-auto flex shrink-0 items-center gap-2">
       {/* Mobile: single filter button that opens a Drawer */}
       <Button
-        variant="outline"
+        variant="ghost"
         size="sm"
         className="md:hidden"
         onClick={() => setFilterDrawerOpen(true)}
@@ -95,7 +100,9 @@ export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) 
             </DrawerDescription>
           </DrawerHeader>
           <div className="flex flex-col gap-1 px-4 pb-6">
-            <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">Sort by</p>
+            <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">
+              Sort by
+            </p>
             {sortOptions.map((option) => (
               <DrawerClose key={option.value} asChild>
                 <DrawerActionItem
@@ -104,7 +111,10 @@ export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) 
                       typeof prefs.sortField,
                       typeof prefs.sortDirection,
                     ];
-                    updatePreferences({ sortField: field, sortDirection: direction });
+                    updatePreferences({
+                      sortField: field,
+                      sortDirection: direction,
+                    });
                   }}
                 >
                   <option.icon className="size-5 text-muted-foreground" />
@@ -123,9 +133,7 @@ export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) 
             >
               <Layers className="size-5 text-muted-foreground" />
               <span className="flex-1 text-left">Group by type</span>
-              {prefs.groupByType && (
-                <Check className="size-4 text-primary" />
-              )}
+              {prefs.groupByType && <Check className="size-4 text-primary" />}
             </DrawerActionItem>
           </div>
         </DrawerContent>
@@ -142,7 +150,11 @@ export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) 
           updatePreferences({ sortField: field, sortDirection: direction });
         }}
       >
-        <SelectTrigger size="sm" className="hidden w-auto min-w-[140px] md:flex">
+        <SelectTrigger
+          aria-label="Sort files"
+          size="sm"
+          className="hidden w-auto min-w-[140px] border-transparent bg-transparent shadow-none hover:bg-muted md:flex dark:bg-transparent"
+        >
           <SelectValue>
             <selectedSort.icon className="size-4" />
             <span>{selectedSort.label}</span>
@@ -161,7 +173,7 @@ export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) 
       <Tooltip>
         <TooltipTrigger asChild>
           <Toggle
-            variant="outline"
+            variant="default"
             size="sm"
             pressed={prefs.groupByType}
             onPressedChange={(pressed) =>
@@ -180,6 +192,7 @@ export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) 
 
       {/* View toggle is always visible */}
       <ToggleGroup
+        aria-label="File view"
         type="single"
         value={view}
         onValueChange={(value) => {
@@ -187,15 +200,17 @@ export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) 
             updatePreferences({ view: value });
           }
         }}
-        variant="outline"
+        variant="default"
         size="sm"
+        spacing={1}
+        className="rounded-lg bg-muted/70 p-1"
       >
         <Tooltip>
           <TooltipTrigger asChild>
             <ToggleGroupItem
               value="list"
               aria-label="List view"
-              className={view === "list" ? "bg-accent" : ""}
+              className="size-8 rounded-md px-0 data-[state=on]:bg-card data-[state=on]:shadow-sm dark:data-[state=on]:bg-accent"
             >
               <List className="size-4" />
             </ToggleGroupItem>
@@ -209,7 +224,7 @@ export function FiltersRow({ prefs, view, updatePreferences }: FiltersRowProps) 
             <ToggleGroupItem
               value="grid"
               aria-label="Grid view"
-              className={view === "grid" ? "bg-accent" : ""}
+              className="size-8 rounded-md px-0 data-[state=on]:bg-card data-[state=on]:shadow-sm dark:data-[state=on]:bg-accent"
             >
               <Grid2X2 className="size-4" />
             </ToggleGroupItem>

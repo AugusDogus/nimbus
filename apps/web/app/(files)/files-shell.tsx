@@ -1,33 +1,50 @@
 "use client";
 
-import { Cloud, FolderPlus, Plus, Search, Upload } from "lucide-react";
+import {
+  FolderPlus,
+  Link2,
+  Plus,
+  Search,
+  Shield,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import type { ReactNode } from "react";
+import { useParams, useRouter } from "next/navigation";
+import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useState } from "react";
 
-import { ThemeToggle } from "@/components/theme-toggle";
+import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { queryClient, trpcClient } from "@/lib/trpc";
+import { Progress } from "@/components/ui/progress";
+
+import { NimbusLogo } from "@/components/nimbus-logo";
 import { DrawerActionItem } from "@/components/drawer-action-item";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
-    Drawer,
-    DrawerClose,
-    DrawerContent,
-    DrawerDescription,
-    DrawerHeader,
-    DrawerTitle,
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
 } from "@/components/ui/drawer";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
 import { signOut, useSession } from "@/lib/auth-client";
 
 import type { UserPreferences } from "@nimbus/api/context";
@@ -53,6 +70,11 @@ type Params = {
   path?: string[] | string;
 };
 
+const sidebarStyle: CSSProperties & Record<`--${string}`, string> = {
+  "--sidebar-width": "16rem",
+  "--sidebar-width-icon": "4rem",
+};
+
 const normalizePathSegments = (pathParam: Params["path"]) => {
   if (!pathParam) {
     return [];
@@ -68,21 +90,32 @@ export function FilesShell({
   initialSession,
   initialPrefs,
 }: FilesShellProps) {
+  const router = useRouter();
   const params = useParams<Params>();
   const pathSegments = normalizePathSegments(params?.path);
   const currentPath = pathSegments.join("/");
 
-  const { data: sessionData } = useSession();
-  const session = sessionData ?? initialSession;
+  const { data: sessionData, isPending } = useSession();
+  const session = isPending ? initialSession : sessionData;
   const isAuthed = Boolean(session);
 
   const { prefs } = useFilePreferences(isAuthed, initialPrefs ?? undefined);
   const includeStats =
     prefs.sortField === "modified" || prefs.sortField === "size";
 
-  const storage = useFileStorage(isAuthed);
+  const capabilities = useQuery({
+    queryKey: ["capabilities", currentPath],
+    queryFn: () => trpcClient.access.capabilities.query({ path: currentPath }),
+    enabled: isAuthed,
+  });
+  const canWrite = capabilities.data?.canWrite === true;
+  const storage = useFileStorage(capabilities.data?.isAdmin === true);
   const actions = useFileActions({ currentPath, includeStats });
-  const upload = useUpload({ currentPath, includeStats });
+  const upload = useUpload({
+    currentPath,
+    includeStats,
+    userId: session?.user.id ?? "",
+  });
 
   useFileSubscription({
     currentPath,
@@ -105,42 +138,64 @@ export function FilesShell({
   });
 
   return (
-    <SidebarProvider>
+    <SidebarProvider
+      style={sidebarStyle}
+      className="surface-grain h-dvh min-h-0 overflow-hidden"
+    >
       <AppSidebar
         storage={storage}
+        canWrite={canWrite}
+        isAdmin={capabilities.data?.isAdmin === true}
         newContent={newContent}
-        uploadProgress={upload}
       />
-      <SidebarInset>
-        <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b bg-background/80 px-3 backdrop-blur-sm md:h-16 md:gap-4 md:px-4">
-          <div className="flex flex-1 items-center gap-2 md:gap-4">
+      <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto">
+        <header className="surface-grain sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-background px-4 md:gap-4 md:px-6">
+          <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-4">
             {/* Desktop: sidebar trigger */}
-            <SidebarTrigger className="hidden md:inline-flex" />
+            <SidebarTrigger className="size-8 shrink-0 text-muted-foreground" />
 
             {/* Mobile: brand logo */}
-            <Link href="/" className="shrink-0 md:hidden" aria-label="Nimbus home">
-              <Cloud className="size-5 text-primary" />
+            <Link
+              href="/"
+              className="shrink-0 md:hidden"
+              aria-label="Nimbus home"
+            >
+              <NimbusLogo className="size-7" />
             </Link>
 
             {/* Search bar -- always visible */}
-            <div className="relative max-w-md flex-1">
+            <form
+              role="search"
+              className="relative min-w-0 max-w-lg flex-1"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const query = new FormData(event.currentTarget).get("q");
+                if (typeof query === "string" && query.trim())
+                  router.push(`/search?q=${encodeURIComponent(query.trim())}`);
+              }}
+            >
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                type="text"
-                placeholder="Search in Drive"
-                className="h-9 rounded-full bg-muted pl-10 md:h-10"
+                type="search"
+                name="q"
+                aria-label="Search files"
+                placeholder="Search files"
+                className="h-9 rounded-lg border-transparent bg-muted/70 pl-10 shadow-none focus-visible:border-ring md:h-10 dark:bg-sidebar/70"
               />
-            </div>
+            </form>
           </div>
 
-          <div className="flex items-center gap-1 md:gap-3">
-            <ThemeToggle />
+          <div className="flex shrink-0 items-center gap-1 md:gap-3">
             {session ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative size-9 rounded-full">
+                  <Button
+                    variant="ghost"
+                    aria-label="Account menu"
+                    className="relative size-9 rounded-full"
+                  >
                     <Avatar>
-                      <AvatarFallback className="bg-primary text-primary-foreground">
+                      <AvatarFallback className="bg-secondary text-secondary-foreground">
                         {session.user.name?.charAt(0).toUpperCase() ||
                           session.user.email?.charAt(0).toUpperCase() ||
                           "U"}
@@ -152,7 +207,9 @@ export function FilesShell({
                   <DropdownMenuLabel>
                     <div className="flex flex-col space-y-1">
                       {session.user.name && (
-                        <p className="text-sm font-medium">{session.user.name}</p>
+                        <p className="text-sm font-medium">
+                          {session.user.name}
+                        </p>
                       )}
                       <p className="text-xs text-muted-foreground">
                         {session.user.email}
@@ -160,8 +217,40 @@ export function FilesShell({
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/shares">
+                      <Link2 />
+                      Share links
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/trash">
+                      <Trash2 />
+                      Trash
+                    </Link>
+                  </DropdownMenuItem>
+                  {capabilities.data?.isAdmin === true && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin">
+                        <Shield />
+                        Administration
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => signOut()}
+                    onClick={async () => {
+                      const result = await signOut();
+                      if (result.error) {
+                        toast.error(
+                          result.error.message ??
+                            "Could not sign out. Try again.",
+                        );
+                        return;
+                      }
+                      queryClient.clear();
+                      window.location.assign("/login");
+                    }}
                     variant="destructive"
                   >
                     Sign out
@@ -176,20 +265,46 @@ export function FilesShell({
           </div>
         </header>
 
-        <main className="flex-1 overflow-x-hidden p-2 pb-20 md:p-4 md:pb-4 lg:p-6">
+        {upload.isUploading && (
+          <div role="status" className="space-y-2 border-b px-4 py-3">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="truncate">
+                Uploading {upload.fileName} · {upload.progress}% ·{" "}
+                {upload.remaining} remaining
+              </span>
+              <Button size="sm" variant="outline" onClick={upload.cancelUpload}>
+                Cancel upload
+              </Button>
+            </div>
+            <Progress aria-label="Upload progress" value={upload.progress} />
+          </div>
+        )}
+        <div
+          className="flex-1 overflow-x-hidden px-4 pb-24 pt-6 md:px-6 md:pb-6 lg:px-8 lg:pt-8"
+          onDragOver={(event) => {
+            if (canWrite && event.dataTransfer.types.includes("Files"))
+              event.preventDefault();
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            if (canWrite)
+              upload.uploadFiles(Array.from(event.dataTransfer.files));
+          }}
+        >
           {children}
-        </main>
+        </div>
 
         {/* Mobile FAB for New actions */}
-        {isAuthed && (
+        {canWrite && (
           <>
             <Button
-              size="icon-lg"
-              className="fixed bottom-6 right-4 z-20 size-14 rounded-full shadow-lg md:hidden"
+              size="lg"
+              className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-4 z-20 h-14 gap-2.5 rounded-full bg-create text-create-foreground shadow-lg hover:bg-create/90 has-[>svg]:px-6 md:hidden"
               onClick={() => setFabDrawerOpen(true)}
               aria-label="New file or folder"
             >
-              <Plus className="size-6" />
+              <Plus className="size-5" strokeWidth={1.8} />
+              New
             </Button>
 
             <Drawer open={fabDrawerOpen} onOpenChange={setFabDrawerOpen}>
@@ -216,11 +331,13 @@ export function FilesShell({
                 </div>
               </DrawerContent>
             </Drawer>
-
           </>
         )}
 
-        <HiddenFileInput state={newContent} />
+        <HiddenFileInput
+          fileInputRef={newContent.fileInputRef}
+          handleFileChange={newContent.handleFileChange}
+        />
         <NewFolderDialog state={newContent} />
       </SidebarInset>
     </SidebarProvider>

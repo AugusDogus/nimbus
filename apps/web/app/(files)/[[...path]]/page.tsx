@@ -1,3 +1,5 @@
+import { notFound } from "next/navigation";
+import { TRPCError } from "@trpc/server";
 import { api, HydrateClient } from "@/lib/trpc-server";
 import { getCaller, getInitialPrefs, getSession } from "@/server/files-data";
 
@@ -36,11 +38,18 @@ export default async function FilesPage({
     if (fetchedPrefs) {
       initialPrefs = fetchedPrefs;
       const includeStats =
-        fetchedPrefs.sortField === "modified" || fetchedPrefs.sortField === "size";
-      initialEntries = await caller.files.list({
-        path: currentPath || undefined,
-        includeStats,
-      });
+        fetchedPrefs.sortField === "modified" ||
+        fetchedPrefs.sortField === "size";
+      try {
+        initialEntries = await caller.files.list({
+          path: currentPath || undefined,
+          includeStats,
+        });
+      } catch (error) {
+        if (error instanceof TRPCError && error.code === "NOT_FOUND")
+          notFound();
+        throw error;
+      }
       await api.prefs.get.prefetch();
       await api.files.list.prefetch({
         path: currentPath || undefined,
