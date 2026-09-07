@@ -33,6 +33,13 @@ export const startFileWatch = (
     if (!relativePath) return;
 
     const fullPath = path.resolve(root, relativePath);
+    const relative = path.relative(root, fullPath);
+    if (
+      relative
+        .split(path.sep)
+        .some((segment) => segment.toLowerCase() === ".nimbus")
+    )
+      return;
     const normalizedEvent: WatchEvent =
       event === "rename" || event === "change" ? event : "unknown";
 
@@ -49,6 +56,11 @@ export const startFileWatch = (
   });
 
   return {
-    close: () => watcher.close(),
+    close: () => {
+      watcher.close();
+      if (timer) clearTimeout(timer);
+      pending.clear();
+      timer = null;
+    },
   };
 };
