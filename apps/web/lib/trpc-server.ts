@@ -1,3 +1,4 @@
+import { driveStore } from "@/server/services";
 import "server-only";
 
 import { createHydrationHelpers } from "@trpc/react-query/rsc";
@@ -19,11 +20,14 @@ const createServerContext = cache(async () => {
     auth,
     headers: heads,
     preferences: preferencesStore,
+    drive: driveStore,
   });
 });
 
 const getQueryClient = cache(createQueryClient);
 const caller = createCaller(createServerContext);
 
-export const { trpc: api, HydrateClient } =
-  createHydrationHelpers<AppRouter>(caller, getQueryClient);
+export const { trpc: api, HydrateClient } = createHydrationHelpers<AppRouter>(
+  caller,
+  getQueryClient,
+);
