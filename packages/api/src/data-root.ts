@@ -16,7 +16,7 @@ const normalizeWindowsPath = (value: string) => {
 };
 
 export const getDataRoot = () => {
-  const raw = process.env.NIMBUS_DATA_ROOT ?? "/data";
+  const raw = process.env.NIMBUS_DATA_ROOT ?? "./data";
   const normalized = normalizeWindowsPath(raw);
   return path.resolve(normalized);
 };

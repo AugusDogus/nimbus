@@ -12,7 +12,9 @@
     "./safe-path": "./src/safe-path.ts",
     "./fs-utils": "./src/fs-utils.ts",
     "./stats-cache": "./src/stats-cache.ts",
-    "./dir-list-cache": "./src/dir-list-cache.ts"
+    "./dir-list-cache": "./src/dir-list-cache.ts",
+    "./access": "./src/access.ts",
+    "./drive-store": "./src/drive-store.ts"
   },
   "types": "./src/index.ts",
   "dependencies": {
