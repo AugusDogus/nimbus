@@ -1,0 +1,8 @@
+Nimbus logo
+
+Source: https://github.com/nimbusdotstorage/Nimbus/blob/715b269bc355efe5107f3169ca5f8788e6a56078/apps/web/src/components/icons/logo-icon.tsx
+License: Apache-2.0, reproduced in the accompanying LICENSE file.
+
+Modifications: retained the original three artwork paths, set explicit icon
+sizes, added theme-aware foreground colors, and adapted SVG accessibility and
+React props for this application. No artwork paths were changed.
