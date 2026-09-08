@@ -3,6 +3,37 @@ import { expect } from "@playwright/test";
 import { test } from "./helpers";
 import { action, client, createFolder, downloadText, navigate, upload } from "./helpers";
 
+test("opens folders and downloads files with spaces in their names", async ({ page, context, isMobile }) => {
+  const folder = `Project documents ${randomUUID()}`;
+  const nested = "Meeting notes 100% # café %20";
+  const filename = "Weekly summary 100% # café %20.txt";
+  const body = "File contents from a path with spaces.";
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: folder });
+  await page.goto("/");
+  await page.getByRole("link", { name: folder, exact: true }).click();
+  await expect(page).toHaveURL(`/browse/${encodeURIComponent(folder)}`);
+  await expect(page.getByRole("heading", { name: "This folder is empty" })).toBeVisible();
+  await createFolder(page, nested, isMobile);
+  await page.getByRole("link", { name: nested, exact: true }).click();
+  await expect(page).toHaveURL(`/browse/${encodeURIComponent(folder)}/${encodeURIComponent(nested)}`);
+  await upload(page, filename, body);
+  await page.reload();
+  await page.locator(`[data-entry-name="${filename}"]`).filter({ visible: true }).click();
+  const preview = page.getByRole("dialog", { name: filename, exact: true });
+  await expect(preview.locator("pre")).toHaveText(body);
+  const downloadPromise = page.waitForEvent("download");
+  await preview.getByRole("link", { name: "Download", exact: true }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe(filename);
+  expect(await downloadText(download)).toBe(body);
+  await preview.getByRole("button", { name: "Close", exact: true }).click();
+  if (isMobile) await page.getByRole("button", { name: "Toggle menu", exact: true }).click();
+  await page.getByRole(isMobile ? "menuitem" : "link", { name: folder, exact: true }).click();
+  await expect(page).toHaveURL(`/browse/${encodeURIComponent(folder)}`);
+  await expect(page.getByRole("link", { name: nested, exact: true })).toBeVisible();
+});
+
 test("creates, uploads, previews, downloads, renames, moves and restores files", async ({ page, context, isMobile }, testInfo) => {
   const folder = `documents-${randomUUID()}`;
   const filename = "meeting-notes.txt";
