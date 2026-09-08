@@ -9,8 +9,10 @@ services:
       BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-${BETTER_AUTH_URL:-http://localhost:3000}}
     volumes:
       - nimbus-data:/data
+      - nimbus-config:/config
     restart: unless-stopped
     stop_grace_period: 35s
 
 volumes:
   nimbus-data:
+  nimbus-config:

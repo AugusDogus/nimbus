@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import { getDataRoot } from "@nimbus/api/data-root";
+import { getConfigRoot } from "@/server/storage-paths";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { isFsError } from "@nimbus/api/safe-path";
 import { httpError, requestAccess } from "@/server/http-files";
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
       !/\.(png|jpe?g|webp|gif|avif)$/i.test(entry.relative)
     )
       return new Response(null, { status: 415 });
-    const cache = path.join(getDataRoot(), ".nimbus", "cache", "thumbnails");
+    const cache = path.join(getConfigRoot(), "cache", "thumbnails");
     const key = createHash("sha256")
       .update(`${entry.relative}:${entry.stats.mtimeMs}:${entry.stats.size}`)
       .digest("hex");

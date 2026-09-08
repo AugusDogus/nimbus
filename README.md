@@ -54,7 +54,20 @@ docker compose logs -f nimbus
 
 Open [http://localhost:3000/signup](http://localhost:3000/signup) to create the administrator. Compose binds port 3000 to the host's loopback interface. For remote access, put an HTTPS reverse proxy in front of it and set `BETTER_AUTH_URL` to the public origin, for example `https://files.example.com`. The proxy must preserve the request host and forwarded protocol, allow WebDAV methods, and permit your intended upload sizes and transfer durations. Disable buffering for the live event stream. Serve Nimbus at the origin root, not under a URL prefix.
 
-The container runs as the unprivileged `bun` user. A host directory can replace the named volume if it is writable by that user. Use one Nimbus process per data root, on a local filesystem. Locks, live events, and mutation coordination are maintained within that process.
+The container runs as the unprivileged `bun` user. Host directories can replace the named volumes if they are writable by that user. Persist both `/data` (managed files, trash, upload staging) and `/config` (database and thumbnail cache). Use one Nimbus process per data root, on a local filesystem. Locks, live events, and mutation coordination are maintained within that process.
+
+### Unraid
+
+Use these container path mappings:
+
+| Host path | Container path | Access |
+| --- | --- | --- |
+| `/mnt/user/data` | `/data` | Read/write |
+| `/mnt/user/appdata/nimbus` | `/config` | Read/write |
+
+Keep the appdata share on your SSD pool. `/mnt/cache/appdata/nimbus` can replace the appdata host path when `cache` is your pool name and the directory resides entirely there. For SSD uploads followed by HDD storage, configure the `data` share with the SSD pool as primary storage, the array as secondary storage, and Mover set from pool to array.
+
+Keep `.nimbus/uploads` and `.nimbus/trash` inside the single `/data` mount. Separate mounts can prevent same-filesystem operations, even when their host paths reside on the same disk. Unraid controls physical placement; Nimbus does not move files between the cache pool and array. Existing installations should follow [Storage migration](#storage-migration) before switching to `/config`.
 
 ## Run without Docker
 
@@ -75,10 +88,11 @@ Set the deployment values in `apps/web/.env` before startup. The Bun custom serv
 | `BETTER_AUTH_URL`             | Public origin, including scheme and port when needed. Defaults locally to `http://localhost:3000`.                                  |
 | `BETTER_AUTH_TRUSTED_ORIGINS` | Optional comma-separated additional trusted origins. Compose defaults this to `BETTER_AUTH_URL`.                                    |
 | `NIMBUS_DATA_ROOT`            | Filesystem directory to manage. Local default: `apps/web/data` when launched with the supplied scripts. Container default: `/data`. |
-| `DATABASE_URL`                | Optional SQLite URL. Default: `file:<data root>/.nimbus/db.sqlite`. Use an absolute path when overriding it.                        |
+| `NIMBUS_CONFIG_ROOT`          | Database and thumbnail cache directory. Local default: `<data root>/.nimbus`. Container default: `/config`. |
+| `DATABASE_URL`                | Optional SQLite URL, overriding the config root for the database only. Default: `file:<config root>/db.sqlite`. Use an absolute path when overriding it. |
 | `PORT`                        | Listening port, default `3000`. Update the public origin and proxy when changing it.                                                |
 
-The reserved `.nimbus` directory contains the database, trash, temporary uploads, and thumbnail cache. Nimbus never exposes it through file browsing or sharing. Symbolic links and special files are excluded. Nimbus needs read and write access to the data root; other local programs with access to that directory remain outside Nimbus's permission controls.
+The reserved `<data root>/.nimbus` directory contains trash and temporary uploads. Without a separate config root, it also contains the database and thumbnail cache. Nimbus never exposes `.nimbus` through file browsing or sharing. Keep a separate config root outside the browsable data root. Symbolic links and special files are excluded. Nimbus needs read and write access to both roots; other local programs with access to those directories remain outside Nimbus's permission controls.
 
 ## Settings
 
@@ -131,7 +145,32 @@ WebDAV is intended for basic file access, not a complete distributed collaborati
 
 ## Backups and upgrades
 
-Stop Nimbus before taking a filesystem backup, then copy the entire data root, including `.nimbus`, plus the environment configuration. If `DATABASE_URL` points elsewhere, back up that SQLite database and any journal files too. Restore those together while Nimbus is stopped. Do not delete the Compose volume when stopping the service.
+Stop Nimbus before taking a filesystem backup, then copy the entire data root, including `.nimbus`, the config root, and the environment configuration. If `DATABASE_URL` points elsewhere, back up that SQLite database and any journal files too. Restore those together while Nimbus is stopped. Do not delete either Compose volume when stopping the service.
+
+### Storage migration
+
+Local installations keep their existing `.nimbus` state location unless `NIMBUS_CONFIG_ROOT` is set. Docker now defaults to `/config`. If the old default database exists and the new location is empty, startup stops with migration instructions instead of creating new accounts.
+
+To move an existing default database into the new Compose config volume, back up first, then run:
+
+```bash
+docker compose stop nimbus
+docker compose build nimbus
+docker compose run --rm --no-deps --entrypoint sh nimbus -c '
+  test -f /data/.nimbus/db.sqlite || exit 1
+  test ! -e /config/db.sqlite || exit 1
+  for file in /data/.nimbus/db.sqlite /data/.nimbus/db.sqlite-wal /data/.nimbus/db.sqlite-shm /data/.nimbus/db.sqlite-journal; do
+    if [ -f "$file" ]; then cp -p "$file" /config/ || exit 1; fi
+  done
+'
+docker compose up -d
+```
+
+For Unraid bind mounts or a local installation, stop Nimbus and copy the same database and any companion journal files from the old `.nimbus` directory to the new config directory. Keep `BETTER_AUTH_SECRET` unchanged and ensure the files are writable by the container user. Thumbnails can regenerate, or you can copy `.nimbus/cache` into the config directory too. Leave `.nimbus/trash` and `.nimbus/uploads` under the data root.
+
+Verify your existing accounts, shares, and trash after restarting. The old database copy is a backup of the migration point; it does not receive subsequent changes. Once verified and backed up, you can remove the old database, its journal files, and the old thumbnail cache. An explicit `DATABASE_URL` continues to take precedence and is never relocated automatically.
+
+### Application upgrades
 
 To upgrade, back up first, update the checkout, then rebuild and restart:
 

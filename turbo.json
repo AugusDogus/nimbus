@@ -6,6 +6,7 @@
     "DATABASE_URL",
     "BETTER_AUTH_TRUSTED_ORIGINS",
     "NIMBUS_DATA_ROOT",
+    "NIMBUS_CONFIG_ROOT",
     "PORT"
   ],
   "tasks": {
