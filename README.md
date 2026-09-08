@@ -1,6 +1,12 @@
-# Nimbus
+<p align="center">
+  <img src="docs/assets/nimbus-icon.svg" alt="Nimbus logo" width="120" height="120" />
+</p>
 
-Nimbus is a self-hosted file manager with account and group sharing, public download links, and WebDAV access. Files stay on your filesystem. Accounts, permissions, links, and preferences are stored in SQLite.
+<h1 align="center">Nimbus</h1>
+
+<p align="center">A self-hosted file manager with account and group sharing, public download links, and WebDAV access.</p>
+
+Files stay on your filesystem. Accounts, permissions, links, and preferences are stored in SQLite.
 
 ## Features
 
