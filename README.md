@@ -36,7 +36,7 @@ Open [http://localhost:3000/signup](http://localhost:3000/signup) and create the
 
 ## Docker deployment
 
-The included Compose configuration builds Nimbus locally and persists all default storage in the `nimbus-data` volume. Docker Engine with Compose is required.
+The included Compose configuration builds Nimbus locally and persists files in `nimbus-data` and application state in `nimbus-config`. Docker Engine with Compose is required.
 
 From the repository root, create a `.env` file for Compose containing:
 
@@ -55,6 +55,22 @@ docker compose logs -f nimbus
 Open [http://localhost:3000/signup](http://localhost:3000/signup) to create the administrator. Compose binds port 3000 to the host's loopback interface. For remote access, put an HTTPS reverse proxy in front of it and set `BETTER_AUTH_URL` to the public origin, for example `https://files.example.com`. The proxy must preserve the request host and forwarded protocol, allow WebDAV methods, and permit your intended upload sizes and transfer durations. Disable buffering for the live event stream. Serve Nimbus at the origin root, not under a URL prefix.
 
 The container runs as the unprivileged `bun` user. Host directories can replace the named volumes if they are writable by that user. Persist both `/data` (managed files, trash, upload staging) and `/config` (database and thumbnail cache). Use one Nimbus process per data root, on a local filesystem. Locks, live events, and mutation coordination are maintained within that process.
+
+### Published image
+
+The Docker workflow builds the Dockerfile for every PR and publishes Linux amd64 images to GitHub Container Registry on pushes to `main`. It can also be run manually from the Actions tab; only runs on `main` publish images. Every build pulls the latest Bun base image.
+
+- `ghcr.io/augusdogus/nimbus:latest` tracks published builds from `main`.
+- `ghcr.io/augusdogus/nimbus:sha-<full commit SHA>` identifies a build's source commit.
+
+To use a published image, replace `build: .` in `compose.yaml` with `image: ghcr.io/augusdogus/nimbus:latest`, keeping the environment and both volume mappings. Then run:
+
+```bash
+docker compose pull
+docker compose up -d --no-build
+```
+
+Publishing uses the workflow's `GITHUB_TOKEN`; no registry secret needs to be configured. After the first publish, the package owner should set its visibility to **Public** in GitHub's package settings to allow pulls without signing in. New GHCR packages default to private. See [GitHub's registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
 
 ### Unraid
 
