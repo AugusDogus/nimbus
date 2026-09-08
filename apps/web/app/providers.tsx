@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
+import { UploadProvider } from "@/components/upload-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { queryClient } from "@/lib/trpc";
 import { createQueryClient } from "@/lib/query-client";
@@ -26,7 +27,7 @@ export default function Providers({ children }: ProvidersProps) {
         enableSystem
         disableTransitionOnChange
       >
-        {children}
+        <UploadProvider>{children}</UploadProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );
