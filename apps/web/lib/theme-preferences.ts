@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BuiltInThemes } from "./built-in-themes";
 import {
   importedThemeSchema,
   type ThemeResult,
@@ -16,15 +17,16 @@ const schema = z
   })
   .superRefine((value, context) => {
     if (
-      new Set(value.themes.map((theme) => theme.id)).size !==
-      value.themes.length
+      new Set([...BuiltInThemes.all, ...value.themes].map((theme) => theme.id))
+        .size !==
+      value.themes.length + BuiltInThemes.all.length
     ) {
       context.addIssue({ code: "custom", message: "Duplicate theme IDs" });
     }
     for (const mode of ["light", "dark"] as const) {
       if (
         value[mode] !== null &&
-        !value.themes.some(
+        ![...BuiltInThemes.all, ...value.themes].some(
           (theme) => theme.id === value[mode] && theme.appearance === mode,
         )
       ) {
@@ -93,12 +95,16 @@ function remove(current: ThemePreferences, id: string): ThemePreferences {
   };
 }
 
+function resolve(current: ThemePreferences, mode: "light" | "dark") {
+  return [...BuiltInThemes.all, ...current.themes].find(
+    (entry) => entry.id === current[mode] && entry.appearance === mode,
+  );
+}
+
 function css(current: ThemePreferences): string {
   return (["light", "dark"] as const)
     .map((mode) => {
-      const theme = current.themes.find(
-        (entry) => entry.id === current[mode] && entry.appearance === mode,
-      );
+      const theme = resolve(current, mode);
       if (!theme) return "";
       return `:root.${mode}{${Object.entries(theme.colors)
         .map(([key, color]) => `--${key}:${color};`)
@@ -113,6 +119,7 @@ export const ThemePreferences = {
   install,
   select,
   remove,
+  resolve,
   css,
   schema,
 } as const;
