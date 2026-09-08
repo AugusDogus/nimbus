@@ -199,6 +199,6 @@ bun playwright install chromium
 bun run test:e2e
 ```
 
-Unit tests cover path confinement, permissions, file operations, migrations, retention, and caches. Playwright tests use isolated temporary storage and accounts on port 3100 with desktop and mobile Chromium projects. Do not run a production build while the development test server is running. CI runs these checks and retains failed browser-test artifacts.
+Unit tests cover path confinement, permissions, file operations, migrations, retention, and caches. Playwright tests use isolated temporary storage and accounts on port 3100 with desktop and mobile Chromium projects. Local tests use development mode; with `CI=true`, tests use the production build, so run `bun run build` first. Do not run a production build while the development test server is running. CI runs these checks and retains failed browser-test artifacts.
 
 See [the web app README](apps/web/README.md) for the code layout and database development commands.
