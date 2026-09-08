@@ -68,9 +68,11 @@ test("retention removes expired trash while retaining recoverable items", async 
 test("retention preserves active upload metadata and ignores symbolic links", async () => {
   await storedFile("uploads/active", 0);
   await storedFile("uploads/active.json", 2 * day);
+  await storedFile("uploads/active.done.tmp", 2 * day);
   await storedFile("uploads/expired", 2 * day);
   await storedFile("uploads/expired.json", 2 * day);
   await storedFile("uploads/expired.done", 2 * day);
+  await storedFile("uploads/expired.done.tmp", 2 * day);
   await storedFile("cache/thumbnails/old.webp", 31 * day);
   await storedFile("cache/thumbnails/recent.webp", day);
   await symlink(
@@ -80,6 +82,7 @@ test("retention preserves active upload metadata and ignores symbolic links", as
   await cleanExpiredData(store, root, now);
   expect((await readdir(path.join(root, ".nimbus/uploads"))).sort()).toEqual([
     "active",
+    "active.done.tmp",
     "active.json",
     "link",
   ]);
