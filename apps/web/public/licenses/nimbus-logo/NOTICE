@@ -7,4 +7,5 @@ Modifications: retained the original three artwork paths, set explicit icon
 sizes, added theme-aware foreground colors, and adapted SVG accessibility and
 React props for this application. No artwork paths were changed.
 
-The README icon scales the original artwork onto a charcoal squircle background.
+The README icon scales the original artwork onto a squircle using the app’s
+default dark background and grain texture.
