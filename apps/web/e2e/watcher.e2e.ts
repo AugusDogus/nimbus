@@ -25,10 +25,10 @@ test("external disk changes appear live and reserved folder names remain browsab
   const source = path.join(directory, "external.txt");
   const destination = path.join(directory, "external-renamed.txt");
   await writeFile(source, "Created outside Nimbus");
-  await expect(page.locator('[data-entry-name="external.txt"]')).toBeVisible();
+  await expect(page.locator('[data-entry-name="external.txt"]').filter({ visible: true })).toBeVisible();
   await rename(source, destination);
   await expect(page.locator('[data-entry-name="external.txt"]')).toHaveCount(0);
-  await expect(page.locator('[data-entry-name="external-renamed.txt"]')).toBeVisible();
+  await expect(page.locator('[data-entry-name="external-renamed.txt"]').filter({ visible: true })).toBeVisible();
   await rm(destination);
   await expect(page.locator('[data-entry-name="external-renamed.txt"]')).toHaveCount(0);
   expect((await rpc.files.list.query({ path: `${parent}/live` })).map((entry) => entry.name)).toEqual([]);
