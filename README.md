@@ -10,8 +10,9 @@ Nimbus is a self-hosted file manager with account and group sharing, public down
 - Search filenames and keep starred and recently opened items.
 - Share files and folders with existing users or groups using read, write, or sharing-management permissions.
 - Create read-only public links with optional passwords and expiration, view download counts, and revoke links.
-- Manage users, groups, account roles, disabled accounts, and password resets from the administrator page.
+- Manage users, groups, account roles, disabled accounts, and password resets from Settings → Administration.
 - Connect WebDAV clients with individually revocable app passwords.
+- Choose built-in light and dark themes, import VS Code themes, or find community themes on Open VSX.
 
 ## Local setup
 
@@ -75,7 +76,14 @@ The reserved `.nimbus` directory contains the database, trash, temporary uploads
 
 ## Settings
 
-Opening Settings switches to a dedicated sidebar. Appearance controls themes, Account manages your password, and WebDAV manages app passwords. Server administrators also see **Administration → Users & groups**. Use **Back to files** to return to the drive.
+Open the settings cog beside **Trash** to switch to the settings sidebar:
+
+- **Appearance:** choose System, Light, or Dark mode and a separate theme for each color scheme. **Add theme** supports VS Code theme files and Open VSX community search. Themes and selections are saved in this browser. See [theme details and import limits](apps/web/README.md#themes).
+- **Account:** view your name and email, and change your password. Changing it signs out other browser sessions; WebDAV app passwords remain active.
+- **WebDAV:** copy your server address and username, create a password for each device, and revoke passwords you no longer need.
+- **Administration → Users & groups** (server administrators only): create accounts, manage group membership, and grant drive access. Each user's action menu contains password reset, administrator role, and enable/disable controls.
+
+Use **Back to files** to return to the drive. Active uploads continue while you browse Settings.
 
 ## Sharing and permissions
 
@@ -103,7 +111,7 @@ Cleanup runs at startup and hourly. It permanently removes expired trash, upload
 
 ## WebDAV
 
-In **Settings → WebDAV**, create an app password and save it when shown. Configure the client with:
+In **Settings → WebDAV**, select **Create password** and name the device. Copy the generated password before selecting **I’ve saved it**; it is shown only once. Copy the server address and username from the Connection section, then configure the client with:
 
 - URL: `https://your-nimbus-server/dav/`
 - Username: your Nimbus account email
