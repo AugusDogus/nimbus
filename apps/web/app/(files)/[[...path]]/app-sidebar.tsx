@@ -154,8 +154,8 @@ export function AppSidebar({
       </SidebarContent>
 
       <SidebarFooter className="gap-3 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-4 group-data-[collapsible=icon]:px-0">
-        <SidebarMenu>
-          <SidebarMenuItem>
+        <SidebarMenu className="flex-row items-center justify-between gap-1 group-data-[collapsible=icon]:flex-col">
+          <SidebarMenuItem className="min-w-0 flex-1 group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:flex-none">
             <SidebarMenuButton
               asChild
               tooltip="Trash"
@@ -172,10 +172,7 @@ export function AppSidebar({
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
-        </SidebarMenu>
-        {isAdmin && <StorageIndicator storage={storage} />}
-        <SidebarMenu className="gap-1">
-          <SidebarMenuItem>
+          <SidebarMenuItem className="shrink-0 group-data-[collapsible=icon]:w-full">
             <SidebarMenuButton
               asChild
               tooltip="Settings"
@@ -194,6 +191,7 @@ export function AppSidebar({
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        {isAdmin && <StorageIndicator storage={storage} />}
       </SidebarFooter>
     </Sidebar>
   );
