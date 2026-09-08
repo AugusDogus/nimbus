@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { createTRPCClient, httpBatchLink } from "@trpc/client";
 import { expect, test as base, type BrowserContext, type Download, type Page } from "@playwright/test";
 import type { AppRouter } from "@nimbus/api/routers";
@@ -7,6 +8,14 @@ export const adminEmail = "admin@nimbus.test";
 export const password = "Nimbus-test-password-42";
 
 export const test = base.extend<{ browserErrors: void }>({
+  extraHTTPHeaders: async ({ extraHTTPHeaders }, provideHeaders) => {
+    // Separate clients keep production login limits isolated between tests.
+    const id = randomUUID().replaceAll("-", "");
+    await provideHeaders({
+      ...extraHTTPHeaders,
+      "x-forwarded-for": `fd00:${id.slice(0, 4)}:${id.slice(4, 8)}:${id.slice(8, 12)}::1`,
+    });
+  },
   browserErrors: [async ({ page }, use) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));

@@ -13,7 +13,8 @@ const manifest = path.join(os.tmpdir(), "nimbus-e2e-3100.json");
 await writeFile(manifest, JSON.stringify({ dataRoot: data }));
 const child = Bun.spawn(["bun", "server/start.ts"], {
   cwd: app, stdout: "inherit", stderr: "inherit",
-  env: { ...process.env, NODE_ENV: "development", PORT: "3100", BETTER_AUTH_URL: "http://localhost:3100", BETTER_AUTH_TRUSTED_ORIGINS: "http://localhost:3100", BETTER_AUTH_SECRET: randomBytes(32).toString("base64url"), DATABASE_URL: undefined, NIMBUS_DATA_ROOT: data, NIMBUS_CONFIG_ROOT: config },
+  // CI builds first. Exercise that build without compilation delays during tests.
+  env: { ...process.env, NODE_ENV: process.env.CI === "true" ? "production" : "development", PORT: "3100", BETTER_AUTH_URL: "http://localhost:3100", BETTER_AUTH_TRUSTED_ORIGINS: "http://localhost:3100", BETTER_AUTH_SECRET: randomBytes(32).toString("base64url"), DATABASE_URL: undefined, NIMBUS_DATA_ROOT: data, NIMBUS_CONFIG_ROOT: config },
 });
 const stop = () => child.kill("SIGTERM");
 process.on("SIGTERM", stop);

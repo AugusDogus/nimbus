@@ -56,6 +56,7 @@ test("WebDAV app passwords support file operations and stop working after revoca
   await deviceRow.getByRole("button", { name: "Revoke", exact: true }).click();
   expect(await page.getByRole("alertdialog").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await page.getByRole("alertdialog", { name: "Revoke app password?" }).getByRole("button", { name: "Revoke", exact: true }).click();
+  await expect(page.getByRole("alertdialog", { name: "Revoke app password?" })).toBeHidden();
   await expect(deviceRow).toHaveCount(0);
   expect((await request.get("/dav/alpha.txt", { headers })).status()).toBe(401);
   await page.evaluate(async () => {
