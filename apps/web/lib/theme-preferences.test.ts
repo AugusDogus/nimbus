@@ -3,6 +3,8 @@ import { runInNewContext } from "node:vm";
 import { ThemePreferences } from "./theme-preferences";
 import { VsCodeTheme } from "./vscode-theme";
 import { themeBootScript } from "../components/theme-boot";
+import { BuiltInThemes } from "./built-in-themes";
+import { importedThemeSchema } from "./vscode-theme";
 
 function imported(name: string, background: string) {
   const result = VsCodeTheme.parse(
@@ -13,6 +15,49 @@ function imported(name: string, background: string) {
 }
 
 describe("saved themes", () => {
+  test("built-in pairs persist independently and match the pre-paint palette", () => {
+    expect(BuiltInThemes.pairs).toHaveLength(5);
+    for (const pair of BuiltInThemes.pairs) {
+      let preferences = ThemePreferences.empty;
+      expect(pair.themes.map((theme) => theme.appearance)).toEqual([
+        "light",
+        "dark",
+      ]);
+      for (const theme of pair.themes) {
+        expect(importedThemeSchema.safeParse(theme).success).toBe(true);
+        preferences = ThemePreferences.select(
+          preferences,
+          theme.appearance,
+          theme.id,
+        );
+        expect(ThemePreferences.resolve(preferences, theme.appearance)).toEqual(
+          theme,
+        );
+        expect(
+          ThemePreferences.parse(
+            JSON.stringify({
+              ...preferences,
+              [theme.appearance === "light" ? "dark" : "light"]: theme.id,
+            }),
+          ).ok,
+        ).toBe(false);
+      }
+      expect(preferences.themes).toEqual([]);
+      expect(ThemePreferences.parse(JSON.stringify(preferences))).toEqual({
+        ok: true,
+        value: preferences,
+      });
+      const style = { textContent: "" };
+      runInNewContext(themeBootScript, {
+        localStorage: { getItem: () => JSON.stringify(preferences) },
+        document: { getElementById: () => style },
+      });
+      expect(style.textContent).toBe(ThemePreferences.css(preferences));
+      expect(style.textContent).toContain(":root.light{");
+      expect(style.textContent).toContain(":root.dark{");
+    }
+  });
+
   test("round trips separate light and dark choices and clears only a removed selection", () => {
     const light = imported("Paper", "#ffffff");
     const dark = imported("Night", "#111111");
