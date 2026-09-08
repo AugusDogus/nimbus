@@ -9,8 +9,9 @@
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
-    "test": "turbo test",
-    "test:e2e": "bun playwright test"
+    "test": "bun test",
+    "test:e2e": "bun playwright test",
+    "typecheck": "turbo typecheck"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
