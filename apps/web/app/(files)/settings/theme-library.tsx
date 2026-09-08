@@ -1,72 +1,20 @@
 "use client";
 
+// Adapted from T3 Code's theme tiles and library cards, MIT.
+// See public/licenses/t3-code/NOTICE.
+import type { ReactNode } from "react";
+import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ThemePreferences } from "@/lib/theme-preferences";
+import { BuiltInThemes } from "@/lib/built-in-themes";
+import { ThemePreferences } from "@/lib/theme-preferences";
 import type { VsCodeTheme } from "@/lib/vscode-theme";
-
-type PreviewColors = Pick<
-  VsCodeTheme["colors"],
-  "background" | "sidebar" | "foreground" | "primary" | "border"
->;
-const defaultPreviews: Record<"light" | "dark", PreviewColors> = {
-  light: {
-    background: "#f7f8fa",
-    sidebar: "#eef0f4",
-    foreground: "#242731",
-    primary: "#426699",
-    border: "#dce0e7",
-  },
-  dark: {
-    background: "#222429",
-    sidebar: "#1d1f23",
-    foreground: "#e8e9ed",
-    primary: "#b8cdf4",
-    border: "#363940",
-  },
-};
-
-function Preview({ colors }: { colors: PreviewColors }) {
-  return (
-    <div
-      aria-hidden="true"
-      className="flex h-16 min-w-0 flex-1 overflow-hidden rounded-md border"
-      style={{ backgroundColor: colors.background, borderColor: colors.border }}
-    >
-      <div
-        className="w-1/4 space-y-1.5 p-2"
-        style={{ backgroundColor: colors.sidebar }}
-      >
-        <div
-          className="h-1.5 rounded-sm"
-          style={{ backgroundColor: colors.primary }}
-        />
-        <div
-          className="h-1 rounded-sm opacity-40"
-          style={{ backgroundColor: colors.foreground }}
-        />
-        <div
-          className="h-1 rounded-sm opacity-40"
-          style={{ backgroundColor: colors.foreground }}
-        />
-      </div>
-      <div className="flex-1 space-y-2 p-2">
-        <div
-          className="h-1.5 w-1/2 rounded-sm"
-          style={{ backgroundColor: colors.foreground }}
-        />
-        <div
-          className="h-1 rounded-sm opacity-40"
-          style={{ backgroundColor: colors.foreground }}
-        />
-        <div
-          className="h-1 w-2/3 rounded-sm opacity-40"
-          style={{ backgroundColor: colors.foreground }}
-        />
-      </div>
-    </div>
-  );
-}
+import {
+  defaultPreviews,
+  previewColors,
+  ThemeSwatch,
+} from "./theme-preview-circles";
+import { ThemeWireframe } from "./theme-wireframe";
 
 export function AppearanceModes({
   mode,
@@ -79,25 +27,28 @@ export function AppearanceModes({
   onChange: (mode: string) => void;
   disabled: boolean;
 }) {
-  const colors = (appearance: "light" | "dark") =>
-    preferences.themes.find((theme) => theme.id === preferences[appearance])
-      ?.colors ?? defaultPreviews[appearance];
+  const colors = (appearance: "light" | "dark") => {
+    const theme = ThemePreferences.resolve(preferences, appearance);
+    return theme ? previewColors(theme.colors) : defaultPreviews[appearance];
+  };
   return (
-    <div className="space-y-2">
-      <h3 className="text-balance text-sm font-medium">Color scheme</h3>
+    <div className="space-y-3">
+      <h3 className="text-balance text-sm font-medium text-muted-foreground">
+        Color scheme
+      </h3>
       <div
         role="group"
         aria-label="Appearance mode"
-        className="grid grid-cols-3 gap-2"
+        className="grid grid-cols-3 gap-2 sm:gap-3"
       >
         {(["system", "light", "dark"] as const).map((appearance) => (
-          <Button
+          <button
             key={appearance}
-            variant="outline"
+            type="button"
             disabled={disabled}
             className={cn(
-              "h-auto min-w-0 flex-col items-stretch gap-2 p-2",
-              mode === appearance && "border-ring ring-1 ring-ring",
+              "flex min-w-0 cursor-pointer flex-col items-stretch gap-2 rounded-xl border bg-card/60 p-1.5 outline-none hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 sm:p-2",
+              mode === appearance ? "border-ring" : "border-border/70",
             )}
             aria-label={
               appearance === "system"
@@ -107,27 +58,73 @@ export function AppearanceModes({
             aria-pressed={mode === appearance}
             onClick={() => onChange(appearance)}
           >
-            <div className="flex min-w-0 gap-0.5">
-              {appearance === "system" ? (
-                <>
-                  <Preview colors={colors("light")} />
-                  <Preview colors={colors("dark")} />
-                </>
-              ) : (
-                <Preview colors={colors(appearance)} />
+            <ThemeWireframe
+              className="h-16 sm:h-28 lg:h-36"
+              panes={
+                appearance === "system"
+                  ? [
+                      { clip: "left", colors: colors("light") },
+                      { clip: "right", colors: colors("dark") },
+                    ]
+                  : [{ colors: colors(appearance) }]
+              }
+            />
+            <span
+              className={cn(
+                "pb-0.5 text-center text-xs font-medium",
+                mode === appearance
+                  ? "text-foreground"
+                  : "text-muted-foreground",
               )}
-            </div>
-            <span>
+            >
               {appearance === "system"
                 ? "System"
                 : appearance === "light"
                   ? "Light"
                   : "Dark"}
             </span>
-          </Button>
+          </button>
         ))}
       </div>
     </div>
+  );
+}
+
+function PaletteCard({
+  name,
+  children,
+  onRemove,
+  disabled,
+}: {
+  name: string;
+  children: ReactNode;
+  onRemove?: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <article className="min-w-0 rounded-xl border border-border/70 bg-card/60">
+      <div className="flex h-20 items-center justify-center gap-1.5 px-2 pt-2 sm:h-24 sm:gap-3 sm:px-3">
+        {children}
+      </div>
+      <div className="flex h-10 items-center justify-between gap-2 px-3 pb-2">
+        <h4 className="truncate text-sm font-medium" title={name}>
+          {name}
+        </h4>
+        {onRemove && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 text-muted-foreground"
+            disabled={disabled}
+            aria-label={`Remove ${name}`}
+            title={`Remove ${name}`}
+            onClick={onRemove}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        )}
+      </div>
+    </article>
   );
 }
 
@@ -143,63 +140,51 @@ export function ThemeLibrary({
   disabled: boolean;
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      <article className="space-y-3 rounded-lg border p-3">
-        <h4 className="text-balance text-sm font-medium">Nimbus</h4>
-        <div className="grid grid-cols-2 gap-2">
-          {(["light", "dark"] as const).map((mode) => (
-            <Button
-              key={mode}
-              variant="outline"
+    <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
+      <PaletteCard name="Nimbus" disabled={disabled}>
+        {(["light", "dark"] as const).map((mode) => (
+          <ThemeSwatch
+            key={mode}
+            name="Nimbus"
+            mode={mode}
+            colors={defaultPreviews[mode]}
+            selected={preferences[mode] === null}
+            disabled={disabled}
+            onSelect={() => onChoose(mode, null)}
+          />
+        ))}
+      </PaletteCard>
+      {BuiltInThemes.pairs.map((pair) => (
+        <PaletteCard key={pair.id} name={pair.name} disabled={disabled}>
+          {pair.themes.map((theme) => (
+            <ThemeSwatch
+              key={theme.id}
+              name={pair.name}
+              mode={theme.appearance}
+              colors={previewColors(theme.colors)}
+              selected={preferences[theme.appearance] === theme.id}
               disabled={disabled}
-              className={cn(
-                "h-auto min-w-0 flex-col items-stretch gap-2 p-2",
-                preferences[mode] === null && "border-ring",
-              )}
-              aria-label={`Use Nimbus for ${mode} mode`}
-              aria-pressed={preferences[mode] === null}
-              onClick={() => onChoose(mode, null)}
-            >
-              <Preview colors={defaultPreviews[mode]} />
-              <span>{mode === "light" ? "Light" : "Dark"}</span>
-            </Button>
+              onSelect={() => onChoose(theme.appearance, theme.id)}
+            />
           ))}
-        </div>
-      </article>
+        </PaletteCard>
+      ))}
       {preferences.themes.map((theme) => (
-        <article
+        <PaletteCard
           key={theme.id}
-          className="flex min-w-0 flex-col gap-2 rounded-lg border p-3"
+          name={theme.name}
+          disabled={disabled}
+          onRemove={() => onRemove(theme)}
         >
-          <Button
-            variant="ghost"
+          <ThemeSwatch
+            name={theme.name}
+            mode={theme.appearance}
+            colors={previewColors(theme.colors)}
+            selected={preferences[theme.appearance] === theme.id}
             disabled={disabled}
-            className="h-auto min-w-0 flex-1 flex-col items-stretch gap-3 p-0 hover:bg-transparent"
-            aria-label={`Use ${theme.name} for ${theme.appearance} mode`}
-            aria-pressed={preferences[theme.appearance] === theme.id}
-            onClick={() => onChoose(theme.appearance, theme.id)}
-          >
-            <span className="truncate text-left text-sm font-medium">
-              {theme.name}
-            </span>
-            <Preview colors={theme.colors} />
-            <span className="text-left text-xs text-muted-foreground">
-              {preferences[theme.appearance] === theme.id
-                ? `Selected for ${theme.appearance} mode`
-                : `Use for ${theme.appearance} mode`}
-            </span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="self-end"
-            disabled={disabled}
-            aria-label={`Remove ${theme.name}`}
-            onClick={() => onRemove(theme)}
-          >
-            Remove
-          </Button>
-        </article>
+            onSelect={() => onChoose(theme.appearance, theme.id)}
+          />
+        </PaletteCard>
       ))}
     </div>
   );

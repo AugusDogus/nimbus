@@ -29,7 +29,9 @@ The root scripts run this workspace with `apps/web` as its working directory, so
 
 Settings → Appearance separates the color scheme (System, Light, Dark) from the theme used for each scheme. Selecting or importing a theme preserves the current color scheme.
 
-Import VS Code color theme `.json` or `.jsonc` files, or search Open VSX and add an extension's color themes. Imported colors apply to Nimbus's surfaces and controls. Syntax token colors are not used. Community imports resolve theme `include` files within the extension; standalone files with includes must first be exported as a complete color theme from VS Code.
+The built-in library includes Nimbus plus T3 Chat, Grove, Ocean, Ember, and Iris, adapted from T3 Code under the MIT license. Each palette has independently selectable light and dark variants.
+
+Use **Add theme** to import VS Code color theme `.json` or `.jsonc` files, or search Open VSX and add an extension's color themes. Imported colors apply to Nimbus's surfaces and controls. Syntax token colors are not used. Community imports resolve theme `include` files within the extension; standalone files with includes must first be exported as a complete color theme from VS Code.
 
 Themes and selections are stored in this browser and restored on reload. Removing a selected theme restores Nimbus's default palette for that scheme. Theme files are limited to 1 MB, extension downloads to 20 MB, and saved themes to 100.
 
