@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.5 AS build
+FROM oven/bun:1.4.1 AS build
 WORKDIR /app
 COPY . .
 RUN bun install --frozen-lockfile
@@ -7,7 +7,7 @@ RUN BETTER_AUTH_SECRET="$(bun -e 'process.stdout.write(require("node:crypto").ra
     BETTER_AUTH_URL=http://localhost:3000 \
     bun run build
 
-FROM oven/bun:1.3.5
+FROM oven/bun:1.4.1
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 NIMBUS_DATA_ROOT=/data PORT=3000
 COPY --from=build --chown=bun:bun /app /app

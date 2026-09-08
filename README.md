@@ -22,7 +22,7 @@ Files stay on your filesystem. Accounts, permissions, links, and preferences are
 
 ## Local setup
 
-Use Bun 1.3.5 or newer. Run these commands from the repository root:
+Use Bun 1.4.1 or newer. Run these commands from the repository root:
 
 ```bash
 bun install --frozen-lockfile
