@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
 
@@ -42,7 +41,6 @@ export function SignupForm({
   className,
   ...props
 }: React.ComponentProps<"div">) {
-  const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -79,7 +77,7 @@ export function SignupForm({
         setError(getErrorMessage(signInResult.error));
         return;
       }
-      router.push("/");
+      window.location.assign("/");
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
