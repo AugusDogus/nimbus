@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
 
@@ -44,7 +43,6 @@ export function LoginForm({
   className,
   ...props
 }: React.ComponentProps<"div"> & { setupAvailable?: boolean }) {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +68,7 @@ export function LoginForm({
       }
       queryClient.clear();
       setSuccess("Signed in successfully.");
-      router.push("/");
+      window.location.assign("/");
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
