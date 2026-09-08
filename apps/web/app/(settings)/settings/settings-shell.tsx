@@ -66,7 +66,7 @@ export function SettingsShell({
           </Breadcrumb>
         </header>
         <UploadProgress />
-        <div className="w-full flex-1 px-4 py-6 md:px-6 lg:px-8 lg:py-8">
+        <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 md:px-6 lg:px-8 lg:py-8">
           {children}
         </div>
       </SidebarInset>
