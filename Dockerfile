@@ -9,12 +9,12 @@ RUN BETTER_AUTH_SECRET="$(bun -e 'process.stdout.write(require("node:crypto").ra
 
 FROM oven/bun:latest
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 NIMBUS_DATA_ROOT=/data PORT=3000
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 NIMBUS_DATA_ROOT=/data NIMBUS_CONFIG_ROOT=/config PORT=3000
 COPY --from=build --chown=bun:bun /app /app
-RUN mkdir /data && chown bun:bun /data
+RUN mkdir /data /config && chown bun:bun /data /config
 USER bun
 WORKDIR /app/apps/web
 EXPOSE 3000
-VOLUME ["/data"]
+VOLUME ["/data", "/config"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD bun -e 'fetch("http://127.0.0.1:3000/api/health").then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'
 CMD ["bun", "server/start.ts"]
