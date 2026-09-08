@@ -6,7 +6,6 @@ import {
   Plus,
   Search,
   Shield,
-  Trash2,
   Upload,
 } from "lucide-react";
 import Link from "next/link";
@@ -221,12 +220,6 @@ export function FilesShell({
                     <Link href="/shares">
                       <Link2 />
                       Share links
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/trash">
-                      <Trash2 />
-                      Trash
                     </Link>
                   </DropdownMenuItem>
                   {capabilities.data?.isAdmin === true && (

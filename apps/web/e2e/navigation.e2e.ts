@@ -58,8 +58,9 @@ test("keeps primary navigation and utility actions usable in both themes", async
     await account.focus();
     await expect(account).toBeFocused();
     await account.press("Enter");
-    await expect(page.getByRole("menuitem")).toHaveCount(4);
-    for (const [name, href] of [["Share links", "/shares"], ["Trash", "/trash"], ["Administration", "/admin"]]) {
+    await expect(page.getByRole("menuitem", { name: "Trash", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("menuitem")).toHaveCount(3);
+    for (const [name, href] of [["Share links", "/shares"], ["Administration", "/admin"]]) {
       await expect(page.getByRole("menuitem", { name, exact: true })).toHaveAttribute("href", href);
     }
     await expect(page.getByRole("menuitem", { name: "Sign out", exact: true })).toBeVisible();
