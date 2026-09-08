@@ -46,7 +46,7 @@ export default function SettingsPage() {
     }
   };
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="w-full space-y-6">
       <h1 className="text-balance text-2xl font-semibold">Settings</h1>
       <ThemeSettings />
       <PasswordSettings />
