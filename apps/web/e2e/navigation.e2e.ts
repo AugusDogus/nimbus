@@ -59,8 +59,9 @@ test("keeps primary navigation and utility actions usable in both themes", async
     await expect(account).toBeFocused();
     await account.press("Enter");
     await expect(page.getByRole("menuitem", { name: "Trash", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("menuitem")).toHaveCount(3);
-    for (const [name, href] of [["Share links", "/shares"], ["Administration", "/admin"]]) {
+    await expect(page.getByRole("menuitem", { name: "Share links", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("menuitem")).toHaveCount(2);
+    for (const [name, href] of [["Administration", "/admin"]]) {
       await expect(page.getByRole("menuitem", { name, exact: true })).toHaveAttribute("href", href);
     }
     await expect(page.getByRole("menuitem", { name: "Sign out", exact: true })).toBeVisible();
@@ -72,7 +73,7 @@ test("keeps primary navigation and utility actions usable in both themes", async
     if (isMobile) await page.getByRole("button", { name: "Toggle Sidebar", exact: true }).click();
     const primary = page.locator('[data-slot="sidebar-content"]').getByRole("link");
     await expect(primary).toHaveCount(4);
-    for (const [name, href] of [["My Drive", "/"], ["Shared with me", "/shared"], ["Recent", "/recent"], ["Starred", "/starred"]]) {
+    for (const [name, href] of [["My Drive", "/"], ["Shared", "/shared"], ["Recent", "/recent"], ["Starred", "/starred"]]) {
       await expect(primary.filter({ hasText: name })).toHaveAttribute("href", href);
     }
 
@@ -81,7 +82,7 @@ test("keeps primary navigation and utility actions usable in both themes", async
       await page.keyboard.press("Escape");
       await expect(page.getByRole("dialog", { name: "Sidebar", exact: true })).toBeHidden();
       await page.getByRole("button", { name: "Toggle Sidebar", exact: true }).click();
-      await page.getByRole("navigation", { name: "Files", exact: true }).getByRole("link", { name: "Shared with me", exact: true }).click();
+      await page.getByRole("navigation", { name: "Files", exact: true }).getByRole("link", { name: "Shared", exact: true }).click();
       await expect(page).toHaveURL("/shared");
       await expect(page.getByRole("dialog", { name: "Sidebar", exact: true })).toBeHidden();
       await page.getByRole("button", { name: "Toggle Sidebar", exact: true }).click();
