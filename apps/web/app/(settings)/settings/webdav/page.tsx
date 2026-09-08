@@ -1,10 +1,8 @@
 "use client";
 
-import { PasswordSettings } from "./password-settings";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient, trpcClient } from "@/lib/trpc";
-import { ThemeSettings } from "./theme-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,7 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-export default function SettingsPage() {
+export default function WebDavPage() {
   const passwords = useQuery({
     queryKey: ["appPasswords"],
     queryFn: () => trpcClient.appPasswords.list.query(),
@@ -47,9 +45,7 @@ export default function SettingsPage() {
   };
   return (
     <div className="w-full space-y-6">
-      <h1 className="text-balance text-2xl font-semibold">Settings</h1>
-      <ThemeSettings />
-      <PasswordSettings />
+      <h1 className="text-balance text-2xl font-semibold">WebDAV</h1>
       <section className="space-y-4 rounded-lg border p-5">
         <h2 className="text-balance text-lg font-medium">
           Connect with WebDAV

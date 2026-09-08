@@ -35,7 +35,7 @@ test("keeps primary navigation and utility actions usable in both themes", async
     await expect(settings).toHaveText("");
     await expect(settings.locator("svg")).toBeVisible();
     await settings.click();
-    await expect(page).toHaveURL("/settings");
+    await expect(page).toHaveURL("/settings/appearance");
     if (isMobile) await expect(page.getByRole("dialog", { name: "Sidebar", exact: true })).toBeHidden();
     await expect(page.getByRole("heading", { name: "Appearance", exact: true })).toBeVisible();
     await page.getByRole("button", { name: `Use ${theme.toLowerCase()} mode`, exact: true }).click();
@@ -102,8 +102,8 @@ test("keeps primary navigation and utility actions usable in both themes", async
       await page.getByRole("button", { name: "Toggle Sidebar", exact: true }).click();
     }
     await page.getByRole("link", { name: "Settings", exact: true }).click();
-    await expect(page).toHaveURL("/settings");
-    await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+    await expect(page).toHaveURL("/settings/appearance");
+    await expect(page.getByRole("heading", { name: "Appearance", exact: true })).toBeVisible();
     if (isMobile) await expect(page.getByRole("dialog", { name: "Sidebar", exact: true })).toBeHidden();
     await page.goto("/");
   }
