@@ -16,7 +16,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   await expect(page.getByRole("heading", { name: "This folder is empty" })).toBeVisible();
   await upload(page, filename, body);
   await upload(page, "empty.txt", "");
-  await page.locator('[data-entry-name="empty.txt"]').click();
+  await page.locator('[data-entry-name="empty.txt"]').filter({ visible: true }).click();
   const emptyPreview = page.getByRole("dialog", { name: "empty.txt", exact: true });
   await expect(emptyPreview.locator("pre")).toHaveCount(1);
   await expect(emptyPreview.locator("pre")).toHaveText("");
@@ -26,7 +26,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   await navigate(page, "My Drive", isMobile);
   await page.getByRole("link", { name: folder, exact: true }).click();
   await expect(page).toHaveURL(`/browse/${folder}`);
-  await page.locator(`[data-entry-name="${filename}"]`).click();
+  await page.locator(`[data-entry-name="${filename}"]`).filter({ visible: true }).click();
   const preview = page.getByRole("dialog", { name: filename, exact: true });
   await expect(preview.locator("pre")).toHaveText(body);
   const downloadPromise = page.waitForEvent("download");
@@ -34,7 +34,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   expect(await downloadText(await downloadPromise)).toBe(body);
   await preview.getByRole("button", { name: "Close", exact: true }).click();
   await navigate(page, "Recent", isMobile);
-  await expect(page.locator(`[data-entry-path="${folder}/${filename}"]`)).toBeVisible();
+  await expect(page.locator(`[data-entry-path="${folder}/${filename}"]`).filter({ visible: true })).toBeVisible();
   await navigate(page, "My Drive", isMobile);
   await page.getByRole("link", { name: folder, exact: true }).click();
   await expect(page).toHaveURL(`/browse/${folder}`);
@@ -44,15 +44,15 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   await rename.getByRole("button", { name: "Rename", exact: true }).click();
   await expect(rename).toBeHidden();
   await expect(page.locator(`[data-entry-name="${filename}"]`)).toHaveCount(0);
-  await expect(page.locator(`[data-entry-name="${renamed}"]`)).toBeVisible();
+  await expect(page.locator(`[data-entry-name="${renamed}"]`).filter({ visible: true })).toBeVisible();
   await action(page, renamed, "Toggle star", isMobile);
   await expect(page.getByText("Added to Starred", { exact: true })).toBeVisible();
   await page.goto("/starred");
-  await expect(page.locator(`[data-entry-path="${folder}/${renamed}"]`)).toBeVisible();
+  await expect(page.locator(`[data-entry-path="${folder}/${renamed}"]`).filter({ visible: true })).toBeVisible();
   await page.getByRole("searchbox", { name: "Search files" }).fill(renamed);
   await page.getByRole("searchbox", { name: "Search files" }).press("Enter");
   await expect(page.getByRole("heading", { name: `Search: ${renamed}` })).toBeVisible();
-  await expect(page.locator(`[data-entry-path="${folder}/${renamed}"]`)).toBeVisible();
+  await expect(page.locator(`[data-entry-path="${folder}/${renamed}"]`).filter({ visible: true })).toBeVisible();
   await page.goto(`/browse/${folder}`);
   await createFolder(page, "archive", isMobile);
   await action(page, renamed, "Move", isMobile);
@@ -62,7 +62,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   await move.getByRole("button", { name: "Move here" }).click();
   await expect(move).toBeHidden();
   await page.getByRole("link", { name: "archive", exact: true }).click();
-  await expect(page.locator(`[data-entry-name="${renamed}"]`)).toBeVisible();
+  await expect(page.locator(`[data-entry-name="${renamed}"]`).filter({ visible: true })).toBeVisible();
   await action(page, renamed, "Move to trash", isMobile);
   const confirmation = page.getByRole("alertdialog", { name: "Move to trash?" });
   await confirmation.getByRole("button", { name: "Cancel" }).click();
@@ -76,7 +76,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   await trashed.getByRole("button", { name: "Restore", exact: true }).click();
   await expect(trashed).toHaveCount(0);
   await page.goto(`/browse/${folder}/archive`);
-  await expect(page.locator(`[data-entry-name="${renamed}"]`)).toBeVisible();
+  await expect(page.locator(`[data-entry-name="${renamed}"]`).filter({ visible: true })).toBeVisible();
   const restored = await context.request.get(`/api/files/download?path=${encodeURIComponent(`${folder}/archive/${renamed}`)}`);
   expect(restored.status()).toBe(200);
   expect(await restored.text()).toBe(body);

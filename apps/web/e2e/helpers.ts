@@ -66,7 +66,7 @@ export async function createFolder(page: Page, name: string, mobile: boolean) {
 
 export async function upload(page: Page, name: string, body: string) {
   await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "text/plain", buffer: Buffer.from(body) });
-  await expect(page.locator(`[data-entry-name="${name}"]`)).toBeVisible();
+  await expect(page.locator(`[data-entry-name="${name}"]`).filter({ visible: true })).toBeVisible();
 }
 
 export async function downloadText(download: Download) {
