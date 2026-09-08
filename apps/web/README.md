@@ -13,7 +13,8 @@ The root scripts run this workspace with `apps/web` as its working directory, so
 
 ## Code layout
 
-- `app/(files)`: authenticated file browser, shared and saved items, trash, settings, and administration.
+- `app/(files)`: authenticated file browser, shared and saved items, and trash.
+- `app/(settings)/settings`: dedicated settings sidebar with Appearance, Account, WebDAV, and admin-only Users & groups pages.
 - `app/s/[token]`: public file and folder sharing pages.
 - `app/api`: authentication, tRPC, resumable uploads, downloads, thumbnails, public shares, and health endpoint.
 - `server/start.ts`: startup migrations, Next.js and WebDAV routing, cleanup scheduling, and process shutdown.

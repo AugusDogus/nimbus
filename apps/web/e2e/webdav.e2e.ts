@@ -6,7 +6,7 @@ import { adminEmail, client } from "./helpers";
 test("WebDAV app passwords support file operations and stop working after revocation", async ({ page, context, request }, testInfo) => {
   const folder = `dav-${randomUUID()}`;
   const device = `Laptop ${randomUUID()}`;
-  await page.goto("/settings");
+  await page.goto("/settings/webdav");
   await page.getByLabel("Device name").fill(device);
   await page.getByRole("button", { name: "Create password", exact: true }).click();
   const token = page.getByLabel("Save this password now. It is shown only once.");
