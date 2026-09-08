@@ -28,3 +28,9 @@ playwright-report/
 # editor
 .vscode/
 .idea/
+
+# Local Nimbus storage
+**/data/
+*.db
+*.db-*
+*.tsbuildinfo

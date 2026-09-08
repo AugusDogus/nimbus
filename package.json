@@ -11,6 +11,8 @@
     "lint": "turbo lint",
     "test": "bun test",
     "test:e2e": "bun playwright test",
+    "setup": "bun scripts/setup.ts",
+    "start": "bun run --cwd apps/web start",
     "typecheck": "turbo typecheck"
   },
   "devDependencies": {

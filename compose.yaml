@@ -1,0 +1,16 @@
+services:
+  nimbus:
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set a random auth secret of at least 32 characters}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-${BETTER_AUTH_URL:-http://localhost:3000}}
+    volumes:
+      - nimbus-data:/data
+    restart: unless-stopped
+    stop_grace_period: 35s
+
+volumes:
+  nimbus-data:
