@@ -58,10 +58,11 @@ The container runs as the unprivileged `bun` user. Host directories can replace 
 
 ### Published image
 
-The Docker workflow builds the Dockerfile for every PR and publishes Linux amd64 images to GitHub Container Registry on pushes to `main`. It can also be run manually from the Actions tab; only runs on `main` publish images. Every build pulls the latest Bun base image.
+The Docker workflow builds the Dockerfile for every PR without publishing. Pushing a version tag such as `v1.2.3` publishes Linux amd64 images to GitHub Container Registry. Pushes to `main` do not publish images. Every build pulls the latest Bun base image.
 
-- `ghcr.io/augusdogus/nimbus:latest` tracks published builds from `main`.
-- `ghcr.io/augusdogus/nimbus:sha-<full commit SHA>` identifies a build's source commit.
+- `ghcr.io/augusdogus/nimbus:1.2.3` is published from the `v1.2.3` tag.
+- `ghcr.io/augusdogus/nimbus:latest` tracks the most recently published stable release.
+- Prerelease tags such as `v1.3.0-beta.1` publish `:1.3.0-beta.1` without updating `:latest`.
 
 To use a published image, replace `build: .` in `compose.yaml` with `image: ghcr.io/augusdogus/nimbus:latest`, keeping the environment and both volume mappings. Then run:
 
