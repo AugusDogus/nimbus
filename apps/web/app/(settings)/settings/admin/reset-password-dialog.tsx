@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { KeyRound } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,10 +31,17 @@ export function ResetPasswordDialog({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent>
-        <DialogHeader>
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl [&>*]:min-w-0"
+        showCloseButton={!busy}
+      >
+        <DialogHeader className="text-left">
+          <KeyRound
+            className="mb-2 size-5 text-muted-foreground"
+            aria-hidden="true"
+          />
           <DialogTitle className="text-balance">Reset password</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="break-words text-pretty">
             Set a new password for {user.email}. Their other browser sessions
             will be signed out.
           </DialogDescription>
@@ -77,16 +85,19 @@ export function ResetPasswordDialog({
             }
           }}
         >
-          <Label htmlFor="reset-password">New password</Label>
-          <Input
-            id="reset-password"
-            name="password"
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={8}
-            maxLength={128}
-          />
+          <div className="space-y-2">
+            <Label htmlFor="reset-password">New password</Label>
+            <Input
+              id="reset-password"
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={8}
+              maxLength={128}
+              disabled={busy}
+            />
+          </div>
           {error && (
             <p role="alert" className="text-pretty text-sm text-destructive">
               {error}
@@ -101,7 +112,9 @@ export function ResetPasswordDialog({
             >
               Cancel
             </Button>
-            <Button disabled={busy}>Reset password</Button>
+            <Button disabled={busy}>
+              {busy ? "Saving…" : "Reset password"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

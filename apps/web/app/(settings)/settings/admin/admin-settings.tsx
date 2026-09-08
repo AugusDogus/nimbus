@@ -1,24 +1,22 @@
 "use client";
 
-import { ResetPasswordDialog } from "./reset-password-dialog";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Plus, Users } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { queryClient, trpcClient } from "@/lib/trpc";
+import { trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SharingDialog } from "@/app/(files)/[[...path]]/sharing-dialog";
+import { UserList } from "./user-list";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  AdminConfirmationDialog,
+  type AdminConfirmation,
+} from "./admin-confirmation-dialog";
+import { SettingsSection } from "../settings-section";
+import { CreateAccountDialog } from "./create-account-dialog";
+import { GroupDialog, type GroupEditor } from "./group-dialog";
+import { ResetPasswordDialog } from "./reset-password-dialog";
 
 export function AdminSettings() {
   const me = useQuery({
@@ -42,295 +40,186 @@ export function AdminSettings() {
     queryFn: () => trpcClient.access.groups.query(),
     enabled: me.data?.isAdmin === true,
   });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [editor, setEditor] = useState<GroupEditor | null>(null);
   const [sharing, setSharing] = useState(false);
   const [resetting, setResetting] = useState<{
     id: string;
     email: string;
   } | null>(null);
-  const [confirmation, setConfirmation] = useState<{
-    title: string;
-    action: () => Promise<void>;
-  } | null>(null);
-  const [groupId, setGroupId] = useState<string | undefined>();
-  const [groupName, setGroupName] = useState("");
-  const [members, setMembers] = useState<string[]>([]);
-  const run = async (action: () => Promise<void>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await action();
-      setConfirmation(null);
-      await queryClient.invalidateQueries({ queryKey: ["admin"] });
-      await queryClient.invalidateQueries({ queryKey: ["groups"] });
-      await queryClient.invalidateQueries({ queryKey: ["people"] });
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "The administrative change failed. Try again.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (me.isPending) return <p>Loading account…</p>;
-  if (!me.data?.isAdmin)
+  const [confirmation, setConfirmation] = useState<AdminConfirmation | null>(
+    null,
+  );
+  if (me.isPending)
+    return (
+      <div role="status" aria-label="Loading account" className="space-y-6">
+        <Skeleton className="h-8 w-48 motion-reduce:animate-none" />
+        <Skeleton className="h-40 w-full rounded-2xl motion-reduce:animate-none" />
+      </div>
+    );
+  if (me.error)
+    return (
+      <p role="alert" className="text-pretty text-sm text-destructive">
+        {me.error.message}
+      </p>
+    );
+  if (!me.data.isAdmin)
     return <p role="alert">Only server administrators can open this page.</p>;
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-8">
+      <div className="space-y-2">
         <h1 className="text-balance text-2xl font-semibold">
           Users &amp; groups
         </h1>
-        <Button variant="outline" onClick={() => setSharing(true)}>
-          Manage drive access
-        </Button>
-      </div>
-      {(error || users.error || groups.error) && (
-        <p role="alert" className="text-pretty text-sm text-destructive">
-          {error ?? users.error?.message ?? groups.error?.message}
+        <p className="max-w-prose text-pretty text-sm text-muted-foreground">
+          Manage who can sign in and how they access your files.
         </p>
-      )}
-      <section className="space-y-4 rounded-lg border p-5">
-        <h2 className="text-balance text-lg font-medium">Create account</h2>
-        <form
-          className="grid gap-3 sm:grid-cols-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const form = event.currentTarget;
-            const data = new FormData(form);
-            const name = data.get("name");
-            const email = data.get("email");
-            const password = data.get("password");
-            if (
-              typeof name === "string" &&
-              typeof email === "string" &&
-              typeof password === "string"
-            )
-              void run(async () => {
-                const result = await authClient.admin.createUser({
-                  name,
-                  email,
-                  password,
-                  role: "user",
-                });
-                if (result.error)
-                  throw new Error(
-                    result.error.message ?? "Could not create account.",
-                  );
-                form.reset();
-              });
-          }}
-        >
-          <div className="space-y-2">
-            <Label htmlFor="new-user-name">Name</Label>
-            <Input name="name" id="new-user-name" required />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="new-user-email">Email</Label>
-            <Input name="email" id="new-user-email" type="email" required />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="new-user-password">Initial password</Label>
-            <Input
-              name="password"
-              id="new-user-password"
-              type="password"
-              minLength={8}
-              autoComplete="new-password"
-              required
-            />
-          </div>
-          <Button className="self-end" disabled={busy}>
+      </div>
+      <SettingsSection
+        title="Users"
+        description="Accounts on this Nimbus server."
+        action={
+          <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
+            <Plus aria-hidden="true" />
             Create account
           </Button>
-        </form>
-        <p className="text-pretty text-sm text-muted-foreground">
-          New accounts have no file access until you share a folder or grant
-          drive access.
-        </p>
-      </section>
-      <section className="space-y-3">
-        <h2 className="text-balance text-lg font-medium">Users</h2>
-        {users.data?.map((user) => (
+        }
+      >
+        {users.isPending ? (
           <div
-            key={user.id}
-            className="flex flex-wrap items-center gap-3 rounded-lg border p-4"
+            role="status"
+            aria-label="Loading users"
+            className="space-y-3 p-5"
           >
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{user.name}</p>
-              <p className="truncate text-xs text-muted-foreground">
-                {user.email} · {user.role ?? "user"}
-                {user.banned ? " · disabled" : ""}
+            <Skeleton className="h-4 w-48 motion-reduce:animate-none" />
+            <Skeleton className="h-3 w-64 motion-reduce:animate-none" />
+          </div>
+        ) : users.error ? (
+          <p role="alert" className="p-5 text-pretty text-sm text-destructive">
+            {users.error.message}
+          </p>
+        ) : (
+          <UserList
+            users={users.data}
+            currentUserId={me.data.id}
+            onResetPassword={setResetting}
+            onConfirm={setConfirmation}
+          />
+        )}
+      </SettingsSection>
+      <SettingsSection
+        title="Groups"
+        description="Give a set of people the same folder permissions."
+        action={
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!users.isSuccess}
+            onClick={() => setEditor({ kind: "create" })}
+          >
+            <Plus aria-hidden="true" />
+            Create group
+          </Button>
+        }
+      >
+        {groups.isPending ? (
+          <div role="status" aria-label="Loading groups" className="p-5">
+            <Skeleton className="h-10 w-full motion-reduce:animate-none" />
+          </div>
+        ) : groups.error ? (
+          <p role="alert" className="p-5 text-pretty text-sm text-destructive">
+            {groups.error.message}
+          </p>
+        ) : groups.data.length === 0 ? (
+          <div className="flex items-start gap-4 p-5 sm:py-8">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background">
+              <Users
+                className="size-4 text-muted-foreground"
+                aria-hidden="true"
+              />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium">No groups yet</p>
+              <p className="max-w-prose text-pretty text-sm text-muted-foreground">
+                Create a group for a team or project, then share folders with
+                everyone in it.
               </p>
             </div>
-            {user.id !== me.data.id && (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    setResetting({ id: user.id, email: user.email })
-                  }
-                >
-                  Reset password
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    setConfirmation({
-                      title: user.banned
-                        ? "Enable account?"
-                        : "Disable account?",
-                      action: async () => {
-                        const result = user.banned
-                          ? await authClient.admin.unbanUser({
-                              userId: user.id,
-                            })
-                          : await authClient.admin.banUser({ userId: user.id });
-                        if (result.error)
-                          throw new Error(
-                            result.error.message ?? "Could not update account.",
-                          );
-                      },
-                    })
-                  }
-                >
-                  {user.banned ? "Enable" : "Disable"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    setConfirmation({
-                      title: "Change administrator access?",
-                      action: async () => {
-                        const result = await authClient.admin.setRole({
-                          userId: user.id,
-                          role: user.role === "admin" ? "user" : "admin",
-                        });
-                        if (result.error)
-                          throw new Error(
-                            result.error.message ?? "Could not change role.",
-                          );
-                      },
-                    })
-                  }
-                >
-                  {user.role === "admin" ? "Remove admin" : "Make admin"}
-                </Button>
-              </>
-            )}
           </div>
-        ))}
-      </section>
-      <section className="space-y-4 rounded-lg border p-5">
-        <h2 className="text-balance text-lg font-medium">Groups</h2>
-        <form
-          className="space-y-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void run(async () => {
-              await trpcClient.access.saveGroup.mutate({
-                id: groupId,
-                name: groupName,
-                memberIds: members,
-              });
-              setGroupId(undefined);
-              setGroupName("");
-              setMembers([]);
-            });
-          }}
-        >
-          <Label htmlFor="group-name">Group name</Label>
-          <Input
-            id="group-name"
-            required
-            value={groupName}
-            onChange={(event) => setGroupName(event.target.value)}
-          />
-          <fieldset className="max-h-48 space-y-2 overflow-auto">
-            <legend className="mb-2 text-sm font-medium">Members</legend>
-            {users.data?.map((user) => (
-              <label key={user.id} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={members.includes(user.id)}
-                  onChange={(event) =>
-                    setMembers(
-                      event.target.checked
-                        ? [...members, user.id]
-                        : members.filter((id) => id !== user.id),
-                    )
-                  }
+        ) : (
+          <ul aria-label="Groups" className="divide-y divide-border/50">
+            {groups.data.map((group) => (
+              <li
+                key={group.id}
+                className="flex items-center gap-3 px-4 py-4 sm:px-5"
+              >
+                <Users
+                  className="size-5 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
                 />
-                {user.name} ({user.email})
-              </label>
-            ))}
-          </fieldset>
-          <Button disabled={busy}>
-            {groupId ? "Save group" : "Create group"}
-          </Button>
-          {groupId && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setGroupId(undefined);
-                setGroupName("");
-                setMembers([]);
-              }}
-            >
-              Cancel edit
-            </Button>
-          )}
-        </form>
-        {groups.data?.map((group) => (
-          <div key={group.id} className="flex items-center gap-3 border-t pt-3">
-            <p className="min-w-0 flex-1 truncate text-sm">
-              {group.name} · {group.memberIds.length} members
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setGroupId(group.id);
-                setGroupName(group.name);
-                setMembers(group.memberIds);
-              }}
-            >
-              Edit
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                setConfirmation({
-                  title: "Delete group and revoke its access?",
-                  action: async () => {
-                    await trpcClient.access.removeGroup.mutate({
-                      id: group.id,
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="truncate text-sm font-medium">{group.name}</p>
+                  <p className="text-xs tabular-nums text-muted-foreground">
+                    {group.memberIds.length}{" "}
+                    {group.memberIds.length === 1 ? "member" : "members"}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!users.isSuccess}
+                  onClick={() => setEditor({ kind: "edit", group })}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setConfirmation({
+                      title: "Delete group and revoke its access?",
+                      description: `Members of ${group.name} will lose permissions granted through this group. Other access and files will remain intact.`,
+                      action: async () => {
+                        await trpcClient.access.removeGroup.mutate({
+                          id: group.id,
+                        });
+                      },
                     });
-                    if (groupId === group.id) {
-                      setGroupId(undefined);
-                      setGroupName("");
-                      setMembers([]);
-                    }
-                  },
-                })
-              }
-            >
-              Delete
-            </Button>
+                  }}
+                >
+                  Delete
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </SettingsSection>
+      <SettingsSection title="Drive access">
+        <div className="flex flex-col items-start justify-between gap-4 px-4 py-5 sm:flex-row sm:items-center sm:px-5">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Who can access My Drive</p>
+            <p className="max-w-prose text-pretty text-sm text-muted-foreground">
+              New accounts start without file access. Grant permissions to the
+              drive or share individual folders.
+            </p>
           </div>
-        ))}
-      </section>
+          <Button
+            variant="outline"
+            className="shrink-0"
+            onClick={() => setSharing(true)}
+          >
+            Manage drive access
+          </Button>
+        </div>
+      </SettingsSection>
+      {creating && <CreateAccountDialog onClose={() => setCreating(false)} />}
+      {editor && users.data && (
+        <GroupDialog
+          editor={editor}
+          users={users.data}
+          onClose={() => setEditor(null)}
+        />
+      )}
       {resetting && (
         <ResetPasswordDialog
           user={resetting}
@@ -343,41 +232,12 @@ export function AdminSettings() {
           onClose={() => setSharing(false)}
         />
       )}
-      <AlertDialog
-        open={confirmation !== null}
-        onOpenChange={(open) => {
-          if (!open && !busy) setConfirmation(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-balance">
-              {confirmation?.title}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              This changes access to the server or its files. Existing files
-              remain on disk.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
-                if (confirmation) void run(confirmation.action);
-              }}
-            >
-              Confirm
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {confirmation && (
+        <AdminConfirmationDialog
+          confirmation={confirmation}
+          onClose={() => setConfirmation(null)}
+        />
+      )}
     </div>
   );
 }
