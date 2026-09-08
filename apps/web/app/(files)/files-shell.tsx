@@ -38,6 +38,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { signOut, useSession } from "@/lib/auth-client";
+import { decodeFilePathSegments } from "@/lib/file-route";
 
 import type { UserPreferences } from "@nimbus/api/context";
 
@@ -67,16 +68,6 @@ const sidebarStyle: CSSProperties & Record<`--${string}`, string> = {
   "--sidebar-width-icon": "4rem",
 };
 
-const normalizePathSegments = (pathParam: Params["path"]) => {
-  if (!pathParam) {
-    return [];
-  }
-  if (Array.isArray(pathParam)) {
-    return pathParam;
-  }
-  return [pathParam];
-};
-
 export function FilesShell({
   children,
   initialSession,
@@ -84,7 +75,7 @@ export function FilesShell({
 }: FilesShellProps) {
   const router = useRouter();
   const params = useParams<Params>();
-  const pathSegments = normalizePathSegments(params?.path);
+  const pathSegments = decodeFilePathSegments(params?.path);
   const currentPath = pathSegments.join("/");
 
   const { data: sessionData, isPending } = useSession();

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo } from "react";
 
 import { useSession } from "@/lib/auth-client";
+import { decodeFilePathSegments } from "@/lib/file-route";
 
 import { FileBreadcrumbs } from "./breadcrumbs";
 import { EntriesView } from "./entries-view";
@@ -18,16 +19,6 @@ type SessionData = ReturnType<typeof useSession>["data"];
 
 type Params = {
   path?: string[] | string;
-};
-
-const normalizePathSegments = (pathParam: Params["path"]) => {
-  if (!pathParam) {
-    return [];
-  }
-  if (Array.isArray(pathParam)) {
-    return pathParam;
-  }
-  return [pathParam];
 };
 
 type FilesPageClientProps = {
@@ -45,7 +36,7 @@ export function FilesPageClient({
 }: FilesPageClientProps) {
   const params = useParams<Params>();
   const paramSegments = useMemo(
-    () => normalizePathSegments(params?.path),
+    () => decodeFilePathSegments(params?.path),
     [params?.path],
   );
   const effectiveSegments =
