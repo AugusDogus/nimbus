@@ -127,7 +127,7 @@ Renaming, moving, or trashing an item removes its public links, direct grants, a
 
 Deleted items remain in **Trash** for 30 days. Users see their own deleted items; server administrators can manage all trash. Restoring requires write access at the original location, an existing parent folder, and an unused filename. Permanent deletion cannot be undone.
 
-Cleanup runs at startup and hourly. It permanently removes expired trash, upload staging files inactive for more than 24 hours, and thumbnails older than 30 days. A completed upload keeps its staging copy temporarily so interrupted completion requests can be retried. Allow storage headroom for these copies. Trash is a recovery convenience, not a backup.
+Cleanup runs at startup and hourly. It permanently removes expired trash, upload staging files inactive for more than 24 hours, and thumbnails older than 30 days. Browser uploads finalize with a hardlink when supported: the visible file and its temporary staging name share the same data, allowing completion retries without a second full copy. Removing the staging link preserves the visible file. Across filesystem boundaries or where hardlinks are unavailable, Nimbus falls back to a copy and needs additional storage headroom until staging expires. Trash is a recovery convenience, not a backup.
 
 ## WebDAV
 

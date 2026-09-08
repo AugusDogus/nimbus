@@ -23,7 +23,7 @@ async function cleanFiles(
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const key = groupUploads
-      ? entry.name.replace(/\.(json|done)$/, "")
+      ? entry.name.replace(/\.(json|done(?:\.tmp)?)$/, "")
       : entry.name;
     const filenames = groups.get(key) ?? [];
     filenames.push(path.join(directory, entry.name));

@@ -1,8 +1,6 @@
-import { FileStore } from "@tus/file-store";
 import { Server } from "@tus/server";
 import { z } from "zod";
-import { constants } from "node:fs";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
 import { getDataRoot } from "@nimbus/api/data-root";
@@ -16,6 +14,7 @@ import {
 } from "@nimbus/api/file-operations";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
 import { httpError, requestAccess } from "@/server/http-files";
+import { UploadStore } from "@/server/upload-store";
 
 const tusFailureSchema = z.object({
   status_code: z.number().int().min(400).max(599),
@@ -38,7 +37,7 @@ async function getServer() {
   if (server) return server;
   const uploadsDir = path.join(getDataRoot(), ".nimbus", "uploads");
   await mkdir(uploadsDir, { recursive: true });
-  const store = new FileStore({
+  const store = new UploadStore({
     directory: uploadsDir,
     expirationPeriodInMilliseconds: 24 * 60 * 60 * 1000,
   });
@@ -125,13 +124,7 @@ async function getServer() {
               code: "BAD_REQUEST",
               message: "Upload destination must be a folder.",
             });
-          const marker = path.join(uploadsDir, `${upload.id}.done`);
-          try {
-            await readFile(marker);
-            return;
-          } catch (error) {
-            if (!isFsError(error, "ENOENT")) throw error;
-          }
+          if (await store.isFinished(upload.id)) return;
           const ext = path.extname(name);
           const base = path.basename(name, ext);
           for (let index = 0; ; index++) {
@@ -143,23 +136,18 @@ async function getServer() {
             try {
               await requireUnused(destination.absolute);
             } catch (error) {
-              if (isApiError(error, "CONFLICT")) continue;
-              throw error;
+              if (!isApiError(error, "CONFLICT")) throw error;
+              if (!await store.isPublishedAt(upload.id, destination.absolute)) continue;
             }
             requireUnlocked([destination.relative], {
               userId: currentAccess.user.id,
             });
             try {
-              await copyFile(
-                path.join(uploadsDir, upload.id),
-                destination.absolute,
-                constants.COPYFILE_EXCL,
-              );
+              await store.publish(upload.id, destination.absolute);
             } catch (error) {
               if (isFsError(error, "EEXIST")) continue;
               throw error;
             }
-            await writeFile(marker, destination.relative);
             publishFileEvent({
               path: destination.absolute,
               event: "rename",
