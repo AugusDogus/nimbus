@@ -76,6 +76,12 @@ test("administrators create groups and members receive only their granted read o
     await sharing.getByRole("button", { name: "Remove access", exact: true }).click();
     await expect(sharing.getByText("No direct grants. Parent folder permissions still apply.")).toBeVisible();
     expect((await memberContext.request.get(`/api/files/download?path=${encodeURIComponent(`${folder}/team-note.txt`)}`)).status()).toBe(403);
+    await member.goto("/settings/account");
+    await expect(member.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+    if (isMobile) await member.getByRole("button", { name: "Toggle Sidebar", exact: true }).click();
+    await expect(member.getByRole("navigation", { name: "Settings", exact: true }).getByRole("link", { name: "Users & groups", exact: true })).toHaveCount(0);
+    await member.goto("/settings/admin");
+    await expect(member.getByRole("alert").filter({ hasText: "Only server administrators" })).toBeVisible();
     await member.goto("/admin");
     await expect(member.getByRole("alert").filter({ hasText: "Only server administrators" })).toBeVisible();
   } finally { await memberContext.close(); }

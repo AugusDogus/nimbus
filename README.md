@@ -23,7 +23,7 @@ bun run setup
 bun dev
 ```
 
-Open [http://localhost:3000/signup](http://localhost:3000/signup) and create the first account. It becomes the server administrator. Public registration closes after that account is created. Add other accounts from **Administration**, then share a folder with them.
+Open [http://localhost:3000/signup](http://localhost:3000/signup) and create the first account. It becomes the server administrator. Public registration closes after that account is created. Add other accounts from **Settings → Administration → Users & groups**, then share a folder with them.
 
 `bun run setup` generates `apps/web/.env` with a random auth secret and creates a local data directory. It preserves an existing `.env`. Database migrations run before the server accepts requests.
 
@@ -73,6 +73,10 @@ Set the deployment values in `apps/web/.env` before startup. The Bun custom serv
 
 The reserved `.nimbus` directory contains the database, trash, temporary uploads, and thumbnail cache. Nimbus never exposes it through file browsing or sharing. Symbolic links and special files are excluded. Nimbus needs read and write access to the data root; other local programs with access to that directory remain outside Nimbus's permission controls.
 
+## Settings
+
+Opening Settings switches to a dedicated sidebar. Appearance controls themes, Account manages your password, and WebDAV manages app passwords. Server administrators also see **Administration → Users & groups**. Use **Back to files** to return to the drive.
+
 ## Sharing and permissions
 
 Server administrators have access to the entire drive. New ordinary accounts start with no file access. Administrators can share a folder or the drive root; recipients find it under **Shared → Shared with me**.
@@ -99,7 +103,7 @@ Cleanup runs at startup and hourly. It permanently removes expired trash, upload
 
 ## WebDAV
 
-In **Settings**, create an app password and save it when shown. Configure the client with:
+In **Settings → WebDAV**, create an app password and save it when shown. Configure the client with:
 
 - URL: `https://your-nimbus-server/dav/`
 - Username: your Nimbus account email

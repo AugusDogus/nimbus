@@ -8,3 +8,7 @@ Adapted from apps/web/src/components/settings/ThemeSettings.tsx,
 ThemePreviewCircles.tsx, ThemeWireframe.tsx, and packages/shared/src/
 themePalettes.ts and themePreview.ts. Palette roles mapped to Nimbus
 and OKLCH colors converted to sRGB hex for Nimbus theme persistence.
+
+Settings navigation adapted from SettingsSidebarNav.tsx,
+SettingsBreadcrumb.tsx, and apps/web/src/routes/settings.tsx
+at the same revision, using Nimbus routes and sidebar primitives.

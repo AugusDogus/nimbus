@@ -120,13 +120,13 @@ export function ThemeSettings() {
   }
 
   return (
-    <section
-      aria-labelledby="appearance-heading"
-      className="space-y-6 border-b pb-8"
-    >
-      <h2 id="appearance-heading" className="text-balance text-lg font-medium">
+    <section aria-labelledby="appearance-heading" className="space-y-6">
+      <h1
+        id="appearance-heading"
+        className="text-balance text-2xl font-semibold"
+      >
         Appearance
-      </h2>
+      </h1>
       <AppearanceModes
         mode={mode ?? "system"}
         preferences={preferences}

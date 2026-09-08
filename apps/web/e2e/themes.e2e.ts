@@ -15,7 +15,7 @@ test("imports themes, preserves System mode, restores on reload, and removes saf
   page,
 }, testInfo) => {
   await page.emulateMedia({ colorScheme: "dark" });
-  await page.goto("/settings");
+  await page.goto("/settings/appearance");
   const system = page.getByRole("button", {
     name: "Follow the system appearance",
     exact: true,
@@ -157,7 +157,7 @@ test("searches Open VSX and imports a collection including inherited colors", as
       body: Buffer.from(bytes),
     }),
   );
-  await page.goto("/settings");
+  await page.goto("/settings/appearance");
   await page
     .getByRole("button", { name: "Use dark mode", exact: true })
     .click();
@@ -190,7 +190,7 @@ test("built-in light and dark palettes remain independent in System mode", async
   page,
 }, testInfo) => {
   await page.emulateMedia({ colorScheme: "dark" });
-  await page.goto("/settings");
+  await page.goto("/settings/appearance");
   const system = page.getByRole("button", {
     name: "Follow the system appearance",
     exact: true,
