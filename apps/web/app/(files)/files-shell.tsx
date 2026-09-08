@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  FolderPlus,
-  Plus,
-  Search,
-  Shield,
-  Upload,
-} from "lucide-react";
+import { FolderPlus, Plus, Search, Shield, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { CSSProperties, ReactNode } from "react";
@@ -15,7 +9,7 @@ import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { queryClient, trpcClient } from "@/lib/trpc";
-import { Progress } from "@/components/ui/progress";
+import { UploadProgress } from "@/components/upload-progress";
 
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { DrawerActionItem } from "@/components/drawer-action-item";
@@ -54,7 +48,7 @@ import { useFilePreferences } from "./[[...path]]/use-file-preferences";
 import { useFileStorage } from "./[[...path]]/use-file-storage";
 import { useFileSubscription } from "./[[...path]]/use-file-subscription";
 import { useNewContent } from "./[[...path]]/use-new-content";
-import { useUpload } from "./[[...path]]/use-upload";
+import { useUploads } from "@/components/upload-provider";
 
 type FilesShellProps = {
   children: ReactNode;
@@ -109,11 +103,17 @@ export function FilesShell({
   const canWrite = capabilities.data?.canWrite === true;
   const storage = useFileStorage(capabilities.data?.isAdmin === true);
   const actions = useFileActions({ currentPath, includeStats });
-  const upload = useUpload({
-    currentPath,
-    includeStats,
-    userId: session?.user.id ?? "",
-  });
+  const upload = useUploads();
+  const uploadFiles = useCallback(
+    (files: File[]) => {
+      if (session)
+        upload.uploadFiles(files, {
+          path: currentPath,
+          userId: session.user.id,
+        });
+    },
+    [upload, currentPath, session],
+  );
 
   useFileSubscription({
     currentPath,
@@ -123,9 +123,9 @@ export function FilesShell({
 
   const handleUploadFiles = useCallback(
     (files: FileList) => {
-      upload.uploadFiles(Array.from(files));
+      uploadFiles(Array.from(files));
     },
-    [upload],
+    [uploadFiles],
   );
 
   // Single new-content instance shared by sidebar (desktop) and FAB (mobile)
@@ -250,20 +250,7 @@ export function FilesShell({
           </div>
         </header>
 
-        {upload.isUploading && (
-          <div role="status" className="space-y-2 border-b px-4 py-3">
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="truncate">
-                Uploading {upload.fileName} · {upload.progress}% ·{" "}
-                {upload.remaining} remaining
-              </span>
-              <Button size="sm" variant="outline" onClick={upload.cancelUpload}>
-                Cancel upload
-              </Button>
-            </div>
-            <Progress aria-label="Upload progress" value={upload.progress} />
-          </div>
-        )}
+        <UploadProgress />
         <div
           className="flex-1 overflow-x-hidden px-4 pb-24 pt-6 md:px-6 md:pb-6 lg:px-8 lg:pt-8"
           onDragOver={(event) => {
@@ -272,8 +259,7 @@ export function FilesShell({
           }}
           onDrop={(event) => {
             event.preventDefault();
-            if (canWrite)
-              upload.uploadFiles(Array.from(event.dataTransfer.files));
+            if (canWrite) uploadFiles(Array.from(event.dataTransfer.files));
           }}
         >
           {children}

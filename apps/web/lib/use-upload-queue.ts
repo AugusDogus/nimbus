@@ -17,14 +17,7 @@ const idle: UploadState = {
   remaining: 0,
 };
 
-export function useUpload({
-  currentPath,
-  userId,
-}: {
-  currentPath: string;
-  includeStats: boolean;
-  userId: string;
-}) {
+export function useUploadQueue() {
   const [state, setState] = useState<UploadState>(idle);
   const uploadRef = useRef<tus.Upload | null>(null);
   const queue = useRef<QueuedFile[]>([]);
@@ -99,10 +92,8 @@ export function useUpload({
       });
   }, []);
   const uploadFiles = useCallback(
-    (files: File[]) => {
-      queue.current.push(
-        ...files.map((file) => ({ file, path: currentPath, userId })),
-      );
+    (files: File[], target: { path: string; userId: string }) => {
+      queue.current.push(...files.map((file) => ({ file, ...target })));
       if (!uploadRef.current) processNext();
       else
         setState((previous) => ({
@@ -110,7 +101,7 @@ export function useUpload({
           remaining: queue.current.length,
         }));
     },
-    [currentPath, userId, processNext],
+    [processNext],
   );
   const cancelUpload = useCallback(() => {
     const upload = uploadRef.current;
