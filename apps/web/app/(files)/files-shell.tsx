@@ -2,7 +2,6 @@
 
 import {
   FolderPlus,
-  Link2,
   Plus,
   Search,
   Shield,
@@ -215,13 +214,6 @@ export function FilesShell({
                       </p>
                     </div>
                   </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <Link href="/shares">
-                      <Link2 />
-                      Share links
-                    </Link>
-                  </DropdownMenuItem>
                   {capabilities.data?.isAdmin === true && (
                     <DropdownMenuItem asChild>
                       <Link href="/admin">

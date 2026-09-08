@@ -38,7 +38,7 @@ import { StorageIndicator } from "./storage-indicator";
 
 const navItems = [
   { icon: HardDrive, label: "My Drive", href: "/" },
-  { icon: Users, label: "Shared with me", href: "/shared" },
+  { icon: Users, label: "Shared", href: "/shared" },
   { icon: Clock, label: "Recent", href: "/recent" },
   { icon: Star, label: "Starred", href: "/starred" },
 ];

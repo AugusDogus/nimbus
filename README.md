@@ -75,7 +75,7 @@ The reserved `.nimbus` directory contains the database, trash, temporary uploads
 
 ## Sharing and permissions
 
-Server administrators have access to the entire drive. New ordinary accounts start with no file access. Administrators can share a folder or the drive root; recipients find it in **Shared with me**.
+Server administrators have access to the entire drive. New ordinary accounts start with no file access. Administrators can share a folder or the drive root; recipients find it under **Shared → Shared with me**.
 
 | Permission | Access                                                                                                                                  |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -84,6 +84,8 @@ Server administrators have access to the entire drive. New ordinary accounts sta
 | Admin      | Write access plus managing permissions and public links for that subtree. Moving or copying a folder requires this level on its source. |
 
 Permissions apply to descendants and are additive. User and group grants combine using the strongest matching permission. A narrower grant cannot reduce access inherited from a parent. Remove the parent or group grant to remove that inherited access. A folder administrator is distinct from a server administrator.
+
+Manage links you created under **Shared → Public links**.
 
 Public links grant read-only access and work without a Nimbus account. A link to a folder also exposes its descendants. Password-protected links unlock for one hour in that browser. Revoking or expiring a link prevents future requests; downloaded copies remain with the recipient. Links also stop working when their creator loses sharing permission or is disabled.
 

@@ -50,7 +50,9 @@ export function LibraryPage({
           : `Search: ${query}`;
   return (
     <div className="space-y-6">
-      <h1 className="text-balance text-2xl font-semibold">{title}</h1>
+      {kind !== "shared" && (
+        <h1 className="text-balance text-2xl font-semibold">{title}</h1>
+      )}
       {active.isError ? (
         <p role="alert" className="text-pretty text-destructive">
           {active.error.message}
