@@ -1,13 +1,12 @@
 import { createClient, type Client } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { mkdirSync } from "node:fs";
-import path from "node:path";
-import { getDataRoot } from "@nimbus/api/data-root";
+import { getConfigRoot, getDatabaseUrl } from "../storage-paths";
 import * as schema from "./schema";
 
-const stateDirectory = path.join(getDataRoot(), ".nimbus");
+const stateDirectory = getConfigRoot();
+const databaseUrl = getDatabaseUrl();
 mkdirSync(stateDirectory, { recursive: true });
-const databaseUrl = process.env.DATABASE_URL ?? `file:${path.join(stateDirectory, "db.sqlite")}`;
 
 declare global { var nimbusDbClient: Client | undefined; }
 export const client = globalThis.nimbusDbClient ?? createClient({ url: databaseUrl });

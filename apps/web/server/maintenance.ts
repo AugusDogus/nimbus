@@ -3,6 +3,7 @@ import path from "node:path";
 import type { DriveStore } from "@nimbus/api/drive-store";
 import { mutateFiles } from "@nimbus/api/file-mutations";
 import { isFsError } from "@nimbus/api/safe-path";
+import { getConfigRoot } from "./storage-paths";
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -49,6 +50,7 @@ export async function cleanExpiredData(
   store: Pick<DriveStore, "listTrash" | "removeTrash">,
   dataRoot: string,
   now = Date.now(),
+  configRoot = getConfigRoot(dataRoot),
 ) {
   const internal = path.join(dataRoot, ".nimbus");
   await mutateFiles([], { userId: "maintenance" }, async () => {
@@ -64,7 +66,7 @@ export async function cleanExpiredData(
   });
   await cleanFiles(path.join(internal, "uploads"), now - day, true);
   await cleanFiles(
-    path.join(internal, "cache", "thumbnails"),
+    path.join(configRoot, "cache", "thumbnails"),
     now - 30 * day,
     false,
   );

@@ -1,10 +1,7 @@
 import { type Config } from "drizzle-kit";
-import path from "node:path";
-import { getDataRoot } from "@nimbus/api/data-root";
+import { getDatabaseUrl } from "./server/storage-paths";
 
-const databaseUrl =
-  process.env.DATABASE_URL ??
-  `file:${path.join(getDataRoot(), ".nimbus", "db.sqlite")}`;
+const databaseUrl = getDatabaseUrl();
 
 export default {
   out: "./drizzle",

@@ -87,3 +87,19 @@ test("retention preserves active upload metadata and ignores symbolic links", as
     "recent.webp",
   ]);
 });
+
+test("retention cleans thumbnails in config while keeping uploads under data", async () => {
+  const config = path.join(root, "config");
+  const thumbnails = path.join(config, "cache/thumbnails");
+  await mkdir(thumbnails, { recursive: true });
+  const expired = path.join(thumbnails, "expired.webp");
+  await writeFile(expired, "cached thumbnail");
+  await utimes(expired, new Date(now - 31 * day), new Date(now - 31 * day));
+  await writeFile(path.join(config, "db.sqlite"), "database");
+  await storedFile("uploads/expired", 2 * day);
+  await storedFile("uploads/recent", 0);
+  await cleanExpiredData(store, root, now, config);
+  expect(await readdir(thumbnails)).toEqual([]);
+  expect(await readdir(path.join(root, ".nimbus/uploads"))).toEqual(["recent"]);
+  expect(await readdir(config)).toContain("db.sqlite");
+});
