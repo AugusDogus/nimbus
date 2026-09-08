@@ -22,7 +22,14 @@ test("imports themes, preserves System mode, restores on reload, and removes saf
   });
   await system.click();
   const files = page.locator('input[aria-label="Import VS Code theme files"]');
-  await files.setInputFiles([
+  await page.getByRole("button", { name: "Add theme", exact: true }).click();
+  const chooser = page.waitForEvent("filechooser");
+  await page
+    .getByRole("button", { name: "Import VS Code theme", exact: true })
+    .click();
+  await (
+    await chooser
+  ).setFiles([
     {
       name: "night.json",
       mimeType: "application/json",
@@ -63,12 +70,15 @@ test("imports themes, preserves System mode, restores on reload, and removes saf
     "background-color",
     "rgb(17, 34, 51)",
   );
+  await page.getByRole("button", { name: "Add theme", exact: true }).click();
   await files.setInputFiles({
     name: "bad.json",
     mimeType: "application/json",
     buffer: Buffer.from("{broken"),
   });
-  await expect(page.getByRole("region", { name: "Appearance", exact: true }).getByRole("alert")).toContainText("invalid JSON");
+  const addTheme = page.getByRole("dialog", { name: "Add theme", exact: true });
+  await expect(addTheme.getByRole("alert")).toContainText("invalid JSON");
+  await addTheme.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.locator("body")).toHaveCSS(
     "background-color",
     "rgb(17, 34, 51)",
@@ -151,6 +161,7 @@ test("searches Open VSX and imports a collection including inherited colors", as
   await page
     .getByRole("button", { name: "Use dark mode", exact: true })
     .click();
+  await page.getByRole("button", { name: "Add theme", exact: true }).click();
   await page
     .getByLabel("Search themes", { exact: true })
     .fill("Test Collection");
@@ -173,4 +184,60 @@ test("searches Open VSX and imports a collection including inherited colors", as
     "background-color",
     "rgb(34, 51, 68)",
   );
+});
+
+test("built-in light and dark palettes remain independent in System mode", async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/settings");
+  const system = page.getByRole("button", {
+    name: "Follow the system appearance",
+    exact: true,
+  });
+  await system.click();
+  const ocean = page.getByRole("button", {
+    name: "Use Ocean for dark mode",
+    exact: true,
+  });
+  const grove = page.getByRole("button", {
+    name: "Use Grove for light mode",
+    exact: true,
+  });
+  await ocean.click();
+  await grove.click();
+  await expect(system).toHaveAttribute("aria-pressed", "true");
+  await expect(ocean).toHaveAttribute("aria-pressed", "true");
+  await expect(grove).toHaveAttribute("aria-pressed", "true");
+  const background = await page
+    .locator("body")
+    .evaluate((body) => getComputedStyle(body).backgroundColor);
+  await page.reload();
+  await expect(page.locator("body")).toHaveCSS("background-color", background);
+  await expect(ocean).toHaveAttribute("aria-pressed", "true");
+  await expect(grove).toHaveAttribute("aria-pressed", "true");
+  await page.screenshot({
+    path: testInfo.outputPath("built-in-themes-dark.png"),
+  });
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("body")).not.toHaveCSS(
+    "background-color",
+    background,
+  );
+  await page.screenshot({
+    path: testInfo.outputPath("built-in-themes-light.png"),
+  });
+  await page
+    .getByRole("button", { name: "Use Nimbus for light mode", exact: true })
+    .click();
+  await expect(page.locator("body")).toHaveCSS(
+    "background-color",
+    "rgb(247, 248, 250)",
+  );
+  await expect(ocean).toHaveAttribute("aria-pressed", "true");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
 });

@@ -2,7 +2,15 @@
 
 import { useRef, useState } from "react";
 import { useTheme } from "next-themes";
+import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,6 +34,7 @@ export function ThemeSettings() {
   const snapshot = useThemePreferences();
   const input = useRef<HTMLInputElement>(null);
   const [reading, setReading] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const preferences =
@@ -83,6 +92,7 @@ export function ThemeSettings() {
       }
       const result = install(themes);
       if (!result.ok) setError(result.error);
+      else setAdding(false);
     } catch {
       setError(
         "The theme file could not be read. Select the file again. Your saved themes are unchanged.",
@@ -112,7 +122,7 @@ export function ThemeSettings() {
   return (
     <section
       aria-labelledby="appearance-heading"
-      className="space-y-4 rounded-lg border p-5"
+      className="space-y-6 border-b pb-8"
     >
       <h2 id="appearance-heading" className="text-balance text-lg font-medium">
         Appearance
@@ -124,11 +134,23 @@ export function ThemeSettings() {
         disabled={disabled}
       />
       <div className="space-y-3">
-        <h3 className="text-balance text-sm font-medium">Themes</h3>
-        <p className="text-pretty text-sm text-muted-foreground">
-          Choose a theme for each color scheme. System switches between them
-          with your device.
-        </p>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-balance text-sm font-medium text-muted-foreground">
+            Themes
+          </h3>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            onClick={() => {
+              setError(null);
+              setAdding(true);
+            }}
+          >
+            <Plus className="size-3.5" />
+            Add theme
+          </Button>
+        </div>
         <ThemeLibrary
           preferences={preferences}
           onChoose={choose}
@@ -138,34 +160,25 @@ export function ThemeSettings() {
           }}
           disabled={disabled}
         />
-      </div>
-      <div className="space-y-2">
-        <input
-          ref={input}
-          type="file"
-          accept=".json,.jsonc,application/json"
-          multiple
-          className="hidden"
-          aria-label="Import VS Code theme files"
-          onChange={(event) => {
-            const files = [...(event.currentTarget.files ?? [])];
-            event.currentTarget.value = "";
-            void importFiles(files);
-          }}
-        />
-        <Button
-          variant="outline"
-          disabled={disabled}
-          onClick={() => input.current?.click()}
-        >
-          {reading ? "Importing…" : "Import VS Code theme"}
-        </Button>
         <p className="text-pretty text-xs text-muted-foreground">
-          Choose color theme JSON or JSONC files. Themes are saved in this
-          browser.
+          Choose a light and dark palette independently. System follows your
+          device.
         </p>
       </div>
-      {(error || snapshot.status === "error") && (
+      <input
+        ref={input}
+        type="file"
+        accept=".json,.jsonc,application/json"
+        multiple
+        className="hidden"
+        aria-label="Import VS Code theme files"
+        onChange={(event) => {
+          const files = [...(event.currentTarget.files ?? [])];
+          event.currentTarget.value = "";
+          void importFiles(files);
+        }}
+      />
+      {((error && !adding) || snapshot.status === "error") && (
         <div className="space-y-2">
           <p role="alert" className="text-pretty text-sm text-destructive">
             {error ?? (snapshot.status === "error" ? snapshot.error : null)}
@@ -183,7 +196,52 @@ export function ThemeSettings() {
           )}
         </div>
       )}
-      <ThemeSearch onInstall={install} disabled={disabled} />
+      <Dialog
+        open={adding}
+        onOpenChange={(open) => {
+          if (!reading) setAdding(open);
+        }}
+      >
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Add theme</DialogTitle>
+            <DialogDescription>
+              Import a VS Code theme or find one on Open VSX. Themes are saved
+              in this browser.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed p-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Theme files</p>
+              <p className="text-xs text-muted-foreground">
+                VS Code JSON or JSONC, up to 1 MB each.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={disabled}
+              onClick={() => input.current?.click()}
+            >
+              <Upload className="size-3.5" />
+              {reading ? "Importing…" : "Import VS Code theme"}
+            </Button>
+          </div>
+          {error && (
+            <p role="alert" className="text-pretty text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <ThemeSearch
+            onInstall={(themes) => {
+              const result = install(themes);
+              if (result.ok) setAdding(false);
+              return result;
+            }}
+            disabled={disabled}
+          />
+        </DialogContent>
+      </Dialog>
       <AlertDialog
         open={confirmation !== null}
         onOpenChange={(open) => {
