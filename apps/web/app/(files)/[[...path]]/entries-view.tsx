@@ -11,6 +11,7 @@ import { PreviewDialog } from "./preview-dialog";
 import { SharingDialog } from "./sharing-dialog";
 import { fileHref, type FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
+import { useFileDrag } from "./use-file-drag";
 
 type Props = {
   view: "list" | "grid";
@@ -29,6 +30,7 @@ export function EntriesView({
   sortedEntries,
   actions,
 }: Props) {
+  const drag = useFileDrag(actions.moveEntry);
   const [selection, setSelection] = useState<EntryDialog | null>(null);
   const select = (dialog: EntryDialog) => {
     setSelection(dialog);
@@ -43,6 +45,12 @@ export function EntriesView({
     : [{ title: "", entries: sortedEntries }];
   return (
     <>
+      {drag.state.status === "error" && (
+        <p role="alert" className="text-pretty text-sm text-destructive">{drag.state.message}</p>
+      )}
+      {drag.state.status === "moving" && (
+        <p role="status" className="sr-only">Moving {drag.state.source.name}…</p>
+      )}
       {groups
         .filter((group) => group.entries.length > 0)
         .map((group) => (
@@ -67,6 +75,7 @@ export function EntriesView({
                     entry.type === "file" &&
                     /\.(png|jpe?g|webp|gif|avif)$/i.test(entry.name) ? (
                       <Image
+                        draggable={false}
                         unoptimized
                         src={`/api/files/thumbnail?path=${encodeURIComponent(entry.path)}`}
                         width={128}
@@ -98,6 +107,8 @@ export function EntriesView({
                   view === "list"
                     ? "flex min-h-12 items-center gap-3 py-3 pl-3 pr-12"
                     : "flex min-h-36 flex-col items-center justify-center gap-3 border bg-muted/30 px-4 pb-4 pt-10",
+                  drag.isDragging(entry) && "opacity-50",
+                  drag.isDropTarget(entry) && "bg-accent ring-2 ring-inset ring-primary",
                 );
                 return (
                   <EntryMenu
@@ -108,6 +119,7 @@ export function EntriesView({
                   >
                     {entry.type === "dir" ? (
                       <Link
+                        {...drag.getDragProps(entry)}
                         href={fileHref(entry.path)}
                         className={className}
                         data-entry-name={entry.name}
@@ -119,6 +131,7 @@ export function EntriesView({
                       </Link>
                     ) : (
                       <button
+                        {...drag.getDragProps(entry)}
                         className={className}
                         data-entry-name={entry.name}
                         data-entry-path={entry.path}
