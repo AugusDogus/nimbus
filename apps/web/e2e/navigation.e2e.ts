@@ -109,9 +109,10 @@ test("keeps primary navigation and utility actions usable in both themes", async
   }
 });
 
-test("keeps the final row reachable inside the content frame", async ({ page, context, isMobile }, testInfo) => {
+test("keeps sorting controls and the final row reachable while scrolling", async ({ page, context, isMobile }, testInfo) => {
   const folder = `scroll-check-${randomUUID()}`;
   const rpc = await client(context);
+  await rpc.prefs.set.mutate({ view: "list", sortField: "name", sortDirection: "asc", groupByType: true });
   await rpc.files.createFolder.mutate({ name: folder });
   for (let index = 0; index < 40; index += 1) {
     await rpc.files.createFolder.mutate({ path: folder, name: `row-${String(index).padStart(2, "0")}` });
@@ -123,9 +124,31 @@ test("keeps the final row reachable inside the content frame", async ({ page, co
   await page.getByRole("main").hover();
   await page.mouse.wheel(0, 10_000);
   await expect(last).toBeInViewport();
+  const sort = isMobile
+    ? page.getByRole("button", { name: "Sort and filter options", exact: true })
+    : page.getByRole("combobox", { name: "Sort files", exact: true });
+  await expect(sort).toBeInViewport({ ratio: 1 });
+  await sort.click();
+  await page.getByRole(isMobile ? "button" : "option", { name: "Name (Z to A)", exact: true }).click();
+  await expect(page.locator("[data-entry-name]").filter({ visible: true }).first()).toHaveAttribute("data-entry-name", "row-39");
+  await expect.poll(async () => (await rpc.prefs.get.query()).sortDirection).toBe("desc");
+  await sort.click();
+  await page.getByRole(isMobile ? "button" : "option", { name: "Name (A to Z)", exact: true }).click();
+  await expect(page.locator("[data-entry-name]").filter({ visible: true }).first()).toHaveAttribute("data-entry-name", "row-00");
+  await expect.poll(async () => (await rpc.prefs.get.query()).sortDirection).toBe("asc");
   await expect(page.getByRole("button", { name: "Account menu", exact: true })).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath(`nimbus-${isMobile ? "mobile" : "desktop"}-scrolled.png`), animations: "disabled" });
+  await page.getByRole("radio", { name: "Grid view", exact: true }).click();
+  await page.getByRole("main").hover();
+  await page.mouse.wheel(0, 10_000);
+  await expect(last).toBeInViewport();
+  await expect(sort).toBeInViewport({ ratio: 1 });
+  await sort.click();
+  await page.getByRole(isMobile ? "button" : "option", { name: "Name (A to Z)", exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath(`nimbus-${isMobile ? "mobile" : "desktop"}-grid-scrolled.png`), animations: "disabled" });
+  await page.getByRole("radio", { name: "List view", exact: true }).click();
+  await expect.poll(async () => (await rpc.prefs.get.query()).view).toBe("list");
   await last.click();
   await expect(page).toHaveURL(`/browse/${folder}/row-39`);
   await expect(page.getByRole("heading", { name: "This folder is empty", exact: true })).toBeVisible();
