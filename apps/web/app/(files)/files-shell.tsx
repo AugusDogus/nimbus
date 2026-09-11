@@ -249,6 +249,7 @@ export function FilesShell({
               event.preventDefault();
           }}
           onDrop={(event) => {
+            if (!event.dataTransfer.types.includes("Files")) return;
             event.preventDefault();
             if (canWrite) uploadFiles(Array.from(event.dataTransfer.files));
           }}

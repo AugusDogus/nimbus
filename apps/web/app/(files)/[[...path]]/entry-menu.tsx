@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/drawer";
 import { DrawerActionItem } from "@/components/drawer-action-item";
 import { useIsMobile } from "@/hooks/use-mobile";
-import type { FileEntry } from "./types";
+import { FileEntry } from "./types";
 import type { EntryDialog } from "./entry-dialogs";
 import type { useFileActions } from "./use-file-actions";
 
@@ -81,8 +81,7 @@ export function EntryMenu({
           },
         ]
       : []),
-    ...(entry.permission === "admin" ||
-    (entry.permission === "write" && entry.type !== "dir")
+    ...(FileEntry.canMove(entry)
       ? [
           {
             label: "Rename",
