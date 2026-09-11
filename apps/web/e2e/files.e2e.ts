@@ -63,6 +63,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   const downloadPromise = page.waitForEvent("download");
   await preview.getByRole("link", { name: "Download", exact: true }).click();
   expect(await downloadText(await downloadPromise)).toBe(body);
+  await page.screenshot({ path: testInfo.outputPath("file-preview.png"), animations: "disabled" });
   await preview.getByRole("button", { name: "Close", exact: true }).click();
   await navigate(page, "Recent", isMobile);
   await expect(page.locator(`[data-entry-path="${folder}/${filename}"]`).filter({ visible: true })).toBeVisible();
