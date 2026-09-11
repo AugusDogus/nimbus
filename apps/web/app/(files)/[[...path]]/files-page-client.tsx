@@ -105,7 +105,7 @@ export function FilesPageClient({
 
   return (
     <>
-      <div className="mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 pb-5 md:flex md:justify-between">
+      <div className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-background px-4 py-3 md:-mx-6 md:flex md:justify-between md:px-6 lg:-mx-8 lg:-mt-8 lg:px-8">
         <div className="min-w-0 overflow-hidden">
           <FileBreadcrumbs pathSegments={effectiveSegments} />
         </div>
