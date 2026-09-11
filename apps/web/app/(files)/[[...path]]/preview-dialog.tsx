@@ -6,6 +6,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -119,11 +120,13 @@ export function PreviewDialog({
           <DialogDescription>File preview</DialogDescription>
         </DialogHeader>
         <FilePreview name={entry.name} url={`${url}&preview=1`} />
-        <Button asChild className="w-fit">
-          <a href={url} download>
-            Download
-          </a>
-        </Button>
+        <DialogFooter className="flex-row justify-end">
+          <Button asChild>
+            <a href={url} download>
+              Download
+            </a>
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
