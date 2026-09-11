@@ -69,6 +69,7 @@ test("administrators create groups and members receive only their granted read o
     await member.getByRole("link", { name: folder, exact: true }).click();
     await expect(member).toHaveURL(`/browse/${folder}`);
     await expect(member.getByRole("button", { name: "Actions for team-note.txt" })).toBeVisible();
+    await expect(member.getByRole("button", { name: "team-note.txt", exact: true })).toHaveAttribute("draggable", "false");
     await member.getByRole("button", { name: "Actions for team-note.txt" }).click();
     await expect(member.getByRole(isMobile ? "button" : "menuitem", { name: "Rename", exact: true })).toHaveCount(0);
     await member.reload();
@@ -78,6 +79,8 @@ test("administrators create groups and members receive only their granted read o
     await expect(sharing.getByText(`${group} · write`, { exact: true })).toBeVisible();
     await member.reload();
     await createFolder(member, "member-created", isMobile);
+    await expect(member.getByRole("button", { name: "team-note.txt", exact: true })).toHaveAttribute("draggable", "true");
+    await expect(member.getByRole("link", { name: "member-created", exact: true })).toHaveAttribute("draggable", "false");
     expect((await rpc.files.list.query({ path: folder })).map((entry) => entry.name)).toContain("member-created");
     await member.getByRole("button", { name: "Actions for member-created", exact: true }).click();
     await expect(member.getByRole(isMobile ? "button" : "menuitem", { name: "Rename", exact: true })).toHaveCount(0);
