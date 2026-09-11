@@ -243,12 +243,13 @@ export function FilesShell({
 
         <UploadProgress />
         <div
-          className="flex-1 overflow-x-hidden px-4 pb-24 pt-6 md:px-6 md:pb-6 lg:px-8 lg:pt-8"
+          className="flex-1 overflow-x-clip px-4 pb-24 pt-6 md:px-6 md:pb-6 lg:px-8 lg:pt-8"
           onDragOver={(event) => {
             if (canWrite && event.dataTransfer.types.includes("Files"))
               event.preventDefault();
           }}
           onDrop={(event) => {
+            if (!event.dataTransfer.types.includes("Files")) return;
             event.preventDefault();
             if (canWrite) uploadFiles(Array.from(event.dataTransfer.files));
           }}
