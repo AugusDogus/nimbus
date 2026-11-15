@@ -74,9 +74,7 @@ export const nimbusAudit = () =>
             const actor: AuditActor = caller.success
               ? auditUser(caller.data.user)
               : { type: "anonymous", ...(email && { label: email }) };
-            const path = ctx.path.startsWith("/oauth2/callback/") || ctx.path.startsWith("/callback/")
-              ? "oidc"
-              : ctx.path;
+            const path = ctx.path.startsWith("/callback/") ? "oidc" : ctx.path;
             const method = path === "oidc" ? "oidc" : signIns[path];
             if (method) {
               const created = sessionShape.safeParse(ctx.context.newSession);

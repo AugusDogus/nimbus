@@ -52,8 +52,10 @@ const adminChangeSchema = z.object({
 });
 const includesAdmin = (role: string | string[]) =>
   (Array.isArray(role) ? role : role.split(",")).includes("admin");
+// Single sign-on is the only OAuth provider, so every OAuth callback belongs to it.
+// Better Auth may report the templated route ("/callback/:id") rather than the URL.
 const isOidcCallback = (path: string | undefined) =>
-  path === `/oauth2/callback/${oidcProviderId}` || path === `/callback/${oidcProviderId}`;
+  oidcConfig.kind === "oidc" && (path?.startsWith("/callback/") ?? false);
 
 /** Groups claimed by the identity provider at sign-in, applied once the account is known. */
 const pendingGroups = new Map<string, { groups: string[]; expires: number }>();
