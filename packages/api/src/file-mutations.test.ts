@@ -11,11 +11,11 @@ import os from "node:os";
 import path from "node:path";
 import { getAccess } from "./access";
 import {
-  fileLock,
   lockFile,
+  locksCovering,
   mutateFiles,
+  refreshLock,
   unlockFile,
-  webDAVLockTokens,
 } from "./file-mutations";
 import { moveItem } from "./file-operations";
 import { appRouter } from "./routers";
@@ -83,8 +83,6 @@ describe("filesystem mutation coordination", () => {
 
   it("requires the lock owner and a positive token condition", async () => {
     const lock = lockFile("docs/first.txt", { userId: "user-1" });
-    expect(webDAVLockTokens(`(Not <${lock.token}>)`)).toEqual([]);
-    expect(webDAVLockTokens(`(<${lock.token}>)`)).toEqual([lock.token]);
     await expect(
       mutateFiles(
         ["docs/first.txt"],
@@ -97,7 +95,23 @@ describe("filesystem mutation coordination", () => {
       { userId: "user-1", lockTokens: [lock.token] },
       async () => {},
     );
-    expect(fileLock("docs/first.txt")?.token).toBe(lock.token);
+    expect(locksCovering("docs/first.txt")[0]?.token).toBe(lock.token);
+  });
+
+  it("scopes depth-0 collection locks to membership and refuses overlapping locks", async () => {
+    const owner = { userId: "user-1" };
+    const lock = lockFile("docs", owner, { depth: "0", owner: "", timeoutSeconds: 60 });
+    await mutateFiles(["docs/sub/deeper.txt"], owner, async () => {});
+    await expect(mutateFiles(["docs/new.txt"], owner, async () => {})).rejects.toMatchObject({ name: "FileLockedError" });
+    await expect(mutateFiles([""], owner, async () => {})).rejects.toMatchObject({ name: "FileLockedError" });
+    expect(lockFile("docs/first.txt", owner).path).toBe("docs/first.txt");
+    expect(() => lockFile("", owner)).toThrow();
+    expect(() => lockFile("docs", owner, { depth: "0", owner: "", timeoutSeconds: 60 })).toThrow();
+    expect(locksCovering("docs/second.txt")).toEqual([]);
+    expect(refreshLock("docs", { userId: "reader", lockTokens: [lock.token] }, 120)).toBeNull();
+    expect(refreshLock("docs", { ...owner, lockTokens: [lock.token] }, 120)?.timeoutSeconds).toBe(120);
+    expect(() => unlockFile("docs/second.txt", "user-1", `<${lock.token}>`)).toThrow();
+    unlockFile("docs", "user-1", `<${lock.token}>`);
   });
 
   it("removes locks when a move removes their original resource", async () => {
@@ -106,7 +120,7 @@ describe("filesystem mutation coordination", () => {
     await moveItem(memory.store, access, "docs/first.txt", "docs/moved.txt", {
       lockTokens: [lock.token],
     });
-    expect(fileLock("docs/first.txt")).toBeUndefined();
+    expect(locksCovering("docs/first.txt")).toEqual([]);
     expect(await readFile(path.join(root, "docs/moved.txt"), "utf8")).toBe(
       "first",
     );

@@ -118,3 +118,20 @@ test("removing trash discards its detached records", async () => {
   await store.restoreTrash("trash-3");
   expect(await store.getShare("token-purged")).toBeNull();
 });
+
+test("dead properties follow moves, survive trash and restore, and are copied", async () => {
+  const property = (name: string) => ({ namespace: "urn:test", name, xml: `<${name} xmlns="urn:test">1</${name}>` });
+  await store.patchDavProperties("docs", [property("a")], []);
+  await store.patchDavProperties("docs/file.txt", [property("b"), property("c")], []);
+  await store.patchDavProperties("docs/file.txt", [{ ...property("b"), xml: "<b xmlns=\"urn:test\">2</b>" }], [{ namespace: "urn:test", name: "c" }]);
+  await store.movePath("docs", "moved");
+  const moved = await store.davProperties(["docs", "moved", "moved/file.txt"]);
+  expect([...moved.keys()].sort()).toEqual(["moved", "moved/file.txt"]);
+  expect(moved.get("moved/file.txt")).toEqual([{ namespace: "urn:test", name: "b", xml: "<b xmlns=\"urn:test\">2</b>" }]);
+  await store.copyDavProperties("moved", "copy");
+  expect((await store.davProperties(["copy/file.txt"])).get("copy/file.txt")).toHaveLength(1);
+  await store.addTrash({ id: "trash-4", path: "moved", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  expect((await store.davProperties(["moved", "moved/file.txt"])).size).toBe(0);
+  await store.restoreTrash("trash-4");
+  expect((await store.davProperties(["moved", "moved/file.txt"])).size).toBe(2);
+});

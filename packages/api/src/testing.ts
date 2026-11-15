@@ -1,4 +1,4 @@
-import type { AppPassword, Bookmark, DriveStore, DriveUser, Grant, Group, Share, TrashItem } from "./drive-store";
+import type { AppPassword, Bookmark, DavProperty, DriveStore, DriveUser, Grant, Group, Share, TrashItem } from "./drive-store";
 import { isWithinPath } from "./safe-path";
 
 export function createTestDriveStore() {
@@ -7,7 +7,9 @@ export function createTestDriveStore() {
   const groups = new Map<string, Group>();
   const shares = new Map<string, Share>();
   const trash = new Map<string, TrashItem>();
-  const detached = new Map<string, { grants: Grant[]; shares: Share[]; bookmarks: [string, Bookmark][] }>();
+  const properties = new Map<string, DavProperty[]>();
+  type Detached = { grants: Grant[]; shares: Share[]; bookmarks: [string, Bookmark][]; properties: [string, DavProperty[]][] };
+  const detached = new Map<string, Detached>();
   const bookmarks = new Map<string, Bookmark[]>();
   const passwords = new Map<string, AppPassword>();
   const store: DriveStore = {
@@ -37,6 +39,16 @@ export function createTestDriveStore() {
       for (const grant of records.grants) grants.set(grant.id, grant);
       for (const share of records.shares) shares.set(share.token, share);
       for (const [userId, bookmark] of records.bookmarks) bookmarks.set(userId, [...(bookmarks.get(userId) ?? []), bookmark]);
+      for (const [path, entries] of records.properties) properties.set(path, entries);
+    },
+    async davProperties(paths) { return new Map(paths.flatMap((path) => { const entries = properties.get(path); return entries?.length ? [[path, entries] as const] : []; })); },
+    async patchDavProperties(path, set, remove) {
+      const kept = (properties.get(path) ?? []).filter((entry) => ![...set, ...remove].some((other) => other.namespace === entry.namespace && other.name === entry.name));
+      properties.set(path, [...kept, ...set]);
+    },
+    async copyDavProperties(from, to) {
+      for (const path of properties.keys()) if (isWithinPath(to, path)) properties.delete(path);
+      for (const [path, entries] of [...properties]) if (isWithinPath(from, path)) properties.set(to + path.slice(from.length), [...entries]);
     },
     async removeTrash(id) { trash.delete(id); detached.delete(id); },
     async listBookmarks(userId) { return bookmarks.get(userId) ?? []; },
@@ -52,18 +64,20 @@ export function createTestDriveStore() {
       for (const grant of grants.values()) grant.path = moved(grant.path);
       for (const share of shares.values()) share.path = moved(share.path);
       for (const entries of bookmarks.values()) for (const entry of entries) entry.path = moved(entry.path);
+      for (const [path, entries] of [...properties]) if (isWithinPath(from, path)) { properties.delete(path); properties.set(moved(path), entries); }
     },
   };
   /** Remove and return every record at or under a path. */
   function take(path: string) {
-    const taken: { grants: Grant[]; shares: Share[]; bookmarks: [string, Bookmark][] } = { grants: [], shares: [], bookmarks: [] };
+    const taken: Detached = { grants: [], shares: [], bookmarks: [], properties: [] };
     for (const [id, grant] of grants) if (isWithinPath(path, grant.path)) { taken.grants.push(grant); grants.delete(id); }
     for (const [token, share] of shares) if (isWithinPath(path, share.path)) { taken.shares.push(share); shares.delete(token); }
     for (const [userId, entries] of bookmarks) {
       for (const entry of entries) if (isWithinPath(path, entry.path)) taken.bookmarks.push([userId, entry]);
       bookmarks.set(userId, entries.filter((entry) => !isWithinPath(path, entry.path)));
     }
+    for (const [propertyPath, entries] of [...properties]) if (isWithinPath(path, propertyPath)) { taken.properties.push([propertyPath, entries]); properties.delete(propertyPath); }
     return taken;
   }
-  return { store, users, grants, groups, shares, trash };
+  return { store, users, grants, groups, shares, trash, properties };
 }

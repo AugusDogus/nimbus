@@ -229,7 +229,7 @@ async function stageCopy(
 export type CopyDepth = "0" | "infinity";
 
 /**
- * Copy an item. The copy carries no links, grants, or bookmarks. Data is staged without holding
+ * Copy an item with its WebDAV dead properties, but without links, grants, or bookmarks. Data is staged without holding
  * the mutation queue, then committed after permissions and locks are checked again.
  */
 export async function copyItem(
@@ -273,6 +273,8 @@ export async function copyItem(
           await undoReplacement(store, current, replacement);
           throw error;
         }
+        // Dead properties describe the content, so the copy keeps them (RFC 4918, section 9.8.2).
+        await store.copyDavProperties(source.relative, target.relative);
         publishFileEvent({
           path: target.absolute,
           event: replacement.kind === "content" ? "change" : "rename",

@@ -3,8 +3,40 @@ import { randomUUID } from "node:crypto";
 import { getDataRoot } from "./data-root";
 import { isWithinPath } from "./safe-path";
 
-type FileLock = { token: string; userId: string; expiresAt: number };
+/** `0` protects a collection and its membership but not its members' content (RFC 4918, section 7). */
+export type LockDepth = "0" | "infinity";
+export type FileLock = {
+  path: string;
+  token: string;
+  userId: string;
+  depth: LockDepth;
+  /** The client's DAV:owner element, serialized, echoed back in lock discovery. */
+  owner: string;
+  timeoutSeconds: number;
+  expiresAt: number;
+};
 type MutationState = { tail: Promise<void>; locks: Map<string, FileLock> };
+
+/** Locks never outlive a client that stops refreshing them by more than this. */
+export const maxLockSeconds = 60 * 60;
+
+const parentOf = (path: string) =>
+  path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+
+/** Whether a lock's scope includes a resource, so its token may be used there. */
+export const lockCovers = (lock: FileLock, path: string) =>
+  lock.path === path ||
+  (lock.depth === "infinity" && isWithinPath(lock.path, path));
+
+/** Whether changing `path` alters something the lock protects (RFC 4918, sections 6 and 7). */
+function lockProtects(lock: FileLock, path: string) {
+  // Moving or deleting an ancestor removes the locked resource.
+  if (isWithinPath(path, lock.path)) return true;
+  if (lock.depth === "infinity") return isWithinPath(lock.path, path);
+  // A depth-0 collection lock protects its membership. Paths do not say whether a write
+  // creates a member or changes one, so writes to every direct member are protected.
+  return path !== "" && parentOf(path) === lock.path;
+}
 
 // Next bundles API handlers separately from the custom server. Keep one coordinator per
 // mounted drive in this process so browser mutations respect WebDAV locks too.
@@ -43,14 +75,8 @@ export function requireUnlocked(
   paths: readonly string[],
   credentials: MutationCredentials,
 ) {
-  for (const [lockedPath, lock] of state().locks) {
-    if (
-      !paths.some(
-        (path) =>
-          isWithinPath(lockedPath, path) || isWithinPath(path, lockedPath),
-      )
-    )
-      continue;
+  for (const lock of state().locks.values()) {
+    if (!paths.some((path) => lockProtects(lock, path))) continue;
     if (
       lock.userId !== credentials.userId ||
       !credentials.lockTokens?.includes(lock.token)
@@ -80,39 +106,79 @@ export async function mutateFiles<T>(
   }
 }
 
-export function lockFile(path: string, credentials: MutationCredentials) {
+export type LockRequest = {
+  depth: LockDepth;
+  owner: string;
+  timeoutSeconds: number;
+};
+
+/** Create an exclusive write lock. Any lock with an overlapping scope conflicts. */
+export function lockFile(
+  path: string,
+  credentials: MutationCredentials,
+  request: LockRequest = { depth: "infinity", owner: "", timeoutSeconds: maxLockSeconds },
+) {
   const current = state();
-  const existing = current.locks.get(path);
-  if (existing) {
-    requireUnlocked([path], credentials);
-    existing.expiresAt = Date.now() + 60 * 60 * 1000;
-    return existing;
-  }
-  requireUnlocked([path], credentials);
+  for (const lock of current.locks.values())
+    if (
+      lockCovers(lock, path) ||
+      (request.depth === "infinity" && isWithinPath(path, lock.path))
+    )
+      throw new FileLockedError();
   if (current.locks.size >= 1000)
     throw new TRPCError({
       code: "TOO_MANY_REQUESTS",
       message:
         "Too many active file locks. Release an existing WebDAV lock and try again.",
     });
-  const lock = {
+  const lock: FileLock = {
+    path,
     token: `opaquelocktoken:${randomUUID()}`,
     userId: credentials.userId,
-    expiresAt: Date.now() + 60 * 60 * 1000,
+    ...request,
+    expiresAt: Date.now() + request.timeoutSeconds * 1000,
   };
   current.locks.set(path, lock);
   return lock;
 }
 
+/** Extend a lock covering `path` whose token the owner submitted, or return null. */
+export function refreshLock(
+  path: string,
+  credentials: MutationCredentials,
+  timeoutSeconds: number,
+) {
+  for (const lock of state().locks.values()) {
+    if (
+      lock.userId !== credentials.userId ||
+      !credentials.lockTokens?.includes(lock.token) ||
+      !lockCovers(lock, path)
+    )
+      continue;
+    lock.timeoutSeconds = timeoutSeconds;
+    lock.expiresAt = Date.now() + timeoutSeconds * 1000;
+    return lock;
+  }
+  return null;
+}
+
+/** Release a lock by its token from any URL within its scope. */
 export function unlockFile(path: string, userId: string, token: string) {
   const current = state();
-  const lock = current.locks.get(path);
-  if (!lock || lock.userId !== userId || token !== `<${lock.token}>`)
-    throw new TRPCError({
-      code: "CONFLICT",
-      message: "This WebDAV lock no longer exists or its token does not match.",
-    });
-  current.locks.delete(path);
+  for (const [lockedPath, lock] of current.locks)
+    if (
+      lock.userId === userId &&
+      token === `<${lock.token}>` &&
+      lockCovers(lock, path)
+    ) {
+      current.locks.delete(lockedPath);
+      return;
+    }
+  throw new TRPCError({
+    code: "CONFLICT",
+    message:
+      "This WebDAV lock no longer exists, belongs to someone else, or does not cover this item. Refresh the client's view and try again.",
+  });
 }
 
 /** A lock ends when DELETE or MOVE removes its root URL (RFC 4918, section 6.1). */
@@ -122,19 +188,7 @@ export function forgetFileLocks(path: string) {
     if (isWithinPath(path, lockedPath)) current.locks.delete(lockedPath);
 }
 
-export function fileLock(path: string) {
-  return state().locks.get(path);
-}
-
-/** Extract positive token conditions. A negated token never authorizes a write. */
-export function webDAVLockTokens(header: string | null): string[] {
-  const tokens: string[] = [];
-  for (const list of (header ?? "").matchAll(/\(([^)]*)\)/g)) {
-    for (const condition of (list[1] ?? "").matchAll(
-      /(Not\s+)?<(opaquelocktoken:[a-f0-9-]+)>/gi,
-    )) {
-      if (!condition[1] && condition[2]) tokens.push(condition[2]);
-    }
-  }
-  return tokens;
+/** Active locks whose scope includes a resource. */
+export function locksCovering(path: string) {
+  return [...state().locks.values()].filter((lock) => lockCovers(lock, path));
 }

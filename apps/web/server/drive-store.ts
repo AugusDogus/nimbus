@@ -10,6 +10,7 @@ import type { db } from "./db";
 import {
   appPasswords,
   bookmarks,
+  davProperties,
   grants,
   groupMembers,
   groups,
@@ -61,6 +62,14 @@ const detachedAccessSchema = z.object({
       accessedAt: z.number(),
     }),
   ),
+  properties: z.array(
+    z.object({
+      path: z.string(),
+      namespace: z.string(),
+      name: z.string(),
+      xml: z.string(),
+    }),
+  ),
 });
 type DetachedAccess = z.infer<typeof detachedAccessSchema>;
 
@@ -84,7 +93,7 @@ function atOrUnder(column: SQLiteColumn, path: string): SQL {
   ) ?? sql`0`;
 }
 
-/** Delete and return every link, grant, and bookmark at or under a path. */
+/** Delete and return every link, grant, bookmark, and dead property at or under a path. */
 async function detach(tx: Transaction, path: string): Promise<DetachedAccess> {
   const detached = {
     grants: await tx.select().from(grants).where(atOrUnder(grants.path, path)),
@@ -93,12 +102,21 @@ async function detach(tx: Transaction, path: string): Promise<DetachedAccess> {
       .select()
       .from(bookmarks)
       .where(atOrUnder(bookmarks.path, path)),
+    properties: await tx
+      .select()
+      .from(davProperties)
+      .where(atOrUnder(davProperties.path, path)),
   };
   await tx.delete(grants).where(atOrUnder(grants.path, path));
   await tx.delete(shares).where(atOrUnder(shares.path, path));
   await tx.delete(bookmarks).where(atOrUnder(bookmarks.path, path));
+  await tx.delete(davProperties).where(atOrUnder(davProperties.path, path));
   return detached;
 }
+
+/** Rewrite a path column from `from` to `to` for rows at or under `from`. */
+const relocated = (column: SQLiteColumn, from: string, to: string) =>
+  sql`${to} || substr(${column}, length(${from}) + 1)`;
 
 export function createDriveStore(database: typeof db): DriveStore {
   return {
@@ -284,6 +302,8 @@ export function createDriveStore(database: typeof db): DriveStore {
           await tx.insert(shares).values(restoredShares);
         if (restoredBookmarks.length)
           await tx.insert(bookmarks).values(restoredBookmarks);
+        if (parsed.data.properties.length)
+          await tx.insert(davProperties).values(parsed.data.properties);
         await tx.delete(trash).where(eq(trash.id, id));
       });
     },
@@ -335,20 +355,59 @@ export function createDriveStore(database: typeof db): DriveStore {
     async movePath(from, to) {
       await database.transaction(async (tx) => {
         await detach(tx, to);
-        const moved = (column: SQLiteColumn) =>
-          sql`${to} || substr(${column}, length(${from}) + 1)`;
-        await tx
-          .update(grants)
-          .set({ path: moved(grants.path) })
-          .where(atOrUnder(grants.path, from));
-        await tx
-          .update(shares)
-          .set({ path: moved(shares.path) })
-          .where(atOrUnder(shares.path, from));
-        await tx
-          .update(bookmarks)
-          .set({ path: moved(bookmarks.path) })
-          .where(atOrUnder(bookmarks.path, from));
+        for (const table of [grants, shares, bookmarks, davProperties])
+          await tx
+            .update(table)
+            .set({ path: relocated(table.path, from, to) })
+            .where(atOrUnder(table.path, from));
+      });
+    },
+    async davProperties(paths) {
+      const result = new Map<string, { namespace: string; name: string; xml: string }[]>();
+      // Stay well below SQLite's bound-parameter limit for large folder listings.
+      for (let start = 0; start < paths.length; start += 500) {
+        const rows = await database
+          .select()
+          .from(davProperties)
+          .where(inArray(davProperties.path, paths.slice(start, start + 500)));
+        for (const { path, ...property } of rows)
+          result.set(path, [...(result.get(path) ?? []), property]);
+      }
+      return result;
+    },
+    async patchDavProperties(path, set, remove) {
+      await database.transaction(async (tx) => {
+        for (const property of remove)
+          await tx
+            .delete(davProperties)
+            .where(
+              and(
+                eq(davProperties.path, path),
+                eq(davProperties.namespace, property.namespace),
+                eq(davProperties.name, property.name),
+              ),
+            );
+        for (const property of set)
+          await tx
+            .insert(davProperties)
+            .values({ path, ...property })
+            .onConflictDoUpdate({
+              target: [davProperties.path, davProperties.namespace, davProperties.name],
+              set: { xml: property.xml },
+            });
+      });
+    },
+    async copyDavProperties(from, to) {
+      await database.transaction(async (tx) => {
+        await tx.delete(davProperties).where(atOrUnder(davProperties.path, to));
+        const rows = await tx
+          .select()
+          .from(davProperties)
+          .where(atOrUnder(davProperties.path, from));
+        if (rows.length)
+          await tx.insert(davProperties).values(
+            rows.map((row) => ({ ...row, path: to + row.path.slice(from.length) })),
+          );
       });
     },
   };

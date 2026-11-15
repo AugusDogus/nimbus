@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f52bf613-f3b6-4dfc-9815-62c32cc10767",
+  "id": "6040463e-e06f-4743-9e96-bb9a97e799c1",
   "prevId": "f31630fe-527e-48a3-96a7-5dc4a37ea670",
   "tables": {
     "nimbus_note": {
@@ -642,6 +642,53 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "nimbus_dav_property": {
+      "name": "nimbus_dav_property",
+      "columns": {
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "namespace": {
+          "name": "namespace",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "xml": {
+          "name": "xml",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "nimbus_dav_property_path_namespace_name_pk": {
+          "columns": [
+            "path",
+            "namespace",
+            "name"
+          ],
+          "name": "nimbus_dav_property_path_namespace_name_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "nimbus_grant": {
       "name": "nimbus_grant",
       "columns": {
@@ -921,7 +968,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'{\"grants\":[],\"shares\":[],\"bookmarks\":[]}'"
+          "default": "'{\"grants\":[],\"shares\":[],\"bookmarks\":[],\"properties\":[]}'"
         }
       },
       "indexes": {},

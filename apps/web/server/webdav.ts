@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, rename, rm, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
-import { getAccess } from "@nimbus/api/access";
+import { getAccess, type Access } from "@nimbus/api/access";
 import { getDataRoot } from "@nimbus/api/data-root";
 import {
   entryAt,
@@ -11,38 +11,58 @@ import {
 } from "@nimbus/api/file-browser";
 import { publishFileEvent } from "@nimbus/api/file-events";
 import {
-  fileLock,
   lockFile,
+  locksCovering,
+  maxLockSeconds,
   mutateFiles,
+  refreshLock,
   unlockFile,
-  webDAVLockTokens,
+  type LockDepth,
+  type MutationCredentials,
 } from "@nimbus/api/file-mutations";
 import {
   copyItem,
   moveItem,
   requireExisting,
   requireMutable,
-  requireUnused,
   safePath,
   trashItem,
 } from "@nimbus/api/file-operations";
+import { FilesystemCapacity } from "@nimbus/api/filesystem-capacity";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
 import { httpDriveStore, httpError, serveFile } from "./http-files";
+import {
+  evaluateIfHeader,
+  parseIfHeader,
+  submittedLockTokens,
+  type IfHeader,
+} from "./webdav-if";
+import {
+  entityTag,
+  lockDiscovery,
+  parsePropertyUpdate,
+  parsePropfind,
+  planPropertyUpdate,
+  propfindResponse,
+  proppatchResponse,
+  type PropfindContext,
+} from "./webdav-properties";
+import {
+  DAV,
+  child,
+  escapeXml,
+  maxXmlBytes,
+  parseXml,
+  serializeXml,
+  type XmlElement,
+} from "./webdav-xml";
 
-const xml = (text: string) =>
-  text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-const davHref = (entry: Pick<FileEntry, "path" | "type">) =>
-  `/dav/${entry.path.split("/").map(encodeURIComponent).join("/")}${entry.type === "dir" && entry.path ? "/" : ""}`;
 const allowedMethods = [
   "OPTIONS",
   "GET",
   "HEAD",
   "PROPFIND",
+  "PROPPATCH",
   "PUT",
   "MKCOL",
   "DELETE",
@@ -51,6 +71,7 @@ const allowedMethods = [
   "LOCK",
   "UNLOCK",
 ];
+const MICROSOFT = "urn:schemas-microsoft-com:";
 
 async function authenticate(request: Request) {
   const header = request.headers.get("authorization");
@@ -71,26 +92,21 @@ async function authenticate(request: Request) {
   return access;
 }
 
-function activeLock(path: string) {
-  const lock = fileLock(path);
-  return lock
-    ? `<d:activelock><d:locktype><d:write/></d:locktype><d:lockscope><d:exclusive/></d:lockscope><d:depth>infinity</d:depth><d:timeout>Second-${Math.max(0, Math.ceil((lock.expiresAt - Date.now()) / 1000))}</d:timeout><d:locktoken><d:href>${xml(lock.token)}</d:href></d:locktoken><d:lockroot><d:href>${xml(davHref({ path, type: "file" }))}</d:href></d:lockroot></d:activelock>`
-    : "";
-}
-
-function propertyResponse(entry: FileEntry) {
-  return `<d:response><d:href>${xml(davHref(entry))}</d:href><d:propstat><d:prop><d:displayname>${xml(entry.name)}</d:displayname><d:resourcetype>${entry.type === "dir" ? "<d:collection/>" : ""}</d:resourcetype><d:getcontentlength>${entry.size}</d:getcontentlength><d:getlastmodified>${new Date(entry.mtime).toUTCString()}</d:getlastmodified><d:getetag>"${entry.mtime}-${entry.size}"</d:getetag><d:supportedlock><d:lockentry><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockentry></d:supportedlock><d:lockdiscovery>${activeLock(entry.path)}</d:lockdiscovery></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`;
-}
-
+/** XML responses carry an exact Content-Length; some clients mishandle chunked multistatus. */
 function xmlResponse(body: string, status = 207, extraHeaders?: HeadersInit) {
+  const text = `<?xml version="1.0" encoding="utf-8"?>${body}`;
   const headers = new Headers(extraHeaders);
   headers.set("Content-Type", "application/xml; charset=utf-8");
+  headers.set("Content-Length", String(Buffer.byteLength(text)));
   headers.set("Cache-Control", "no-store");
-  return new Response(`<?xml version="1.0" encoding="utf-8"?>${body}`, {
-    status,
-    headers,
-  });
+  return new Response(text, { status, headers });
 }
+
+const textResponse = (status: number, message: string) =>
+  new Response(message, {
+    status,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
 
 function decodedPath(pathname: string) {
   if (pathname !== "/dav" && !pathname.startsWith("/dav/"))
@@ -111,64 +127,341 @@ function decodedPath(pathname: string) {
   }
 }
 
+/** Read an XML body without buffering more than the size limit. An empty body is null. */
+async function readXml(
+  request: Request,
+): Promise<{ ok: true; value: XmlElement | null } | { ok: false; response: Response }> {
+  const tooLarge = {
+    ok: false as const,
+    response: textResponse(413, `WebDAV XML bodies are limited to ${maxXmlBytes} bytes.`),
+  };
+  if (Number(request.headers.get("content-length") ?? 0) > maxXmlBytes) return tooLarge;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = request.body?.getReader();
+  while (reader) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > maxXmlBytes) {
+      await reader.cancel();
+      return tooLarge;
+    }
+    chunks.push(chunk.value);
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  if (!text.trim()) return { ok: true, value: null };
+  const parsed = parseXml(text);
+  return parsed.ok
+    ? { ok: true, value: parsed.value }
+    : { ok: false, response: textResponse(400, parsed.error.message) };
+}
+
+async function entryOrNull(relative: string) {
+  try {
+    return await entryAt(relative);
+  } catch (error) {
+    if (isApiError(error, "NOT_FOUND")) return null;
+    throw error;
+  }
+}
+
+/** Whether the If header holds for this request (RFC 4918, section 10.4.2). */
+function ifHeaderHolds(lists: IfHeader, requestUrl: URL, target: string) {
+  return evaluateIfHeader(lists, async (resource) => {
+    let relative = target;
+    if (resource !== null) {
+      let url: URL;
+      try {
+        url = new URL(resource, requestUrl);
+      } catch {
+        return null;
+      }
+      if (url.origin !== requestUrl.origin) return null;
+      try {
+        relative = (await safePath(decodedPath(url.pathname))).relative;
+      } catch {
+        return null;
+      }
+    }
+    const entry = await entryOrNull(relative);
+    return {
+      etag: entry ? entityTag(entry) : null,
+      lockTokens: locksCovering(relative).map((lock) => lock.token),
+    };
+  });
+}
+
+/** Seconds from a `Timeout` header, capped at the server's maximum. */
+function lockTimeout(header: string | null) {
+  for (const value of (header ?? "").split(",").map((part) => part.trim())) {
+    if (value.toLowerCase() === "infinite") return maxLockSeconds;
+    const seconds = /^Second-(\d+)$/i.exec(value)?.[1];
+    if (seconds) return Math.max(1, Math.min(maxLockSeconds, Number(seconds)));
+  }
+  return maxLockSeconds;
+}
+
+/** Unix seconds from rclone's and ownCloud's `X-OC-Mtime` header. */
+function requestedMtime(request: Request) {
+  const header = request.headers.get("x-oc-mtime");
+  if (header === null || !/^\d{1,12}$/.test(header.trim())) return null;
+  return new Date(Number(header.trim()) * 1000);
+}
+
+/** Apply a client-supplied modification time to a file, keeping its access time. */
+async function setMtime(absolute: string, mtime: Date) {
+  const stats = await lstat(absolute);
+  if (stats.isFile()) await utimes(absolute, stats.atime, mtime);
+}
+
+async function propfind(
+  request: Request,
+  access: Access,
+  target: string,
+) {
+  const depth = request.headers.get("depth") ?? "infinity";
+  if (depth !== "0" && depth !== "1")
+    return xmlResponse(
+      '<d:error xmlns:d="DAV:"><d:propfind-finite-depth/></d:error>',
+      403,
+    );
+  const body = await readXml(request);
+  if (!body.ok) return body.response;
+  const parsed = parsePropfind(body.value);
+  if (!parsed.ok) return textResponse(400, parsed.message);
+  if (!access.canBrowse(target)) throw new TRPCError({ code: "FORBIDDEN" });
+  const entry = await entryAt(target);
+  const entries: FileEntry[] =
+    entry.type === "dir" && depth === "1"
+      ? [entry, ...(await readDirectory(target, access))]
+      : [entry];
+  const dead = await httpDriveStore.davProperties(entries.map((item) => item.path));
+  let capacity: Promise<Awaited<ReturnType<typeof FilesystemCapacity.read>>> | undefined;
+  const context: PropfindContext = {
+    locks: locksCovering,
+    capacity: () => (capacity ??= FilesystemCapacity.read(getDataRoot())),
+  };
+  const responses = [];
+  for (const item of entries)
+    responses.push(
+      await propfindResponse(item, parsed.value, dead.get(item.path) ?? [], context),
+    );
+  return xmlResponse(
+    `<d:multistatus xmlns:d="DAV:">${responses.join("")}</d:multistatus>`,
+  );
+}
+
+async function proppatch(
+  request: Request,
+  target: string,
+  credentials: MutationCredentials,
+) {
+  const body = await readXml(request);
+  if (!body.ok) return body.response;
+  const updates = parsePropertyUpdate(body.value);
+  if (!updates.ok) return textResponse(400, updates.message);
+  return mutateFiles([target], credentials, async () => {
+    (await authenticate(request)).require(target, "write");
+    const existing = await requireExisting(target);
+    const type = existing.stats.isDirectory() ? "dir" : "file";
+    const plan = planPropertyUpdate(updates.value);
+    if (plan.kind === "reject")
+      return xmlResponse(proppatchResponse(target, type, plan.statuses));
+    await httpDriveStore.patchDavProperties(target, plan.set, plan.remove);
+    // Windows Explorer preserves file times by setting this property after an upload.
+    const modified = updates.value.findLast(
+      (update) => update.name.namespace === MICROSOFT && update.name.local === "Win32LastModifiedTime",
+    );
+    if (modified?.kind === "set" && Number.isFinite(Date.parse(modified.text))) {
+      await setMtime(existing.absolute, new Date(Date.parse(modified.text)));
+      publishFileEvent({ path: existing.absolute, event: "change", ts: Date.now() });
+    }
+    return xmlResponse(
+      proppatchResponse(target, type, plan.names.map((name) => ({ name, status: 200 }))),
+    );
+  });
+}
+
+async function lock(
+  request: Request,
+  target: string,
+  credentials: MutationCredentials,
+) {
+  const body = await readXml(request);
+  if (!body.ok) return body.response;
+  const timeoutSeconds = lockTimeout(request.headers.get("timeout"));
+  if (!body.value) {
+    // A LOCK without a body refreshes a lock identified in the If header (RFC 4918, section 9.10.2).
+    const refreshed = refreshLock(target, credentials, timeoutSeconds);
+    if (!refreshed)
+      return textResponse(412, "Send the lock token to refresh in an If header, for example If: (<opaquelocktoken:…>).");
+    const entry = await entryAt(target);
+    return xmlResponse(
+      `<d:prop xmlns:d="DAV:">${lockDiscovery([refreshed], entry)}</d:prop>`,
+      200,
+    );
+  }
+  const info = body.value;
+  if (info.namespace !== DAV || info.local !== "lockinfo")
+    return textResponse(400, "A LOCK body must be a DAV:lockinfo element.");
+  const scope = child(info, DAV, "lockscope");
+  if (!scope || !child(scope, DAV, "exclusive"))
+    return textResponse(412, "Only exclusive write locks are supported. Request <D:exclusive/>.");
+  const type = child(info, DAV, "locktype");
+  if (!type || !child(type, DAV, "write"))
+    return textResponse(400, "Only write locks are supported. Request <D:write/>.");
+  const depthHeader = (request.headers.get("depth") ?? "infinity").toLowerCase();
+  if (depthHeader !== "0" && depthHeader !== "infinity")
+    return textResponse(400, "LOCK supports Depth: 0 or infinity.");
+  const depth: LockDepth = depthHeader;
+  const ownerElement = child(info, DAV, "owner");
+  const owner = ownerElement
+    ? ownerElement.children
+        .map((node) => (typeof node === "string" ? escapeXml(node) : serializeXml(node, DAV, ownerElement.lang)))
+        .join("")
+    : "";
+  return mutateFiles([target], credentials, async () => {
+    (await authenticate(request)).require(target, "write");
+    const destination = await safePath(target);
+    let entry = await entryOrNull(target);
+    let created = false;
+    if (!entry) {
+      // Locking an unmapped URL creates an empty file (RFC 4918, section 7.3).
+      requireMutable(target);
+      await writeFile(destination.absolute, "", { flag: "wx" });
+      created = true;
+      publishFileEvent({ path: destination.absolute, event: "rename", ts: Date.now() });
+      entry = await entryAt(target);
+    }
+    const granted = lockFile(target, credentials, { depth, owner, timeoutSeconds });
+    return xmlResponse(
+      `<d:prop xmlns:d="DAV:">${lockDiscovery([granted], entry)}</d:prop>`,
+      created ? 201 : 200,
+      { "Lock-Token": `<${granted.token}>` },
+    );
+  });
+}
+
 function matchesETag(header: string, tag: string) {
   return (
     header === "*" || header.split(",").some((value) => value.trim() === tag)
   );
 }
 
-async function putFile(request: Request, requested: string) {
+async function putFile(
+  request: Request,
+  requested: string,
+  credentials: MutationCredentials,
+) {
   const temporaryDirectory = path.join(getDataRoot(), ".nimbus", "uploads");
   await mkdir(temporaryDirectory, { recursive: true });
   const temporary = path.join(temporaryDirectory, `${randomUUID()}.dav`);
   try {
     await Bun.write(temporary, new Response(request.body));
-    const access = await authenticate(request);
-    return await mutateFiles(
-      [requested],
-      {
-        userId: access.user.id,
-        lockTokens: webDAVLockTokens(request.headers.get("if")),
-      },
-      async () => {
-        const currentAccess = await authenticate(request);
-        currentAccess.require(requested, "write");
-        const target = await safePath(requested);
-        let previous: FileEntry | null = null;
-        try {
-          previous = await entryAt(requested);
-        } catch (error) {
-          if (!isApiError(error, "NOT_FOUND")) throw error;
-        }
-        if (previous?.type === "dir")
-          return new Response(null, { status: 409 });
-        const tag = previous ? `"${previous.mtime}-${previous.size}"` : "";
-        const noneMatch = request.headers.get("if-none-match");
-        const match = request.headers.get("if-match");
-        if (
-          (noneMatch && previous && matchesETag(noneMatch, tag)) ||
-          (match && (!previous || !matchesETag(match, tag)))
-        )
-          return new Response(null, { status: 412 });
-        await rename(temporary, target.absolute);
-        publishFileEvent({
-          path: target.absolute,
-          event: previous ? "change" : "rename",
-          ts: Date.now(),
-        });
-        return new Response(null, { status: previous ? 204 : 201 });
-      },
-    );
+    return await mutateFiles([requested], credentials, async () => {
+      (await authenticate(request)).require(requested, "write");
+      const target = await safePath(requested);
+      const previous = await entryOrNull(requested);
+      if (previous?.type === "dir")
+        return textResponse(405, "This path is a folder. PUT can only write files.");
+      const tag = previous ? entityTag(previous) : "";
+      const noneMatch = request.headers.get("if-none-match");
+      const match = request.headers.get("if-match");
+      if (
+        (noneMatch && previous && matchesETag(noneMatch, tag)) ||
+        (match && (!previous || !matchesETag(match, tag)))
+      )
+        return new Response(null, { status: 412 });
+      const mtime = requestedMtime(request);
+      if (mtime) await setMtime(temporary, mtime);
+      // The atomic rename is the commit point for new file content.
+      await rename(temporary, target.absolute);
+      publishFileEvent({
+        path: target.absolute,
+        event: previous ? "change" : "rename",
+        ts: Date.now(),
+      });
+      return new Response(null, {
+        status: previous ? 204 : 201,
+        headers: mtime ? { "X-OC-Mtime": "accepted" } : undefined,
+      });
+    });
   } finally {
     await rm(temporary, { force: true });
   }
+}
+
+async function transfer(
+  request: Request,
+  method: "MOVE" | "COPY",
+  url: URL,
+  access: Access,
+  target: string,
+  credentials: MutationCredentials,
+) {
+  const destinationHeader = request.headers.get("destination");
+  if (!destinationHeader)
+    return textResponse(400, "A Destination header is required.");
+  let destinationUrl: URL;
+  try {
+    destinationUrl = new URL(destinationHeader, request.url);
+  } catch {
+    return textResponse(400, "The Destination header must contain a valid drive URL.");
+  }
+  if (destinationUrl.origin !== url.origin)
+    return textResponse(502, "The destination must be on this drive.");
+  const destination = await safePath(decodedPath(destinationUrl.pathname));
+  requireMutable(destination.relative);
+  access.require(destination.relative, "write");
+  // RFC 4918, section 10.6: Overwrite defaults to T.
+  const overwrite = (request.headers.get("overwrite") ?? "T").trim().toUpperCase();
+  if (overwrite !== "T" && overwrite !== "F")
+    return textResponse(400, "Overwrite must be T or F.");
+  const depth = (request.headers.get("depth") ?? "infinity").trim().toLowerCase();
+  if (depth !== "infinity" && (method === "MOVE" || depth !== "0"))
+    return textResponse(
+      400,
+      `${method} supports Depth: infinity${method === "COPY" ? " or 0" : ""}.`,
+    );
+  const options = {
+    lockTokens: credentials.lockTokens,
+    existing: overwrite === "T" ? ("replace" as const) : ("refuse" as const),
+  };
+  let replaced: boolean;
+  try {
+    ({ replaced } =
+      method === "COPY"
+        ? await copyItem(httpDriveStore, access, target, destination.relative, {
+            ...options,
+            depth: depth === "0" ? "0" : "infinity",
+          })
+        : await moveItem(httpDriveStore, access, target, destination.relative, options));
+  } catch (error) {
+    // An existing destination with Overwrite: F is a failed precondition, not a conflict.
+    if (
+      isApiError(error, "CONFLICT") &&
+      !(error instanceof Error && error.name === "FileLockedError")
+    )
+      return new Response(null, { status: 412 });
+    // Source and destination overlap, or the drive root was named.
+    if (isApiError(error, "BAD_REQUEST"))
+      return new Response(null, { status: 403 });
+    throw error;
+  }
+  const mtime = requestedMtime(request);
+  if (mtime) await setMtime(destination.absolute, mtime);
+  return new Response(null, {
+    status: replaced ? 204 : 201,
+    headers: mtime ? { "X-OC-Mtime": "accepted" } : undefined,
+  });
 }
 
 export async function handleWebDAV(request: Request): Promise<Response> {
   try {
     const access = await authenticate(request);
     const url = new URL(request.url);
-    const target = await safePath(decodedPath(url.pathname));
+    const target = (await safePath(decodedPath(url.pathname))).relative;
     const method = request.method;
     if (!allowedMethods.includes(method))
       return new Response(null, {
@@ -177,160 +470,65 @@ export async function handleWebDAV(request: Request): Promise<Response> {
       });
     if (method === "OPTIONS")
       return new Response(null, {
-        status: 204,
+        status: 200,
         headers: {
           DAV: "1, 2",
           Allow: allowedMethods.join(", "),
           "MS-Author-Via": "DAV",
+          "Content-Length": "0",
         },
       });
-    if (method === "GET" || method === "HEAD")
-      return await serveFile(request, target.relative, access);
-    if (method === "PROPFIND") {
-      const depth = request.headers.get("depth") ?? "infinity";
-      if (depth !== "0" && depth !== "1")
-        return xmlResponse(
-          '<d:error xmlns:d="DAV:"><d:propfind-finite-depth/></d:error>',
-          403,
-        );
-      if (!access.canBrowse(target.relative))
-        throw new TRPCError({ code: "FORBIDDEN" });
-      const entry = await entryAt(target.relative);
-      const entries =
-        entry.type === "dir" && depth === "1"
-          ? [entry, ...(await readDirectory(target.relative, access))]
-          : [entry];
-      return xmlResponse(
-        `<d:multistatus xmlns:d="DAV:">${entries.map(propertyResponse).join("")}</d:multistatus>`,
-      );
+    if (method === "GET" || method === "HEAD") {
+      const entry = await entryAt(target);
+      if (entry.type === "file") return await serveFile(request, target, access);
+      if (!access.canBrowse(target)) throw new TRPCError({ code: "FORBIDDEN" });
+      // Clients probe folders with HEAD; browsers get a pointer to the web interface.
+      return textResponse(200, "This is a Nimbus folder. Open it in a WebDAV client or in the Nimbus web interface.");
     }
-    access.require(target.relative, method === "COPY" ? "read" : "write");
+    if (method === "PROPFIND") return await propfind(request, access, target);
+    const conditions = parseIfHeader(request.headers.get("if"));
+    if (!conditions.ok) return textResponse(400, conditions.error.message);
     const credentials = {
       userId: access.user.id,
-      lockTokens: webDAVLockTokens(request.headers.get("if")),
+      lockTokens: submittedLockTokens(conditions.value),
     };
-    if (method === "LOCK") {
-      return await mutateFiles([target.relative], credentials, async () => {
-        const currentAccess = await authenticate(request);
-        currentAccess.require(target.relative, "write");
-        let created = false;
-        try {
-          await requireExisting(target.relative);
-        } catch (error) {
-          if (!isApiError(error, "NOT_FOUND")) throw error;
-          const destination = await safePath(target.relative);
-          await writeFile(destination.absolute, "", { flag: "wx" });
-          created = true;
-          publishFileEvent({
-            path: destination.absolute,
-            event: "rename",
-            ts: Date.now(),
-          });
-        }
-        const lock = lockFile(target.relative, credentials);
-        return xmlResponse(
-          `<d:prop xmlns:d="DAV:"><d:lockdiscovery>${activeLock(target.relative)}</d:lockdiscovery></d:prop>`,
-          created ? 201 : 200,
-          { "Lock-Token": `<${lock.token}>` },
-        );
-      });
-    }
     if (method === "UNLOCK") {
-      unlockFile(
-        target.relative,
-        access.user.id,
-        request.headers.get("lock-token") ?? "",
-      );
+      unlockFile(target, access.user.id, request.headers.get("lock-token") ?? "");
       return new Response(null, { status: 204 });
     }
-    requireMutable(target.relative);
+    access.require(target, method === "COPY" ? "read" : "write");
+    if (!(await ifHeaderHolds(conditions.value, url, target)))
+      return textResponse(412, "A condition in the If header does not hold. The item was not changed.");
+    if (method === "LOCK") return await lock(request, target, credentials);
+    if (method === "PROPPATCH") return await proppatch(request, target, credentials);
+    if (method === "COPY")
+      return await transfer(request, method, url, access, target, credentials);
+    requireMutable(target);
     if (method === "DELETE") {
-      await trashItem(
-        httpDriveStore,
-        access,
-        target.relative,
-        credentials.lockTokens,
-      );
+      await trashItem(httpDriveStore, access, target, credentials.lockTokens);
       return new Response(null, { status: 204 });
     }
     if (method === "MKCOL") {
-      if (request.body && (await request.arrayBuffer()).byteLength > 0)
-        return new Response(null, { status: 415 });
-      return await mutateFiles([target.relative], credentials, async () => {
-        const currentAccess = await authenticate(request);
-        currentAccess.require(target.relative, "write");
-        const destination = await safePath(target.relative);
-        await requireUnused(destination.absolute);
-        await mkdir(destination.absolute);
-        publishFileEvent({
-          path: destination.absolute,
-          event: "rename",
-          ts: Date.now(),
-        });
+      const body = await request.arrayBuffer();
+      if (body.byteLength > 0)
+        return textResponse(415, "MKCOL does not accept a request body.");
+      return await mutateFiles([target], credentials, async () => {
+        (await authenticate(request)).require(target, "write");
+        const destination = await safePath(target);
+        try {
+          await mkdir(destination.absolute);
+        } catch (error) {
+          if (isFsError(error, "EEXIST"))
+            return textResponse(405, "An item with this name already exists.");
+          throw error;
+        }
+        publishFileEvent({ path: destination.absolute, event: "rename", ts: Date.now() });
         return new Response(null, { status: 201 });
       });
     }
-    if (method === "PUT") return await putFile(request, target.relative);
-    if (method === "MOVE" || method === "COPY") {
-      const destinationHeader = request.headers.get("destination");
-      if (!destinationHeader)
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "A Destination header is required.",
-        });
-      let destinationUrl: URL;
-      try {
-        destinationUrl = new URL(destinationHeader, request.url);
-      } catch {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "The Destination header must contain a valid drive URL.",
-        });
-      }
-      if (destinationUrl.origin !== url.origin)
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "The destination must be on this drive.",
-        });
-      const destination = await safePath(decodedPath(destinationUrl.pathname));
-      requireMutable(destination.relative);
-      access.require(destination.relative, "write");
-      // RFC 4918, section 10.6: Overwrite defaults to T.
-      const overwrite = (request.headers.get("overwrite") ?? "T").trim().toUpperCase();
-      if (overwrite !== "T" && overwrite !== "F")
-        return new Response("Overwrite must be T or F.", { status: 400 });
-      const depth = (request.headers.get("depth") ?? "infinity").trim().toLowerCase();
-      if (depth !== "infinity" && (method === "MOVE" || depth !== "0"))
-        return new Response(
-          `${method} supports Depth: infinity${method === "COPY" ? " or 0" : ""}.`,
-          { status: 400 },
-        );
-      const options = {
-        lockTokens: credentials.lockTokens,
-        existing: overwrite === "T" ? ("replace" as const) : ("refuse" as const),
-      };
-      try {
-        const result =
-          method === "COPY"
-            ? await copyItem(httpDriveStore, access, target.relative, destination.relative, {
-                ...options,
-                depth: depth === "0" ? "0" : "infinity",
-              })
-            : await moveItem(httpDriveStore, access, target.relative, destination.relative, options);
-        return new Response(null, { status: result.replaced ? 204 : 201 });
-      } catch (error) {
-        // An existing destination with Overwrite: F is a failed precondition, not a conflict.
-        if (
-          isApiError(error, "CONFLICT") &&
-          !(error instanceof Error && error.name === "FileLockedError")
-        )
-          return new Response(null, { status: 412 });
-        // Source and destination overlap, or the drive root was named.
-        if (isApiError(error, "BAD_REQUEST"))
-          return new Response(null, { status: 403 });
-        throw error;
-      }
-    }
+    if (method === "PUT") return await putFile(request, target, credentials);
+    if (method === "MOVE")
+      return await transfer(request, method, url, access, target, credentials);
     return new Response(null, { status: 405 });
   } catch (error) {
     if (isApiError(error, "UNAUTHORIZED"))
@@ -341,7 +539,7 @@ export async function handleWebDAV(request: Request): Promise<Response> {
         },
       });
     if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR"))
-      return new Response("Parent folder does not exist.", { status: 409 });
+      return textResponse(409, "The parent folder does not exist. Create it first.");
     return httpError(error);
   }
 }

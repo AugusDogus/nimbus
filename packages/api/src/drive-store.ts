@@ -39,6 +39,9 @@ export type TrashItem = {
   expiresAt: number;
 };
 export type Bookmark = { path: string; starred: boolean; accessedAt: number };
+/** A WebDAV dead property: an arbitrary client-set XML element, keyed by expanded name. */
+export type DavProperty = { namespace: string; name: string; xml: string };
+export type DavPropertyName = Pick<DavProperty, "namespace" | "name">;
 export type AppPassword = {
   id: string;
   userId: string;
@@ -63,9 +66,15 @@ export type DriveStore = {
   listShares(userId: string): Promise<Share[]>;
   revokeShare(id: string, userId: string): Promise<void>;
   countDownload(id: string): Promise<void>;
+  /** Dead properties of each path. Paths without properties are absent from the map. */
+  davProperties(paths: readonly string[]): Promise<Map<string, DavProperty[]>>;
+  /** Set and remove dead properties of one path in a single transaction. */
+  patchDavProperties(path: string, set: readonly DavProperty[], remove: readonly DavPropertyName[]): Promise<void>;
+  /** Replace the dead properties at or under `to` with copies of those at or under `from`. */
+  copyDavProperties(from: string, to: string): Promise<void>;
   /**
    * Record a trashed item and, in the same transaction, detach the public links, direct
-   * grants, and bookmarks at or under its path. Detached records stay with the trash record
+   * grants, bookmarks, and dead properties at or under its path. Detached records stay with the trash record
    * and never match live paths, so content later created at that path cannot inherit them.
    */
   addTrash(item: TrashItem): Promise<void>;
@@ -82,12 +91,12 @@ export type DriveStore = {
   findAppPassword(tokenHash: string): Promise<AppPassword | null>;
   removeAppPassword(id: string, userId: string): Promise<void>;
   /**
-   * Rewrite links, direct grants, and bookmarks at or under `from` to the same relative
+   * Rewrite links, direct grants, bookmarks, and dead properties at or under `from` to the same relative
    * location under `to`, after dropping records left at or under the vacant `to` by content
    * removed outside Nimbus. Grants on ancestors are never rewritten: moved content loses what
    * it inherited at its source and inherits from its destination instead.
    */
   movePath(from: string, to: string): Promise<void>;
-  /** Delete links, direct grants, and bookmarks at or under a path whose content is merged into another item. */
+  /** Delete links, direct grants, bookmarks, and dead properties at or under a path whose content is merged into another item. */
   discardPath(path: string): Promise<void>;
 };
