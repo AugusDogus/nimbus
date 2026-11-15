@@ -3,15 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
-import { CheckCircle2, CircleAlert, Upload as UploadIcon } from "lucide-react";
-import type { Upload } from "tus-js-client";
+import { Check, CircleAlert, Upload as UploadIcon } from "lucide-react";
+// Already in every page: the root layout's upload provider uses it.
+import * as tus from "tus-js-client";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { NimbusWordmark } from "@/components/nimbus-wordmark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import { ByteSize } from "@/lib/byte-size";
 
 const detailsSchema = z.object({
@@ -70,7 +70,7 @@ export function FileRequestUpload({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const nextId = useRef(0);
-  const active = useRef<Upload | null>(null);
+  const active = useRef<tus.Upload | null>(null);
   const running = useRef(false);
   const queue = useRef<Item[]>([]);
 
@@ -81,8 +81,6 @@ export function FileRequestUpload({ token }: { token: string }) {
   const run = useCallback(async () => {
     if (running.current) return;
     running.current = true;
-    // Loaded on first use so the page itself stays small.
-    const tus = await import("tus-js-client");
     for (let item = queue.current.shift(); item; item = queue.current.shift()) {
       const { id, file } = item;
       update(id, { kind: "uploading", percent: 0 });
@@ -274,13 +272,18 @@ export function FileRequestUpload({ token }: { token: string }) {
                       {ByteSize.format(item.file.size)}
                     </span>
                     {item.status.kind === "done" ? (
-                      <CheckCircle2 role="img" aria-label="Uploaded" className="size-4 shrink-0 text-primary" />
+                      <Check role="img" aria-label="Uploaded" className="size-4 shrink-0 text-primary" />
                     ) : item.status.kind === "failed" ? (
                       <CircleAlert role="img" aria-label="Failed" className="size-4 shrink-0 text-destructive" />
                     ) : null}
                   </div>
                   {item.status.kind === "uploading" && (
-                    <Progress value={item.status.percent} aria-label={`Uploading ${item.file.name}`} />
+                    <progress
+                      max={100}
+                      value={item.status.percent}
+                      aria-label={`Uploading ${item.file.name}`}
+                      className="block h-2 w-full appearance-none overflow-hidden rounded-full bg-primary/20 [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:bg-transparent [&::-webkit-progress-value]:bg-primary [&::-webkit-progress-value]:transition-[width]"
+                    />
                   )}
                   {item.status.kind === "failed" && (
                     <p role="alert" className="text-pretty text-xs text-destructive">

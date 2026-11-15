@@ -7,7 +7,7 @@ import { authClient } from "@/lib/auth-client";
 import { trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SharingDialog } from "@/app/(files)/[[...path]]/sharing-dialog";
+import dynamic from "next/dynamic";
 import { UserList } from "./user-list";
 import {
   AdminConfirmationDialog,
@@ -17,6 +17,11 @@ import { SettingsSection } from "../settings-section";
 import { CreateAccountDialog } from "./create-account-dialog";
 import { GroupDialog, type GroupEditor } from "./group-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
+
+// Opens on demand; keep it out of the page's first load.
+const SharingDialog = dynamic(() =>
+  import("@/app/(files)/[[...path]]/sharing-dialog").then((module) => module.SharingDialog),
+);
 
 export function AdminSettings() {
   const me = useQuery({

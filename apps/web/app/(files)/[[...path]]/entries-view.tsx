@@ -23,7 +23,6 @@ import { EntryLayout, entryGeometry, type EntrySection } from "./entry-layout";
 import { PreviewDialog } from "./preview-dialog";
 import { Selection } from "./selection";
 import { SelectionBar } from "./selection-bar";
-import { SharingDialog } from "./sharing-dialog";
 import { ShortcutHelp } from "./shortcut-help";
 import { fileHref, FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
@@ -31,6 +30,10 @@ import { useFileDrag } from "./use-file-drag";
 import { useGridColumns } from "./use-grid-columns";
 import { useVirtualRows } from "./use-virtual-rows";
 
+// Dialogs open on demand; keep them out of the page's first load.
+const SharingDialog = dynamic(() =>
+  import("./sharing-dialog").then((module) => module.SharingDialog),
+);
 const VersionsDialog = dynamic(() => import("./versions-dialog"));
 
 type Props = {

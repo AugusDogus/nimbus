@@ -82,7 +82,7 @@ export function LinkSettingsFields({
           aria-describedby={`${id}-view-only-hint`}
           checked={value.mode === "view"}
           onCheckedChange={(checked) =>
-            onChange({ ...value, mode: checked === true ? "view" : "download" })
+            onChange({ ...value, mode: checked ? "view" : "download" })
           }
         />
         <div className="space-y-1">
