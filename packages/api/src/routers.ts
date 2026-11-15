@@ -11,7 +11,9 @@ import { statPath } from "./fs-utils";
 import { getListCache, getListCacheKey, setListCache } from "./list-cache";
 import { getPermissionsHash } from "./perms-hash";
 import { isApiError, isFsError } from "./safe-path";
-import { getAccess, permissionFor } from "./access";
+import { getAccess } from "./access";
+import type { Permission } from "./drive-store";
+import { FolderAccess } from "./folder-access";
 import { fileNameSchema, numberedName } from "./file-name";
 import { mutateFiles } from "./file-mutations";
 import {
@@ -102,16 +104,17 @@ export const appRouter = router({
             message:
               "You do not have access to this folder. Ask its owner to share it with you.",
           });
-        const allowed = <T extends { path: string }>(entries: T[]) =>
-          entries
-            .filter((entry) => ctx.access.canBrowse(entry.path))
-            .map((entry) => ({
-              ...entry,
-              permission: permissionFor(ctx.access, entry.path),
-            }));
+        const folderAccess = FolderAccess.of(ctx.access, relative);
+        const allowed = <T extends { name: string }>(entries: T[]) => {
+          const visible: (T & { permission: Permission })[] = [];
+          for (const entry of entries) {
+            const permission = folderAccess.permissionOf(entry.name);
+            if (permission) visible.push({ ...entry, permission });
+          }
+          return visible;
+        };
 
         const includeStats = input.includeStats ?? false;
-        const cachedStats = includeStats ? getForDir(relative) : null;
 
         let dirMtimeMs: number | null = null;
         try {
@@ -182,6 +185,8 @@ export const appRouter = router({
           setDirEntries(relative, baseEntries, dirMtimeMs);
         }
 
+        // Read cached stats only on a listing miss: it scans the whole stats cache.
+        const cachedStats = includeStats ? getForDir(relative) : null;
         const results = await Promise.all(
           baseEntries.map(async (entry) => {
             let mtime: number | null = null;
