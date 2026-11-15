@@ -1,8 +1,9 @@
 /**
  * In-memory filename index for the whole data root.
  *
- * Compaction lays every live name out in depth-first order inside two
- * strings: one case-folded for matching, one raw for display. Each folder's
+ * Compaction lays every live name out in depth-first order twice: case-folded
+ * as UTF-8 bytes for matching (native `Buffer.indexOf`, and half the memory of
+ * a UTF-16 string once any name is non-Latin), and raw for display. Each folder's
  * subtree is therefore a contiguous range, so a query scoped to a folder or
  * to a user's grants is one native `indexOf` scan over only what that user
  * may see. Entries added since the last compaction sit in a small delta that
@@ -92,7 +93,7 @@ export function createSearchIndex(initialCapacity = 1024) {
   let slotOf = new Int32Array(initialCapacity).fill(NONE);
 
   // Compacted layout, in depth-first slot order.
-  let folded = SEPARATOR;
+  let folded = Buffer.from(SEPARATOR);
   let raw = SEPARATOR;
   let foldedStarts = new Int32Array([1, 2]);
   let rawStarts = new Int32Array([1, 2]);
@@ -265,7 +266,21 @@ export function createSearchIndex(initialCapacity = 1024) {
       ends[slot] = slot + size[id];
       if (id !== ROOT) size[parent[id]] += size[id];
     }
-    const foldedParts: string[] = new Array(used);
+    // Folded bytes: compacted names are copied, delta names encoded once.
+    const nextFoldedStarts = new Int32Array(used + 1);
+    let bytes = 1;
+    for (let slot = 0; slot < used; slot++) {
+      const id = order[slot];
+      const delta = deltaNames.get(id);
+      const previous = slotOf[id];
+      nextFoldedStarts[slot] = bytes;
+      bytes +=
+        (delta
+          ? Buffer.byteLength(delta.folded)
+          : foldedStarts[previous + 1] - foldedStarts[previous] - 1) + 1;
+    }
+    nextFoldedStarts[used] = bytes;
+    const nextFolded = Buffer.alloc(bytes);
     const rawParts: string[] = new Array(used);
     for (let slot = 0; slot < used; slot++) {
       const id = order[slot];
@@ -273,31 +288,30 @@ export function createSearchIndex(initialCapacity = 1024) {
       const previous = slotOf[id];
       if (delta) {
         rawParts[slot] = delta.raw;
-        foldedParts[slot] = delta.folded;
+        nextFolded.write(delta.folded, nextFoldedStarts[slot]);
       } else {
         rawParts[slot] = raw.slice(
           rawStarts[previous],
           rawStarts[previous + 1] - 1,
         );
-        foldedParts[slot] = folded.slice(
+        folded.copy(
+          nextFolded,
+          nextFoldedStarts[slot],
           foldedStarts[previous],
           foldedStarts[previous + 1] - 1,
         );
       }
     }
-    const starts = (parts: string[]) => {
-      const result = new Int32Array(used + 1);
-      let offset = 1;
-      for (let slot = 0; slot < used; slot++) {
-        result[slot] = offset;
-        offset += parts[slot].length + 1;
-      }
-      result[used] = offset;
-      return result;
-    };
-    foldedStarts = starts(foldedParts);
-    rawStarts = starts(rawParts);
-    folded = SEPARATOR + foldedParts.join(SEPARATOR) + SEPARATOR;
+    const nextRawStarts = new Int32Array(used + 1);
+    let offset = 1;
+    for (let slot = 0; slot < used; slot++) {
+      nextRawStarts[slot] = offset;
+      offset += rawParts[slot].length + 1;
+    }
+    nextRawStarts[used] = offset;
+    folded = nextFolded;
+    foldedStarts = nextFoldedStarts;
+    rawStarts = nextRawStarts;
     raw = SEPARATOR + rawParts.join(SEPARATOR) + SEPARATOR;
     slotId = order.subarray(0, used);
     subtreeEnd = ends;
@@ -417,18 +431,13 @@ export function createSearchIndex(initialCapacity = 1024) {
         ids[index] = id;
       };
       const rankOf = (
+        exact: boolean,
         length: number,
         at: number,
         before: number,
         order: number,
       ) =>
-        (length === needle.length
-          ? 0
-          : at === 0
-            ? 1
-            : before < 128 && boundary[before]
-              ? 2
-              : 3) *
+        (exact ? 0 : at === 0 ? 1 : before < 128 && boundary[before] ? 2 : 3) *
           2 ** 44 +
         length * 2 ** 32 +
         order;
@@ -436,7 +445,8 @@ export function createSearchIndex(initialCapacity = 1024) {
       // A single character matches name prefixes only: infix hits would be
       // nearly every name and help nobody.
       const prefixOnly = needle.length === 1;
-      const pattern = prefixOnly ? SEPARATOR + needle : needle;
+      const pattern = Buffer.from(prefixOnly ? SEPARATOR + needle : needle);
+      const needleBytes = pattern.length - (prefixOnly ? 1 : 0);
       const shift = prefixOnly ? 1 : 0;
       for (const [first, end] of visibleRanges(rootId, granted)) {
         const stop = foldedStarts[end];
@@ -461,12 +471,14 @@ export function createSearchIndex(initialCapacity = 1024) {
           const id = slotId[slot];
           if (kinds[id] !== FREE) {
             const start = foldedStarts[slot];
+            const length = foldedStarts[slot + 1] - start - 1;
             keep(
               id,
               rankOf(
-                foldedStarts[slot + 1] - start - 1,
+                length === needleBytes,
+                length,
                 at - start,
-                folded.charCodeAt(at - 1),
+                folded[at - 1],
                 slot,
               ),
             );
@@ -490,6 +502,7 @@ export function createSearchIndex(initialCapacity = 1024) {
           keep(
             id,
             rankOf(
+              name.folded.length === needle.length,
               name.folded.length,
               at,
               name.folded.charCodeAt(at - 1),
