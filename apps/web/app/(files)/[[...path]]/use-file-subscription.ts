@@ -1,7 +1,7 @@
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useEffect, useState } from "react";
 import { queryClient, trpc } from "@/lib/trpc";
-import { coalesce } from "./coalesce";
+import { coalesce } from "@/lib/coalesce";
 
 // Uploads and bulk actions emit an event per item. Refetching a large folder for each one would
 // keep cancelling the previous refetch, so refresh at most once per interval and let refetches finish.

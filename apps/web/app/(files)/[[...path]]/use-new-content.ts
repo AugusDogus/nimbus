@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState } from "react";
+import { collectPicked, type CollectedUpload } from "@/lib/upload-sources";
 
 type UseNewContentOptions = {
   onCreateFolder: (name: string) => Promise<void>;
-  onUploadFiles: (files: FileList) => void;
+  onUploadFiles: (upload: CollectedUpload) => void;
 };
 
 export type NewContentState = ReturnType<typeof useNewContent>;
@@ -50,10 +51,25 @@ export function useNewContent({
     fileInputRef.current?.click();
   }, []);
 
+  // The folder picker is created on demand: React has no typed prop for its attribute, and one
+  // file input on the page keeps the plain file picker unambiguous.
+  const triggerFolderInput = useCallback(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.setAttribute("webkitdirectory", "");
+    input.addEventListener("change", () => {
+      if (input.files && input.files.length > 0)
+        onUploadFiles(collectPicked(Array.from(input.files)));
+    });
+    input.click();
+  }, [onUploadFiles]);
+
+  // Both pickers report paths: folder pickers include the chosen folder in webkitRelativePath.
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files.length > 0) {
-        onUploadFiles(e.target.files);
+        onUploadFiles(collectPicked(Array.from(e.target.files)));
         e.target.value = "";
       }
     },
@@ -71,6 +87,7 @@ export function useNewContent({
     openFolderDialog,
     handleCreateFolder,
     triggerFileInput,
+    triggerFolderInput,
     handleFileChange,
   };
 }

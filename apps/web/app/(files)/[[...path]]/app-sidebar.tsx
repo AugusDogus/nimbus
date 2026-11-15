@@ -11,6 +11,7 @@ import {
   Settings,
   Star,
   Trash2,
+  FolderUp,
   Upload,
   Users,
 } from "lucide-react";
@@ -120,6 +121,15 @@ export function AppSidebar({
               >
                 <Upload />
                 Upload file
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
+                  closeNavigation();
+                  newContent.triggerFolderInput();
+                }}
+              >
+                <FolderUp />
+                Upload folder
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

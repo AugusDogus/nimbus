@@ -1,130 +1,187 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { TRPCClientError } from "@trpc/client";
 import { toast } from "sonner";
-import * as tus from "tus-js-client";
-import { queryClient } from "@/lib/trpc";
+import { coalesce } from "@/lib/coalesce";
+import { queryClient, trpcClient } from "@/lib/trpc";
+import { UploadPlan, type ClashChoice, type EntryKind, type UploadClash } from "./upload-plan";
+import { createUploadQueue, type UploadSummary, type UploadTransport } from "./upload-queue";
+import type { CollectedUpload } from "./upload-sources";
 
-export type UploadState = {
-  isUploading: boolean;
-  progress: number;
-  fileName: string | null;
+/** Small files send their bytes with the creation request, halving requests for large batches. */
+const inlineUploadLimit = 16 * 1024 * 1024;
+
+function failureMessage(error: Error, detailed: (error: Error) => string | undefined) {
+  return detailed(error) || error.message || "The upload failed. Check your connection and retry.";
+}
+
+/** Each upload is an independent tus upload. tus-js-client loads with the first upload, not the page. */
+const tusTransport: UploadTransport = (request, events) => {
+  let aborted = false;
+  let abortUpload: () => Promise<void> = async () => {};
+  void import("tus-js-client")
+    .then(({ Upload, DetailedError }) => {
+      if (aborted) return;
+      const detailed = (error: Error) => (error instanceof DetailedError ? error.originalResponse?.getBody() : undefined);
+      const { file } = request;
+      const upload = new Upload(file, {
+        endpoint: "/api/upload",
+        retryDelays: [0, 1000, 3000, 5000],
+        removeFingerprintOnSuccess: true,
+        uploadDataDuringCreation: file.size <= inlineUploadLimit,
+        fingerprint: async () =>
+          JSON.stringify([request.userId, request.targetPath, request.folder, request.filename, request.conflict, file.size, file.lastModified]),
+        metadata: {
+          filename: request.filename,
+          targetPath: request.targetPath,
+          folder: request.folder,
+          conflict: request.conflict,
+        },
+        onProgress: (sent) => events.progress(sent),
+        onSuccess: () => events.success(),
+        onError: (error) => events.failure(failureMessage(error, detailed)),
+      });
+      // Terminating deletes the partial upload on the server, so a retry starts clean.
+      abortUpload = () => upload.abort(true);
+      return upload.findPreviousUploads().then((previous) => {
+        if (aborted) return;
+        const [last] = previous;
+        if (last) upload.resumeFromPreviousUpload(last);
+        upload.start();
+      });
+    })
+    .catch((error: unknown) =>
+      events.failure(
+        error instanceof Error
+          ? `The upload could not start: ${error.message}`
+          : "The upload could not start. Check your connection and retry.",
+      ),
+    );
+  return {
+    abort: async () => {
+      aborted = true;
+      await abortUpload();
+    },
+  };
+};
+
+const plural = (count: number, noun: string) => `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
+
+function announce(summary: UploadSummary) {
+  if (summary.failed > 0)
+    toast.error(
+      `${plural(summary.failed, "upload")} failed. ${summary.done ? `${plural(summary.done, "file")} uploaded. ` : ""}Open the upload panel to see why and retry.`,
+    );
+  else if (summary.done > 0) toast.success(`Uploaded ${plural(summary.done, "file")}`);
+}
+
+/** A clash waiting for the user's decision. Resolving with `all` applies the choice to every remaining clash. */
+export type ClashPrompt = {
+  clash: UploadClash;
   remaining: number;
+  resolve: (choice: ClashChoice, all: boolean) => void;
+  cancel: () => void;
 };
-type QueuedFile = { file: File; path: string; userId: string };
-const idle: UploadState = {
-  isUploading: false,
-  progress: 0,
-  fileName: null,
-  remaining: 0,
-};
+
+async function existingNames(path: string) {
+  const entries = await trpcClient.files.list.query(path ? { path } : {});
+  return new Map<string, EntryKind>(entries.map((entry) => [entry.name, entry.type === "dir" ? "dir" : "file"]));
+}
+
+/** Create empty folders from a folder upload, parents first. Folders that already exist are fine. */
+async function createFolders(target: string, folders: readonly string[]) {
+  const created = new Set<string>();
+  for (const folder of [...folders].sort((a, b) => a.split("/").length - b.split("/").length)) {
+    const segments = folder.split("/");
+    for (let depth = 1; depth <= segments.length; depth++) {
+      const relative = segments.slice(0, depth).join("/");
+      if (created.has(relative)) continue;
+      created.add(relative);
+      const parent = [target, ...segments.slice(0, depth - 1)].filter(Boolean).join("/");
+      const name = segments[depth - 1];
+      if (!name) continue;
+      try {
+        await trpcClient.files.createFolder.mutate({ path: parent || undefined, name });
+      } catch (error) {
+        if (!(error instanceof TRPCClientError && error.data?.code === "CONFLICT")) throw error;
+      }
+    }
+  }
+}
 
 export function useUploadQueue() {
-  const [state, setState] = useState<UploadState>(idle);
-  const uploadRef = useRef<tus.Upload | null>(null);
-  const queue = useRef<QueuedFile[]>([]);
-  const processNext = useCallback(function next() {
-    const item = queue.current[0];
-    if (!item) {
-      uploadRef.current = null;
-      setState(idle);
-      return;
+  const [refresh] = useState(() =>
+    coalesce(() => {
+      void queryClient.invalidateQueries({ queryKey: ["files.list"] }, { cancelRefetch: false });
+      void queryClient.invalidateQueries({ queryKey: ["files.storage"] }, { cancelRefetch: false });
+    }, 750),
+  );
+  const [queue] = useState(() => {
+    const created = createUploadQueue({
+      transport: tusTransport,
+      onUploaded: refresh,
+      onIdle(summary) {
+        announce(summary);
+        // Failures stay listed for retry. A fully successful batch leaves nothing to show.
+        if (summary.failed === 0) created.clearFinished();
+      },
+    });
+    return created;
+  });
+  const [prompt, setPrompt] = useState<ClashPrompt | null>(null);
+  useEffect(() => () => queue.dispose(), [queue]);
+
+  /** Ask about each clash in turn, unless the user applies one choice to the rest. */
+  const decide = useCallback(async (clashes: readonly UploadClash[]) => {
+    const choices = new Map<string, ClashChoice>();
+    for (let index = 0; index < clashes.length; index++) {
+      const clash = clashes[index];
+      if (!clash) continue;
+      const answer = await new Promise<{ choice: ClashChoice; all: boolean } | null>((resolve) =>
+        setPrompt({
+          clash,
+          remaining: clashes.length - index - 1,
+          resolve: (choice, all) => resolve({ choice, all }),
+          cancel: () => resolve(null),
+        }),
+      );
+      if (!answer) {
+        setPrompt(null);
+        return null;
+      }
+      choices.set(clash.name, answer.choice);
+      if (answer.all)
+        for (const rest of clashes.slice(index + 1))
+          choices.set(rest.name, answer.choice === "replace" && !UploadPlan.canReplace(rest) ? "keep-both" : answer.choice);
+      if (answer.all) break;
     }
-    const { file } = item;
-    setState({
-      isUploading: true,
-      progress: 0,
-      fileName: file.name,
-      remaining: queue.current.length,
-    });
-    const finish = () => {
-      if (uploadRef.current !== upload) return;
-      queue.current.shift();
-      next();
-    };
-    const upload = new tus.Upload(file, {
-      endpoint: "/api/upload",
-      retryDelays: [0, 1000, 3000, 5000],
-      removeFingerprintOnSuccess: true,
-      fingerprint: async () =>
-        JSON.stringify([
-          item.userId,
-          item.path,
-          file.name,
-          file.size,
-          file.lastModified,
-        ]),
-      metadata: { filename: file.name, targetPath: item.path },
-      onProgress(uploaded, total) {
-        if (uploadRef.current === upload)
-          setState((previous) => ({
-            ...previous,
-            progress: total === 0 ? 100 : Math.round((uploaded / total) * 100),
-          }));
-      },
-      onSuccess() {
-        if (uploadRef.current !== upload) return;
-        toast.success(`Uploaded "${file.name}"`);
-        void queryClient.invalidateQueries({
-          queryKey: ["files.list", item.path],
-        });
-        void queryClient.invalidateQueries({ queryKey: ["files.storage"] });
-        finish();
-      },
-      onError(error) {
-        if (uploadRef.current !== upload) return;
-        toast.error(`Upload failed for "${file.name}": ${error.message}`);
-        finish();
-      },
-    });
-    uploadRef.current = upload;
-    void upload
-      .findPreviousUploads()
-      .then((previous) => {
-        if (uploadRef.current !== upload) return;
-        if (previous[0]) upload.resumeFromPreviousUpload(previous[0]);
-        upload.start();
-      })
-      .catch((error: unknown) => {
-        if (uploadRef.current !== upload) return;
-        toast.error(
-          error instanceof Error ? error.message : "Could not start upload.",
-        );
-        finish();
-      });
+    setPrompt(null);
+    return choices;
   }, []);
+
   const uploadFiles = useCallback(
-    (files: File[], target: { path: string; userId: string }) => {
-      queue.current.push(...files.map((file) => ({ file, ...target })));
-      if (!uploadRef.current) processNext();
-      else
-        setState((previous) => ({
-          ...previous,
-          remaining: queue.current.length,
-        }));
-    },
-    [processNext],
-  );
-  const cancelUpload = useCallback(() => {
-    const upload = uploadRef.current;
-    uploadRef.current = null;
-    queue.current = [];
-    setState(idle);
-    if (upload)
-      void upload
-        .abort()
-        .catch(() =>
-          toast.error(
-            "The upload connection could not be closed. Refresh before uploading again.",
-          ),
+    async (upload: CollectedUpload, target: { path: string; userId: string }) => {
+      if (upload.sources.length === 0 && upload.emptyFolders.length === 0) return;
+      if (upload.skipped.length > 0)
+        toast.error(`${plural(upload.skipped.length, "item")} could not be read and will not upload, starting with “${upload.skipped[0]}”.`);
+      try {
+        const existing = await existingNames(target.path);
+        const clashes = UploadPlan.clashes(upload, existing);
+        const choices = clashes.length ? await decide(clashes) : new Map<string, ClashChoice>();
+        if (!choices) return;
+        const { requests, folders } = UploadPlan.plan(upload, existing, choices, target);
+        if (folders.length) {
+          await createFolders(target.path, folders);
+          refresh();
+        }
+        queue.enqueue(requests);
+      } catch (error) {
+        toast.error(
+          `The upload could not start. ${error instanceof Error ? error.message : "Check your connection and try again."} Nothing was uploaded.`,
         );
-  }, []);
-  useEffect(
-    () => () => {
-      const upload = uploadRef.current;
-      uploadRef.current = null;
-      queue.current = [];
-      if (upload) void upload.abort();
+      }
     },
-    [],
+    [decide, queue, refresh],
   );
-  return { ...state, uploadFiles, cancelUpload };
+
+  return useMemo(() => ({ queue, uploadFiles, prompt }), [queue, uploadFiles, prompt]);
 }

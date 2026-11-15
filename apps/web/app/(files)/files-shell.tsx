@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderPlus, Plus, Search, Shield, Upload } from "lucide-react";
+import { FolderPlus, FolderUp, Plus, Search, Shield, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { CSSProperties, ReactNode } from "react";
@@ -50,6 +50,7 @@ import { useFileStorage } from "./[[...path]]/use-file-storage";
 import { useFileSubscription } from "./[[...path]]/use-file-subscription";
 import { useNewContent } from "./[[...path]]/use-new-content";
 import { useUploads } from "@/components/upload-provider";
+import { collectDrop, type CollectedUpload } from "@/lib/upload-sources";
 
 type FilesShellProps = {
   children: ReactNode;
@@ -96,9 +97,9 @@ export function FilesShell({
   const actions = useFileActions({ currentPath, includeStats });
   const upload = useUploads();
   const uploadFiles = useCallback(
-    (files: File[]) => {
+    (collected: CollectedUpload) => {
       if (session)
-        upload.uploadFiles(files, {
+        void upload.uploadFiles(collected, {
           path: currentPath,
           userId: session.user.id,
         });
@@ -112,18 +113,11 @@ export function FilesShell({
     enabled: isAuthed,
   });
 
-  const handleUploadFiles = useCallback(
-    (files: FileList) => {
-      uploadFiles(Array.from(files));
-    },
-    [uploadFiles],
-  );
-
   // Single new-content instance shared by sidebar (desktop) and FAB (mobile)
   const [fabDrawerOpen, setFabDrawerOpen] = useState(false);
   const newContent = useNewContent({
     onCreateFolder: actions.createFolder,
-    onUploadFiles: handleUploadFiles,
+    onUploadFiles: uploadFiles,
   });
 
   return (
@@ -251,7 +245,8 @@ export function FilesShell({
           onDrop={(event) => {
             if (!event.dataTransfer.types.includes("Files")) return;
             event.preventDefault();
-            if (canWrite) uploadFiles(Array.from(event.dataTransfer.files));
+            // Folder entries must be read during the drop event, before the browser clears them.
+            if (canWrite) void collectDrop(event.dataTransfer).then(uploadFiles);
           }}
         >
           {children}
@@ -289,6 +284,12 @@ export function FilesShell({
                     <DrawerActionItem onClick={newContent.triggerFileInput}>
                       <Upload className="size-5 text-muted-foreground" />
                       Upload file
+                    </DrawerActionItem>
+                  </DrawerClose>
+                  <DrawerClose asChild>
+                    <DrawerActionItem onClick={newContent.triggerFolderInput}>
+                      <FolderUp className="size-5 text-muted-foreground" />
+                      Upload folder
                     </DrawerActionItem>
                   </DrawerClose>
                 </div>
