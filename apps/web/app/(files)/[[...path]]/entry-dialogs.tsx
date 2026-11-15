@@ -110,7 +110,7 @@ function TrashDialog({
           <AlertDialogDescription>
             {subject(entries)} will stay in trash for 30 days.{" "}
             {entries.length === 1 ? "Its" : "Their"} share links and direct
-            permissions will be removed.
+            permissions stop working until {entries.length === 1 ? "it is" : "they are"} restored.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error && (
@@ -177,8 +177,8 @@ function RenameDialog({
           <DialogHeader>
             <DialogTitle className="text-balance">Rename</DialogTitle>
             <DialogDescription>
-              {entry.name}. Existing share links and direct grants will be
-              removed after the change.
+              {entry.name}. Share links, direct permissions, and stars stay
+              with it.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4">
@@ -287,8 +287,8 @@ function DestinationDialog({
             <DialogDescription>
               {entries.length === 1 && entries[0] ? `${entries[0].name}. ` : ""}
               {action === "move"
-                ? "Existing share links and direct grants will be removed after the move."
-                : "Copies use the destination folder's permissions. Name clashes get a number."}
+                ? `Share links, direct permissions, and stars move with ${entries.length === 1 ? "it" : "them"}. Access inherited from the current folder is replaced by the destination folder's.`
+                : "Copies use the destination folder's permissions, without share links or direct permissions. Name clashes get a number."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4">
