@@ -14,6 +14,7 @@ import {
 import { getDataRoot } from "./data-root";
 import type { DriveStore, TrashItem } from "./drive-store";
 import { publishFileEvent } from "./file-events";
+import { auditUser, recordAudit } from "./audit";
 import {
   isFsError,
   isWithinPath,
@@ -323,6 +324,12 @@ async function trashUnlocked(
   }
   forgetFileLocks(target.relative);
   publishFileEvent({ path: target.absolute, event: "delete", ts: Date.now() });
+  recordAudit({
+    action: "trash.moved",
+    actor: auditUser(access.user),
+    target: { type: "path", id: target.relative },
+    details: { trashId: id },
+  });
   return { path: target.relative, trashId: id };
 }
 
@@ -363,6 +370,12 @@ async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
     throw error;
   }
   publishFileEvent({ path: target.absolute, event: "rename", ts: Date.now() });
+  recordAudit({
+    action: "trash.restored",
+    actor: auditUser(access.user),
+    target: { type: "path", id: target.relative },
+    details: { trashId: item.id },
+  });
   return { path: target.relative };
 }
 
@@ -373,6 +386,12 @@ async function purgeUnlocked(store: DriveStore, access: Access, id: string) {
     force: true,
   });
   await store.removeTrash(id);
+  recordAudit({
+    action: "trash.purged",
+    actor: auditUser(access.user),
+    target: { type: "path", id: item.path },
+    details: { trashId: item.id },
+  });
 }
 
 export async function moveItem(

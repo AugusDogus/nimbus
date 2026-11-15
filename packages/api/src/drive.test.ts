@@ -6,6 +6,7 @@ import { appRouter } from "./routers";
 import { createTestDriveStore } from "./testing";
 import { resetListCacheForTest } from "./list-cache";
 import { resetDirListCacheForTest } from "./dir-list-cache";
+import { flushAudit, resetAuditForTest, setAuditSink, type RecordedAuditEvent } from "./audit";
 
 describe("drive workflows", () => {
   let root: string;
@@ -53,6 +54,29 @@ describe("drive workflows", () => {
       { id: "reader", name: "Reader", email: "reader@example.test" },
     ]);
     await expect(caller("reader").access.people({ path: "private.txt" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+  it("records who granted, revoked, shared, and trashed", async () => {
+    resetAuditForTest();
+    const events: RecordedAuditEvent[] = [];
+    setAuditSink(async (batch) => void events.push(...batch));
+    try {
+      await caller().access.grant({ path: "docs", subject: { type: "user", id: "reader" }, permission: "read" });
+      const [grant] = await caller().access.permissions({ path: "docs" });
+      if (!grant) throw new Error("Expected a grant");
+      await caller().access.revoke({ path: "docs", id: grant.id });
+      await caller().shares.create({ path: "docs", expiresAt: null, password: "test-password" });
+      await caller().files.delete({ path: "private.txt" });
+      await flushAudit();
+      expect(events.map(({ action, actor, target }) => ({ action, actor, target: target?.id }))).toEqual([
+        { action: "grant.added", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: "docs" },
+        { action: "grant.removed", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: "docs" },
+        { action: "share.created", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: expect.any(String) },
+        { action: "trash.moved", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: "private.txt" },
+      ]);
+      expect(JSON.stringify(events)).not.toContain("test-password");
+    } finally {
+      resetAuditForTest();
+    }
   });
   it("resolves group permissions and removes access with membership", async () => {
     await caller().access.saveGroup({ name: "Team", memberIds: ["reader"] });

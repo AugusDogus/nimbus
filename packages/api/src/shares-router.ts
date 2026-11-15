@@ -5,6 +5,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireExisting, safePath } from "./file-operations";
 import { protectedProcedure, router } from "./index";
+import { auditUser, recordAudit } from "./audit";
 
 export const sharesRouter = router({
   list: protectedProcedure.query(async ({ ctx }) =>
@@ -39,8 +40,9 @@ export const sharesRouter = router({
             message: "Choose an expiry date in the future.",
           });
         const token = randomBytes(32).toString("base64url");
+        const id = randomUUID();
         await ctx.drive.createShare({
-          id: randomUUID(),
+          id,
           token,
           path: target.relative,
           createdBy: access.user.id,
@@ -49,12 +51,30 @@ export const sharesRouter = router({
           passwordHash,
           downloadCount: 0,
         });
+        recordAudit({
+          action: "share.created",
+          actor: auditUser(access.user),
+          target: { type: "share", id, label: target.relative },
+          details: {
+            passwordProtected: passwordHash !== null,
+            expiresAt: input.expiresAt,
+          },
+        });
         return { token };
       });
     }),
   revoke: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
-    .mutation(({ ctx, input }) =>
-      ctx.drive.revokeShare(input.id, ctx.access.user.id),
-    ),
+    .mutation(async ({ ctx, input }) => {
+      const share = (await ctx.drive.listShares(ctx.access.user.id)).find(
+        (entry) => entry.id === input.id,
+      );
+      if (!share) return;
+      await ctx.drive.revokeShare(input.id, ctx.access.user.id);
+      recordAudit({
+        action: "share.revoked",
+        actor: auditUser(ctx.access.user),
+        target: { type: "share", id: share.id, label: share.path },
+      });
+    }),
 });

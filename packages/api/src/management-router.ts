@@ -12,6 +12,7 @@ import {
   safePath,
 } from "./file-operations";
 import { protectedProcedure, router } from "./index";
+import { auditUser, recordAudit } from "./audit";
 
 export const managementRouter = router({
   capabilities: protectedProcedure
@@ -72,11 +73,22 @@ export const managementRouter = router({
             code: "NOT_FOUND",
             message: "The selected user or group no longer exists.",
           });
+        const id = randomUUID();
         await ctx.drive.saveGrant({
-          id: randomUUID(),
+          id,
           path: target.relative,
           subject: input.subject,
           permission: input.permission,
+        });
+        recordAudit({
+          action: "grant.added",
+          actor: auditUser(access.user),
+          target: { type: "path", id: target.relative },
+          details: {
+            subjectType: input.subject.type,
+            subjectId: input.subject.id,
+            permission: input.permission,
+          },
         });
       });
     }),
@@ -86,9 +98,19 @@ export const managementRouter = router({
       const target = await safePath(input.path);
       ctx.access.require(target.relative, "admin");
       const grants = await ctx.drive.grantsForPath(target.relative);
-      if (!grants.some((grant) => grant.id === input.id))
-        throw new TRPCError({ code: "NOT_FOUND" });
+      const grant = grants.find((entry) => entry.id === input.id);
+      if (!grant) throw new TRPCError({ code: "NOT_FOUND" });
       await ctx.drive.removeGrant(input.id);
+      recordAudit({
+        action: "grant.removed",
+        actor: auditUser(ctx.access.user),
+        target: { type: "path", id: target.relative },
+        details: {
+          subjectType: grant.subject.type,
+          subjectId: grant.subject.id,
+          permission: grant.permission,
+        },
+      });
     }),
   shared: protectedProcedure.query(({ ctx }) => ctx.access.grants),
   groups: protectedProcedure.query(({ ctx }) => ctx.drive.listGroups()),
@@ -118,17 +140,36 @@ export const managementRouter = router({
           code: "CONFLICT",
           message: "A group with that name already exists.",
         });
-      await ctx.drive.saveGroup({
+      const group = {
         id: input.id ?? randomUUID(),
         name: input.name,
         memberIds: [...new Set(input.memberIds)],
+      };
+      await ctx.drive.saveGroup(group);
+      recordAudit({
+        action: "group.saved",
+        actor: auditUser(ctx.access.user),
+        target: { type: "group", id: group.id, label: group.name },
+        details: {
+          created: input.id === undefined,
+          members: group.memberIds.join(","),
+        },
       });
     }),
   removeGroup: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       ctx.access.requireAdmin();
+      const group = (await ctx.drive.listGroups()).find(
+        (entry) => entry.id === input.id,
+      );
       await ctx.drive.removeGroup(input.id);
+      if (group)
+        recordAudit({
+          action: "group.removed",
+          actor: auditUser(ctx.access.user),
+          target: { type: "group", id: group.id, label: group.name },
+        });
     }),
 });
 
@@ -157,18 +198,33 @@ export const appPasswordsRouter = router({
     .input(z.object({ name: z.string().trim().min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
       const token = randomBytes(32).toString("base64url");
+      const id = randomUUID();
       await ctx.drive.addAppPassword({
-        id: randomUUID(),
+        id,
         userId: ctx.access.user.id,
         name: input.name,
         tokenHash: createHash("sha256").update(token).digest("hex"),
         createdAt: Date.now(),
       });
+      recordAudit({
+        action: "app_password.created",
+        actor: auditUser(ctx.access.user),
+        target: { type: "app_password", id, label: input.name },
+      });
       return { token };
     }),
   revoke: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
-    .mutation(({ ctx, input }) =>
-      ctx.drive.removeAppPassword(input.id, ctx.access.user.id),
-    ),
+    .mutation(async ({ ctx, input }) => {
+      const password = (
+        await ctx.drive.listAppPasswords(ctx.access.user.id)
+      ).find((entry) => entry.id === input.id);
+      if (!password) return;
+      await ctx.drive.removeAppPassword(input.id, ctx.access.user.id);
+      recordAudit({
+        action: "app_password.revoked",
+        actor: auditUser(ctx.access.user),
+        target: { type: "app_password", id: password.id, label: password.name },
+      });
+    }),
 });

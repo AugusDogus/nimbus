@@ -1,6 +1,7 @@
 import { lstat, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { DriveStore } from "@nimbus/api/drive-store";
+import { recordAudit } from "@nimbus/api/audit";
 import { mutateFiles } from "@nimbus/api/file-mutations";
 import { isFsError } from "@nimbus/api/safe-path";
 import { getConfigRoot } from "./storage-paths";
@@ -62,6 +63,12 @@ export async function cleanExpiredData(
         force: true,
       });
       await store.removeTrash(item.id);
+      recordAudit({
+        action: "trash.expired",
+        actor: { type: "system" },
+        target: { type: "path", id: item.path },
+        details: { trashId: item.id, deletedBy: item.deletedBy },
+      });
     }
   });
   await cleanFiles(path.join(internal, "uploads"), now - day, true);

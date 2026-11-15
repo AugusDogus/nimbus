@@ -14,6 +14,7 @@
     "./stats-cache": "./src/stats-cache.ts",
     "./dir-list-cache": "./src/dir-list-cache.ts",
     "./access": "./src/access.ts",
+    "./audit": "./src/audit.ts",
     "./drive-store": "./src/drive-store.ts",
     "./file-name": "./src/file-name.ts",
     "./file-operations": "./src/file-operations.ts",
