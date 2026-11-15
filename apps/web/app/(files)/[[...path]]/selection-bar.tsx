@@ -5,7 +5,8 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { EntryDialog } from "./entry-dialogs";
-import { FileEntry } from "./types";
+import { selectionCapabilities } from "./entry-menu";
+import type { FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
 
 function Action({ label, icon, onClick, destructive }: { label: string; icon: ReactNode; onClick: () => void; destructive?: boolean }) {
@@ -43,8 +44,7 @@ export function SelectionBar({
   onSelectAll: () => void;
   onClear: () => void;
 }) {
-  const canMove = targets.every(FileEntry.canMove);
-  const canTrash = targets.every((target) => target.permission !== "read");
+  const { move: canMove, trash: canTrash } = selectionCapabilities(targets);
   return (
     <div
       role="toolbar"

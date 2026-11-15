@@ -48,6 +48,23 @@ type MenuItem = {
   select: () => void;
 };
 
+const capabilityCache = new WeakMap<readonly FileEntry[], { move: boolean; trash: boolean }>();
+/**
+ * Whether every target can be moved or trashed. Every mounted row shares the selection array, so
+ * the answer is computed once per selection, not once per row over up to 50,000 entries.
+ */
+export function selectionCapabilities(targets: readonly FileEntry[]) {
+  let capabilities = capabilityCache.get(targets);
+  if (!capabilities) {
+    capabilities = {
+      move: targets.every(FileEntry.canMove),
+      trash: targets.every((target) => target.permission !== "read"),
+    };
+    capabilityCache.set(targets, capabilities);
+  }
+  return capabilities;
+}
+
 /** Actions for one entry, or for every target when the entry is part of a multi-selection. */
 export function entryMenuItems(
   entry: FileEntry,
@@ -57,14 +74,15 @@ export function entryMenuItems(
 ): MenuItem[] {
   if (targets.length > 1) {
     const count = targets.length.toLocaleString();
+    const can = selectionCapabilities(targets);
     return [
       { label: `Download ${count} items`, icon: Download, select: () => actions.downloadEntries(targets) },
       { label: "Toggle star", icon: Star, select: () => void actions.starEntries(targets) },
       { label: "Copy to…", icon: Copy, select: () => open({ action: "copy", entries: targets }) },
-      ...(targets.every(FileEntry.canMove)
+      ...(can.move
         ? [{ label: "Move to…", icon: FolderInput, select: () => open({ action: "move", entries: targets }) }]
         : []),
-      ...(targets.every((target) => target.permission !== "read")
+      ...(can.trash
         ? [{ label: "Move to trash", icon: Trash2, destructive: true, select: () => open({ action: "delete", entries: targets }) }]
         : []),
     ];

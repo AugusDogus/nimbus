@@ -443,15 +443,19 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
             const entry = layout.entries[row.start];
             return entry ? renderEntry(entry, row.start, rowIndex, position) : null;
           }
-          return (
-            <div
-              key={`row:${row.start}`}
-              role="presentation"
-              className="grid"
-              style={{ ...position, gap: entryGeometry.grid.gap, gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))` }}
-            >
-              {layout.entries.slice(row.start, row.start + row.count).map((entry, offset) => renderEntry(entry, row.start + offset, rowIndex))}
-            </div>
+          // Cards are positioned one by one, without row wrappers, so a change in column count only
+          // restyles them. Remounting under a new wrapper would drop focus and in-flight clicks.
+          const { gap } = entryGeometry.grid;
+          const columns = layout.columns;
+          const width = `((100% - ${(columns - 1) * gap}px) / ${columns})`;
+          return layout.entries.slice(row.start, row.start + row.count).map((entry, offset) =>
+            renderEntry(entry, row.start + offset, rowIndex, {
+              position: "absolute",
+              top: row.top,
+              height: row.height,
+              width: `calc${width}`,
+              left: `calc(${width} * ${offset} + ${offset * gap}px)`,
+            }),
           );
         })}
       </div>
