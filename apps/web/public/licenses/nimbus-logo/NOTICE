@@ -9,3 +9,7 @@ React props for this application. No artwork paths were changed.
 
 The README icon scales the original artwork onto a squircle using the app’s
 default dark background and grain texture.
+
+The installable app icons (app/apple-icon.png and public/icons/*.png) place
+the original artwork paths, in white and scaled down, on a square or rounded
+square filled with the app's default primary color.

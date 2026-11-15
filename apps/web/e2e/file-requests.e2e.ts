@@ -5,8 +5,8 @@ import { action, client, test } from "./helpers";
 test("file requests accept anonymous uploads into one folder without exposing it", async ({ page, context, browser, isMobile }, testInfo) => {
   const folder = `inbox-${randomUUID()}`;
   const rpc = await client(context);
-  await rpc.files.createFolder({ name: folder });
-  await rpc.files.createFolder({ path: folder, name: "private" });
+  await rpc.files.createFolder.mutate({ name: folder });
+  await rpc.files.createFolder.mutate({ path: folder, name: "private" });
 
   await page.goto("/");
   await action(page, folder, "Share", isMobile);
@@ -53,7 +53,7 @@ test("file requests accept anonymous uploads into one folder without exposing it
     expect(create.status()).toBe(401);
     await outsider.close();
 
-    const received = (await rpc.files.list({ path: folder })).map((entry) => entry.name).sort();
+    const received = (await rpc.files.list.query({ path: folder })).map((entry) => entry.name).sort();
     expect(received).toEqual(["form (1).txt", "form.txt", "private"]);
 
     await page.goto("/shared?tab=requests");
