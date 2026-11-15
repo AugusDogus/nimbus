@@ -12,7 +12,7 @@ import { auditLabels } from "./audit-labels";
 import { AuditFilters } from "./audit-filters";
 
 const isAction = (value: string): value is AuditAction => auditActions.some((action) => action === value);
-const failures = new Set<string>(["auth.sign_in_failed", "auth.rate_limited", "share.password_failed", "webdav.auth_failed"]);
+const failures = new Set<string>(["auth.sign_in_failed", "auth.rate_limited", "share.password_failed", "file_request.password_failed", "webdav.auth_failed"]);
 
 function describeDetails(details: Record<string, string | number | boolean | null> | null) {
   if (!details) return null;

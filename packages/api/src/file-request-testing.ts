@@ -23,6 +23,7 @@ export function createTestFileRequestStore(): FileRequestStore {
   return {
     async create(request) { requests.set(request.id, request); },
     async getByToken(token) { return [...requests.values()].find((request) => request.token === token) ?? null; },
+    async getById(id) { return requests.get(id) ?? null; },
     async list(userId) {
       return [...requests.values()].filter((request) => request.createdBy === userId).map((request) => {
         const finished = [...uploads.values()].filter((upload) => upload.requestId === request.id && upload.finishedAt !== null);
@@ -61,6 +62,7 @@ export function createTestFileRequestStore(): FileRequestStore {
       const upload = uploads.get(id);
       if (upload && upload.finishedAt === null) uploads.set(id, { ...upload, name, finishedAt });
     },
+    async releaseUpload(id) { if (uploads.get(id)?.finishedAt === null) uploads.delete(id); },
     async releaseAbandoned(cutoff) {
       for (const [key, upload] of uploads) if (upload.finishedAt === null && upload.createdAt < cutoff) uploads.delete(key);
     },

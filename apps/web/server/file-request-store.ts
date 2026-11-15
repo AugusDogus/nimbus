@@ -28,6 +28,13 @@ export function createFileRequestStore(database: typeof db): FileRequestStore {
         .where(eq(fileRequests.token, token));
       return row ?? null;
     },
+    async getById(id) {
+      const [row] = await database
+        .select()
+        .from(fileRequests)
+        .where(eq(fileRequests.id, id));
+      return row ?? null;
+    },
     async list(userId) {
       const rows = await database
         .select({
@@ -109,6 +116,11 @@ export function createFileRequestStore(database: typeof db): FileRequestStore {
       await database
         .update(fileRequestUploads)
         .set({ name, finishedAt })
+        .where(and(eq(fileRequestUploads.id, id), isNull(fileRequestUploads.finishedAt)));
+    },
+    async releaseUpload(id) {
+      await database
+        .delete(fileRequestUploads)
         .where(and(eq(fileRequestUploads.id, id), isNull(fileRequestUploads.finishedAt)));
     },
     async releaseAbandoned(cutoff) {

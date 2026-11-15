@@ -13,7 +13,7 @@ describe("moving and copying onto existing destinations", () => {
   const owner = () => getAccess(memory.store, "user-1");
   const read = (relative: string) => readFile(path.join(root, relative), "utf8");
   const share = (id: string, sharedPath: string) =>
-    memory.store.createShare({ id, token: id, path: sharedPath, createdBy: "user-1", createdAt: 1, expiresAt: null, passwordHash: null, downloadCount: 0 });
+    memory.store.createShare({ id, token: id, path: sharedPath, createdBy: "user-1", createdAt: 1, expiresAt: null, passwordHash: null, downloadCount: 0, maxDownloads: null, mode: "download" });
 
   beforeEach(async () => {
     previousRoot = process.env.NIMBUS_DATA_ROOT;

@@ -53,6 +53,7 @@ export type Reservation =
 export type FileRequestStore = {
   create(request: FileRequest): Promise<void>;
   getByToken(token: string): Promise<FileRequest | null>;
+  getById(id: string): Promise<FileRequest | null>;
   list(userId: string): Promise<FileRequestSummary[]>;
   update(
     id: string,
@@ -72,6 +73,8 @@ export type FileRequestStore = {
   usage(requestId: string, activeSince: number): Promise<FileRequestUsage>;
   getUpload(id: string): Promise<FileRequestUpload | null>;
   finishUpload(id: string, name: string, finishedAt: number): Promise<void>;
+  /** Release the reservation of an unfinished upload its uploader cancelled. */
+  releaseUpload(id: string): Promise<void>;
   /** Forget unfinished reservations created before `cutoff`. */
   releaseAbandoned(cutoff: number): Promise<void>;
 };

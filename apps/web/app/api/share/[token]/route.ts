@@ -126,10 +126,13 @@ export async function POST(request: Request, context: Context) {
         { error: "Enter the share password." },
         { status: 400 },
       );
-    if (
-      share.passwordHash &&
-      !(await Bun.password.verify(body.password, share.passwordHash))
-    ) {
+    const { passwordHash } = share;
+    if (passwordHash === null)
+      return Response.json(
+        { unlocked: true },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    if (!(await Bun.password.verify(body.password, passwordHash))) {
       SharePasswordAttempts.fail(share, request);
       return Response.json(
         { error: "That password is incorrect. Try again or ask the owner." },
@@ -140,7 +143,7 @@ export async function POST(request: Request, context: Context) {
       { unlocked: true },
       {
         headers: {
-          "Set-Cookie": shareCookie(share),
+          "Set-Cookie": shareCookie({ ...share, passwordHash }),
           "Cache-Control": "no-store",
         },
       },

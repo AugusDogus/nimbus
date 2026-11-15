@@ -31,6 +31,7 @@ export const auditLabels: Record<AuditAction, string> = {
   "share.created": "Created public link",
   "share.revoked": "Revoked public link",
   "share.password_failed": "Wrong public link password",
+  "file_request.password_failed": "Wrong file request password",
   "trash.moved": "Moved to trash",
   "trash.restored": "Restored from trash",
   "trash.purged": "Permanently deleted",

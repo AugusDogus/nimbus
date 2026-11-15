@@ -40,14 +40,14 @@ describe("committing finished uploads", () => {
   });
 
   it("keeps both by default and numbers the new file", async () => {
-    expect(await commit("second", { filename: "notes.txt" })).toEqual({ path: "docs/notes (1).txt", replaced: false });
+    expect(await commit("second", { filename: "notes.txt" })).toEqual({ kind: "published", path: "docs/notes (1).txt", replaced: false });
     expect(await readFile(path.join(root, "docs/notes.txt"), "utf8")).toBe("original");
   });
 
   it("replaces an existing file when asked", async () => {
-    expect(await commit("replacement", { filename: "notes.txt", conflict: "replace" })).toEqual({ path: "docs/notes.txt", replaced: true });
+    expect(await commit("replacement", { filename: "notes.txt", conflict: "replace" })).toEqual({ kind: "published", path: "docs/notes.txt", replaced: true });
     expect(await readFile(path.join(root, "docs/notes.txt"), "utf8")).toBe("replacement");
-    expect(await commit("new", { filename: "fresh.txt", conflict: "replace" })).toEqual({ path: "docs/fresh.txt", replaced: false });
+    expect(await commit("new", { filename: "fresh.txt", conflict: "replace" })).toEqual({ kind: "published", path: "docs/fresh.txt", replaced: false });
   });
 
   it("never replaces a folder or a WebDAV-locked file", async () => {
@@ -64,7 +64,7 @@ describe("committing finished uploads", () => {
   });
 
   it("recreates nested folders from a folder upload", async () => {
-    expect(await commit("deep", { filename: "a.txt", folder: "trip/day 1" })).toEqual({ path: "docs/trip/day 1/a.txt", replaced: false });
+    expect(await commit("deep", { filename: "a.txt", folder: "trip/day 1" })).toEqual({ kind: "published", path: "docs/trip/day 1/a.txt", replaced: false });
     expect(await commit("deeper", { filename: "b.txt", folder: "trip/day 1" })).toMatchObject({ path: "docs/trip/day 1/b.txt" });
     expect((await readdir(path.join(root, "docs/trip/day 1"))).sort()).toEqual(["a.txt", "b.txt"]);
   });

@@ -1,14 +1,13 @@
 import { TRPCError } from "@trpc/server";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { getAccess, type Access } from "@nimbus/api/access";
 import type { Share } from "@nimbus/api/drive-store";
 import { safePath } from "@nimbus/api/file-operations";
 import { isApiError, isWithinPath } from "@nimbus/api/safe-path";
 import { recordAudit } from "@nimbus/api/audit";
-import { ClientIp } from "./client-ip";
 import { httpDriveStore } from "./http-files";
-import { RateLimiter } from "./rate-limit";
+import { LinkPasswordAttempts } from "./link-password-attempts";
 import { SharePolicy } from "./share-policy";
+import { UnlockCookie } from "./unlock-cookie";
 
 export async function getPublicShare(token: string) {
   const share = await httpDriveStore.getShare(token);
@@ -42,47 +41,20 @@ export async function getPublicShare(token: string) {
   return { share, access };
 }
 
-function signature(share: Share, expires: string) {
-  const secret = process.env.BETTER_AUTH_SECRET;
-  if (!secret)
-    throw new Error(
-      "BETTER_AUTH_SECRET is required for protected share links.",
-    );
-  return createHmac("sha256", secret)
-    .update(`${share.token}:${share.passwordHash}:${expires}`)
-    .digest("hex");
-}
+const unlockScope = (share: Share & { passwordHash: string }) => ({
+  name: "nimbus-share",
+  path: `/api/share/${share.token}`,
+  token: share.token,
+  passwordHash: share.passwordHash,
+});
 
-// Behind a TLS-terminating proxy the request URL is plain HTTP, so use the public origin.
-const secureCookies = (process.env.BETTER_AUTH_URL ?? "").startsWith("https:");
-
-export function shareCookie(share: Share) {
-  const expires = String(Date.now() + 60 * 60 * 1000);
-  return `nimbus-share=${expires}.${signature(share, expires)}; HttpOnly; SameSite=Lax; Path=/api/share/${share.token}; Max-Age=3600${secureCookies ? "; Secure" : ""}`;
+export function shareCookie(share: Share & { passwordHash: string }) {
+  return UnlockCookie.issue(unlockScope(share));
 }
 
 export function isShareUnlocked(share: Share, request: Request) {
-  if (share.passwordHash === null) return true;
-  const cookie = request.headers
-    .get("cookie")
-    ?.split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith("nimbus-share="))
-    ?.slice("nimbus-share=".length);
-  const [expires, received] = cookie?.split(".") ?? [];
-  if (
-    !expires ||
-    !received ||
-    !/^\d{13}$/.test(expires) ||
-    !/^[a-f0-9]{64}$/.test(received) ||
-    Number(expires) <= Date.now()
-  )
-    return false;
-  const expected = signature(share, expires);
-  return (
-    received.length === expected.length &&
-    timingSafeEqual(Buffer.from(received), Buffer.from(expected))
-  );
+  const { passwordHash } = share;
+  return passwordHash === null || UnlockCookie.verify(unlockScope({ ...share, passwordHash }), request);
 }
 
 export async function sharedTarget(
@@ -115,27 +87,14 @@ export async function sharedTarget(
   return { target, access: scoped };
 }
 
-// Wrong public link passwords, counted per client and per link. Checked before the
-// password hash is verified, so throttled guesses cost no hashing.
-const failuresByClient = RateLimiter.shared("share-password-client", {
-  limit: 10,
-  windowMs: 15 * 60 * 1000,
-});
-const failuresByLink = RateLimiter.shared("share-password-link", {
-  limit: 50,
-  windowMs: 60 * 60 * 1000,
-});
+const sharePasswords = LinkPasswordAttempts.create("share");
 
 export const SharePasswordAttempts = {
   check(token: string, request: Request) {
-    const client = ClientIp.bucket(ClientIp.fromHeaders(request.headers));
-    for (const decision of [failuresByClient.check(client), failuresByLink.check(token)])
-      if (!decision.allowed) return decision;
-    return { allowed: true } as const;
+    return sharePasswords.check(token, request);
   },
   fail(share: Share, request: Request) {
-    failuresByClient.consume(ClientIp.bucket(ClientIp.fromHeaders(request.headers)));
-    failuresByLink.consume(share.token);
+    sharePasswords.fail(share.token, request);
     recordAudit({
       action: "share.password_failed",
       actor: { type: "anonymous" },

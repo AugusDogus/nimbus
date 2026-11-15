@@ -36,6 +36,7 @@ export const auditActions = [
   "share.created",
   "share.revoked",
   "share.password_failed",
+  "file_request.password_failed",
   "trash.moved",
   "trash.restored",
   "trash.purged",
@@ -52,7 +53,7 @@ export type AuditActor =
   | { type: "system" };
 
 export type AuditTarget = {
-  type: "user" | "group" | "path" | "share" | "session" | "app_password" | "passkey";
+  type: "user" | "group" | "path" | "share" | "file_request" | "session" | "app_password" | "passkey";
   id: string;
   label?: string;
 };

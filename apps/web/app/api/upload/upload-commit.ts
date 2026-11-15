@@ -5,9 +5,9 @@ import type { Access } from "@nimbus/api/access";
 import { publishFileEvent } from "@nimbus/api/file-events";
 import { mutateFiles, requireUnlocked } from "@nimbus/api/file-mutations";
 import { fileNameSchema } from "@nimbus/api/file-name";
-import { numberedName } from "@nimbus/api/numbered-name";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
+import { publishUpload, type PublishResult } from "@/server/upload-publish";
 import type { UploadStore } from "@/server/upload-store";
 
 /** What to do when the uploaded name is already taken in its folder. */
@@ -65,17 +65,6 @@ async function ensureFolders(access: Access, base: string, folder: string, userI
 }
 
 /**
- * Put a staged upload at `destination`, replacing the file there. This is the single commit point
- * for replacing content from the browser and runs inside `mutateFiles`, after access and lock
- * checks. File versioning (`FileVersions.commitReplacement` on the drive extras branch) belongs
- * here, so the previous content is kept before the new content takes its place.
- */
-async function replaceWithUpload(store: UploadStore, id: string, destination: string) {
-  await store.replace(id, destination);
-  publishFileEvent({ path: destination, event: "change", ts: Date.now() });
-}
-
-/**
  * Move a finished upload into the drive. Runs in the mutation queue and re-checks access, so
  * permission or lock changes during the transfer apply. Replacing never targets a folder.
  */
@@ -84,7 +73,7 @@ export async function commitUpload(
   id: string,
   metadata: UploadMetadata,
   authorize: () => Promise<Access>,
-) {
+): Promise<PublishResult> {
   return mutateFiles([], { userId: metadata.owner }, async () => {
     const access = await authorize();
     if (access.user.id !== metadata.owner)
@@ -95,35 +84,14 @@ export async function commitUpload(
     if (!parent.stats.isDirectory())
       throw new TRPCError({ code: "BAD_REQUEST", message: "Upload destination must be a folder." });
     const folder = await ensureFolders(access, target.relative, metadata.folder, access.user.id);
-    for (let index = 0; ; index++) {
-      const destination = await safePath(join(folder, numberedName(metadata.filename, index, true)));
-      access.require(destination.relative, "write");
-      requireUnlocked([destination.relative], { userId: access.user.id });
-      if (await store.isFinished(id)) return { path: destination.relative, replaced: false };
-      let existing: Awaited<ReturnType<typeof requireExisting>> | null = null;
-      try {
-        existing = await requireExisting(destination.relative);
-      } catch (error) {
-        if (!isApiError(error, "NOT_FOUND")) throw error;
-      }
-      if (existing && metadata.conflict === "replace") {
-        if (!existing.stats.isFile())
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: `A folder named “${metadata.filename}” already exists here. Uploads cannot replace folders; rename the file or keep both.`,
-          });
-        await replaceWithUpload(store, id, destination.absolute);
-        return { path: destination.relative, replaced: true };
-      }
-      if (existing && !(await store.isPublishedAt(id, destination.absolute))) continue;
-      try {
-        await store.publish(id, destination.absolute);
-      } catch (error) {
-        if (isFsError(error, "EEXIST")) continue;
-        throw error;
-      }
-      publishFileEvent({ path: destination.absolute, event: "rename", ts: Date.now() });
-      return { path: destination.relative, replaced: false };
-    }
+    return publishUpload({
+      store,
+      uploadId: id,
+      filename: metadata.filename,
+      folder,
+      conflict: metadata.conflict,
+      credentials: { userId: access.user.id },
+      requireWrite: (relative) => access.require(relative, "write"),
+    });
   });
 }
