@@ -114,7 +114,7 @@ export async function POST(request: Request, context: Context) {
       { unlocked: true },
       {
         headers: {
-          "Set-Cookie": shareCookie(share, request),
+          "Set-Cookie": shareCookie(share),
           "Cache-Control": "no-store",
         },
       },

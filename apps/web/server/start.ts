@@ -22,6 +22,7 @@ import {
 import { AuditRetention, createAuditSink, purgeAuditEvents } from "./audit-log";
 import { ClientIp, clientIpHeader, TrustedProxies } from "./client-ip";
 import { mailConfig } from "./mail";
+import { nonceHeader, SecurityHeaders } from "./security-headers";
 
 const port = Number(process.env.PORT ?? "3000");
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -47,6 +48,11 @@ console.info(
 const origin = new URL(
   process.env.BETTER_AUTH_URL ?? `http://localhost:${port}`,
 );
+const securityMode = {
+  development: process.env.NODE_ENV !== "production",
+  https: origin.protocol === "https:",
+};
+const commonHeaders = Object.entries(SecurityHeaders.common(securityMode));
 await migrate(db, {
   migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
 });
@@ -97,7 +103,16 @@ async function handleRequest(
 ) {
   try {
     const url = new URL(incoming.url ?? "/", origin);
+    for (const [name, value] of commonHeaders) outgoing.setHeader(name, value);
     if (url.pathname !== "/dav" && !url.pathname.startsWith("/dav/")) {
+      if (SecurityHeaders.isDocument(url.pathname)) {
+        // Next.js reads the nonce from the request policy and applies it to its scripts.
+        const nonce = SecurityHeaders.nonce();
+        const headers = SecurityHeaders.document(nonce, securityMode);
+        incoming.headers["content-security-policy"] = headers["Content-Security-Policy"];
+        incoming.headers[nonceHeader] = nonce;
+        for (const [name, value] of Object.entries(headers)) outgoing.setHeader(name, value);
+      }
       await handleNext(incoming, outgoing);
       return;
     }

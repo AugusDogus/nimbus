@@ -11,9 +11,11 @@ import { createQueryClient } from "@/lib/query-client";
 
 type ProvidersProps = {
   children: ReactNode;
+  /** Content-Security-Policy nonce for the theme script. Absent outside the custom server. */
+  nonce?: string;
 };
 
-export default function Providers({ children }: ProvidersProps) {
+export default function Providers({ children, nonce }: ProvidersProps) {
   // Server renders must never reuse another request's authenticated query data.
   // Browser actions share the client exported by lib/trpc.
   const [client] = useState(() =>
@@ -26,6 +28,7 @@ export default function Providers({ children }: ProvidersProps) {
         defaultTheme="system"
         enableSystem
         disableTransitionOnChange
+        nonce={nonce}
       >
         <UploadProvider>{children}</UploadProvider>
       </ThemeProvider>

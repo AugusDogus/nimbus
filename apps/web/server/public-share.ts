@@ -47,9 +47,12 @@ function signature(share: Share, expires: string) {
     .digest("hex");
 }
 
-export function shareCookie(share: Share, request: Request) {
+// Behind a TLS-terminating proxy the request URL is plain HTTP, so use the public origin.
+const secureCookies = (process.env.BETTER_AUTH_URL ?? "").startsWith("https:");
+
+export function shareCookie(share: Share) {
   const expires = String(Date.now() + 60 * 60 * 1000);
-  return `nimbus-share=${expires}.${signature(share, expires)}; HttpOnly; SameSite=Lax; Path=/api/share/${share.token}; Max-Age=3600${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`;
+  return `nimbus-share=${expires}.${signature(share, expires)}; HttpOnly; SameSite=Lax; Path=/api/share/${share.token}; Max-Age=3600${secureCookies ? "; Secure" : ""}`;
 }
 
 export function isShareUnlocked(share: Share, request: Request) {

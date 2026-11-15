@@ -20,9 +20,15 @@ export const test = base.extend<{ browserErrors: void }>({
   },
   browserErrors: [async ({ page }, use) => {
     const errors: string[] = [];
+    const violations: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    // Every browser test also checks that the Content-Security-Policy blocks nothing.
+    page.on("console", (message) => {
+      if (message.text().includes("Content Security Policy")) violations.push(message.text());
+    });
     await use();
     expect(errors, "Browser runtime errors").toEqual([]);
+    expect(violations, "Content-Security-Policy violations").toEqual([]);
   }, { auto: true }],
 });
 

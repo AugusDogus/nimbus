@@ -21,11 +21,11 @@ export const themeBootScript = `(() => {
   } catch { /* The settings page reports unreadable storage after hydration. */ }
 })();`;
 
-export function ThemeBoot() {
+export function ThemeBoot({ nonce }: { nonce: string | undefined }) {
   return (
     <>
       <style id={themeStyleId} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: "" }} />
-      <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeBootScript }} />
     </>
   );
 }
