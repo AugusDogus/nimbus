@@ -149,8 +149,9 @@ async function handleRequest(
     else outgoing.end();
   } catch (error) {
     if (outgoing.destroyed) return;
+    // Query strings can carry credentials, such as MCP download link tokens.
     console.error(
-      `Nimbus request failed: ${incoming.method} ${incoming.url}`,
+      `Nimbus request failed: ${incoming.method} ${incoming.url?.split("?")[0]}`,
       error,
     );
     if (outgoing.headersSent) outgoing.destroy();

@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { authClient, signIn } from "@/lib/auth-client";
+import { CallbackUrl } from "@/lib/callback-url";
 import { queryClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 
@@ -46,9 +47,10 @@ type Step =
   | { kind: "credentials" }
   | { kind: "second-factor"; method: "totp" | "recovery" };
 
-const finish = () => {
+/** Every sign-in path ends here, returning to `redirectTo`, a validated same-origin path. */
+const finish = (redirectTo: string) => {
   queryClient.clear();
-  window.location.assign("/");
+  window.location.assign(redirectTo);
 };
 
 const isAbort = (error: unknown) =>
@@ -59,6 +61,7 @@ export function LoginForm({
   singleSignOn = null,
   passwordReset = false,
   initialError = null,
+  redirectTo = CallbackUrl.DEFAULT,
   className,
   ...props
 }: React.ComponentProps<"div"> & {
@@ -68,6 +71,8 @@ export function LoginForm({
   /** Whether forgotten passwords can be reset by email. */
   passwordReset?: boolean;
   initialError?: string | null;
+  /** A validated same-origin path, such as an MCP consent page. */
+  redirectTo?: string;
 }) {
   const [step, setStep] = useState<Step>({ kind: "credentials" });
   const [email, setEmail] = useState("");
@@ -88,12 +93,12 @@ export function LoginForm({
       const { passkeyAuthClient } = await import("@/lib/passkey-client");
       if (!active) return;
       const result = await passkeyAuthClient.signIn.passkey({ autoFill: true }).catch(() => null);
-      if (active && result && !result.error) finish();
+      if (active && result && !result.error) finish(redirectTo);
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [redirectTo]);
 
   const run = async (action: () => Promise<void>) => {
     setError(null);
@@ -126,7 +131,7 @@ export function LoginForm({
         return;
       }
       setSuccess("Signed in successfully.");
-      finish();
+      finish(redirectTo);
     });
   };
 
@@ -150,7 +155,7 @@ export function LoginForm({
         return;
       }
       setSuccess("Signed in successfully.");
-      finish();
+      finish(redirectTo);
     });
   };
 
@@ -165,15 +170,19 @@ export function LoginForm({
         );
         return;
       }
-      finish();
+      finish(redirectTo);
     });
 
   const signInWithProvider = () =>
     run(async () => {
       const result = await authClient.signIn.social({
         provider: "oidc",
-        callbackURL: "/",
-        errorCallbackURL: "/login",
+        callbackURL: redirectTo,
+        // Errors return here with the same destination, so a retry still ends there.
+        errorCallbackURL:
+          redirectTo === CallbackUrl.DEFAULT
+            ? "/login"
+            : `/login?${new URLSearchParams({ callbackURL: redirectTo })}`,
       });
       if (result.error) setError(getErrorMessage(result.error));
     });

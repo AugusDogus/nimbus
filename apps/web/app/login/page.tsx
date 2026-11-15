@@ -9,6 +9,7 @@ import { NimbusWordmark } from "@/components/nimbus-wordmark";
 import Link from "next/link";
 
 import { LoginForm } from "@/components/login-form";
+import { CallbackUrl } from "@/lib/callback-url";
 
 /** Messages for errors that single sign-on returns to this page as `?error=`. */
 function providerError(code: string | undefined, provider: string) {
@@ -34,7 +35,7 @@ export default async function LoginPage({
 }) {
   await connection();
   const [existing] = await db.select({ id: user.id }).from(user).limit(1);
-  const { error } = await searchParams;
+  const { error, callbackURL } = await searchParams;
   const provider = oidcConfig.kind === "oidc" ? oidcConfig.label : null;
   return (
     <div className="bg-muted flex min-h-dvh flex-col items-center justify-center gap-6 p-6 md:p-10">
@@ -54,6 +55,7 @@ export default async function LoginPage({
             typeof error === "string" ? error : undefined,
             provider ?? "your identity provider",
           )}
+          redirectTo={CallbackUrl.parse(callbackURL)}
         />
       </div>
     </div>

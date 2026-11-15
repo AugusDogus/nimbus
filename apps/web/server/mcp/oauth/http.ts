@@ -47,19 +47,6 @@ export const preflight = (methods: string) =>
     },
   });
 
-/** A storage or programming failure; the response never echoes it. */
-export function serverError(operation: string, cause: unknown) {
-  // Names only: database errors can include query parameters such as token hashes.
-  console.error(`[mcp-oauth] ${operation} failed: ${cause instanceof Error ? cause.name : typeof cause}`);
-  return json(
-    {
-      error: "server_error",
-      error_description: "Nimbus could not complete this request. Nothing was registered, issued, or revoked. Retry shortly.",
-    },
-    { status: 500 },
-  );
-}
-
 async function readBody(request: Request): Promise<Parsed<string>> {
   if (Number(request.headers.get("content-length") ?? "0") > MAX_BODY_BYTES)
     return { ok: false, error: protocolError(413, "invalid_request", "The request body is too large.") };

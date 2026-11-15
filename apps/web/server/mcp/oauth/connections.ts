@@ -1,5 +1,6 @@
 import { McpScope } from "@nimbus/api/mcp-scope";
 import { and, desc, eq, isNull } from "drizzle-orm";
+import { user } from "../../db/auth-schema";
 import { mcpClients, mcpGrants } from "../../db/mcp-schema";
 import type { Database } from "./context";
 import { revokeGrant } from "./tokens";
@@ -39,4 +40,15 @@ export async function revokeConnection(db: Database, userId: string, grantId: st
   if (!grant) return false;
   await revokeGrant(db, grantId, now);
   return true;
+}
+
+/** The account behind a connection that is still approved and whose account is enabled, or null. */
+export async function liveConnectionUser(db: Database, grantId: string) {
+  const [row] = await db
+    .select({ userId: mcpGrants.userId, revokedAt: mcpGrants.revokedAt, banned: user.banned })
+    .from(mcpGrants)
+    .innerJoin(user, eq(user.id, mcpGrants.userId))
+    .where(eq(mcpGrants.id, grantId))
+    .limit(1);
+  return row && row.revokedAt === null && !row.banned ? row.userId : null;
 }
