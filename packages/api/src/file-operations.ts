@@ -1,8 +1,10 @@
 import { TRPCError } from "@trpc/server";
-import { lstat, mkdir, rename, rm } from "node:fs/promises";
+import { constants, type Stats } from "node:fs";
+import { copyFile, lstat, mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getAccess, type Access } from "./access";
+import { readDirectory } from "./file-browser";
 import {
   forgetFileLocks,
   mutateFiles,
@@ -63,11 +65,80 @@ export function requireMutable(relative: string) {
     });
 }
 
+/**
+ * How a move or copy treats an existing destination. WebDAV clients choose with the
+ * `Overwrite` header (RFC 4918, section 10.6); the browser never replaces.
+ */
+export type ExistingDestination = "refuse" | "replace";
+export type TransferOptions = {
+  lockTokens?: MutationCredentials["lockTokens"];
+  existing?: ExistingDestination;
+};
+/** What happened to an existing destination: none existed, a file's content was replaced, or it went to trash. */
+type Replacement =
+  | { kind: "vacant" }
+  | { kind: "content" }
+  | { kind: "trashed"; trashId: string };
+
+async function statOrNull(absolute: string) {
+  try {
+    return await lstat(absolute);
+  } catch (error) {
+    if (isFsError(error, "ENOENT")) return null;
+    throw error;
+  }
+}
+
+function requireSeparate(source: string, target: string) {
+  if (isWithinPath(source, target))
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Choose a different destination outside this folder.",
+    });
+  if (isWithinPath(target, source))
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Choose a destination that does not contain this item. Replacing it would delete the item itself.",
+    });
+}
+
+/**
+ * Prepare an existing destination. A file replacing a file keeps the destination's links and
+ * grants, like an upload of new content: this is what save-by-replace editors rely on when
+ * they write a temporary file and move it over the original. Any other replacement sends the
+ * destination to trash first, so it stays recoverable.
+ */
+async function prepareDestination(
+  store: DriveStore,
+  access: Access,
+  source: Stats,
+  target: { absolute: string; relative: string },
+  existing: ExistingDestination,
+): Promise<Replacement> {
+  const current = await statOrNull(target.absolute);
+  if (!current) return { kind: "vacant" };
+  if (existing === "refuse") await requireUnused(target.absolute);
+  if (source.isFile() && current.isFile()) return { kind: "content" };
+  const { trashId } = await trashUnlocked(store, access, target.relative);
+  return { kind: "trashed", trashId };
+}
+
+async function undoReplacement(
+  store: DriveStore,
+  access: Access,
+  replacement: Replacement,
+) {
+  if (replacement.kind === "trashed")
+    await restoreUnlocked(store, access, replacement.trashId);
+}
+
 async function moveUnlocked(
   store: DriveStore,
   access: Access,
   sourcePath: string,
   targetPath: string,
+  existingDestination: ExistingDestination,
 ) {
   const source = await safePath(sourcePath);
   const target = await safePath(targetPath);
@@ -80,23 +151,142 @@ async function moveUnlocked(
   // subtree to new people, so moving a folder requires control of its sharing.
   const existing = await requireExisting(source.relative);
   if (existing.stats.isDirectory()) access.require(source.relative, "admin");
-  if (isWithinPath(source.relative, target.relative))
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "Choose a different destination outside this folder.",
-    });
-  await requireUnused(target.absolute);
-  await rename(source.absolute, target.absolute);
+  requireSeparate(source.relative, target.relative);
+  const replacement = await prepareDestination(
+    store,
+    access,
+    existing.stats,
+    target,
+    existingDestination,
+  );
   try {
-    await store.movePath(source.relative, target.relative);
+    if (replacement.kind === "content") {
+      // Discard the source's records before the content commits, failing closed if this fails.
+      await store.discardPath(source.relative);
+      await rename(source.absolute, target.absolute);
+    } else {
+      await rename(source.absolute, target.absolute);
+      try {
+        await store.movePath(source.relative, target.relative);
+      } catch (error) {
+        await rename(target.absolute, source.absolute);
+        throw error;
+      }
+    }
   } catch (error) {
-    await rename(target.absolute, source.absolute);
+    await undoReplacement(store, access, replacement);
     throw error;
   }
   forgetFileLocks(source.relative);
   publishFileEvent({ path: source.absolute, event: "delete", ts: Date.now() });
-  publishFileEvent({ path: target.absolute, event: "rename", ts: Date.now() });
-  return { name: path.basename(target.absolute), path: target.relative };
+  publishFileEvent({
+    path: target.absolute,
+    event: replacement.kind === "content" ? "change" : "rename",
+    ts: Date.now(),
+  });
+  return {
+    name: path.basename(target.absolute),
+    path: target.relative,
+    replaced: replacement.kind !== "vacant",
+  };
+}
+
+/** Copy a file or folder tree into a staging path, skipping descendants the user cannot read. */
+async function stageCopy(
+  access: Access,
+  source: { relative: string; absolute: string; stats: Stats },
+  staging: string,
+  depth: CopyDepth,
+) {
+  if (!source.stats.isDirectory()) {
+    await copyFile(source.absolute, staging, constants.COPYFILE_EXCL);
+    return;
+  }
+  await mkdir(staging);
+  if (depth === "0") return;
+  const pending = [source.relative];
+  while (pending.length) {
+    const directory = pending.shift();
+    if (directory === undefined) break;
+    for (const entry of await readDirectory(directory, access)) {
+      if (!access.can(entry.path, "read")) continue;
+      const destination = path.join(
+        staging,
+        entry.path.slice(source.relative.length + 1),
+      );
+      if (entry.type === "dir") {
+        await mkdir(destination);
+        pending.push(entry.path);
+      } else {
+        const file = await requireExisting(entry.path);
+        await copyFile(file.absolute, destination, constants.COPYFILE_EXCL);
+      }
+    }
+  }
+}
+
+/** `0` copies a folder without its contents (RFC 4918, section 9.8.3). */
+export type CopyDepth = "0" | "infinity";
+
+/**
+ * Copy an item. The copy carries no links, grants, or bookmarks. Data is staged without holding
+ * the mutation queue, then committed after permissions and locks are checked again.
+ */
+export async function copyItem(
+  store: DriveStore,
+  access: Access,
+  sourcePath: string,
+  targetPath: string,
+  options: TransferOptions & { depth?: CopyDepth } = {},
+) {
+  const source = await requireExisting(sourcePath);
+  const target = await safePath(targetPath);
+  requireMutable(target.relative);
+  access.require(source.relative, "read");
+  access.require(target.relative, "write");
+  requireSeparate(source.relative, target.relative);
+  const existingDestination = options.existing ?? "refuse";
+  if (existingDestination === "refuse") await requireUnused(target.absolute);
+  const stagingDirectory = path.join(getDataRoot(), ".nimbus", "uploads");
+  await mkdir(stagingDirectory, { recursive: true });
+  const staging = path.join(stagingDirectory, `${randomUUID()}.copy`);
+  try {
+    await stageCopy(access, source, staging, options.depth ?? "infinity");
+    return await mutateFiles(
+      [target.relative],
+      { userId: access.user.id, lockTokens: options.lockTokens },
+      async () => {
+        const current = await getAccess(store, access.user.id);
+        current.require(source.relative, "read");
+        current.require(target.relative, "write");
+        await safePath(target.relative);
+        const replacement = await prepareDestination(
+          store,
+          current,
+          source.stats,
+          target,
+          existingDestination,
+        );
+        try {
+          await rename(staging, target.absolute);
+        } catch (error) {
+          await undoReplacement(store, current, replacement);
+          throw error;
+        }
+        publishFileEvent({
+          path: target.absolute,
+          event: replacement.kind === "content" ? "change" : "rename",
+          ts: Date.now(),
+        });
+        return {
+          path: target.relative,
+          replaced: replacement.kind !== "vacant",
+        };
+      },
+    );
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
 }
 
 async function trashUnlocked(
@@ -128,7 +318,7 @@ async function trashUnlocked(
   }
   forgetFileLocks(target.relative);
   publishFileEvent({ path: target.absolute, event: "delete", ts: Date.now() });
-  return { path: target.relative };
+  return { path: target.relative, trashId: id };
 }
 
 export async function getOwnedTrash(
@@ -185,19 +375,20 @@ export async function moveItem(
   access: Access,
   sourcePath: string,
   targetPath: string,
-  lockTokens?: MutationCredentials["lockTokens"],
+  options: TransferOptions = {},
 ) {
   const source = await safePath(sourcePath);
   const target = await safePath(targetPath);
   return mutateFiles(
     [source.relative, target.relative],
-    { userId: access.user.id, lockTokens },
+    { userId: access.user.id, lockTokens: options.lockTokens },
     async () =>
       moveUnlocked(
         store,
         await getAccess(store, access.user.id),
         source.relative,
         target.relative,
+        options.existing ?? "refuse",
       ),
   );
 }

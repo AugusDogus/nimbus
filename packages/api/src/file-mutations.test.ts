@@ -103,9 +103,9 @@ describe("filesystem mutation coordination", () => {
   it("removes locks when a move removes their original resource", async () => {
     const lock = lockFile("docs/first.txt", { userId: "user-1" });
     const access = await getAccess(memory.store, "user-1");
-    await moveItem(memory.store, access, "docs/first.txt", "docs/moved.txt", [
-      lock.token,
-    ]);
+    await moveItem(memory.store, access, "docs/first.txt", "docs/moved.txt", {
+      lockTokens: [lock.token],
+    });
     expect(fileLock("docs/first.txt")).toBeUndefined();
     expect(await readFile(path.join(root, "docs/moved.txt"), "utf8")).toBe(
       "first",

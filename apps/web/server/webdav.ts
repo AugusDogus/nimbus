@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
-import { copyFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
 import { getAccess } from "@nimbus/api/access";
@@ -19,6 +18,7 @@ import {
   webDAVLockTokens,
 } from "@nimbus/api/file-mutations";
 import {
+  copyItem,
   moveItem,
   requireExisting,
   requireMutable,
@@ -164,72 +164,6 @@ async function putFile(request: Request, requested: string) {
   }
 }
 
-async function copyItem(
-  request: Request,
-  sourcePath: string,
-  destinationPath: string,
-) {
-  const access = await authenticate(request);
-  return mutateFiles(
-    [destinationPath],
-    {
-      userId: access.user.id,
-      lockTokens: webDAVLockTokens(request.headers.get("if")),
-    },
-    async () => {
-      const currentAccess = await authenticate(request);
-      currentAccess.require(sourcePath, "read");
-      currentAccess.require(destinationPath, "write");
-      const source = await requireExisting(sourcePath);
-      const destination = await safePath(destinationPath);
-      await requireUnused(destination.absolute);
-      const temporaryDirectory = path.join(getDataRoot(), ".nimbus", "uploads");
-      await mkdir(temporaryDirectory, { recursive: true });
-      const temporary = path.join(temporaryDirectory, `${randomUUID()}.copy`);
-      try {
-        if (source.stats.isDirectory()) {
-          const depth = request.headers.get("depth") ?? "infinity";
-          if (depth !== "0" && depth !== "infinity")
-            return new Response(null, { status: 400 });
-          await mkdir(temporary);
-          const pending = depth === "0" ? [] : [source.relative];
-          while (pending.length) {
-            const directory = pending.shift();
-            if (directory === undefined) break;
-            for (const entry of await readDirectory(directory, currentAccess)) {
-              currentAccess.require(entry.path, "read");
-              const suffix = entry.path.slice(source.relative.length + 1);
-              const target = path.join(temporary, suffix);
-              if (entry.type === "dir") {
-                await mkdir(target);
-                pending.push(entry.path);
-              } else {
-                const file = await requireExisting(entry.path);
-                await copyFile(file.absolute, target, constants.COPYFILE_EXCL);
-              }
-            }
-          }
-        } else
-          await copyFile(source.absolute, temporary, constants.COPYFILE_EXCL);
-        const finalAccess = await authenticate(request);
-        finalAccess.require(source.relative, "read");
-        finalAccess.require(destination.relative, "write");
-        await safePath(destination.relative);
-        await requireUnused(destination.absolute);
-        await rename(temporary, destination.absolute);
-        publishFileEvent({
-          path: destination.absolute,
-          event: "rename",
-          ts: Date.now(),
-        });
-        return new Response(null, { status: 201 });
-      } finally {
-        await rm(temporary, { recursive: true, force: true });
-      }
-    },
-  );
-}
-
 export async function handleWebDAV(request: Request): Promise<Response> {
   try {
     const access = await authenticate(request);
@@ -361,30 +295,41 @@ export async function handleWebDAV(request: Request): Promise<Response> {
       const destination = await safePath(decodedPath(destinationUrl.pathname));
       requireMutable(destination.relative);
       access.require(destination.relative, "write");
-      if (isWithinPath(target.relative, destination.relative))
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Choose a destination outside the source folder.",
-        });
-      try {
-        if (method === "COPY")
-          return await copyItem(request, target.relative, destination.relative);
-        await moveItem(
-          httpDriveStore,
-          access,
-          target.relative,
-          destination.relative,
-          credentials.lockTokens,
+      // RFC 4918, section 10.6: Overwrite defaults to T.
+      const overwrite = (request.headers.get("overwrite") ?? "T").trim().toUpperCase();
+      if (overwrite !== "T" && overwrite !== "F")
+        return new Response("Overwrite must be T or F.", { status: 400 });
+      const depth = (request.headers.get("depth") ?? "infinity").trim().toLowerCase();
+      if (depth !== "infinity" && (method === "MOVE" || depth !== "0"))
+        return new Response(
+          `${method} supports Depth: infinity${method === "COPY" ? " or 0" : ""}.`,
+          { status: 400 },
         );
+      const options = {
+        lockTokens: credentials.lockTokens,
+        existing: overwrite === "T" ? ("replace" as const) : ("refuse" as const),
+      };
+      try {
+        const result =
+          method === "COPY"
+            ? await copyItem(httpDriveStore, access, target.relative, destination.relative, {
+                ...options,
+                depth: depth === "0" ? "0" : "infinity",
+              })
+            : await moveItem(httpDriveStore, access, target.relative, destination.relative, options);
+        return new Response(null, { status: result.replaced ? 204 : 201 });
       } catch (error) {
+        // An existing destination with Overwrite: F is a failed precondition, not a conflict.
         if (
           isApiError(error, "CONFLICT") &&
           !(error instanceof Error && error.name === "FileLockedError")
         )
           return new Response(null, { status: 412 });
+        // Source and destination overlap, or the drive root was named.
+        if (isApiError(error, "BAD_REQUEST"))
+          return new Response(null, { status: 403 });
         throw error;
       }
-      return new Response(null, { status: 201 });
     }
     return new Response(null, { status: 405 });
   } catch (error) {

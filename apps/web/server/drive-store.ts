@@ -329,6 +329,9 @@ export function createDriveStore(database: typeof db): DriveStore {
         .delete(appPasswords)
         .where(and(eq(appPasswords.id, id), eq(appPasswords.userId, userId)));
     },
+    async discardPath(path) {
+      await database.transaction((tx) => detach(tx, path));
+    },
     async movePath(from, to) {
       await database.transaction(async (tx) => {
         await detach(tx, to);

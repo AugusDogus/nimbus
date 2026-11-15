@@ -88,4 +88,6 @@ export type DriveStore = {
    * it inherited at its source and inherits from its destination instead.
    */
   movePath(from: string, to: string): Promise<void>;
+  /** Delete links, direct grants, and bookmarks at or under a path whose content is merged into another item. */
+  discardPath(path: string): Promise<void>;
 };

@@ -45,6 +45,7 @@ export function createTestDriveStore() {
     async addAppPassword(password) { passwords.set(password.id, password); },
     async findAppPassword(hash) { return [...passwords.values()].find((password) => password.tokenHash === hash) ?? null; },
     async removeAppPassword(id, userId) { if (passwords.get(id)?.userId === userId) passwords.delete(id); },
+    async discardPath(path) { take(path); },
     async movePath(from, to) {
       take(to);
       const moved = (value: string) => isWithinPath(from, value) ? to + value.slice(from.length) : value;
