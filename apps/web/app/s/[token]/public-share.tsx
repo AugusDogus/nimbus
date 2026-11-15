@@ -10,6 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme-toggle";
+import {
+  EntryThumbnail,
+  hasThumbnail,
+} from "@/app/(files)/[[...path]]/entry-thumbnail";
 import { FilePreview } from "@/app/(files)/[[...path]]/preview-dialog";
 
 const entrySchema = z.object({
@@ -181,6 +185,13 @@ export function PublicShare({ token }: { token: string }) {
                   >
                     {entry.type === "dir" ? (
                       <Folder className="size-5 shrink-0" />
+                    ) : hasThumbnail(entry) ? (
+                      <EntryThumbnail
+                        entry={entry}
+                        share={token}
+                        fallback={<FileText className="size-5 shrink-0" />}
+                        className="-my-1.5 size-8 overflow-hidden rounded-sm"
+                      />
                     ) : (
                       <FileText className="size-5 shrink-0" />
                     )}
