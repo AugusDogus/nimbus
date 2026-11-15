@@ -31,6 +31,8 @@ The root scripts run this workspace with `apps/web` as its working directory, so
 - `server/thumbnails.ts`, `server/thumbnail-renderers.ts`: content-addressed thumbnail cache with bounded concurrency, and the bounded `pdftoppm` and FFmpeg subprocesses.
 - `server/search.worker.ts`, `server/search-bridge.ts`: the filename index runs in a Bun worker, fed by the file watcher and reconciled every 30 minutes. The index itself is `../../packages/api/src/search-index.ts`.
 - `app/(files)/[[...path]]/preview`: preview renderers. Each renderer, the Markdown parser, the highlighter worker, and each highlighting grammar is a separate chunk loaded only when a file of that kind is opened.
+- `server/mcp`: MCP endpoint wiring, its OAuth 2.1 authorization server (`server/mcp/oauth`), and download links. Tool definitions live in `../../packages/api/src/mcp-*.ts`.
+- `app/oauth`, `app/.well-known`: MCP authorization, consent, and discovery routes.
 - `../../packages/api/src`: typed API routers, permission checks, safe paths, and filesystem operations shared with the server.
 - `drizzle`: committed database migrations and schema snapshots.
 - `e2e`: Playwright tests and fixtures, started using `../../scripts/e2e-server.ts`.

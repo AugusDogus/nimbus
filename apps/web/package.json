@@ -17,6 +17,7 @@
   "dependencies": {
     "@better-auth/passkey": "^1.7.25",
     "@libsql/client": "^0.17.0",
+    "@modelcontextprotocol/server": "2.4.0",
     "@nimbus/api": "workspace:*",
     "@tanstack/react-query": "^5.90.20",
     "@trpc/client": "^11.9.0",

@@ -22,6 +22,7 @@ Files stay on your filesystem. Accounts, permissions, links, and preferences are
 - Request files: share an upload link so people without an account can add files to a folder without seeing its contents.
 - Manage users, groups, account roles, disabled accounts, and password resets from Settings → Administration.
 - Connect WebDAV clients with individually revocable app passwords.
+- Connect AI assistants over MCP, approved in the browser and revocable per client.
 - Choose built-in light and dark themes, import VS Code themes, or find community themes on Open VSX.
 
 ## Local setup
@@ -129,6 +130,7 @@ Set the deployment values in `apps/web/.env` before startup. For PDF and video t
 | `NIMBUS_OIDC_GROUPS_CLAIM`    | Optional ID token claim listing group names, for example `groups`. See [Single sign-on](#single-sign-on). |
 | `NIMBUS_BACKUP_KEEP`          | Daily database backups to keep in `<config root>/backups`, default `7`. |
 
+| `NIMBUS_MCP_ENABLED`          | Optional. `false` turns off the MCP server, its OAuth endpoints, and discovery documents. Default: `true`. Approved clients stay stored. |
 Startup fails with a message naming the problem when an optional integration is only partly configured, so a typo cannot silently turn email or single sign-on off.
 
 The reserved `<data root>/.nimbus` directory contains trash and temporary uploads. Without a separate config root, it also contains the database and thumbnail cache. Nimbus never exposes `.nimbus` through file browsing or sharing. Keep a separate config root outside the browsable data root. Symbolic links and special files are excluded. Nimbus needs read and write access to both roots; other local programs with access to those directories remain outside Nimbus's permission controls.
@@ -141,6 +143,7 @@ Open the settings cog beside **Trash** to switch to the settings sidebar:
 - **Account:** view your name and email, change your password, set up two-factor authentication and passkeys, and review or sign out your browser sessions. Changing your password signs out other browser sessions; WebDAV app passwords remain active.
 - **WebDAV:** copy your server address and username, create a password for each device, and revoke passwords you no longer need.
 - **Administration → Users & groups** (server administrators only): create accounts, manage group membership, and grant drive access. Each user's action menu contains password reset, sign-in method reset, sign out everywhere, administrator role, and enable/disable controls.
+- **MCP:** copy the MCP server address and setup command, see connected AI clients with when they were last used, and disconnect them.
 - **Administration → Audit log** (server administrators only): review sign-ins and failures, account and role changes, group and permission changes, public links, deletions, and app passwords. Filter by event, account, and date.
 
 Use **Back to files** to return to the drive. Active uploads continue while you browse Settings.
@@ -270,6 +273,28 @@ Client notes:
 - **rclone:** configure the remote with `vendor = rclone`. Nimbus then keeps modification times for uploads, moves, and copies, so `rclone sync` detects edits that do not change a file's size, and `rclone mount` preserves times. With `vendor = other`, rclone compares sizes only. `rclone touch` of an existing file is not supported by either profile. Tested with rclone 1.76: `sync`, `check`, `moveto` and `copyto` over existing files, `about`, `purge`, and `mount --vfs-cache-mode writes` with editors that save by renaming a temporary file over the original.
 
 Your normal file permissions apply to every operation. Folders you cannot browse are omitted from listings. To check conformance locally, build Litmus from its release tarball and run `LITMUS_DIR=/path/to/litmus-0.18 bun scripts/webdav-conformance.ts`.
+
+## MCP
+
+Nimbus is a remote [Model Context Protocol](https://modelcontextprotocol.io) server at `https://your-nimbus-server/api/mcp` (Streamable HTTP). AI clients such as Claude Code, Codex, Cursor, and ChatGPT can browse, read, and change your files with your own permissions.
+
+Add the address as a remote MCP server in your client. For Claude Code:
+
+```bash
+claude mcp add --transport http nimbus https://your-nimbus-server/api/mcp
+```
+
+The client discovers Nimbus's OAuth server, registers itself, and opens Nimbus in your browser. Sign in if needed, review the permissions, and select **Connect**. You can leave **Change your files** or **Manage sharing** unchecked to connect with view access only. No API key is involved.
+
+| Permission | Tools |
+| --- | --- |
+| View your files | `list_folder`, `get_item`, `search_files`, `read_text`, `get_download_link`, `list_shared_with_me`, `list_trash` |
+| Change your files | `write_text`, `create_folder`, `rename_item`, `move_item`, `move_to_trash`, `restore_from_trash`, `set_starred` |
+| Manage sharing | `list_public_links`, `create_public_link`, `revoke_public_link`, `list_permissions`, `grant_permission`, `revoke_permission` |
+
+These permissions only narrow what a client may attempt. Every tool runs the same checks as the browser: your file permissions, WebDAV locks, and path rules apply, and `.nimbus` and symbolic links stay hidden. `read_text` returns UTF-8 text in ranges of up to 256 KiB. `write_text` refuses to replace an existing file unless the client passes its current version tag or asks to overwrite. `get_download_link` returns a link that works for five minutes and only while the connection and your access remain.
+
+Disconnect a client in **Settings → MCP**; its tokens stop working immediately. Disabling an account cuts off its clients too. Access tokens last one hour and refresh tokens 30 days, rotating on each use; a reused refresh token disconnects the client. Nimbus stores only hashes of tokens. Registration, token, and MCP requests are rate limited per address and per connection. Set `NIMBUS_MCP_ENABLED=false` to turn MCP off.
 
 ## Backups and upgrades
 

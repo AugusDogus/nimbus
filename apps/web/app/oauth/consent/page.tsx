@@ -39,7 +39,9 @@ export default async function ConsentPage({ searchParams }: { searchParams: Prom
         <Card>
           {view.kind === "invalid" ? (
             <CardHeader className="text-center">
-              <CardTitle className="text-balance text-xl">Can’t connect this app</CardTitle>
+              <CardTitle role="heading" aria-level={1} className="text-balance text-xl">
+                Can’t connect this app
+              </CardTitle>
               <CardDescription role="alert" className="text-pretty">
                 {view.message}
               </CardDescription>
@@ -48,7 +50,9 @@ export default async function ConsentPage({ searchParams }: { searchParams: Prom
             <form method="post" action="/oauth/consent/decision" className="contents">
               <input type="hidden" name="ticket" value={view.ticket} />
               <CardHeader className="text-center">
-                <CardTitle className="text-balance text-xl">Connect {view.clientName}?</CardTitle>
+                <CardTitle role="heading" aria-level={1} className="text-balance text-xl">
+                  Connect {view.clientName}?
+                </CardTitle>
                 <CardDescription className="text-pretty">
                   It will work with your files as{" "}
                   <span className="font-medium text-foreground">{session?.user.email ?? "you"}</span>, with no more
