@@ -111,6 +111,20 @@ Set the deployment values in `apps/web/.env` before startup. The Bun custom serv
 | `PORT`                        | Listening port, default `3000`. Update the public origin and proxy when changing it.                                                |
 | `PUID`, `PGID`                | Container only. Numeric user and group the server runs as, default `1000`. |
 | `UMASK`                       | Container only. Permission mask for new files and folders, default `022`. |
+| `NIMBUS_TRUSTED_PROXIES`      | Comma-separated addresses or CIDR ranges of your reverse proxies, for example `127.0.0.1, 172.16.0.0/12`. Unset means `X-Forwarded-For` is ignored. See [Reverse proxies and client addresses](#reverse-proxies-and-client-addresses). |
+| `NIMBUS_AUDIT_RETENTION_DAYS` | Days to keep audit log entries, from 30 to 36500. Default `365`. |
+| `NIMBUS_SMTP_HOST`            | SMTP server for password reset email. Email is off unless this and `NIMBUS_SMTP_FROM` are set. |
+| `NIMBUS_SMTP_FROM`            | Sender address, for example `Nimbus <nimbus@example.com>`. |
+| `NIMBUS_SMTP_SECURITY`        | `starttls` (default, required upgrade), `tls` (implicit TLS), or `plain` (unencrypted, local relays only). |
+| `NIMBUS_SMTP_PORT`            | Default `465` for `tls`, otherwise `587`. |
+| `NIMBUS_SMTP_USER`, `NIMBUS_SMTP_PASSWORD` | SMTP credentials. Set both, or neither for an unauthenticated relay. |
+| `NIMBUS_OIDC_ISSUER`          | OpenID Connect issuer URL. Single sign-on is off unless this, `NIMBUS_OIDC_CLIENT_ID`, and `NIMBUS_OIDC_CLIENT_SECRET` are set. Nimbus reads `<issuer>/.well-known/openid-configuration`. |
+| `NIMBUS_OIDC_CLIENT_ID`, `NIMBUS_OIDC_CLIENT_SECRET` | Client credentials registered with the provider. Register `<BETTER_AUTH_URL>/api/auth/callback/oidc` as the redirect URI. |
+| `NIMBUS_OIDC_NAME`            | Provider name on the sign-in button, for example `Authentik`. Default `single sign-on`. |
+| `NIMBUS_OIDC_AUTO_PROVISION`  | `true` lets provider identities without a Nimbus account create a member account. Default `false`. |
+| `NIMBUS_OIDC_GROUPS_CLAIM`    | Optional ID token claim listing group names, for example `groups`. See [Single sign-on](#single-sign-on). |
+
+Startup fails with a message naming the problem when an optional integration is only partly configured, so a typo cannot silently turn email or single sign-on off.
 
 The reserved `<data root>/.nimbus` directory contains trash and temporary uploads. Without a separate config root, it also contains the database and thumbnail cache. Nimbus never exposes `.nimbus` through file browsing or sharing. Keep a separate config root outside the browsable data root. Symbolic links and special files are excluded. Nimbus needs read and write access to both roots; other local programs with access to those directories remain outside Nimbus's permission controls.
 
@@ -119,11 +133,46 @@ The reserved `<data root>/.nimbus` directory contains trash and temporary upload
 Open the settings cog beside **Trash** to switch to the settings sidebar:
 
 - **Appearance:** choose System, Light, or Dark mode and a separate theme for each color scheme. **Add theme** supports VS Code theme files and Open VSX community search. Themes and selections are saved in this browser. See [theme details and import limits](apps/web/README.md#themes).
-- **Account:** view your name and email, and change your password. Changing it signs out other browser sessions; WebDAV app passwords remain active.
+- **Account:** view your name and email, change your password, set up two-factor authentication and passkeys, and review or sign out your browser sessions. Changing your password signs out other browser sessions; WebDAV app passwords remain active.
 - **WebDAV:** copy your server address and username, create a password for each device, and revoke passwords you no longer need.
-- **Administration → Users & groups** (server administrators only): create accounts, manage group membership, and grant drive access. Each user's action menu contains password reset, administrator role, and enable/disable controls.
+- **Administration → Users & groups** (server administrators only): create accounts, manage group membership, and grant drive access. Each user's action menu contains password reset, sign-in method reset, sign out everywhere, administrator role, and enable/disable controls.
+- **Administration → Audit log** (server administrators only): review sign-ins and failures, account and role changes, group and permission changes, public links, deletions, and app passwords. Filter by event, account, and date.
 
 Use **Back to files** to return to the drive. Active uploads continue while you browse Settings.
+
+## Signing in and account security
+
+Password sign-in can be followed by a second factor. In **Settings → Account → Two-factor authentication**, select **Set up**, scan the QR code with an authenticator app, and enter its code. Save the ten recovery codes shown once; each signs you in one time if you lose the authenticator. **New recovery codes** replaces them. When signing in, **Trust this browser for 30 days** skips the code on that browser.
+
+Passkeys sign in with your device's fingerprint, face, or PIN and count as both factors, so they skip the code. Add them under **Passkeys**, then use **Sign in with a passkey** or pick one from the email field's autofill. Nimbus requires user verification. Passkeys are bound to the host name in `BETTER_AUTH_URL`; changing it makes existing passkeys stop working.
+
+If someone loses every factor, an administrator selects **Reset sign-in methods** in that account's action menu. It removes two-factor authentication, recovery codes, passkeys, and trusted browsers, and signs the account out everywhere. The person then signs in with their password and sets them up again.
+
+**Sessions** lists browsers signed in to your account with their last activity and address. Sign out any one, or every other session at once.
+
+### WebDAV app passwords and two-factor authentication
+
+WebDAV clients cannot show a code prompt, so app passwords bypass two-factor authentication by design. They are random 256-bit tokens, created only from a signed-in browser session (which already passed two-factor authentication), shown once, stored as hashes, scoped to file access with your permissions, and individually revocable. They cannot sign in to the web interface or change account settings. Revoke an app password as soon as a device is lost. Resetting sign-in methods or changing your password does not revoke app passwords; disabling the account blocks them.
+
+### Password reset
+
+With SMTP configured, the sign-in page offers **Forgot password?**. The emailed link works once, for one hour, and resetting signs out every session. Requests always report success so they do not reveal which addresses have accounts. Without SMTP, administrators reset passwords from **Users & groups**.
+
+Nimbus does not send email verification messages. Registration is closed, so every address is entered by an administrator, or by the server owner for the first account, and Nimbus treats those addresses as verified. Verification would add a step without protecting against anything a closed server allows.
+
+### Single sign-on
+
+Nimbus can sign people in through one OpenID Connect provider such as Authentik, Keycloak, Authelia, or Microsoft Entra ID. Registration stays closed: a provider identity signs in to the Nimbus account with the same email address, and only when the provider marks that address as verified. Other identities are refused with a message to ask an administrator. Set `NIMBUS_OIDC_AUTO_PROVISION=true` to create member accounts for them instead; new accounts start without file access. The administrator account must exist before single sign-on can provision accounts. Two-factor authentication applies to password sign-in; enforce multi-factor sign-in for single sign-on at your provider.
+
+With `NIMBUS_OIDC_GROUPS_CLAIM` set, every single sign-on sign-in makes the provider the source of truth for that person's membership in Nimbus groups whose names match the claim exactly. Matching memberships are added and other memberships of that person are removed. Groups are never created automatically. The claim must be in the ID token; request the matching scope from your provider if needed.
+
+### Rate limits
+
+Nimbus limits sign-in, sign-up, password reset, second-factor, and passkey attempts per client address, public link password attempts, and WebDAV authentication failures. Limited requests receive `429 Too Many Requests` with a `Retry-After` header. Limits are kept in memory and reset when Nimbus restarts.
+
+### Reverse proxies and client addresses
+
+Rate limits, sessions, and the audit log use the client address. By default Nimbus uses the address of the connecting socket and ignores `X-Forwarded-For`, because any client can send that header. Behind a reverse proxy every request would then appear to come from the proxy. Set `NIMBUS_TRUSTED_PROXIES` to the proxy addresses, for example `127.0.0.1` for a proxy on the same host or the Docker network range for a proxy container. Nimbus then reads `X-Forwarded-For` from right to left, skipping trusted proxies, and uses the first untrusted address. List only addresses you control, and make sure clients cannot reach Nimbus without passing through the proxy.
 
 ## Sharing and permissions
 
