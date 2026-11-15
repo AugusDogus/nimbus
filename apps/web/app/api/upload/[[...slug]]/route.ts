@@ -4,17 +4,10 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
 import { getDataRoot } from "@nimbus/api/data-root";
-import { fileNameSchema } from "@nimbus/api/file-name";
-import { publishFileEvent } from "@nimbus/api/file-events";
-import { mutateFiles, requireUnlocked } from "@nimbus/api/file-mutations";
-import {
-  requireExisting,
-  requireUnused,
-  safePath,
-} from "@nimbus/api/file-operations";
-import { isApiError, isFsError } from "@nimbus/api/safe-path";
+import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { httpError, requestAccess } from "@/server/http-files";
 import { UploadStore } from "@/server/upload-store";
+import { commitUpload, UploadMetadata } from "../upload-commit";
 
 const tusFailureSchema = z.object({
   status_code: z.number().int().min(400).max(599),
@@ -71,13 +64,17 @@ async function getServer() {
     async onUploadCreate(request, upload) {
       try {
         const access = await requestAccess(request);
-        const name = fileNameSchema.safeParse(upload.metadata?.filename);
-        if (!name.success)
+        const metadata = UploadMetadata.safeParse({
+          ...upload.metadata,
+          owner: access.user.id,
+        });
+        if (!metadata.success)
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Choose a filename without slashes or reserved names.",
+            message:
+              "Choose file and folder names without slashes or reserved names, then upload again.",
           });
-        const target = await safePath(upload.metadata?.targetPath ?? "");
+        const target = await safePath(metadata.data.targetPath);
         access.require(target.relative, "write");
         const parent = await requireExisting(target.relative);
         if (!parent.stats.isDirectory())
@@ -87,8 +84,10 @@ async function getServer() {
           });
         return {
           metadata: {
-            filename: name.data,
+            filename: metadata.data.filename,
             targetPath: target.relative,
+            folder: metadata.data.folder,
+            conflict: metadata.data.conflict,
             owner: access.user.id,
           },
         };
@@ -106,58 +105,18 @@ async function getServer() {
         }
         return {};
       }
-      const finish = async () => {
-        const target = await safePath(upload.metadata?.targetPath ?? "");
-        const access = await requestAccess(request);
-        return mutateFiles([], { userId: access.user.id }, async () => {
-          const currentAccess = await requestAccess(request);
-          if (upload.metadata?.owner !== currentAccess.user.id)
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "This upload belongs to another user.",
-            });
-          const name = fileNameSchema.parse(upload.metadata?.filename);
-          currentAccess.require(target.relative, "write");
-          const parent = await requireExisting(target.relative);
-          if (!parent.stats.isDirectory())
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Upload destination must be a folder.",
-            });
-          if (await store.isFinished(upload.id)) return;
-          const ext = path.extname(name);
-          const base = path.basename(name, ext);
-          for (let index = 0; ; index++) {
-            const candidate = index === 0 ? name : `${base} (${index})${ext}`;
-            const destination = await safePath(
-              [target.relative, candidate].filter(Boolean).join("/"),
-            );
-            currentAccess.require(destination.relative, "write");
-            try {
-              await requireUnused(destination.absolute);
-            } catch (error) {
-              if (!isApiError(error, "CONFLICT")) throw error;
-              if (!await store.isPublishedAt(upload.id, destination.absolute)) continue;
-            }
-            requireUnlocked([destination.relative], {
-              userId: currentAccess.user.id,
-            });
-            try {
-              await store.publish(upload.id, destination.absolute);
-            } catch (error) {
-              if (isFsError(error, "EEXIST")) continue;
-              throw error;
-            }
-            publishFileEvent({
-              path: destination.absolute,
-              event: "rename",
-              ts: Date.now(),
-            });
-            return;
-          }
-        });
-      };
-      const task = finish();
+      const task = (async () => {
+        const metadata = UploadMetadata.safeParse(upload.metadata);
+        if (!metadata.success)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "This upload's stored details are invalid. Start a new upload.",
+          });
+        await commitUpload(store, upload.id, metadata.data, () =>
+          requestAccess(request),
+        );
+      })();
       finishes.set(upload.id, task);
       try {
         await task;

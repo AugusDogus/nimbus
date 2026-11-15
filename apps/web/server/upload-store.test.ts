@@ -140,3 +140,29 @@ test.skipIf(!existsSync("/dev/shm"))("publishing across filesystems falls back t
     await rm(otherRoot, { recursive: true, force: true });
   }
 });
+
+test("replacing swaps the destination's content in one rename and is retryable", async () => {
+  const source = path.join(store.directory, "upload");
+  await writeFile(source, "replacement");
+  await writeFile(destination, "previous");
+  await store.replace("upload", destination);
+  expect(await readFile(destination, "utf8")).toBe("replacement");
+  expect(await store.isFinished("upload")).toBe(true);
+  await store.replace("upload", destination);
+  expect(await readFile(destination, "utf8")).toBe("replacement");
+  expect((await readdir(store.directory)).sort()).toEqual(["upload", "upload.done"]);
+});
+
+test.skipIf(!existsSync("/dev/shm"))("replacing across filesystems falls back to a copy", async () => {
+  const otherRoot = await mkdtemp("/dev/shm/nimbus-upload-");
+  try {
+    const target = path.join(otherRoot, "uploaded.txt");
+    await writeFile(path.join(store.directory, "upload"), "cross-filesystem replacement");
+    await writeFile(target, "previous");
+    await store.replace("upload", target);
+    expect(await readFile(target, "utf8")).toBe("cross-filesystem replacement");
+    expect(await store.isFinished("upload")).toBe(true);
+  } finally {
+    await rm(otherRoot, { recursive: true, force: true });
+  }
+});

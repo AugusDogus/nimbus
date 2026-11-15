@@ -4,6 +4,9 @@ import { copyFile, link, lstat, readFile, rename, rm, unlink, writeFile } from "
 import path from "node:path";
 import { isFsError } from "@nimbus/api/safe-path";
 
+// Errors from filesystems or nested mounts that cannot hardlink or rename between each other.
+const crossDevice = ["EXDEV", "ENOTSUP", "EOPNOTSUPP", "EPERM"];
+
 export class UploadStore extends FileStore {
   async isFinished(id: string) {
     try {
@@ -47,7 +50,7 @@ export class UploadStore extends FileStore {
         if (!await this.isPublishedAt(id, destination)) {
           throw error;
         }
-      } else if (["EXDEV", "ENOTSUP", "EOPNOTSUPP", "EPERM"].some((code) => isFsError(error, code))) {
+      } else if (crossDevice.some((code) => isFsError(error, code))) {
         // Preserve support for filesystems or nested mounts without hardlinks.
         await copyFile(source, destination, constants.COPYFILE_EXCL);
         copied = true;
@@ -55,6 +58,32 @@ export class UploadStore extends FileStore {
         throw error;
       }
     }
+    await this.markFinished(id, destination, copied);
+  }
+
+  /** Publish over an existing file. The rename swaps content atomically on the same filesystem. */
+  async replace(id: string, destination: string) {
+    if (await this.isFinished(id)) return;
+    const source = path.join(this.directory, id);
+    const temporary = path.join(this.directory, `${id}.replace`);
+    try {
+      await rm(temporary, { force: true });
+      try {
+        await link(source, temporary);
+        await rename(temporary, destination);
+      } catch (error) {
+        if (!crossDevice.some((code) => isFsError(error, code))) throw error;
+        // Nested mounts cannot rename between filesystems. Overwrite in place instead.
+        await copyFile(source, destination);
+      }
+    } finally {
+      await rm(temporary, { force: true });
+    }
+    // A failed marker leaves the replaced content in place; a retry replaces it again.
+    await this.markFinished(id, destination, false);
+  }
+
+  private async markFinished(id: string, destination: string, removeOnFailure: boolean) {
     const marker = path.join(this.directory, `${id}.done`);
     const temporaryMarker = `${marker}.tmp`;
     try {
@@ -63,7 +92,7 @@ export class UploadStore extends FileStore {
     } catch (error) {
       // Copies cannot be recognized by inode on retry. Remove only the new copy;
       // the complete staged upload remains available for another attempt.
-      if (copied) await unlink(destination);
+      if (removeOnFailure) await unlink(destination);
       throw error;
     } finally {
       await rm(temporaryMarker, { force: true });
