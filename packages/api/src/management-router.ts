@@ -13,6 +13,7 @@ import {
 } from "./file-operations";
 import { protectedProcedure, router } from "./index";
 import { auditUser, recordAudit } from "./audit";
+import { emptyTrash } from "./trash-empty";
 
 export const managementRouter = router({
   capabilities: protectedProcedure
@@ -186,6 +187,9 @@ export const trashRouter = router({
       await getOwnedTrash(ctx.drive, ctx.access, input.id);
       await purgeItem(ctx.drive, ctx.access, input.id);
     }),
+  empty: protectedProcedure.mutation(({ ctx }) =>
+    emptyTrash(ctx.drive, ctx.access),
+  ),
 });
 
 export const appPasswordsRouter = router({
