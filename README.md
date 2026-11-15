@@ -15,7 +15,8 @@ Files stay on your filesystem. Accounts, permissions, links, and preferences are
 - Preview images, PDF, text, audio, and video. Download folders as ZIP archives.
 - Search filenames and keep starred and recently opened items.
 - Share files and folders with existing users or groups using read, write, or sharing-management permissions.
-- Create read-only public links with optional passwords and expiration, view download counts, and revoke links.
+- Create read-only public links with optional passwords, expiration, download limits, and a preview-only mode. Edit or revoke them later.
+- Request files: share an upload link so people without an account can add files to a folder without seeing its contents.
 - Manage users, groups, account roles, disabled accounts, and password resets from Settings → Administration.
 - Connect WebDAV clients with individually revocable app passwords.
 - Choose built-in light and dark themes, import VS Code themes, or find community themes on Open VSX.
@@ -201,13 +202,17 @@ Homes live in a `homes` folder at the data root, one folder per account. The fol
 
 Permissions apply to descendants and are additive. User and group grants combine using the strongest matching permission. A narrower grant cannot reduce access inherited from a parent. Remove the parent or group grant to remove that inherited access. A folder administrator is distinct from a server administrator.
 
-Manage links you created under **Shared → Public links**.
+Manage links you created under **Shared → Public links** and **Shared → File requests**.
 
 Public links grant read-only access and work without a Nimbus account. A link to a folder also exposes its descendants. Password-protected links unlock for one hour in that browser. Revoking or expiring a link prevents future requests; downloaded copies remain with the recipient. Links also stop working when their creator loses sharing permission or is disabled.
 
 Public links, direct grants, and stars follow an item, and its descendants, when it is renamed or moved through Nimbus or WebDAV. Inherited access does not: after a move, the item loses the permissions it inherited from its old parent folders and gains those of its destination. Moving a folder therefore requires Admin permission on it. Records left at a destination by content removed outside Nimbus are discarded, so they never attach to arriving content.
 
 Moving an item to trash suspends its public links, direct grants, and stars. They do not apply to anything created at the old path in the meantime. Restoring the item returns them unchanged, except for those belonging to accounts or groups removed in the meantime. Permanently deleting the item, including automatic deletion after 30 days, discards them. Changes made outside Nimbus, such as renaming a folder on the host, are not tracked; links and grants stay with the old path.
+
+Select **Edit** on a public link to change its password, expiry, download limit, or mode without changing its address. A new or removed password ends earlier unlocks. A download limit counts each transfer of a file or ZIP, including opening a preview; resumed downloads and video seeking do not count again. Once the limit is used, the link stops working until you raise it. **Preview only** removes download and ZIP actions and refuses files the browser cannot preview. It is not copy protection: anything a browser displays can still be saved.
+
+To request files, open a folder's **Share** action and select **Request files**. Anyone with the upload link can add files to that folder. They cannot list, open, replace, or delete anything, including their own uploads. A file with a taken name gets a number added. Optional settings are a password, an expiry, a note shown to uploaders, a largest file size, a number of files, and a total size. Uploads are resumable; unfinished uploads count toward the limits for up to a day, then their space is released. Each link accepts at most 20 uploads at a time, and uploads are refused when less than 1 GB of disk space would remain. Upload links stop working under the same conditions as public links. Files uploaded through a link belong to the folder like any other file.
 
 ## Trash and retention
 
