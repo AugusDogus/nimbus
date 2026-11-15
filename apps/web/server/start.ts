@@ -23,6 +23,7 @@ import { AuditRetention, createAuditSink, purgeAuditEvents } from "./audit-log";
 import { ClientIp, clientIpHeader, TrustedProxies } from "./client-ip";
 import { mailConfig } from "./mail";
 import { nonceHeader, SecurityHeaders } from "./security-headers";
+import { backups, backupsToKeep } from "./backup";
 
 const port = Number(process.env.PORT ?? "3000");
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -53,9 +54,13 @@ const securityMode = {
   https: origin.protocol === "https:",
 };
 const commonHeaders = Object.entries(SecurityHeaders.common(securityMode));
+backupsToKeep();
 await migrate(db, {
   migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
 });
+// WAL lets online backups read a snapshot while requests keep writing. The
+// mode is stored in the database file, so this applies to every connection.
+await client.execute("PRAGMA journal_mode = WAL");
 setAuditSink(createAuditSink(db));
 const store = createDriveStore(db);
 for (const home of await Homes.backfill(store))
@@ -169,6 +174,14 @@ function cleanup() {
     .catch((error: unknown) =>
       console.error(
         "Nimbus retention cleanup failed. Remaining items will be retried in one hour.",
+        error,
+      ),
+    )
+    .then(() => backups().runIfDue())
+    .then(() => undefined)
+    .catch((error: unknown) =>
+      console.error(
+        "Nimbus daily database backup failed. The database and earlier backups are unchanged; it will be retried in one hour.",
         error,
       ),
     )
