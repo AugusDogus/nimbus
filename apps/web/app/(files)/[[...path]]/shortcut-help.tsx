@@ -25,7 +25,16 @@ function Keys({ keys }: { keys: readonly string[] }) {
 }
 
 /** Keyboard shortcuts for the file collection. Opened with `?` while an entry has focus. */
-export function ShortcutHelp({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function ShortcutHelp({
+  open,
+  onOpenChange,
+  onClosed,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Return focus to the entry that opened the sheet; it has no trigger button to return to. */
+  onClosed: () => void;
+}) {
   const mac = useSyncExternalStore(subscribe, macSnapshot, () => false);
   const mod = mac ? "⌘" : "Ctrl";
   const shortcuts: { label: string; keys: string[] }[] = [
@@ -46,7 +55,12 @@ export function ShortcutHelp({ open, onOpenChange }: { open: boolean; onOpenChan
   ];
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          onClosed();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
           <DialogDescription>These work while a file or folder has focus.</DialogDescription>

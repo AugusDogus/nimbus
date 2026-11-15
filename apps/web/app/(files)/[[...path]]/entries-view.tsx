@@ -277,7 +277,8 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
     const selected = selection.paths.has(entry.path);
     const isImage = view === "grid" && entry.type === "file" && imagePattern.test(entry.name);
     const Icon = entry.type === "dir" ? Folder : FileText;
-    const dragProps = isMobile ? {} : drag.getDragProps(entry, () => targetsFor(entry));
+    // Touch moves use the Move action: a long press selects instead of starting a drag.
+    const dragProps = isMobile ? { draggable: false } : drag.getDragProps(entry, () => targetsFor(entry));
     const check = (
       <span
         data-entry-check
@@ -460,7 +461,14 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
         })}
       </div>
       {bar && (selectionSlot ? createPortal(bar, selectionSlot) : bar)}
-      <ShortcutHelp open={helpOpen} onOpenChange={setHelpOpen} />
+      <ShortcutHelp
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        onClosed={() => {
+          if (!focusPath) return;
+          containerRef.current?.querySelector<HTMLElement>(`[data-entry-path="${CSS.escape(focusPath)}"]`)?.focus();
+        }}
+      />
       {dialog?.action === "preview" ? (
         <PreviewDialog entry={dialog.entry} onClose={() => setDialog(null)} />
       ) : dialog?.action === "share" ? (

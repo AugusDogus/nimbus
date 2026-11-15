@@ -13,6 +13,9 @@ export const fullRenderLimit = 300;
 
 // Scroll positions by folder and view, kept for client-side navigation within this tab.
 const savedScroll = new Map<string, number>();
+// The first list after a page load hydrates under whatever scroll position the browser or the user
+// already set. Later lists come from client-side navigation and start at the top.
+let navigated = false;
 
 function scrollParent(element: HTMLElement): HTMLElement {
   for (let parent = element.parentElement; parent; parent = parent.parentElement) {
@@ -74,7 +77,10 @@ export function useVirtualRows<T>({
     if (!container) return;
     const scroller = scrollParent(container);
     scrollerRef.current = scroller;
-    scroller.scrollTop = savedScroll.get(restoreKey) ?? 0;
+    const saved = savedScroll.get(restoreKey);
+    if (saved !== undefined) scroller.scrollTop = saved;
+    else if (navigated) scroller.scrollTop = 0;
+    navigated = true;
     let frame = 0;
     const schedule = () => {
       if (frame) return;

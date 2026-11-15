@@ -49,6 +49,11 @@ export function SelectionBar({
     <div
       role="toolbar"
       aria-label="Selected items"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        onClear();
+      }}
       className={cn(
         "z-20 flex items-center gap-1 bg-background",
         floating
