@@ -9,7 +9,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export const auditActions = [
   "auth.sign_in",
   "auth.sign_in_failed",
-  "auth.sign_out",
   "auth.rate_limited",
   "auth.password_changed",
   "auth.password_reset_requested",

@@ -4,7 +4,14 @@
 // See public/licenses/t3-code/NOTICE.
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Cable, Palette, UserRound, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  Cable,
+  Palette,
+  ScrollText,
+  UserRound,
+  Users,
+} from "lucide-react";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { NimbusWordmark } from "@/components/nimbus-wordmark";
 import {
@@ -43,6 +50,12 @@ export const settingsPages = [
     href: "/settings/admin",
     label: "Users & groups",
     icon: Users,
+    section: "Administration",
+  },
+  {
+    href: "/settings/admin/audit",
+    label: "Audit log",
+    icon: ScrollText,
     section: "Administration",
   },
 ] as const;

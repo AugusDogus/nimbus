@@ -2,7 +2,9 @@
 
 import {
   KeyRound,
+  LogOut,
   MoreHorizontal,
+  RotateCcwKey,
   Shield,
   ShieldOff,
   UserRound,
@@ -10,6 +12,7 @@ import {
   UserRoundX,
 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { securityClient } from "@/lib/security-client";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -98,6 +101,49 @@ export function UserList({
                 >
                   <KeyRound />
                   Reset password
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    onConfirm({
+                      title: "Reset sign-in methods?",
+                      description: `${user.email} will lose two-factor authentication, recovery codes, passkeys and trusted browsers, and will be signed out everywhere. They can then sign in with their password and set these up again. WebDAV app passwords and files are not affected.`,
+                      action: async () => {
+                        const result =
+                          await securityClient.nimbus.admin.resetSecondFactors({
+                            userId: user.id,
+                          });
+                        if (result.error)
+                          throw new Error(
+                            result.error.message ??
+                              "Sign-in methods could not be reset. Nothing was changed.",
+                          );
+                      },
+                    })
+                  }
+                >
+                  <RotateCcwKey />
+                  Reset sign-in methods
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    onConfirm({
+                      title: "Sign out everywhere?",
+                      description: `Every browser signed in as ${user.email} will need to sign in again. WebDAV app passwords keep working; revoking them requires the account owner or disabling the account.`,
+                      action: async () => {
+                        const result = await authClient.admin.revokeUserSessions({
+                          userId: user.id,
+                        });
+                        if (result.error)
+                          throw new Error(
+                            result.error.message ??
+                              "The sessions could not be signed out. Try again.",
+                          );
+                      },
+                    })
+                  }
+                >
+                  <LogOut />
+                  Sign out everywhere
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => {
