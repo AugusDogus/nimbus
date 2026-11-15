@@ -25,6 +25,8 @@ export const trash = sqliteTable("nimbus_trash", {
   id: text("id").primaryKey(), path: text("path").notNull(),
   deletedBy: text("deleted_by").notNull().references(() => user.id),
   deletedAt: integer("deleted_at").notNull(), expiresAt: integer("expires_at").notNull(),
+  /** JSON links, direct grants, and bookmarks detached from the item's path until it is restored. */
+  detachedAccess: text("detached_access").notNull().default('{"grants":[],"shares":[],"bookmarks":[]}'),
 });
 export const bookmarks = sqliteTable("nimbus_bookmark", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),

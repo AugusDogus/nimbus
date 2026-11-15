@@ -1,6 +1,11 @@
-import { and, eq, inArray, or, sql } from "drizzle-orm";
-import type { DriveStore, Grant } from "@nimbus/api/drive-store";
-import { isWithinPath } from "@nimbus/api/safe-path";
+import { and, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { z } from "zod";
+import {
+  permissionSchema,
+  type DriveStore,
+  type Grant,
+} from "@nimbus/api/drive-store";
 import type { db } from "./db";
 import {
   appPasswords,
@@ -22,6 +27,78 @@ const toGrant = (row: typeof grants.$inferSelect): Grant => ({
       ? { type: "user", id: row.subjectId }
       : { type: "group", id: row.subjectId },
 });
+
+type Transaction = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
+
+/** Records detached from a trashed item's path, persisted as JSON on its trash row. */
+const detachedAccessSchema = z.object({
+  grants: z.array(
+    z.object({
+      id: z.string(),
+      subjectType: z.enum(["user", "group"]),
+      subjectId: z.string(),
+      path: z.string(),
+      permission: permissionSchema,
+    }),
+  ),
+  shares: z.array(
+    z.object({
+      id: z.string(),
+      token: z.string(),
+      path: z.string(),
+      createdBy: z.string(),
+      createdAt: z.number(),
+      expiresAt: z.number().nullable(),
+      passwordHash: z.string().nullable(),
+      downloadCount: z.number(),
+    }),
+  ),
+  bookmarks: z.array(
+    z.object({
+      userId: z.string(),
+      path: z.string(),
+      starred: z.boolean(),
+      accessedAt: z.number(),
+    }),
+  ),
+});
+type DetachedAccess = z.infer<typeof detachedAccessSchema>;
+
+const trashColumns = {
+  id: trash.id,
+  path: trash.path,
+  deletedBy: trash.deletedBy,
+  deletedAt: trash.deletedAt,
+  expiresAt: trash.expiresAt,
+};
+
+/** Match a path and its descendants. Comparing a prefix keeps SQL wildcard characters literal. */
+function atOrUnder(column: SQLiteColumn, path: string): SQL {
+  if (!path)
+    throw new Error(
+      "Nimbus refused to rewrite sharing records for the drive root. The root cannot be moved or trashed; no records were changed.",
+    );
+  return or(
+    eq(column, path),
+    sql`substr(${column}, 1, length(${path}) + 1) = ${path} || '/'`,
+  ) ?? sql`0`;
+}
+
+/** Delete and return every link, grant, and bookmark at or under a path. */
+async function detach(tx: Transaction, path: string): Promise<DetachedAccess> {
+  const detached = {
+    grants: await tx.select().from(grants).where(atOrUnder(grants.path, path)),
+    shares: await tx.select().from(shares).where(atOrUnder(shares.path, path)),
+    bookmarks: await tx
+      .select()
+      .from(bookmarks)
+      .where(atOrUnder(bookmarks.path, path)),
+  };
+  await tx.delete(grants).where(atOrUnder(grants.path, path));
+  await tx.delete(shares).where(atOrUnder(shares.path, path));
+  await tx.delete(bookmarks).where(atOrUnder(bookmarks.path, path));
+  return detached;
+}
 
 export function createDriveStore(database: typeof db): DriveStore {
   return {
@@ -152,18 +229,63 @@ export function createDriveStore(database: typeof db): DriveStore {
         .where(eq(shares.id, id));
     },
     async addTrash(item) {
-      await database.insert(trash).values(item);
+      await database.transaction(async (tx) => {
+        const detached = await detach(tx, item.path);
+        await tx
+          .insert(trash)
+          .values({ ...item, detachedAccess: JSON.stringify(detached) });
+      });
     },
     async getTrash(id) {
       return (
-        (await database.select().from(trash).where(eq(trash.id, id)))[0] ?? null
+        (
+          await database.select(trashColumns).from(trash).where(eq(trash.id, id))
+        )[0] ?? null
       );
     },
     async listTrash(userId) {
       return database
-        .select()
+        .select(trashColumns)
         .from(trash)
         .where(userId === null ? undefined : eq(trash.deletedBy, userId));
+    },
+    async restoreTrash(id) {
+      await database.transaction(async (tx) => {
+        const [item] = await tx.select().from(trash).where(eq(trash.id, id));
+        if (!item) return;
+        const parsed = detachedAccessSchema.safeParse(
+          JSON.parse(item.detachedAccess),
+        );
+        if (!parsed.success)
+          throw new Error(
+            `Nimbus could not read the saved sharing records for trash item ${id} (${item.path}): ${parsed.error.message}. The item is still in trash; restore was not completed.`,
+          );
+        // Records now at the vacant path were left by content removed outside Nimbus.
+        await detach(tx, item.path);
+        const userIds = new Set(
+          (await tx.select({ id: user.id }).from(user)).map((row) => row.id),
+        );
+        const groupIds = new Set(
+          (await tx.select({ id: groups.id }).from(groups)).map((row) => row.id),
+        );
+        // Accounts and groups removed while the item was in trash lose their records.
+        const restoredGrants = parsed.data.grants.filter((row) =>
+          (row.subjectType === "user" ? userIds : groupIds).has(row.subjectId),
+        );
+        const restoredShares = parsed.data.shares.filter((row) =>
+          userIds.has(row.createdBy),
+        );
+        const restoredBookmarks = parsed.data.bookmarks.filter((row) =>
+          userIds.has(row.userId),
+        );
+        if (restoredGrants.length)
+          await tx.insert(grants).values(restoredGrants);
+        if (restoredShares.length)
+          await tx.insert(shares).values(restoredShares);
+        if (restoredBookmarks.length)
+          await tx.insert(bookmarks).values(restoredBookmarks);
+        await tx.delete(trash).where(eq(trash.id, id));
+      });
     },
     async removeTrash(id) {
       await database.delete(trash).where(eq(trash.id, id));
@@ -207,31 +329,23 @@ export function createDriveStore(database: typeof db): DriveStore {
         .delete(appPasswords)
         .where(and(eq(appPasswords.id, id), eq(appPasswords.userId, userId)));
     },
-    async forgetPath(path) {
+    async movePath(from, to) {
       await database.transaction(async (tx) => {
-        // Compare path segments in JS so SQL wildcard characters in filenames stay literal.
-        const matchingGrants = (await tx.select().from(grants))
-          .filter((row) => isWithinPath(path, row.path))
-          .map((row) => row.id);
-        const matchingShares = (await tx.select().from(shares))
-          .filter((row) => isWithinPath(path, row.path))
-          .map((row) => row.id);
-        const matchingBookmarks = (await tx.select().from(bookmarks)).filter(
-          (row) => isWithinPath(path, row.path),
-        );
-        if (matchingGrants.length)
-          await tx.delete(grants).where(inArray(grants.id, matchingGrants));
-        if (matchingShares.length)
-          await tx.delete(shares).where(inArray(shares.id, matchingShares));
-        for (const row of matchingBookmarks)
-          await tx
-            .delete(bookmarks)
-            .where(
-              and(
-                eq(bookmarks.userId, row.userId),
-                eq(bookmarks.path, row.path),
-              ),
-            );
+        await detach(tx, to);
+        const moved = (column: SQLiteColumn) =>
+          sql`${to} || substr(${column}, length(${from}) + 1)`;
+        await tx
+          .update(grants)
+          .set({ path: moved(grants.path) })
+          .where(atOrUnder(grants.path, from));
+        await tx
+          .update(shares)
+          .set({ path: moved(shares.path) })
+          .where(atOrUnder(shares.path, from));
+        await tx
+          .update(bookmarks)
+          .set({ path: moved(bookmarks.path) })
+          .where(atOrUnder(bookmarks.path, from));
       });
     },
   };

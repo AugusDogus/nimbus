@@ -66,12 +66,63 @@ describe("drive workflows", () => {
     expect(await readFile(path.join(root, "docs/report.txt"), "utf8")).toBe("report");
     expect(await caller().trash.list()).toEqual([]);
   });
-  it("revokes share links when a file is moved and preserves unrelated links", async () => {
+  it("keeps links, direct grants, and stars on renamed items", async () => {
     const moved = await caller().shares.create({ path: "docs/report.txt", expiresAt: null, password: "test-password" });
     const kept = await caller().shares.create({ path: "private.txt", expiresAt: null });
+    await caller().access.grant({ path: "docs/report.txt", subject: { type: "user", id: "reader" }, permission: "read" });
+    await caller().catalog.bookmark({ path: "docs/report.txt", starred: true });
     await caller().files.rename({ path: "docs/report.txt", newName: "renamed.txt" });
-    expect(await memory.store.getShare(moved.token)).toBeNull();
-    expect(await memory.store.getShare(kept.token)).not.toBeNull();
+    expect((await memory.store.getShare(moved.token))?.path).toBe("docs/renamed.txt");
+    expect((await memory.store.getShare(kept.token))?.path).toBe("private.txt");
+    expect((await caller("reader").catalog.shared()).map((entry) => entry.path)).toEqual(["docs/renamed.txt"]);
+    expect((await caller().catalog.bookmarks()).map((entry) => [entry.path, entry.starred])).toEqual([["docs/renamed.txt", true]]);
+  });
+  it("moves descendant grants with a folder while the destination's inherited access replaces the source's", async () => {
+    await mkdir(path.join(root, "archive"));
+    await caller().access.grant({ path: "docs", subject: { type: "user", id: "reader" }, permission: "read" });
+    await mkdir(path.join(root, "docs", "team"));
+    await caller().access.grant({ path: "docs/team", subject: { type: "user", id: "reader" }, permission: "write" });
+    await caller().files.move({ sourcePath: "docs/report.txt", destinationPath: "archive" });
+    // Read access inherited from the source folder does not follow the file.
+    await expect(caller("reader").files.list({ path: "archive" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await caller().files.move({ sourcePath: "docs", destinationPath: "archive" });
+    // Direct grants on the moved folder and its descendants travel with it.
+    await caller("reader").files.createFolder({ path: "archive/docs/team", name: "notes" });
+    expect((await caller("reader").files.list({ path: "archive/docs" })).map((entry) => entry.name)).toEqual(["team"]);
+    expect((await caller().access.permissions({ path: "archive/docs/team" })).map((grant) => grant.permission)).toEqual(["write"]);
+    expect(await caller().access.permissions({ path: "docs" })).toEqual([]);
+  });
+  it("does not let records left at a vacant destination attach to arriving content", async () => {
+    await caller().access.grant({ path: "private.txt", subject: { type: "user", id: "reader" }, permission: "read" });
+    await rm(path.join(root, "private.txt")); // Deleted outside Nimbus, leaving a stale grant.
+    await caller().files.move({ sourcePath: "docs/report.txt", destinationPath: "" });
+    await caller().files.rename({ path: "report.txt", newName: "private.txt" });
+    await expect(caller("reader").files.list({ path: "" })).resolves.toEqual([]);
+  });
+  it("detaches sharing while an item is in trash and restores it with the item", async () => {
+    const link = await caller().shares.create({ path: "docs", expiresAt: null });
+    await caller().access.grant({ path: "docs/report.txt", subject: { type: "user", id: "reader" }, permission: "read" });
+    await caller().catalog.bookmark({ path: "docs", starred: true });
+    await caller().files.delete({ path: "docs" });
+    expect(await memory.store.getShare(link.token)).toBeNull();
+    expect(await caller("reader").catalog.shared()).toEqual([]);
+    expect(await caller().catalog.bookmarks()).toEqual([]);
+    const [item] = await caller().trash.list();
+    if (!item) throw new Error("Expected a trash item");
+    expect(JSON.stringify(item)).not.toContain(link.token);
+    await caller().trash.restore({ id: item.id });
+    expect((await memory.store.getShare(link.token))?.path).toBe("docs");
+    expect((await caller("reader").catalog.shared()).map((entry) => entry.path)).toEqual(["docs/report.txt"]);
+    expect((await caller().catalog.bookmarks()).map((entry) => entry.path)).toEqual(["docs"]);
+  });
+  it("discards detached sharing when trash is permanently deleted", async () => {
+    const link = await caller().shares.create({ path: "private.txt", expiresAt: null });
+    await caller().files.delete({ path: "private.txt" });
+    const [item] = await caller().trash.list();
+    if (!item) throw new Error("Expected a trash item");
+    await caller().trash.purge({ id: item.id });
+    await writeFile(path.join(root, "private.txt"), "new content");
+    expect(await memory.store.getShare(link.token)).toBeNull();
   });
   it("searches only accessible files and keeps password hashes out of API responses", async () => {
     await caller().access.grant({ path: "docs", subject: { type: "user", id: "reader" }, permission: "read" });

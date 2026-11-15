@@ -139,7 +139,9 @@ Manage links you created under **Shared → Public links**.
 
 Public links grant read-only access and work without a Nimbus account. A link to a folder also exposes its descendants. Password-protected links unlock for one hour in that browser. Revoking or expiring a link prevents future requests; downloaded copies remain with the recipient. Links also stop working when their creator loses sharing permission or is disabled.
 
-Renaming, moving, or trashing an item removes its public links, direct grants, and bookmarks, including those on descendants. Its destination's inherited permissions apply after a move. Restoring from trash does not recreate old links or direct grants.
+Public links, direct grants, and stars follow an item, and its descendants, when it is renamed or moved through Nimbus or WebDAV. Inherited access does not: after a move, the item loses the permissions it inherited from its old parent folders and gains those of its destination. Moving a folder therefore requires Admin permission on it. Records left at a destination by content removed outside Nimbus are discarded, so they never attach to arriving content.
+
+Moving an item to trash suspends its public links, direct grants, and stars. They do not apply to anything created at the old path in the meantime. Restoring the item returns them unchanged, except for those belonging to accounts or groups removed in the meantime. Permanently deleting the item, including automatic deletion after 30 days, discards them. Changes made outside Nimbus, such as renaming a folder on the host, are not tracked; links and grants stay with the old path.
 
 ## Trash and retention
 

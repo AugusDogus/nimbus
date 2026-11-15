@@ -85,7 +85,7 @@ export function EditEntryDialog({
             </AlertDialogTitle>
             <AlertDialogDescription>
               “{entry.name}” will stay in trash for 30 days. Its share links and
-              direct permissions will be removed.
+              direct permissions stop working until it is restored.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {error && (
@@ -128,8 +128,9 @@ export function EditEntryDialog({
               {action === "rename" ? "Rename" : "Move"}
             </DialogTitle>
             <DialogDescription>
-              {entry.name}. Existing share links and direct grants will be
-              removed after the change.
+              {action === "rename"
+                ? `${entry.name}. Share links, direct permissions, and stars stay with it.`
+                : `${entry.name}. Share links, direct permissions, and stars move with it. Access inherited from its current folder is replaced by the destination folder's.`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4">

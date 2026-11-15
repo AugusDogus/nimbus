@@ -1,0 +1,120 @@
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createClient, type Client } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
+import { migrate } from "drizzle-orm/libsql/migrator";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import type { DriveStore } from "@nimbus/api/drive-store";
+import { createDriveStore } from "./drive-store";
+import * as schema from "./db/schema";
+
+const migrationsFolder = fileURLToPath(new URL("../drizzle", import.meta.url));
+let client: Client;
+let store: DriveStore;
+let directory: string;
+
+beforeEach(async () => {
+  // libsql opens a fresh connection after each transaction, so an in-memory database would vanish.
+  directory = await mkdtemp(path.join(os.tmpdir(), "nimbus-store-"));
+  client = createClient({ url: `file:${path.join(directory, "db.sqlite")}` });
+  const database = drizzle(client, { schema });
+  await migrate(database, { migrationsFolder });
+  await client.execute(
+    "INSERT INTO user (id, name, email, role) VALUES ('owner', 'Owner', 'owner@example.test', 'admin'), ('reader', 'Reader', 'reader@example.test', 'user')",
+  );
+  store = createDriveStore(database);
+});
+afterEach(async () => {
+  client.close();
+  await rm(directory, { recursive: true, force: true });
+});
+
+const share = (id: string, path: string) => ({
+  id,
+  token: `token-${id}`,
+  path,
+  createdBy: "owner",
+  createdAt: 1,
+  expiresAt: null,
+  passwordHash: null,
+  downloadCount: 0,
+});
+const grant = (id: string, path: string) => ({
+  id,
+  path,
+  subject: { type: "user" as const, id: "reader" },
+  permission: "read" as const,
+});
+const paths = async () => ({
+  grants: (await store.grantsForUser("reader")).map((row) => row.path).sort(),
+  shares: (await store.listShares("owner")).map((row) => row.path).sort(),
+  bookmarks: (await store.listBookmarks("reader")).map((row) => row.path).sort(),
+});
+
+test("movePath rewrites records at and under the source, treating SQL wildcards and sibling prefixes literally", async () => {
+  for (const [index, path] of ["a_%", "a_%/child 😀/x", "a_%b", "aX%", "other"].entries()) {
+    await store.saveGrant(grant(`g${index}`, path));
+    await store.createShare(share(`s${index}`, path));
+    await store.saveBookmark("reader", { path, starred: true, accessedAt: 1 });
+  }
+  await store.movePath("a_%", "moved/😀 b");
+  const expected = ["aX%", "a_%b", "moved/😀 b", "moved/😀 b/child 😀/x", "other"];
+  expect(await paths()).toEqual({ grants: expected, shares: expected, bookmarks: expected });
+});
+
+test("movePath drops records left at the vacant destination instead of attaching them to arriving content", async () => {
+  await store.saveGrant(grant("stale", "target"));
+  await store.saveGrant(grant("stale-child", "target/old"));
+  await store.createShare(share("stale", "target"));
+  await store.saveBookmark("reader", { path: "target", starred: true, accessedAt: 1 });
+  await store.saveGrant(grant("moving", "source"));
+  await store.movePath("source", "target");
+  expect((await store.grantsForUser("reader")).map((row) => row.id)).toEqual(["moving"]);
+  expect(await store.listShares("owner")).toEqual([]);
+  expect(await store.listBookmarks("reader")).toEqual([]);
+});
+
+test("trash detaches records, hides them from listings, and restores them with the item", async () => {
+  await store.saveGrant(grant("inside", "docs/report.txt"));
+  await store.saveGrant(grant("outside", "docs-old"));
+  await store.createShare({ ...share("inside", "docs"), passwordHash: "secret-hash" });
+  await store.saveBookmark("reader", { path: "docs", starred: true, accessedAt: 5 });
+  const item = { id: "trash-1", path: "docs", deletedBy: "owner", deletedAt: 1, expiresAt: 2 };
+  await store.addTrash(item);
+  expect(await paths()).toEqual({ grants: ["docs-old"], shares: [], bookmarks: [] });
+  expect(await store.getShare("token-inside")).toBeNull();
+  expect(await store.listTrash(null)).toEqual([item]);
+  expect(await store.getTrash("trash-1")).toEqual(item);
+  // A grant created at the vacant path while the item was in trash must not survive restoration.
+  await store.saveGrant({ ...grant("intruder", "docs"), permission: "admin" });
+  await store.restoreTrash("trash-1");
+  expect(await store.listTrash(null)).toEqual([]);
+  expect(await paths()).toEqual({ grants: ["docs-old", "docs/report.txt"], shares: ["docs"], bookmarks: ["docs"] });
+  expect((await store.getShare("token-inside"))?.passwordHash).toBe("secret-hash");
+  expect(await store.listBookmarks("reader")).toMatchObject([{ path: "docs", starred: true, accessedAt: 5 }]);
+});
+
+test("restoring skips records whose account or group was removed while the item was in trash", async () => {
+  await client.execute("INSERT INTO user (id, name, email) VALUES ('gone', 'Gone', 'gone@example.test')");
+  await store.saveGroup({ id: "team", name: "Team", memberIds: ["reader"] });
+  await store.saveGrant({ ...grant("group", "docs"), subject: { type: "group", id: "team" } });
+  await store.saveGrant({ ...grant("user", "docs"), subject: { type: "user", id: "gone" } });
+  await store.createShare({ ...share("gone", "docs"), createdBy: "gone" });
+  await store.saveBookmark("gone", { path: "docs", starred: true, accessedAt: 1 });
+  await store.addTrash({ id: "trash-2", path: "docs", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  await client.execute("DELETE FROM user WHERE id = 'gone'");
+  await store.removeGroup("team");
+  await store.restoreTrash("trash-2");
+  expect(await store.grantsForPath("docs")).toEqual([]);
+  expect(await store.getShare("token-gone")).toBeNull();
+});
+
+test("removing trash discards its detached records", async () => {
+  await store.createShare(share("purged", "file.txt"));
+  await store.addTrash({ id: "trash-3", path: "file.txt", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  await store.removeTrash("trash-3");
+  await store.restoreTrash("trash-3");
+  expect(await store.getShare("token-purged")).toBeNull();
+});

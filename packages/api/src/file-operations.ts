@@ -75,7 +75,9 @@ async function moveUnlocked(
   requireMutable(target.relative);
   access.require(source.relative, "write");
   access.require(target.relative, "write");
-  // Moving a subtree can expose content at its destination, so it requires control of its sharing.
+  // A moved item keeps its own links, direct grants, and bookmarks, but stops inheriting from its
+  // source's ancestors and inherits from its destination's instead. That can expose a whole
+  // subtree to new people, so moving a folder requires control of its sharing.
   const existing = await requireExisting(source.relative);
   if (existing.stats.isDirectory()) access.require(source.relative, "admin");
   if (isWithinPath(source.relative, target.relative))
@@ -86,7 +88,7 @@ async function moveUnlocked(
   await requireUnused(target.absolute);
   await rename(source.absolute, target.absolute);
   try {
-    await store.forgetPath(source.relative);
+    await store.movePath(source.relative, target.relative);
   } catch (error) {
     await rename(target.absolute, source.absolute);
     throw error;
@@ -121,14 +123,7 @@ async function trashUnlocked(
   try {
     await rename(target.absolute, destination);
   } catch (error) {
-    await store.removeTrash(id);
-    throw error;
-  }
-  try {
-    await store.forgetPath(target.relative);
-  } catch (error) {
-    await rename(destination, target.absolute);
-    await store.removeTrash(id);
+    await store.restoreTrash(id);
     throw error;
   }
   forgetFileLocks(target.relative);
@@ -167,7 +162,7 @@ async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
   const source = path.join(getDataRoot(), ".nimbus", "trash", item.id);
   await rename(source, target.absolute);
   try {
-    await store.removeTrash(id);
+    await store.restoreTrash(id);
   } catch (error) {
     await rename(target.absolute, source);
     throw error;

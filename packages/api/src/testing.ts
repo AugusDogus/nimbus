@@ -7,6 +7,7 @@ export function createTestDriveStore() {
   const groups = new Map<string, Group>();
   const shares = new Map<string, Share>();
   const trash = new Map<string, TrashItem>();
+  const detached = new Map<string, { grants: Grant[]; shares: Share[]; bookmarks: [string, Bookmark][] }>();
   const bookmarks = new Map<string, Bookmark[]>();
   const passwords = new Map<string, AppPassword>();
   const store: DriveStore = {
@@ -24,21 +25,44 @@ export function createTestDriveStore() {
     async listShares(userId) { return [...shares.values()].filter((share) => share.createdBy === userId); },
     async revokeShare(id, userId) { for (const [token, share] of shares) if (share.id === id && share.createdBy === userId) shares.delete(token); },
     async countDownload(id) { for (const share of shares.values()) if (share.id === id) share.downloadCount++; },
-    async addTrash(item) { trash.set(item.id, item); },
+    async addTrash(item) { trash.set(item.id, item); detached.set(item.id, take(item.path)); },
     async getTrash(id) { return trash.get(id) ?? null; },
     async listTrash(userId) { return [...trash.values()].filter((item) => userId === null || item.deletedBy === userId); },
-    async removeTrash(id) { trash.delete(id); },
+    async restoreTrash(id) {
+      const item = trash.get(id);
+      const records = detached.get(id);
+      trash.delete(id); detached.delete(id);
+      if (!item || !records) return;
+      take(item.path);
+      for (const grant of records.grants) grants.set(grant.id, grant);
+      for (const share of records.shares) shares.set(share.token, share);
+      for (const [userId, bookmark] of records.bookmarks) bookmarks.set(userId, [...(bookmarks.get(userId) ?? []), bookmark]);
+    },
+    async removeTrash(id) { trash.delete(id); detached.delete(id); },
     async listBookmarks(userId) { return bookmarks.get(userId) ?? []; },
     async saveBookmark(userId, bookmark) { bookmarks.set(userId, [...(bookmarks.get(userId) ?? []).filter((entry) => entry.path !== bookmark.path), bookmark]); },
     async listAppPasswords(userId) { return [...passwords.values()].filter((password) => password.userId === userId); },
     async addAppPassword(password) { passwords.set(password.id, password); },
     async findAppPassword(hash) { return [...passwords.values()].find((password) => password.tokenHash === hash) ?? null; },
     async removeAppPassword(id, userId) { if (passwords.get(id)?.userId === userId) passwords.delete(id); },
-    async forgetPath(path) {
-      for (const [id, grant] of grants) if (isWithinPath(path, grant.path)) grants.delete(id);
-      for (const [token, share] of shares) if (isWithinPath(path, share.path)) shares.delete(token);
-      for (const [userId, entries] of bookmarks) bookmarks.set(userId, entries.filter((entry) => !isWithinPath(path, entry.path)));
+    async movePath(from, to) {
+      take(to);
+      const moved = (value: string) => isWithinPath(from, value) ? to + value.slice(from.length) : value;
+      for (const grant of grants.values()) grant.path = moved(grant.path);
+      for (const share of shares.values()) share.path = moved(share.path);
+      for (const entries of bookmarks.values()) for (const entry of entries) entry.path = moved(entry.path);
     },
   };
+  /** Remove and return every record at or under a path. */
+  function take(path: string) {
+    const taken: { grants: Grant[]; shares: Share[]; bookmarks: [string, Bookmark][] } = { grants: [], shares: [], bookmarks: [] };
+    for (const [id, grant] of grants) if (isWithinPath(path, grant.path)) { taken.grants.push(grant); grants.delete(id); }
+    for (const [token, share] of shares) if (isWithinPath(path, share.path)) { taken.shares.push(share); shares.delete(token); }
+    for (const [userId, entries] of bookmarks) {
+      for (const entry of entries) if (isWithinPath(path, entry.path)) taken.bookmarks.push([userId, entry]);
+      bookmarks.set(userId, entries.filter((entry) => !isWithinPath(path, entry.path)));
+    }
+    return taken;
+  }
   return { store, users, grants, groups, shares, trash };
 }

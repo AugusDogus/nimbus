@@ -1,0 +1,1 @@
+ALTER TABLE `nimbus_trash` ADD `detached_access` text DEFAULT '{"grants":[],"shares":[],"bookmarks":[]}' NOT NULL;
