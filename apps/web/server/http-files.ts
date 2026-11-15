@@ -12,6 +12,7 @@ import { requireExisting } from "@nimbus/api/file-operations";
 import { auth } from "@/lib/auth";
 import { FileKind } from "@/lib/file-kind";
 import { db } from "./db";
+import { fileETag } from "./file-content";
 import { createDriveStore } from "./drive-store";
 
 export const httpDriveStore = createDriveStore(db);
@@ -35,6 +36,8 @@ const requestError = z.object({
     "TOO_MANY_REQUESTS",
     "INTERNAL_SERVER_ERROR",
     "BAD_REQUEST",
+    "PRECONDITION_FAILED",
+    "PAYLOAD_TOO_LARGE",
   ]),
   message: z.string(),
   name: z.string().optional(),
@@ -47,6 +50,8 @@ const errorStatuses = {
   TOO_MANY_REQUESTS: 429,
   INTERNAL_SERVER_ERROR: 500,
   BAD_REQUEST: 400,
+  PRECONDITION_FAILED: 412,
+  PAYLOAD_TOO_LARGE: 413,
 } as const;
 
 export function httpError(error: unknown) {
@@ -113,7 +118,7 @@ export async function serveFile(
     "Cache-Control": "private, no-store",
     "Content-Security-Policy": "sandbox; default-src 'none'",
     "Last-Modified": target.stats.mtime.toUTCString(),
-    ETag: `"${target.stats.mtimeMs}-${target.stats.size}"`,
+    ETag: fileETag(target.stats),
   });
   let start = 0;
   let end = target.stats.size - 1;

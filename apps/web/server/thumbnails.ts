@@ -17,8 +17,7 @@ export type ThumbnailSource = {
 };
 
 export type ThumbnailResult =
-  | { type: "ready"; body: Uint8Array }
-  | { type: "unavailable" };
+  { type: "ready"; body: Uint8Array } | { type: "unavailable" };
 
 /** Produces a WebP thumbnail. Abort means every requester left: stop work. */
 export type ThumbnailRenderer = (
@@ -119,7 +118,10 @@ function createLimiter(limit: number, maxQueued: number) {
 export function createThumbnailer({
   cacheDirectory,
   renderers,
-  concurrency = Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2))),
+  concurrency = Math.max(
+    1,
+    Math.min(4, Math.floor(availableParallelism() / 2)),
+  ),
   maxQueued = 256,
 }: {
   cacheDirectory: string;

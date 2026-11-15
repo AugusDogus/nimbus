@@ -39,8 +39,16 @@ export type FileKind =
   | { type: "text" }
   | { type: "other" };
 
-const image = (mime: string, thumbnail = true): FileKind => ({ type: "image", mime, thumbnail });
-const video = (mime: string, thumbnail = true): FileKind => ({ type: "video", mime, thumbnail });
+const image = (mime: string, thumbnail = true): FileKind => ({
+  type: "image",
+  mime,
+  thumbnail,
+});
+const video = (mime: string, thumbnail = true): FileKind => ({
+  type: "video",
+  mime,
+  thumbnail,
+});
 const audio = (mime: string): FileKind => ({ type: "audio", mime });
 const code = (language: CodeLanguage): FileKind => ({ type: "code", language });
 const text: FileKind = { type: "text" };

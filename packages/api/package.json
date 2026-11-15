@@ -22,7 +22,6 @@
     "./file-operations": "./src/file-operations.ts",
     "./file-browser": "./src/file-browser.ts",
     "./file-mutations": "./src/file-mutations.ts",
-    "./filesystem-capacity": "./src/filesystem-capacity.ts",
     "./homes": "./src/homes.ts",
     "./file-request": "./src/file-request.ts",
     "./file-request-testing": "./src/file-request-testing.ts",
