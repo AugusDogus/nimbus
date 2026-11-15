@@ -1,0 +1,363 @@
+import { z } from "zod";
+import { permissionFor } from "./access";
+import { entryAt } from "./file-browser";
+import { commitStagedFile, fileTag, readFileText, stageFile } from "./file-content";
+import { safePath } from "./file-operations";
+import { fileNameSchema } from "./file-name";
+import { McpScope } from "./mcp-scope";
+import {
+  additive,
+  defineTool,
+  destructive,
+  entryOutput,
+  idempotentChange,
+  isoTime,
+  pageInput,
+  pageOutput,
+  paginate,
+  pathInput,
+  readOnly,
+  toEntry,
+  toolFailure,
+} from "./mcp-tool";
+
+export const MAX_TEXT_READ_BYTES = 256 * 1024;
+export const MAX_TEXT_WRITE_BYTES = 4 * 1024 * 1024;
+
+const byFolderThenName = (a: { type: string; name: string }, b: { type: string; name: string }) =>
+  a.type === b.type ? a.name.localeCompare(b.name) : a.type === "dir" ? -1 : 1;
+
+const listFolder = defineTool({
+  name: "list_folder",
+  title: "List folder",
+  description:
+    'List the files and folders inside a folder, folders first. Use "" for the drive root. Returns pages; pass nextCursor to continue.',
+  scope: McpScope.read,
+  annotations: readOnly,
+  input: z.object({ path: pathInput.default(""), ...pageInput(100, 500) }),
+  output: z.object({ path: z.string(), entries: z.array(entryOutput), ...pageOutput }),
+  async run({ caller }, input) {
+    const target = await safePath(input.path);
+    const entries = await caller.files.list({ path: target.relative, includeStats: true });
+    const page = paginate([...entries].sort(byFolderThenName), input);
+    return { path: target.relative, entries: page.items.map(toEntry), nextCursor: page.nextCursor };
+  },
+});
+
+const stat = defineTool({
+  name: "get_item",
+  title: "Get item details",
+  description:
+    "Get one file or folder's size, modification time, version tag (etag), and what you may do with it.",
+  scope: McpScope.read,
+  annotations: readOnly,
+  input: z.object({ path: pathInput }),
+  output: entryOutput.extend({
+    etag: z.string().nullable().describe("Version tag of a file; pass to write_text as expectedEtag"),
+    canWrite: z.boolean(),
+    canShare: z.boolean(),
+  }),
+  async run({ access, caller }, input) {
+    const target = await safePath(input.path);
+    const current = await access();
+    if (!current.canBrowse(target.relative))
+      throw toolFailure("FORBIDDEN", "You do not have access to this item. Ask its owner to share it with you.");
+    const entry = await entryAt(target.relative);
+    const capabilities = await caller.access.capabilities({ path: target.relative });
+    return {
+      ...toEntry({ ...entry, permission: permissionFor(current, entry.path) }),
+      etag: entry.type === "file" ? fileTag(entry) : null,
+      canWrite: capabilities.canWrite,
+      canShare: capabilities.canShare,
+    };
+  },
+});
+
+const search = defineTool({
+  name: "search_files",
+  title: "Search files",
+  description:
+    "Find files and folders whose names contain the query (case-insensitive) under a folder you can read. Scans at most 10,000 items and 500 matches; truncated is true when the scan stopped early, so narrow the folder or query.",
+  scope: McpScope.read,
+  annotations: readOnly,
+  input: z.object({
+    query: z.string().trim().min(1).max(200),
+    path: pathInput.default("").describe("Folder to search under. Defaults to the whole drive."),
+    ...pageInput(50, 200),
+  }),
+  output: z.object({ entries: z.array(entryOutput), truncated: z.boolean(), ...pageOutput }),
+  async run({ caller }, input) {
+    const result = await caller.catalog.search({ query: input.query, path: input.path });
+    const page = paginate(result.entries, input);
+    return { entries: page.items.map(toEntry), truncated: result.truncated, nextCursor: page.nextCursor };
+  },
+});
+
+const readText = defineTool({
+  name: "read_text",
+  title: "Read text file",
+  description: `Read a UTF-8 text file in byte ranges of at most ${MAX_TEXT_READ_BYTES / 1024} KiB. Continue from nextOffset until it is null. Binary files are reported, not decoded; use get_download_link for them.`,
+  scope: McpScope.read,
+  annotations: readOnly,
+  input: z.object({
+    path: pathInput,
+    offset: z.number().int().min(0).default(0).describe("Byte offset: 0, or a nextOffset from a previous read"),
+    maxBytes: z.number().int().min(1).max(MAX_TEXT_READ_BYTES).default(64 * 1024),
+  }),
+  output: z.object({
+    path: z.string(),
+    size: z.number().describe("Total file size in bytes"),
+    etag: z.string(),
+    content: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("text"),
+        text: z.string(),
+        offset: z.number(),
+        nextOffset: z.number().nullable(),
+      }),
+      z.object({ kind: z.literal("binary"), hint: z.string() }),
+    ]),
+  }),
+  async run({ access }, input) {
+    const read = await readFileText(await access(), input.path, { offset: input.offset, maxBytes: input.maxBytes });
+    return {
+      path: read.path,
+      size: read.size,
+      etag: read.etag,
+      content:
+        read.kind === "text"
+          ? { kind: "text" as const, text: read.content, offset: read.offset, nextOffset: read.nextOffset }
+          : { kind: "binary" as const, hint: "This file is not UTF-8 text. Use get_download_link to fetch its bytes." },
+    };
+  },
+});
+
+const downloadLink = defineTool({
+  name: "get_download_link",
+  title: "Get download link",
+  description:
+    "Create a short-lived URL that downloads a file, or a folder as a ZIP archive, with your access. It stops working after expiresAt, if this connection is revoked, or if your access changes.",
+  scope: McpScope.read,
+  annotations: readOnly,
+  input: z.object({ path: pathInput }),
+  output: z.object({ url: z.string(), expiresAt: z.string(), type: z.enum(["file", "folder"]) }),
+  async run({ access, context }, input) {
+    const target = await safePath(input.path);
+    (await access()).require(target.relative, "read");
+    const entry = await entryAt(target.relative);
+    const link = await context.downloadLink(target.relative);
+    return { url: link.url, expiresAt: isoTime(link.expiresAt), type: entry.type === "dir" ? ("folder" as const) : ("file" as const) };
+  },
+});
+
+const sharedWithMe = defineTool({
+  name: "list_shared_with_me",
+  title: "List items shared with me",
+  description: "List the files and folders other people have shared with your account, with your permission on each.",
+  scope: McpScope.read,
+  annotations: readOnly,
+  input: z.object(pageInput(100, 500)),
+  output: z.object({ entries: z.array(entryOutput), ...pageOutput }),
+  async run({ caller }, input) {
+    const page = paginate(await caller.catalog.shared(), input);
+    return { entries: page.items.map(toEntry), nextCursor: page.nextCursor };
+  },
+});
+
+const trashOutput = z.object({
+  id: z.string().describe("Pass to restore_from_trash"),
+  path: z.string().describe("Original location"),
+  deletedAt: z.string(),
+  expiresAt: z.string().describe("Nimbus permanently deletes the item after this time"),
+});
+const toTrash = (item: { id: string; path: string; deletedAt: number; expiresAt: number }) => ({
+  id: item.id,
+  path: item.path,
+  deletedAt: isoTime(item.deletedAt),
+  expiresAt: isoTime(item.expiresAt),
+});
+
+const listTrash = defineTool({
+  name: "list_trash",
+  title: "List trash",
+  description: "List items you moved to trash, newest first. Items stay for 30 days and can be restored with restore_from_trash.",
+  scope: McpScope.read,
+  annotations: readOnly,
+  input: z.object(pageInput(100, 500)),
+  output: z.object({ items: z.array(trashOutput), ...pageOutput }),
+  async run({ caller }, input) {
+    const items = [...(await caller.trash.list())].sort((a, b) => b.deletedAt - a.deletedAt);
+    const page = paginate(items, input);
+    return { items: page.items.map(toTrash), nextCursor: page.nextCursor };
+  },
+});
+
+const writeText = defineTool({
+  name: "write_text",
+  title: "Write text file",
+  description: `Create a UTF-8 text file, or replace one, with up to ${MAX_TEXT_WRITE_BYTES / 1024 / 1024} MiB of content. By default it refuses to replace an existing file. To replace one safely, pass the etag from get_item or read_text as expectedEtag; the write is refused if the file changed since. overwrite: true replaces whatever is there.`,
+  scope: McpScope.write,
+  annotations: { ...additive, destructiveHint: true },
+  input: z.object({
+    path: pathInput.describe("File path, including its name. The parent folder must exist."),
+    content: z.string(),
+    expectedEtag: z.string().max(100).optional(),
+    overwrite: z.boolean().default(false),
+  }),
+  output: z.object({ outcome: z.enum(["created", "replaced"]), entry: entryOutput, etag: z.string() }),
+  async run({ access, context }, input) {
+    if (Buffer.byteLength(input.content) > MAX_TEXT_WRITE_BYTES)
+      throw toolFailure("BAD_REQUEST", `The content is larger than ${MAX_TEXT_WRITE_BYTES / 1024 / 1024} MiB. Nothing was written. Split it into smaller files.`);
+    const target = await safePath(input.path);
+    const name = fileNameSchema.safeParse(target.relative.split("/").pop() ?? "");
+    if (!name.success)
+      throw toolFailure("BAD_REQUEST", "Choose a file name without control characters. The name .nimbus is reserved. Nothing was written.");
+    // Checked again inside the commit lock; this avoids staging content that cannot be written.
+    (await access()).require(target.relative, "write");
+    const staged = await stageFile(input.content);
+    try {
+      const outcome = await commitStagedFile(
+        { userId: context.userId, authorize: access },
+        target.relative,
+        staged,
+        (current) =>
+          input.expectedEtag !== undefined
+            ? current !== null && fileTag(current) === input.expectedEtag
+            : input.overwrite || current === null,
+      );
+      switch (outcome.kind) {
+        case "created":
+        case "replaced": {
+          const current = await access();
+          return {
+            outcome: outcome.kind,
+            entry: toEntry({ ...outcome.entry, permission: permissionFor(current, outcome.entry.path) }),
+            etag: fileTag(outcome.entry),
+          };
+        }
+        case "precondition_failed":
+          throw toolFailure(
+            "CONFLICT",
+            outcome.current === null
+              ? `No file exists at ${target.relative}, so it does not match expectedEtag. Nothing was written. Omit expectedEtag to create it.`
+              : input.expectedEtag !== undefined
+                ? `${target.relative} changed since you read it (its etag is now ${fileTag(outcome.current)}). Nothing was written. Read it again, then retry with the new etag.`
+                : `${target.relative} already exists. Nothing was written. Pass its etag as expectedEtag to replace it, or overwrite: true.`,
+          );
+        case "is_directory":
+          throw toolFailure("CONFLICT", `${target.relative} is a folder. Nothing was written. Choose a file path inside it.`);
+        case "missing_parent":
+          throw toolFailure("NOT_FOUND", "The parent folder does not exist. Nothing was written. Create it with create_folder first.");
+      }
+    } finally {
+      await staged.discard();
+    }
+  },
+});
+
+const createFolder = defineTool({
+  name: "create_folder",
+  title: "Create folder",
+  description: "Create a folder inside an existing folder.",
+  scope: McpScope.write,
+  annotations: additive,
+  input: z.object({ parentPath: pathInput.default(""), name: z.string().max(255) }),
+  output: z.object({ path: z.string() }),
+  async run({ caller }, input) {
+    return { path: (await caller.files.createFolder({ path: input.parentPath, name: input.name })).path };
+  },
+});
+
+const rename = defineTool({
+  name: "rename_item",
+  title: "Rename item",
+  description:
+    "Rename a file or folder in place. Renaming removes its public links, direct sharing, and stars, including on items inside a folder.",
+  scope: McpScope.write,
+  annotations: destructive,
+  input: z.object({ path: pathInput, newName: z.string().max(255) }),
+  output: z.object({ path: z.string() }),
+  async run({ caller }, input) {
+    return { path: (await caller.files.rename({ path: input.path, newName: input.newName })).path };
+  },
+});
+
+const move = defineTool({
+  name: "move_item",
+  title: "Move item",
+  description:
+    "Move a file or folder into another folder, keeping its name. Moving a folder needs admin permission on it. Moving removes its public links, direct sharing, and stars; the destination's sharing applies afterwards.",
+  scope: McpScope.write,
+  annotations: destructive,
+  input: z.object({ path: pathInput, destinationFolder: pathInput }),
+  output: z.object({ path: z.string() }),
+  async run({ caller }, input) {
+    return {
+      path: (await caller.files.move({ sourcePath: input.path, destinationPath: input.destinationFolder })).path,
+    };
+  },
+});
+
+const trash = defineTool({
+  name: "move_to_trash",
+  title: "Move to trash",
+  description:
+    "Move a file or folder to trash. It can be restored for 30 days with restore_from_trash. Its public links, direct sharing, and stars are removed and are not restored.",
+  scope: McpScope.write,
+  annotations: destructive,
+  input: z.object({ path: pathInput }),
+  output: z.object({ trashId: z.string().nullable(), originalPath: z.string() }),
+  async run({ caller }, input) {
+    const { path } = await caller.files.delete({ path: input.path });
+    const item = (await caller.trash.list())
+      .filter((entry) => entry.path === path)
+      .sort((a, b) => b.deletedAt - a.deletedAt)[0];
+    return { trashId: item?.id ?? null, originalPath: path };
+  },
+});
+
+const restore = defineTool({
+  name: "restore_from_trash",
+  title: "Restore from trash",
+  description:
+    "Restore a trashed item to its original location. The original parent folder must exist and nothing may occupy the original path.",
+  scope: McpScope.write,
+  annotations: additive,
+  input: z.object({ trashId: z.string().uuid() }),
+  output: z.object({ path: z.string() }),
+  async run({ caller }, input) {
+    return { path: (await caller.trash.restore({ id: input.trashId })).path };
+  },
+});
+
+const star = defineTool({
+  name: "set_starred",
+  title: "Star or unstar",
+  description: "Star or unstar a file or folder for yourself. Starred items appear under Starred in Nimbus.",
+  scope: McpScope.write,
+  annotations: idempotentChange,
+  input: z.object({ path: pathInput, starred: z.boolean() }),
+  output: z.object({ path: z.string(), starred: z.boolean() }),
+  async run({ caller }, input) {
+    const target = await safePath(input.path);
+    await caller.catalog.bookmark({ path: target.relative, starred: input.starred });
+    return { path: target.relative, starred: input.starred };
+  },
+});
+
+export const fileTools = [
+  listFolder,
+  stat,
+  search,
+  readText,
+  downloadLink,
+  sharedWithMe,
+  listTrash,
+  writeText,
+  createFolder,
+  rename,
+  move,
+  trash,
+  restore,
+  star,
+];
