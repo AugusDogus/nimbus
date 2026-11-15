@@ -41,6 +41,16 @@ describe("signed-in tus uploads", () => {
     else process.env.NIMBUS_DATA_ROOT = previousRoot;
   });
 
+  it("accepts metadata keys sent without a value, as tus-js-client sends empty strings", async () => {
+    const created = await send("POST", "http://localhost/api/upload", {
+      "Upload-Length": "2",
+      "Upload-Metadata": `filename ${base64("b.txt")},targetPath ${base64("docs")},folder,conflict ${base64("keep-both")}`,
+      "Content-Type": "application/offset+octet-stream",
+    }, "hi");
+    expect(created.status).toBe(201);
+    expect(await readFile(path.join(root, "docs/b.txt"), "utf8")).toBe("hi");
+  });
+
   it("publishes on resume when a complete upload failed to publish", async () => {
     const created = await send("POST", "http://localhost/api/upload", {
       "Upload-Length": "5",

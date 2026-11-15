@@ -33,8 +33,8 @@ const tusTransport: UploadTransport = (request, events) => {
         metadata: {
           filename: request.filename,
           targetPath: request.targetPath,
-          folder: request.folder,
           conflict: request.conflict,
+          ...(request.folder ? { folder: request.folder } : {}),
         },
         onProgress: (sent) => events.progress(sent),
         onSuccess: () => events.success(),

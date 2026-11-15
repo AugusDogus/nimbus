@@ -5,6 +5,10 @@ import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import type { UploadStore } from "@/server/upload-store";
 import { commitUpload, UploadMetadata } from "./upload-commit";
 
+/** tus reports a key sent without a value, such as an empty folder, as null. Treat it as absent. */
+const present = (metadata: Record<string, string | null> | undefined) =>
+  Object.fromEntries(Object.entries(metadata ?? {}).filter((entry) => entry[1] !== null));
+
 /** The error shape tus hooks throw to answer with a status and message. */
 export type TusFailure = { status_code: number; body: string };
 
@@ -23,11 +27,11 @@ export function createUploadServer({
 }) {
   const finishes = new Map<string, Promise<void>>();
   // One commit per upload at a time: PATCH completion and HEAD recovery can race.
-  const finish = async (request: Request, id: string, metadata: unknown) => {
+  const finish = async (request: Request, id: string, metadata: Record<string, string | null> | undefined) => {
     const pending = finishes.get(id);
     if (pending) return pending;
     const task = (async () => {
-      const parsed = UploadMetadata.safeParse(metadata);
+      const parsed = UploadMetadata.safeParse(present(metadata));
       if (!parsed.success)
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -76,7 +80,7 @@ export function createUploadServer({
     async onUploadCreate(request, upload) {
       try {
         const current = await access(request);
-        const metadata = UploadMetadata.safeParse({ ...upload.metadata, owner: current.user.id });
+        const metadata = UploadMetadata.safeParse({ ...present(upload.metadata), owner: current.user.id });
         if (!metadata.success)
           throw new TRPCError({
             code: "BAD_REQUEST",
