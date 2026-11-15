@@ -29,13 +29,17 @@ export const managementRouter = router({
     isAdmin: ctx.access.isAdmin,
     home: await ctx.drive.homeOf(ctx.access.user.id),
   })),
-  people: protectedProcedure.query(async ({ ctx }) => {
-    // Directory lookup is needed by subtree owners to share with existing accounts.
-    const users = await ctx.drive.listUsers();
-    return users
-      .filter((user) => !user.banned)
-      .map(({ id, name, email }) => ({ id, name, email }));
-  }),
+  people: protectedProcedure
+    .input(z.object({ path: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // The account directory is visible only to people who can share this path.
+      const target = await safePath(input.path);
+      ctx.access.require(target.relative, "admin");
+      const users = await ctx.drive.listUsers();
+      return users
+        .filter((user) => !user.banned)
+        .map(({ id, name, email }) => ({ id, name, email }));
+    }),
   permissions: protectedProcedure
     .input(z.object({ path: z.string() }))
     .query(async ({ ctx, input }) => {

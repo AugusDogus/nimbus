@@ -31,8 +31,8 @@ export function SharingDialog({
   onClose: () => void;
 }) {
   const people = useQuery({
-    queryKey: ["people"],
-    queryFn: () => trpcClient.access.people.query(),
+    queryKey: ["people", entry.path],
+    queryFn: () => trpcClient.access.people.query({ path: entry.path }),
   });
   const groups = useQuery({
     queryKey: ["groups"],

@@ -45,6 +45,15 @@ describe("drive workflows", () => {
     await caller().access.revoke({ path: "docs", id: grant.id });
     await expect(caller("reader").files.list({ path: "docs" })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
+  it("lists accounts only to callers who can manage sharing for the path", async () => {
+    await expect(caller("reader").access.people({ path: "docs" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await caller().access.grant({ path: "docs", subject: { type: "user", id: "reader" }, permission: "admin" });
+    expect(await caller("reader").access.people({ path: "docs" })).toEqual([
+      { id: "user-1", name: "Owner", email: "owner@example.test" },
+      { id: "reader", name: "Reader", email: "reader@example.test" },
+    ]);
+    await expect(caller("reader").access.people({ path: "private.txt" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
   it("resolves group permissions and removes access with membership", async () => {
     await caller().access.saveGroup({ name: "Team", memberIds: ["reader"] });
     const [group] = await caller().access.groups();
