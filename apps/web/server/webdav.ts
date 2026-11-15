@@ -90,8 +90,9 @@ function throttled(request: Request) {
   if (!request.headers.get("authorization")?.startsWith("Basic ")) return null;
   const decision = failedLogins.check(clientKey(request));
   if (decision.allowed) return null;
+  const minutes = Math.ceil(decision.retryAfterSeconds / 60);
   return new Response(
-    `Too many failed WebDAV sign-ins from this address. Wait ${Math.ceil(decision.retryAfterSeconds / 60)} minutes, then check the email and app password in your client.`,
+    `Too many failed WebDAV sign-ins from this address. Wait ${minutes === 1 ? "a minute" : `${minutes} minutes`}, then check the email and app password in your client.`,
     {
       status: 429,
       headers: { "Retry-After": String(decision.retryAfterSeconds) },
