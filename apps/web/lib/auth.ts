@@ -1,15 +1,21 @@
-import { betterAuth } from "better-auth";
+import { passkey } from "@better-auth/passkey";
+import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import { admin } from "better-auth/plugins";
+import { admin, genericOAuth, twoFactor } from "better-auth/plugins";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { z } from "zod";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { auditUser, recordAudit } from "@nimbus/api/audit";
 import { Homes } from "@nimbus/api/homes";
-import { grants, trash, user } from "../server/db/schema";
-
+import { grants, groupMembers, groups, trash, user } from "../server/db/schema";
+import { clientIpHeader } from "../server/client-ip";
+import { mailConfig, sendMail } from "../server/mail";
 import { db } from "../server/db";
 import { createDriveStore } from "../server/drive-store";
+import { nimbusAudit } from "./auth-audit";
+import { nimbusSecurity } from "./auth-security";
+import { OidcConfig, oidcConfig, oidcProviderId } from "./oidc-config";
 
 const parseTrustedOrigins = (value: string | undefined) => {
   if (!value) return [];
@@ -32,6 +38,9 @@ const parseTrustedOrigins = (value: string | undefined) => {
 const trustedOrigins = parseTrustedOrigins(
   process.env.BETTER_AUTH_TRUSTED_ORIGINS,
 );
+const publicOrigin = new URL(
+  process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? "3000"}`,
+);
 
 const roleSchema = z.union([z.string(), z.array(z.string())]);
 const adminChangeSchema = z.object({
@@ -43,12 +52,108 @@ const adminChangeSchema = z.object({
 });
 const includesAdmin = (role: string | string[]) =>
   (Array.isArray(role) ? role : role.split(",")).includes("admin");
+const isOidcCallback = (path: string | undefined) =>
+  path === `/oauth2/callback/${oidcProviderId}` || path === `/callback/${oidcProviderId}`;
+
+/** Groups claimed by the identity provider at sign-in, applied once the account is known. */
+const pendingGroups = new Map<string, { groups: string[]; expires: number }>();
+
+async function syncProviderGroups(userId: string, email: string) {
+  const key = email.toLowerCase();
+  const pending = pendingGroups.get(key);
+  pendingGroups.delete(key);
+  if (!pending || pending.expires < Date.now()) return;
+  // The provider is the source of truth for membership in groups it names.
+  const matched = pending.groups.length
+    ? await db.select({ id: groups.id }).from(groups).where(inArray(groups.name, pending.groups))
+    : [];
+  const ids = matched.map((group) => group.id);
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(groupMembers)
+      .where(
+        ids.length
+          ? and(eq(groupMembers.userId, userId), notInArray(groupMembers.groupId, ids))
+          : eq(groupMembers.userId, userId),
+      );
+    if (ids.length)
+      await tx
+        .insert(groupMembers)
+        .values(ids.map((groupId) => ({ groupId, userId })))
+        .onConflictDoNothing();
+  });
+  recordAudit({
+    action: "account.updated",
+    actor: { type: "system" },
+    target: { type: "user", id: userId, label: email },
+    details: { groupsFromProvider: pending.groups.join(",") },
+  });
+}
+
+const oidcPlugins: BetterAuthPlugin[] =
+  oidcConfig.kind === "oidc"
+    ? [
+        genericOAuth({
+          config: [
+            {
+              providerId: oidcProviderId,
+              name: oidcConfig.label,
+              clientId: oidcConfig.clientId,
+              clientSecret: oidcConfig.clientSecret,
+              discoveryUrl: OidcConfig.discoveryUrl(oidcConfig),
+              scopes: ["openid", "profile", "email"],
+              requireIdTokenVerification: true,
+              requireEmailVerification: true,
+              disableSignUp: !oidcConfig.autoProvision,
+              overrideUserInfo: false,
+              mapProfileToUser(profile) {
+                const groupsClaim = oidcConfig.kind === "oidc" ? oidcConfig.groupsClaim : null;
+                if (groupsClaim && typeof profile.email === "string")
+                  pendingGroups.set(profile.email.toLowerCase(), {
+                    groups: OidcConfig.groups(profile, groupsClaim),
+                    expires: Date.now() + 5 * 60 * 1000,
+                  });
+                return {};
+              },
+            },
+          ],
+        }),
+      ]
+    : [];
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "sqlite",
   }),
   trustedOrigins,
+  advanced: {
+    // The custom server derives this header from the socket and NIMBUS_TRUSTED_PROXIES.
+    ipAddress: { ipAddressHeaders: [clientIpHeader] },
+    useSecureCookies: publicOrigin.protocol === "https:",
+  },
+  rateLimit: {
+    enabled: true,
+    storage: "memory",
+    window: 60,
+    max: 600,
+    customRules: {
+      "/sign-in/email": { window: 60, max: 10 },
+      "/sign-up/email": { window: 3600, max: 10 },
+      "/request-password-reset": { window: 3600, max: 5 },
+      "/reset-password": { window: 3600, max: 10 },
+      "/change-password": { window: 600, max: 10 },
+      "/two-factor/*": { window: 60, max: 10 },
+      "/passkey/verify-authentication": { window: 60, max: 20 },
+      "/get-session": false,
+    },
+  },
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: [],
+      allowDifferentEmails: false,
+    },
+  },
   hooks: {
     before: createAuthMiddleware(async (context) => {
       if (
@@ -97,6 +202,14 @@ export const auth = betterAuth({
         });
       }
     }),
+    after: createAuthMiddleware(async (context) => {
+      if (!isOidcCallback(context.path)) return;
+      const created = z
+        .object({ user: z.object({ id: z.string(), email: z.string() }) })
+        .safeParse(context.context.newSession);
+      if (created.success && oidcConfig.kind === "oidc" && oidcConfig.groupsClaim)
+        await syncProviderGroups(created.data.user.id, created.data.user.email);
+    }),
   },
   session: {
     cookieCache: {
@@ -106,23 +219,55 @@ export const auth = betterAuth({
   },
   emailAndPassword: {
     enabled: true,
+    revokeSessionsOnPasswordReset: true,
+    resetPasswordTokenExpiresIn: 60 * 60,
+    ...(mailConfig.kind === "smtp" && {
+      async sendResetPassword({ user: account, url }) {
+        // Deliver in the background so response timing does not reveal whether an account exists.
+        void sendMail({
+          to: account.email,
+          subject: "Reset your Nimbus password",
+          text: `Someone asked to reset the password for your Nimbus account.\n\nOpen this link within one hour to choose a new password:\n${url}\n\nIf you did not ask for this, ignore this email. Your password has not changed.`,
+          html: `<p>Someone asked to reset the password for your Nimbus account.</p><p><a href="${encodeURI(url)}">Choose a new password</a>. The link works for one hour.</p><p>If you did not ask for this, ignore this email. Your password has not changed.</p>`,
+        }).catch((error: unknown) =>
+          console.error(
+            `Nimbus could not send a password reset email for account ${account.id}. The reset link was not delivered; the password is unchanged. Check the NIMBUS_SMTP_* settings and the mail server logs.`,
+            error,
+          ),
+        );
+      },
+    }),
   },
   databaseHooks: {
     user: {
       create: {
         async before(data, context) {
-          if (context?.path === "/sign-up/email") {
-            const [existing] = await db
-              .select({ id: user.id })
-              .from(user)
-              .limit(1);
-            if (existing)
+          const [existing] = await db
+            .select({ id: user.id })
+            .from(user)
+            .limit(1);
+          if (context?.path === "/sign-up/email" && existing)
+            throw new APIError("FORBIDDEN", {
+              message:
+                "Registration is closed. Ask your server administrator to create an account.",
+            });
+          if (isOidcCallback(context?.path ?? undefined)) {
+            if (!existing)
               throw new APIError("FORBIDDEN", {
                 message:
-                  "Registration is closed. Ask your server administrator to create an account.",
+                  "Create the administrator account with a password before using single sign-on.",
               });
+            if (data.emailVerified !== true)
+              throw new APIError("FORBIDDEN", {
+                message:
+                  "Your identity provider has not verified your email address, so Nimbus did not create an account. Verify it with your provider and try again.",
+              });
+            return { data };
           }
-          return { data };
+          // Registration is closed: the only self-created account is the first, and
+          // administrators enter every other address themselves. Nimbus treats those
+          // addresses as verified, which single sign-on relies on to link identities.
+          return { data: { ...data, emailVerified: true } };
         },
         async after(created) {
           // Elect only the earliest account. A later user never becomes an administrator
@@ -145,7 +290,27 @@ export const auth = betterAuth({
             .where(and(eq(grants.subjectType, "user"), eq(grants.subjectId, removed.id)));
         },
       },
+      update: {
+        async after(updated, context) {
+          if (context?.path === "/two-factor/verify-totp" && updated.twoFactorEnabled === true)
+            recordAudit({ action: "auth.two_factor_enabled", actor: auditUser(updated) });
+        },
+      },
     },
   },
-  plugins: [admin(), nextCookies()],
+  plugins: [
+    admin(),
+    twoFactor({ issuer: "Nimbus" }),
+    passkey({
+      rpName: "Nimbus",
+      rpID: publicOrigin.hostname,
+      origin: publicOrigin.origin,
+      authenticatorSelection: { residentKey: "preferred", userVerification: "required" },
+    }),
+    ...oidcPlugins,
+    nimbusSecurity(),
+    // Append new plugins above this line. Audit observes final results; nextCookies must be last.
+    nimbusAudit(),
+    nextCookies(),
+  ],
 });
