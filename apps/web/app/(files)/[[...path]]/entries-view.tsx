@@ -65,6 +65,12 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   const [focusPath, setFocusPath] = useState<string | null>(null);
   const [touchSelecting, setTouchSelecting] = useState(false);
   const [dialog, setDialog] = useState<EntryDialog | null>(null);
+  // Preview navigation follows the displayed order. Only computed while a preview is open.
+  const previewing = dialog?.action === "preview";
+  const previewable = useMemo(
+    () => (previewing ? layout.entries.filter((entry) => entry.type === "file") : []),
+    [previewing, layout.entries],
+  );
   const [menu, setMenu] = useState<EntryMenuTarget | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   // Entries can leave the folder through live updates, moves, and other clients.
@@ -456,7 +462,12 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
         }}
       />
       {dialog?.action === "preview" ? (
-        <PreviewDialog entry={dialog.entry} onClose={() => setDialog(null)} />
+        <PreviewDialog
+          entry={dialog.entry}
+          entries={previewable}
+          onNavigate={(entry) => setDialog({ action: "preview", entry })}
+          onClose={() => setDialog(null)}
+        />
       ) : dialog?.action === "share" ? (
         <SharingDialog entry={dialog.entry} onClose={() => setDialog(null)} />
       ) : dialog?.action === "versions" ? (

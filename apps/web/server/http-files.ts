@@ -135,7 +135,10 @@ export async function serveFile(
     if (!match || (!match[1] && !match[2]))
       return new Response(null, {
         status: 416,
-        headers: { "Content-Range": `bytes */${target.stats.size}` },
+        headers: {
+          "Content-Range": `bytes */${target.stats.size}`,
+          ETag: fileETag(target.stats),
+        },
       });
     if (match[1]) {
       start = Number(match[1]);
@@ -149,7 +152,10 @@ export async function serveFile(
     )
       return new Response(null, {
         status: 416,
-        headers: { "Content-Range": `bytes */${target.stats.size}` },
+        headers: {
+          "Content-Range": `bytes */${target.stats.size}`,
+          ETag: fileETag(target.stats),
+        },
       });
     status = 206;
     headers.set("Content-Range", `bytes ${start}-${end}/${target.stats.size}`);

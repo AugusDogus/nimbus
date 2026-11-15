@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
-import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { lazy, Suspense, useRef, type PointerEvent } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,100 +11,83 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { FilePreviewProps } from "./preview/file-preview";
 import type { FileEntry } from "./types";
 
-export function FilePreview({ name, url }: { name: string; url: string }) {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  const isText = ["txt", "md", "csv", "json", "log"].includes(ext);
-  const text = useQuery({
-    queryKey: ["preview", url],
-    enabled: isText,
-    queryFn: async () => {
-      const response = await fetch(url, {
-        headers: { Range: "bytes=0-262143" },
-      });
-      if (
-        response.status === 416 &&
-        response.headers.get("content-range") === "bytes */0"
-      )
-        return "";
-      if (!response.ok)
-        throw new Error(
-          "Preview could not be loaded. Try downloading the file.",
-        );
-      return response.text();
-    },
-  });
-  if (isText)
-    return (
-      <div className="max-h-[65dvh] overflow-auto rounded-md border bg-muted p-4">
-        {text.isError ? (
-          <p role="alert">{text.error.message}</p>
-        ) : text.isPending ? (
-          <p>Loading preview…</p>
-        ) : (
-          <>
-            <pre className="whitespace-pre-wrap break-words text-sm">
-              {text.data}
-            </pre>
-            <p className="mt-4 text-xs text-muted-foreground">
-              Preview limited to the first 256 KB.
-            </p>
-          </>
-        )}
-      </div>
-    );
-  // Native media elements preserve browser zoom, playback, and accessibility controls.
-  if (["png", "jpg", "jpeg", "gif", "webp", "avif"].includes(ext))
-    return (
-      <div className="flex justify-center rounded-md bg-muted">
-        <Image
-          src={url}
-          alt={name}
-          unoptimized
-          width={1024}
-          height={768}
-          className="max-h-[65dvh] max-w-full object-contain"
-        />
-      </div>
-    );
-  if (["mp4", "webm"].includes(ext))
-    return (
-      <video
-        controls
-        preload="metadata"
-        src={url}
-        className="max-h-[65dvh] w-full"
-      >
-        <track kind="captions" />
-      </video>
-    );
-  if (["mp3", "wav", "ogg"].includes(ext))
-    return <audio controls preload="metadata" src={url} className="w-full" />;
-  if (ext === "pdf")
-    return (
-      <iframe
-        title={`Preview of ${name}`}
-        src={url}
-        className="h-[65dvh] w-full rounded-md border"
-      />
-    );
+// Every renderer loads on first preview, so browsing never pays for them.
+const FilePreviewBody = lazy(() => import("./preview/file-preview"));
+
+export type { FilePreviewProps };
+
+export function FilePreview(props: FilePreviewProps) {
   return (
-    <p className="text-pretty text-sm text-muted-foreground">
-      A preview is not available for this file type. Download it to open it on
-      your device.
-    </p>
+    <Suspense
+      fallback={
+        <Skeleton
+          aria-label="Loading preview"
+          className="h-[min(65dvh,32rem)] w-full"
+        />
+      }
+    >
+      <FilePreviewBody {...props} />
+    </Suspense>
   );
 }
 
+const formatSize = (bytes: number) =>
+  new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    style: "unit",
+    unit: "byte",
+    unitDisplay: "narrow",
+  }).format(bytes);
+
+/** Keys from editable or media controls stay with those controls. */
+const ownsArrowKeys = (target: EventTarget) =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable ||
+    target.closest("input, textarea, select, video, audio, [role=slider]") !==
+      null);
+
 export function PreviewDialog({
   entry,
+  entries,
+  onNavigate,
   onClose,
 }: {
   entry: FileEntry;
+  /** Files in on-screen order, used for previous and next. */
+  entries: readonly FileEntry[];
+  onNavigate: (entry: FileEntry) => void;
   onClose: () => void;
 }) {
   const url = `/api/files/download?path=${encodeURIComponent(entry.path)}`;
+  const index = entries.findIndex((item) => item.path === entry.path);
+  const previous = index > 0 ? entries[index - 1] : undefined;
+  const next =
+    index >= 0 && index < entries.length - 1 ? entries[index + 1] : undefined;
+  const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
+  const details = [
+    index >= 0 && entries.length > 1
+      ? `${index + 1} of ${entries.length}`
+      : null,
+    entry.size !== null ? formatSize(entry.size) : null,
+  ].filter(Boolean);
+  const onPointerDown = (event: PointerEvent) => {
+    if (event.pointerType === "mouse") return;
+    swipe.current = { x: event.clientX, y: event.clientY, id: event.pointerId };
+  };
+  const onPointerUp = (event: PointerEvent) => {
+    const start = swipe.current;
+    swipe.current = null;
+    if (!start || start.id !== event.pointerId) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) / 2) return;
+    const target = dx < 0 ? next : previous;
+    if (target) onNavigate(target);
+  };
   return (
     <Dialog
       open
@@ -112,15 +95,65 @@ export function PreviewDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-4xl">
-        <DialogHeader>
-          <DialogTitle className="truncate text-balance">
+      <DialogContent
+        className="sm:max-w-5xl"
+        onKeyDown={(event) => {
+          if (event.defaultPrevented || ownsArrowKeys(event.target)) return;
+          const target =
+            event.key === "ArrowLeft"
+              ? previous
+              : event.key === "ArrowRight"
+                ? next
+                : undefined;
+          if (!target) return;
+          event.preventDefault();
+          onNavigate(target);
+        }}
+      >
+        <DialogHeader className="min-w-0 pr-8">
+          <DialogTitle className="truncate text-balance leading-tight">
             {entry.name}
           </DialogTitle>
-          <DialogDescription>File preview</DialogDescription>
+          <DialogDescription className="tabular-nums">
+            {details.length ? details.join(" · ") : "File preview"}
+          </DialogDescription>
         </DialogHeader>
-        <FilePreview name={entry.name} url={`${url}&preview=1`} />
-        <DialogFooter className="flex-row justify-end">
+        <div
+          className="min-w-0 touch-pan-y"
+          onPointerDown={onPointerDown}
+          onPointerUp={onPointerUp}
+          onPointerCancel={() => (swipe.current = null)}
+        >
+          <FilePreview
+            key={entry.path}
+            name={entry.name}
+            url={`${url}&preview=1`}
+            editPath={entry.permission === "read" ? undefined : entry.path}
+          />
+        </div>
+        <DialogFooter className="flex-row items-center justify-end gap-2">
+          {entries.length > 1 && (
+            <div className="mr-auto flex gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Previous file"
+                disabled={!previous}
+                onClick={() => previous && onNavigate(previous)}
+              >
+                <ChevronLeft />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Next file"
+                disabled={!next}
+                onClick={() => next && onNavigate(next)}
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+          )}
           <Button asChild>
             <a href={url} download>
               Download

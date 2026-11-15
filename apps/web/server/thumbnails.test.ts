@@ -24,7 +24,7 @@ const source = (name: string, mtimeMs = 1): ThumbnailSource => ({
 const webp = new Uint8Array([1, 2, 3]);
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
 const deferred = () => {
-  let resolve = (_: Uint8Array) => {};
+  let resolve: (body: Uint8Array) => void = () => {};
   const promise = new Promise<Uint8Array>((done) => (resolve = done));
   return { promise, resolve };
 };
