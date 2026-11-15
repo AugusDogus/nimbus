@@ -26,7 +26,7 @@ import {
   safePath,
   trashItem,
 } from "@nimbus/api/file-operations";
-import { isApiError, isFsError, isWithinPath } from "@nimbus/api/safe-path";
+import { isApiError, isFsError } from "@nimbus/api/safe-path";
 import { httpDriveStore, httpError, serveFile } from "./http-files";
 
 const xml = (text: string) =>
