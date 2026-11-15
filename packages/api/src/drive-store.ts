@@ -50,6 +50,9 @@ export type AppPassword = {
   createdAt: number;
 };
 
+/** An account's personal folder, kept at a fixed path for the account's lifetime. */
+export type Home = { userId: string; path: string };
+
 /** Persistence boundary. Filesystem content remains on disk, never in these records. */
 export type DriveStore = {
   getUser(id: string): Promise<DriveUser | null>;
@@ -66,6 +69,12 @@ export type DriveStore = {
   listShares(userId: string): Promise<Share[]>;
   revokeShare(id: string, userId: string): Promise<void>;
   countDownload(id: string): Promise<void>;
+  homeOf(userId: string): Promise<string | null>;
+  listHomes(): Promise<Home[]>;
+  /** Whether a home folder is at or under a path. */
+  hasHomeWithin(path: string): Promise<boolean>;
+  /** Record a home and its owner's grant together. Fails if the account already has a home. */
+  createHome(home: Home, grant: Grant): Promise<void>;
   /** Dead properties of each path. Paths without properties are absent from the map. */
   davProperties(paths: readonly string[]): Promise<Map<string, DavProperty[]>>;
   /** Set and remove dead properties of one path in a single transaction. */

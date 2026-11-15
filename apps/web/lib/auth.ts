@@ -4,10 +4,12 @@ import { nextCookies } from "better-auth/next-js";
 import { admin } from "better-auth/plugins";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { z } from "zod";
-import { eq, sql } from "drizzle-orm";
-import { trash, user } from "../server/db/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { Homes } from "@nimbus/api/homes";
+import { grants, trash, user } from "../server/db/schema";
 
 import { db } from "../server/db";
+import { createDriveStore } from "../server/drive-store";
 
 const parseTrustedOrigins = (value: string | undefined) => {
   if (!value) return [];
@@ -131,6 +133,16 @@ export const auth = betterAuth({
             .where(
               sql`${user.id} = ${created.id} AND ${user.id} = (SELECT id FROM user ORDER BY created_at, id LIMIT 1) AND NOT EXISTS (SELECT 1 FROM user WHERE instr(',' || role || ',', ',admin,') > 0)`,
             );
+          const home = await Homes.provision(createDriveStore(db), created);
+          if (home.kind === "failed") console.error(home.message);
+        },
+      },
+      delete: {
+        async after(removed) {
+          // The home folder and its files stay for administrators; only access is removed.
+          await db
+            .delete(grants)
+            .where(and(eq(grants.subjectType, "user"), eq(grants.subjectId, removed.id)));
         },
       },
     },

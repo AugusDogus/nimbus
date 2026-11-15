@@ -72,8 +72,8 @@ test("keeps primary navigation and utility actions usable in both themes", async
 
     if (isMobile) await page.getByRole("button", { name: "Toggle Sidebar", exact: true }).click();
     const primary = page.locator('[data-slot="sidebar-content"]').getByRole("link");
-    await expect(primary).toHaveCount(4);
-    for (const [name, href] of [["My Drive", "/"], ["Shared", "/shared"], ["Recent", "/recent"], ["Starred", "/starred"]]) {
+    await expect(primary).toHaveCount(5);
+    for (const [name, href] of [["My files", "/home"], ["My Drive", "/"], ["Shared", "/shared"], ["Recent", "/recent"], ["Starred", "/starred"]]) {
       await expect(primary.filter({ hasText: name })).toHaveAttribute("href", href);
     }
 

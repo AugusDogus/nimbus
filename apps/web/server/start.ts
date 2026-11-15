@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import next from "next";
 import { migrate } from "drizzle-orm/libsql/migrator";
 import { getDataRoot } from "@nimbus/api/data-root";
+import { Homes } from "@nimbus/api/homes";
 import { client, db } from "./db";
 import { createDriveStore } from "./drive-store";
 import { handleWebDAV } from "./webdav";
@@ -28,6 +29,10 @@ const origin = new URL(
 await migrate(db, {
   migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
 });
+const store = createDriveStore(db);
+for (const home of await Homes.backfill(store))
+  if (home.kind === "failed") console.error(home.message);
+  else console.info(`Nimbus created the home folder ${home.path}.`);
 const app = next({
   dev: process.env.NODE_ENV !== "production",
   hostname: "0.0.0.0",
@@ -100,7 +105,6 @@ server.listen(port, "0.0.0.0", () =>
   console.info(`Nimbus is ready at http://localhost:${port}`),
 );
 
-const store = createDriveStore(db);
 let pendingCleanup: Promise<void> | undefined;
 function cleanup() {
   pendingCleanup ??= cleanExpiredData(store, getDataRoot())

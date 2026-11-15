@@ -14,6 +14,7 @@ import {
   grants,
   groupMembers,
   groups,
+  homes,
   shares,
   trash,
   user,
@@ -360,6 +361,37 @@ export function createDriveStore(database: typeof db): DriveStore {
             .update(table)
             .set({ path: relocated(table.path, from, to) })
             .where(atOrUnder(table.path, from));
+      });
+    },
+    async homeOf(userId) {
+      const [row] = await database.select().from(homes).where(eq(homes.userId, userId));
+      return row?.path ?? null;
+    },
+    async listHomes() {
+      return database.select().from(homes);
+    },
+    async hasHomeWithin(path) {
+      if (!path) return (await database.select().from(homes).limit(1)).length > 0;
+      return (
+        (await database.select().from(homes).where(atOrUnder(homes.path, path)).limit(1)).length > 0
+      );
+    },
+    async createHome(home, grant) {
+      await database.transaction(async (tx) => {
+        await tx.insert(homes).values(home);
+        await tx
+          .insert(grants)
+          .values({
+            id: grant.id,
+            path: grant.path,
+            subjectType: grant.subject.type,
+            subjectId: grant.subject.id,
+            permission: grant.permission,
+          })
+          .onConflictDoUpdate({
+            target: [grants.subjectType, grants.subjectId, grants.path],
+            set: { permission: grant.permission },
+          });
       });
     },
     async davProperties(paths) {

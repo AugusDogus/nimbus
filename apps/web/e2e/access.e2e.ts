@@ -56,8 +56,9 @@ test("administrators create groups and members receive only their granted read o
     const member = await memberContext.newPage();
     await login(member, email);
     const memberRPC = await client(memberContext);
-    expect((await memberRPC.access.me.query()).isAdmin).toBe(false);
-    expect((await memberRPC.files.list.query({})).map((entry) => entry.name)).toEqual([folder]);
+    expect(await memberRPC.access.me.query()).toMatchObject({ isAdmin: false, home: `homes/member-${suffix}` });
+    expect((await memberRPC.files.list.query({})).map((entry) => entry.name).sort()).toEqual([folder, "homes"].sort());
+    expect((await memberRPC.files.list.query({ path: "homes" })).map((entry) => entry.name)).toEqual([`member-${suffix}`]);
     expect((await memberContext.request.get("/api/files/download?path=alpha.txt")).status()).toBe(403);
     const allowed = await memberContext.request.get(`/api/files/download?path=${encodeURIComponent(`${folder}/team-note.txt`)}`);
     expect(allowed.status()).toBe(200);

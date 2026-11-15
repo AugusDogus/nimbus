@@ -42,3 +42,8 @@ export const davProperties = sqliteTable("nimbus_dav_property", {
   path: text("path").notNull(), namespace: text("namespace").notNull(), name: text("name").notNull(),
   xml: text("xml").notNull(),
 }, (table) => [primaryKey({ columns: [table.path, table.namespace, table.name] })]);
+/** Each account's personal folder. Files stay on disk when the account is removed. */
+export const homes = sqliteTable("nimbus_home", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  path: text("path").notNull().unique(),
+});

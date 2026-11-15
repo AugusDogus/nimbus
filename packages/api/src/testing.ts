@@ -1,4 +1,4 @@
-import type { AppPassword, Bookmark, DavProperty, DriveStore, DriveUser, Grant, Group, Share, TrashItem } from "./drive-store";
+import type { AppPassword, Bookmark, DavProperty, DriveStore, DriveUser, Grant, Group, Home, Share, TrashItem } from "./drive-store";
 import { isWithinPath } from "./safe-path";
 
 export function createTestDriveStore() {
@@ -8,6 +8,7 @@ export function createTestDriveStore() {
   const shares = new Map<string, Share>();
   const trash = new Map<string, TrashItem>();
   const properties = new Map<string, DavProperty[]>();
+  const homes = new Map<string, Home>();
   type Detached = { grants: Grant[]; shares: Share[]; bookmarks: [string, Bookmark][]; properties: [string, DavProperty[]][] };
   const detached = new Map<string, Detached>();
   const bookmarks = new Map<string, Bookmark[]>();
@@ -40,6 +41,13 @@ export function createTestDriveStore() {
       for (const share of records.shares) shares.set(share.token, share);
       for (const [userId, bookmark] of records.bookmarks) bookmarks.set(userId, [...(bookmarks.get(userId) ?? []), bookmark]);
       for (const [path, entries] of records.properties) properties.set(path, entries);
+    },
+    async homeOf(userId) { return homes.get(userId)?.path ?? null; },
+    async listHomes() { return [...homes.values()]; },
+    async hasHomeWithin(path) { return [...homes.values()].some((home) => isWithinPath(path, home.path)); },
+    async createHome(home, grant) {
+      if (homes.has(home.userId) || [...homes.values()].some((other) => other.path === home.path)) throw new Error(`A home already exists for ${home.userId} or at ${home.path}.`);
+      homes.set(home.userId, home); grants.set(grant.id, grant);
     },
     async davProperties(paths) { return new Map(paths.flatMap((path) => { const entries = properties.get(path); return entries?.length ? [[path, entries] as const] : []; })); },
     async patchDavProperties(path, set, remove) {
@@ -79,5 +87,5 @@ export function createTestDriveStore() {
     for (const [propertyPath, entries] of [...properties]) if (isWithinPath(path, propertyPath)) { taken.properties.push([propertyPath, entries]); properties.delete(propertyPath); }
     return taken;
   }
-  return { store, users, grants, groups, shares, trash, properties };
+  return { store, users, grants, groups, shares, trash, properties, homes };
 }

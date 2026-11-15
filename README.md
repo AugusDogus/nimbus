@@ -30,7 +30,7 @@ bun run setup
 bun dev
 ```
 
-Open [http://localhost:3000/signup](http://localhost:3000/signup) and create the first account. It becomes the server administrator. Public registration closes after that account is created. Add other accounts from **Settings → Administration → Users & groups**, then share a folder with them.
+Open [http://localhost:3000/signup](http://localhost:3000/signup) and create the first account. It becomes the server administrator. Public registration closes after that account is created. Add other accounts from **Settings → Administration → Users & groups**. Each account gets its own home folder; share other folders with them as needed.
 
 `bun run setup` generates `apps/web/.env` with a random auth secret and creates a local data directory. It preserves an existing `.env`. Database migrations run before the server accepts requests.
 
@@ -127,7 +127,16 @@ Use **Back to files** to return to the drive. Active uploads continue while you 
 
 ## Sharing and permissions
 
-Server administrators have access to the entire drive. New ordinary accounts start with no file access. Administrators can share a folder or the drive root; recipients find it under **Shared → Shared with me**.
+Server administrators have access to the entire drive. Every account also gets a private home folder, opened with **My files**. Administrators can share other folders or the drive root; recipients find them under **Shared → Shared with me**.
+
+### Home folders
+
+Homes live in a `homes` folder at the data root, one folder per account. The folder name comes from the part of the email address before `@`, lowercased, for example `homes/jane.doe` for `Jane.Doe@example.com`. It is fixed when the account is created: changing the email later does not rename or reassign it. If that name is already taken by any folder, a number is added (`homes/jane.doe-2`); Nimbus never takes over an existing folder.
+
+- **Creation:** with the account. Existing accounts without a home get one at the next startup. If the folder cannot be created, for example because the data root is read-only, the account still works and startup logs the reason and retries next time.
+- **Access:** the owner gets Admin permission on their home, so they can upload, organize, share, and create public links there. Other users see only homes shared with them. Server administrators see every home under `homes`. Avoid granting ordinary users access to the drive root or `homes`, which would expose every home.
+- **Protection:** a home folder, and any folder containing one such as `homes`, cannot be renamed, moved, or deleted. Its contents can.
+- **Account removal:** the home folder and its files stay in place, visible to server administrators, and the account's grants are removed. The folder is then an ordinary folder that administrators can move or delete. A new account never reuses it.
 
 | Permission | Access                                                                                                                                  |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -221,7 +230,7 @@ For a local installation, reinstall dependencies with the lockfile, build, and r
 bun run --cwd apps/web db:migrate
 ```
 
-Existing installations from the original file manager should retain their `DATABASE_URL` and `NIMBUS_DATA_ROOT`. The original default database was `apps/web/nimbus.db`; set `DATABASE_URL=file:/absolute/path/to/apps/web/nimbus.db` to keep using it. The upgrade preserves existing accounts and promotes the oldest account to administrator. Other accounts must receive file grants before they can access files. Do not use `db:push` as an upgrade procedure.
+Existing installations from the original file manager should retain their `DATABASE_URL` and `NIMBUS_DATA_ROOT`. The original default database was `apps/web/nimbus.db`; set `DATABASE_URL=file:/absolute/path/to/apps/web/nimbus.db` to keep using it. The upgrade preserves existing accounts and promotes the oldest account to administrator. Each account gets a home folder at the next startup; other folders must be shared with them. Do not use `db:push` as an upgrade procedure.
 
 `GET /api/health` reports that the HTTP server is available. It is not a storage-capacity or backup check. Startup fails when configuration or migrations cannot be applied; inspect the process or Compose logs for the failing operation.
 

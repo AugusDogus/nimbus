@@ -5,6 +5,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getAccess, type Access } from "./access";
 import { readDirectory } from "./file-browser";
+import { Homes } from "./homes";
 import {
   forgetFileLocks,
   mutateFiles,
@@ -152,6 +153,7 @@ async function moveUnlocked(
   const existing = await requireExisting(source.relative);
   if (existing.stats.isDirectory()) access.require(source.relative, "admin");
   requireSeparate(source.relative, target.relative);
+  await Homes.requireNotHome(store, source.relative);
   const replacement = await prepareDestination(
     store,
     access,
@@ -300,6 +302,7 @@ async function trashUnlocked(
   requireMutable(target.relative);
   access.require(target.relative, "write");
   await requireExisting(target.relative);
+  await Homes.requireNotHome(store, target.relative);
   const id = randomUUID();
   const trashDir = path.join(getDataRoot(), ".nimbus", "trash");
   await mkdir(trashDir, { recursive: true });

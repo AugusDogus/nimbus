@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6040463e-e06f-4743-9e96-bb9a97e799c1",
+  "id": "5c55f8a9-f327-4556-8512-f28904e9f85d",
   "prevId": "f31630fe-527e-48a3-96a7-5dc4a37ea670",
   "tables": {
     "nimbus_note": {
@@ -831,6 +831,52 @@
         }
       },
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "nimbus_home": {
+      "name": "nimbus_home",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "nimbus_home_path_unique": {
+          "name": "nimbus_home_path_unique",
+          "columns": [
+            "path"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "nimbus_home_user_id_user_id_fk": {
+          "name": "nimbus_home_user_id_user_id_fk",
+          "tableFrom": "nimbus_home",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

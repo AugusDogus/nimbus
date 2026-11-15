@@ -24,9 +24,10 @@ export const managementRouter = router({
         isAdmin: ctx.access.isAdmin,
       };
     }),
-  me: protectedProcedure.query(({ ctx }) => ({
+  me: protectedProcedure.query(async ({ ctx }) => ({
     ...ctx.access.user,
     isAdmin: ctx.access.isAdmin,
+    home: await ctx.drive.homeOf(ctx.access.user.id),
   })),
   people: protectedProcedure.query(async ({ ctx }) => {
     // Directory lookup is needed by subtree owners to share with existing accounts.

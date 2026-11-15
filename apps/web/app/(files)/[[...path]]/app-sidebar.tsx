@@ -6,6 +6,7 @@ import {
   Clock,
   FolderPlus,
   HardDrive,
+  House,
   Plus,
   Settings,
   Star,
@@ -37,6 +38,7 @@ import type { StorageSummary } from "./use-file-storage";
 import { StorageIndicator } from "./storage-indicator";
 
 const navItems = [
+  { icon: House, label: "My files", href: "/home" },
   { icon: HardDrive, label: "My Drive", href: "/" },
   { icon: Users, label: "Shared", href: "/shared" },
   { icon: Clock, label: "Recent", href: "/recent" },
