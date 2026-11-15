@@ -81,8 +81,8 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   await expect(page.getByText("Added to Starred", { exact: true })).toBeVisible();
   await page.goto("/starred");
   await expect(page.locator(`[data-entry-path="${folder}/${renamed}"]`).filter({ visible: true })).toBeVisible();
-  await page.getByRole("searchbox", { name: "Search files" }).fill(renamed);
-  await page.getByRole("searchbox", { name: "Search files" }).press("Enter");
+  await page.getByRole("combobox", { name: "Search files" }).fill(renamed);
+  await page.getByRole("combobox", { name: "Search files" }).press("Enter");
   await expect(page.getByRole("heading", { name: `Search: ${renamed}` })).toBeVisible();
   await expect(page.locator(`[data-entry-path="${folder}/${renamed}"]`).filter({ visible: true })).toBeVisible();
   await page.goto(`/browse/${folder}`);

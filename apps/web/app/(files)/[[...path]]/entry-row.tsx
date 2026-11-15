@@ -2,7 +2,7 @@
 
 import { Check, FileText, Folder } from "lucide-react";
 import Link from "next/link";
-import { memo, type DragEvent, type MouseEvent, type PointerEvent } from "react";
+import { memo, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 // Rows mount continuously while scrolling large folders. Their classes never conflict, so they
 // are joined directly instead of through tailwind-merge.
 const classes = (...values: (string | false)[]) => values.filter(Boolean).join(" ");
@@ -61,6 +61,8 @@ type Props = {
   /** Grid cards set their horizontal position; list rows span the width. */
   left?: string;
   width?: string;
+  /** Replaces the plain name, e.g. to add search context. */
+  renderName?: (entry: FileEntry) => ReactNode;
 };
 
 export const EntryRow = memo(function EntryRow({
@@ -83,6 +85,7 @@ export const EntryRow = memo(function EntryRow({
   height,
   left,
   width,
+  renderName,
 }: Props) {
   const Icon = entry.type === "dir" ? Folder : FileText;
   // Handlers resolve at event time: the view's handlers do not exist during server rendering.
@@ -133,7 +136,7 @@ export const EntryRow = memo(function EntryRow({
           />
         </>
       )}
-      <span className={classes("min-w-0 truncate text-sm", view === "grid" && "w-full text-center")}>{entry.name}</span>
+      <span className={classes("min-w-0 truncate text-sm", view === "grid" && "w-full text-center")}>{renderName ? renderName(entry) : entry.name}</span>
     </>
   );
   const common = {

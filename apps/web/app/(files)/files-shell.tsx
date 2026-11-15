@@ -1,8 +1,8 @@
 "use client";
 
-import { FolderPlus, FolderUp, Plus, Search, Shield, Upload } from "lucide-react";
+import { FolderPlus, FolderUp, Plus, Shield, Upload } from "lucide-react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useState } from "react";
 
@@ -31,7 +31,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import {
   SidebarInset,
   SidebarProvider,
@@ -43,6 +42,7 @@ import { decodeFilePathSegments } from "@/lib/file-route";
 import type { UserPreferences } from "@nimbus/api/context";
 
 import { AppSidebar } from "./[[...path]]/app-sidebar";
+import { SearchBox } from "./search/search-box";
 import { HiddenFileInput, NewFolderDialog } from "./[[...path]]/new-content-ui";
 import { useFileActions } from "./[[...path]]/use-file-actions";
 import { useFilePreferences } from "./[[...path]]/use-file-preferences";
@@ -74,7 +74,6 @@ export function FilesShell({
   initialSession,
   initialPrefs,
 }: FilesShellProps) {
-  const router = useRouter();
   const params = useParams<Params>();
   const pathSegments = decodeFilePathSegments(params?.path);
   const currentPath = pathSegments.join("/");
@@ -147,25 +146,7 @@ export function FilesShell({
             </Link>
 
             {/* Search bar -- always visible */}
-            <form
-              role="search"
-              className="relative min-w-0 max-w-lg flex-1"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const query = new FormData(event.currentTarget).get("q");
-                if (typeof query === "string" && query.trim())
-                  router.push(`/search?q=${encodeURIComponent(query.trim())}`);
-              }}
-            >
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                name="q"
-                aria-label="Search files"
-                placeholder="Search files"
-                className="h-9 rounded-lg border-transparent bg-muted/70 pl-10 shadow-none focus-visible:border-ring md:h-10 dark:bg-sidebar/70"
-              />
-            </form>
+            <SearchBox />
           </div>
 
           <div className="flex shrink-0 items-center gap-1 md:gap-3">

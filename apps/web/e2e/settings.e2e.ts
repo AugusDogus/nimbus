@@ -16,7 +16,7 @@ test("settings replaces the drive shell and keeps its sections independently nav
   ).toHaveCount(0);
   await expect(page.getByLabel("Device name", { exact: true })).toHaveCount(0);
   await expect(
-    page.getByRole("searchbox", { name: "Search files", exact: true }),
+    page.getByRole("combobox", { name: "Search files", exact: true }),
   ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "New file or folder", exact: true }),
@@ -79,7 +79,7 @@ test("settings replaces the drive shell and keeps its sections independently nav
   await page.getByRole("link", { name: "Back to files", exact: true }).click();
   await expect(page).toHaveURL("/");
   await expect(
-    page.getByRole("searchbox", { name: "Search files", exact: true }),
+    page.getByRole("combobox", { name: "Search files", exact: true }),
   ).toBeVisible();
 });
 

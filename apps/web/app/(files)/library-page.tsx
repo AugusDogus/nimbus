@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { EntriesView } from "./[[...path]]/entries-view";
 import { useFileActions } from "./[[...path]]/use-file-actions";
+import { Highlighted, parentLabel } from "./search/highlight";
+
+const SEARCH_LIMIT = 200;
 
 export function LibraryPage({
   kind,
@@ -26,11 +30,27 @@ export function LibraryPage({
   });
   const search = useQuery({
     queryKey: ["catalog", "search", query],
-    queryFn: () => trpcClient.catalog.search.query({ query, path: "" }),
+    queryFn: ({ signal }) =>
+      trpcClient.catalog.search.query(
+        { query, path: "", limit: SEARCH_LIMIT },
+        { signal },
+      ),
     enabled: kind === "search" && query.length > 0,
   });
   const active =
     kind === "search" ? search : kind === "shared" ? shared : bookmarks;
+  // Stable, so memoized rows re-render only when their own data changes.
+  const renderSearchName = useCallback(
+    (entry: { name: string; path: string }) => (
+      <>
+        <Highlighted text={entry.name} query={query} />
+        <span className="ml-2 text-xs text-muted-foreground">
+          {parentLabel(entry.path)}
+        </span>
+      </>
+    ),
+    [query],
+  );
   const entries =
     kind === "search"
       ? (search.data?.entries ?? [])
@@ -66,6 +86,7 @@ export function LibraryPage({
           actions={actions}
           restoreKey={`${kind}:${query}`}
           label={title}
+          renderName={kind === "search" ? renderSearchName : undefined}
         />
       ) : (
         <div className="space-y-3 rounded-lg border p-8 text-center">
@@ -83,10 +104,16 @@ export function LibraryPage({
           </Button>
         </div>
       )}
+      {kind === "search" && search.data?.complete === false && (
+        <p role="status" className="text-pretty text-sm text-muted-foreground">
+          Nimbus is still indexing your drive after starting. Some matches may
+          be missing; search again in a minute.
+        </p>
+      )}
       {kind === "search" && search.data?.truncated && (
         <p className="text-pretty text-sm text-muted-foreground">
-          Search reached its scan or result limit. Use a more specific filename
-          to narrow the results.
+          Showing the first {SEARCH_LIMIT} matches. Type more of the name to
+          narrow the results.
         </p>
       )}
     </div>

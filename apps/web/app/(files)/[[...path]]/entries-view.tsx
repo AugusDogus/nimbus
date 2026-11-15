@@ -11,6 +11,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
@@ -48,12 +49,14 @@ type Props = {
   toolbarRef?: RefObject<HTMLElement | null>;
   /** Element the selection bar overlays. Without one, the bar floats at the bottom of the screen. */
   selectionSlot?: HTMLElement | null;
+  /** Replaces the plain name, e.g. to add search context. Keep it stable so rows stay memoized. */
+  renderName?: (entry: FileEntry) => ReactNode;
 };
 
 const longPressMs = 450;
 const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
 
-export function EntriesView({ view, sections, actions, restoreKey, label, toolbarRef, selectionSlot }: Props) {
+export function EntriesView({ view, sections, actions, restoreKey, label, toolbarRef, selectionSlot, renderName }: Props) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const columns = useGridColumns();
@@ -356,6 +359,7 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
         menuOpen={menu?.entry.path === entry.path}
         actions={actions}
         handlers={handlers}
+        renderName={renderName}
         {...position}
       />
     );

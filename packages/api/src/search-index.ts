@@ -211,6 +211,8 @@ export function createSearchIndex(initialCapacity = 1024) {
   }
 
   const insert = (parentId: number, name: string, kind: IndexedKind) => {
+    // A crawler may still hold the id of a folder removed meanwhile.
+    if (parentId === NONE || kinds[parentId] !== DIR) return NONE;
     const code = kind === "dir" ? DIR : FILE;
     const existing = childId(parentId, name);
     if (existing !== NONE) {

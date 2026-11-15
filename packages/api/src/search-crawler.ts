@@ -27,12 +27,10 @@ async function crawlInto(
     }
     for (const entry of entries) {
       if (isPrivate(entry.name)) continue;
-      if (entry.isDirectory())
-        pending.push([
-          path.join(directory, entry.name),
-          index.addChild(id, entry.name, "dir"),
-        ]);
-      else if (entry.isFile()) index.addChild(id, entry.name, "file");
+      if (entry.isDirectory()) {
+        const child = index.addChild(id, entry.name, "dir");
+        if (child >= 0) pending.push([path.join(directory, entry.name), child]);
+      } else if (entry.isFile()) index.addChild(id, entry.name, "file");
     }
     listed += entries.length;
     if (listed >= 50_000) {
@@ -82,7 +80,7 @@ export async function applyChange(
   if (stats.isDirectory()) {
     const known = index.kindOf(relative) === "dir";
     const id = index.add(relative, "dir");
-    if (!known) await crawlInto(index, absolute, id, () => false);
+    if (!known && id >= 0) await crawlInto(index, absolute, id, () => false);
   } else if (stats.isFile()) index.add(relative, "file");
   else index.remove(relative);
   index.maybeCompact();
