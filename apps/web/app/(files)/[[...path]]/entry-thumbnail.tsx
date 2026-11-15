@@ -1,8 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import { useState, type ReactNode } from "react";
-import { FileKind } from "@/lib/file-kind";
+import { hasThumbnail as nameHasThumbnail } from "@/lib/thumbnail-kind";
 
 type ThumbnailEntry = {
   name: string;
@@ -24,7 +23,7 @@ export function thumbnailSrc(entry: ThumbnailEntry, share?: string) {
 }
 
 export const hasThumbnail = (entry: ThumbnailEntry) =>
-  entry.type === "file" && FileKind.hasThumbnail(FileKind.of(entry.name));
+  entry.type === "file" && nameHasThumbnail(entry.name);
 
 /** A fixed-size box: loading or failing never shifts surrounding layout. */
 export function EntryThumbnail({
@@ -48,8 +47,9 @@ export function EntryThumbnail({
       {!hasThumbnail(entry) || failed === src ? (
         fallback
       ) : (
-        <Image
-          unoptimized
+        // Already sized by the server; next/image would only add its runtime.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
           src={src}
           width={256}
           height={256}

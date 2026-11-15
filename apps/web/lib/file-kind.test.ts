@@ -1,9 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { FileKind } from "./file-kind";
+import { hasThumbnail, thumbnailExtensions } from "./thumbnail-kind";
 
 describe("FileKind", () => {
   it("classifies by extension case-insensitively", () => {
-    expect(FileKind.of("Photo.JPG")).toEqual({ type: "image", mime: "image/jpeg", thumbnail: true });
+    expect(FileKind.of("Photo.JPG")).toEqual({ type: "image", mime: "image/jpeg" });
     expect(FileKind.of("notes.md").type).toBe("markdown");
     expect(FileKind.of("main.tsx")).toEqual({ type: "code", language: "typescript" });
     expect(FileKind.of("Dockerfile")).toEqual({ type: "code", language: "shell" });
@@ -24,11 +25,13 @@ describe("FileKind", () => {
     expect(FileKind.previewContentType(FileKind.of("tool.exe"))).toBe("application/octet-stream");
   });
 
-  it("offers thumbnails for raster images, PDFs and videos only", () => {
-    expect(FileKind.hasThumbnail(FileKind.of("a.png"))).toBe(true);
-    expect(FileKind.hasThumbnail(FileKind.of("a.pdf"))).toBe(true);
-    expect(FileKind.hasThumbnail(FileKind.of("a.mp4"))).toBe(true);
-    expect(FileKind.hasThumbnail(FileKind.of("a.svg"))).toBe(false);
-    expect(FileKind.hasThumbnail(FileKind.of("a.mp3"))).toBe(false);
+  it("offers thumbnails only for raster images, PDFs and videos", () => {
+    for (const extension of thumbnailExtensions())
+      expect(["image", "video", "pdf"]).toContain(FileKind.of(`a.${extension}`).type);
+    expect(hasThumbnail("Photo.JPG")).toBe(true);
+    expect(hasThumbnail("a.pdf")).toBe(true);
+    expect(hasThumbnail("a.svg")).toBe(false);
+    expect(hasThumbnail("a.mp3")).toBe(false);
+    expect(hasThumbnail(".png")).toBe(false);
   });
 });

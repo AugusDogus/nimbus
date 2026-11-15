@@ -2,6 +2,7 @@ import path from "node:path";
 import { TRPCError } from "@trpc/server";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { FileKind } from "@/lib/file-kind";
+import { hasThumbnail } from "@/lib/thumbnail-kind";
 import { httpError, requestAccess } from "@/server/http-files";
 import {
   getPublicShare,
@@ -43,8 +44,9 @@ export async function GET(request: Request) {
     const { access, relative } = await authorize(request, url);
     access.require(relative, "read");
     const entry = await requireExisting(relative);
-    const kind = FileKind.of(path.basename(entry.absolute));
-    if (!entry.stats.isFile() || !FileKind.hasThumbnail(kind))
+    const name = path.basename(entry.absolute);
+    const kind = FileKind.of(name);
+    if (!entry.stats.isFile() || !hasThumbnail(name))
       return new Response(null, { status: 415 });
     const source = {
       absolute: entry.absolute,

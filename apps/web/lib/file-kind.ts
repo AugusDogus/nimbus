@@ -29,8 +29,8 @@ export type CodeLanguage =
   | "yaml";
 
 export type FileKind =
-  | { type: "image"; mime: string; thumbnail: boolean }
-  | { type: "video"; mime: string; thumbnail: boolean }
+  | { type: "image"; mime: string }
+  | { type: "video"; mime: string }
   | { type: "audio"; mime: string }
   | { type: "pdf" }
   | { type: "markdown" }
@@ -39,16 +39,8 @@ export type FileKind =
   | { type: "text" }
   | { type: "other" };
 
-const image = (mime: string, thumbnail = true): FileKind => ({
-  type: "image",
-  mime,
-  thumbnail,
-});
-const video = (mime: string, thumbnail = true): FileKind => ({
-  type: "video",
-  mime,
-  thumbnail,
-});
+const image = (mime: string): FileKind => ({ type: "image", mime });
+const video = (mime: string): FileKind => ({ type: "video", mime });
 const audio = (mime: string): FileKind => ({ type: "audio", mime });
 const code = (language: CodeLanguage): FileKind => ({ type: "code", language });
 const text: FileKind = { type: "text" };
@@ -63,10 +55,9 @@ const byExtension: Record<string, FileKind> = {
   avif: image("image/avif"),
   tif: image("image/tiff"),
   tiff: image("image/tiff"),
-  // Browsers decode these natively; the thumbnailer skips vector and icon formats.
-  bmp: image("image/bmp", false),
-  ico: image("image/x-icon", false),
-  svg: image("image/svg+xml", false),
+  bmp: image("image/bmp"),
+  ico: image("image/x-icon"),
+  svg: image("image/svg+xml"),
   mp4: video("video/mp4"),
   m4v: video("video/mp4"),
   mov: video("video/quicktime"),
@@ -160,12 +151,6 @@ export const FileKind = {
       kind.type === "table" ||
       kind.type === "code" ||
       kind.type === "text"
-    );
-  },
-  hasThumbnail(kind: FileKind) {
-    return (
-      ((kind.type === "image" || kind.type === "video") && kind.thumbnail) ||
-      kind.type === "pdf"
     );
   },
   /** Content-Type for inline previews. Anything unknown downloads as bytes. */

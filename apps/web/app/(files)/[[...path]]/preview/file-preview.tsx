@@ -1,7 +1,6 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import Image from "next/image";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -69,12 +68,12 @@ export default function FilePreview({
     case "image":
       return (
         <div className="flex justify-center rounded-md bg-muted">
-          <Image
+          {/* The original bytes, as the browser decodes them natively. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
             src={url}
             alt={name}
-            unoptimized
-            width={1024}
-            height={768}
+            decoding="async"
             onError={() => setFailed(true)}
             className="h-auto max-h-[65dvh] w-auto max-w-full object-contain"
           />
