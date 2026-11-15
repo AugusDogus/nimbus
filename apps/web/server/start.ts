@@ -14,7 +14,12 @@ import { createDriveStore } from "./drive-store";
 import { handleWebDAV } from "./webdav";
 import { streamBody } from "./http-files";
 import { cleanExpiredData } from "./maintenance";
-import { runWithAuditRequest } from "@nimbus/api/audit";
+import {
+  flushAudit,
+  runWithAuditRequest,
+  setAuditSink,
+} from "@nimbus/api/audit";
+import { AuditRetention, createAuditSink, purgeAuditEvents } from "./audit-log";
 import { ClientIp, clientIpHeader, TrustedProxies } from "./client-ip";
 import { mailConfig } from "./mail";
 
@@ -31,6 +36,9 @@ if (
   );
 }
 const trustedProxies = TrustedProxies.parse(process.env.NIMBUS_TRUSTED_PROXIES);
+const auditRetentionDays = AuditRetention.parse(
+  process.env.NIMBUS_AUDIT_RETENTION_DAYS,
+);
 console.info(
   mailConfig.kind === "smtp"
     ? `Nimbus email is enabled through ${mailConfig.host}:${mailConfig.port}.`
@@ -42,6 +50,7 @@ const origin = new URL(
 await migrate(db, {
   migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
 });
+setAuditSink(createAuditSink(db));
 const store = createDriveStore(db);
 for (const home of await Homes.backfill(store))
   if (home.kind === "failed") console.error(home.message);
@@ -137,7 +146,11 @@ server.listen(port, "0.0.0.0", () =>
 
 let pendingCleanup: Promise<void> | undefined;
 function cleanup() {
-  pendingCleanup ??= cleanExpiredData(store, getDataRoot())
+  pendingCleanup ??= Promise.all([
+    cleanExpiredData(store, getDataRoot()),
+    purgeAuditEvents(db, auditRetentionDays),
+  ])
+    .then(() => undefined)
     .catch((error: unknown) =>
       console.error(
         "Nimbus retention cleanup failed. Remaining items will be retried in one hour.",
@@ -171,6 +184,7 @@ function shutdown() {
     void (async () => {
       await pendingCleanup;
       await app.close();
+      await flushAudit();
       client.close();
       clearTimeout(deadline);
       process.exit(0);

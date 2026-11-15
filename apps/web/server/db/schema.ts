@@ -38,3 +38,5 @@ export * from "./auth-schema";
 
 
 export * from "./drive-schema";
+
+export * from "./audit-schema";

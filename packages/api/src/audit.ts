@@ -138,7 +138,7 @@ export function recordAudit(event: AuditEvent) {
   schedule();
 }
 
-/** Writes queued events now. Used at shutdown and by tests. */
+/** Writes every queued event now. Used at shutdown and by tests. */
 export async function flushAudit(): Promise<void> {
   if (state.flushing) await state.flushing;
   const sink = state.sink;
@@ -158,7 +158,8 @@ export async function flushAudit(): Promise<void> {
       state.flushing = null;
     });
   await state.flushing;
-  if (state.queue.length > 0) schedule(failed ? retryDelayMs : flushDelayMs);
+  if (failed) schedule(retryDelayMs);
+  else if (state.queue.length > 0) await flushAudit();
 }
 
 /** Installs the persistent writer. Events recorded before installation are kept. */
