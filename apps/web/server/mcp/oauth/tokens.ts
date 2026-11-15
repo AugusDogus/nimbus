@@ -135,6 +135,9 @@ async function refresh(ctx: OAuthContext, client: OAuthClient, form: ReadonlyMap
   }
   const live = liveGrantError(row, client, now, "refresh token");
   if (live) return { ok: false, error: live };
+  const resource = form.get("resource");
+  if (resource !== undefined && resource !== mcpResource(ctx.origin))
+    return { ok: false, error: protocolError(400, "invalid_target", `resource must be ${mcpResource(ctx.origin)}.`) };
   const granted = McpScope.parse(row.scope).scopes;
   let scopes = granted;
   const requested = form.get("scope");

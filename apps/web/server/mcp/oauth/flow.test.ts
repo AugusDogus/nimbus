@@ -171,6 +171,12 @@ describe("MCP OAuth flow", () => {
     expect(await bearer(next.access_token)).toMatchObject({ kind: "rejected" });
   });
 
+  it("refuses to refresh tokens for a different resource", async () => {
+    const tokens = await connect();
+    const response = await handleToken(ctx, post("/oauth/token", { grant_type: "refresh_token", client_id: tokens.clientId, refresh_token: tokens.refresh_token, resource: "https://other.example/mcp" }));
+    expect(await response.json()).toMatchObject({ error: "invalid_target" });
+  });
+
   it("rejects expired access tokens", async () => {
     const tokens = await connect();
     now += 60 * 60 * 1000;
