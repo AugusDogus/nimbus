@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ArrowLeft,
+  Bot,
   Cable,
   Palette,
   ScrollText,
@@ -44,6 +45,12 @@ export const settingsPages = [
     href: "/settings/webdav",
     label: "WebDAV",
     icon: Cable,
+    section: "Settings",
+  },
+  {
+    href: "/settings/mcp",
+    label: "MCP",
+    icon: Bot,
     section: "Settings",
   },
   {
