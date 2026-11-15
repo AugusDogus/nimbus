@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Bot, PlugZap } from "lucide-react";
 import type { McpScope } from "@nimbus/api/mcp-scope";
 import type { McpConnection } from "@/server/mcp/oauth/connections";
@@ -44,7 +43,7 @@ function Timestamp({ prefix, value }: { prefix: string; value: number }) {
 }
 
 export function McpSettings({ state }: { state: McpSettingsState }) {
-  const router = useRouter();
+  const [connections, setConnections] = useState(state.kind === "enabled" ? state.connections : []);
   const [revoking, setRevoking] = useState<McpConnection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,8 +62,8 @@ export function McpSettings({ state }: { state: McpSettingsState }) {
         );
         return;
       }
+      setConnections((current) => current.filter((entry) => entry.id !== connection.id));
       setRevoking(null);
-      router.refresh();
     } catch {
       setError("Nimbus could not be reached. The app is still connected; check your connection and try again.");
     } finally {
@@ -115,7 +114,7 @@ export function McpSettings({ state }: { state: McpSettingsState }) {
             title="Connected apps"
             description="Disconnecting an app stops its access immediately. Your files remain intact."
           >
-            {state.connections.length === 0 ? (
+            {connections.length === 0 ? (
               <div className="flex items-start gap-4 p-5 sm:py-8">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background">
                   <Bot className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -129,7 +128,7 @@ export function McpSettings({ state }: { state: McpSettingsState }) {
               </div>
             ) : (
               <ul className="divide-y divide-border/50" aria-label="Connected apps">
-                {state.connections.map((connection) => (
+                {connections.map((connection) => (
                   <li key={connection.id} className="flex items-center gap-3 px-4 py-4 sm:px-5">
                     <Bot className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
                     <div className="min-w-0 flex-1 space-y-1">

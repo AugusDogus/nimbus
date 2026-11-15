@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import { connection } from "next/server";
 import { Check } from "lucide-react";
 import { McpScope } from "@nimbus/api/mcp-scope";
 import { NimbusLogo } from "@/components/nimbus-logo";
@@ -24,6 +25,8 @@ const toSearchParams = (params: SearchParams) => {
 };
 
 export default async function ConsentPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  // Configuration is read per request; never prerender this page at build time.
+  await connection();
   const runtime = mcpRuntime("html");
   if (runtime.kind === "unavailable") notFound();
   const view = await loadConsent(runtime.oauth, toSearchParams(await searchParams), await headers());
