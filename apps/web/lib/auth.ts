@@ -13,6 +13,7 @@ import { clientIpHeader } from "../server/client-ip";
 import { mailConfig, sendMail } from "../server/mail";
 import { db } from "../server/db";
 import { createDriveStore } from "../server/drive-store";
+import { RateLimiter } from "../server/rate-limit";
 import { nimbusAudit } from "./auth-audit";
 import { nimbusSecurity } from "./auth-security";
 import { OidcConfig, oidcConfig, oidcProviderId } from "./oidc-config";
@@ -56,6 +57,12 @@ const includesAdmin = (role: string | string[]) =>
 // Better Auth may report the templated route ("/callback/:id") rather than the URL.
 const isOidcCallback = (path: string | undefined) =>
   oidcConfig.kind === "oidc" && (path?.startsWith("/callback/") ?? false);
+
+// Caps reset emails per account so many clients cannot flood one mailbox.
+const resetEmails = RateLimiter.shared("password-reset-recipient", {
+  limit: 3,
+  windowMs: 60 * 60 * 1000,
+});
 
 /** Groups claimed by the identity provider at sign-in, applied once the account is known. */
 const pendingGroups = new Map<string, { groups: string[]; expires: number }>();
@@ -225,6 +232,8 @@ export const auth = betterAuth({
     resetPasswordTokenExpiresIn: 60 * 60,
     ...(mailConfig.kind === "smtp" && {
       async sendResetPassword({ user: account, url }) {
+        // The response stays the same either way, so this reveals nothing to the requester.
+        if (!resetEmails.consume(account.id).allowed) return;
         // Deliver in the background so response timing does not reveal whether an account exists.
         void sendMail({
           to: account.email,

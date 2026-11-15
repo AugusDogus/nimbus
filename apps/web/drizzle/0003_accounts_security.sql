@@ -63,3 +63,10 @@ WHEN OLD.`at` > cast(unixepoch('subsecond') * 1000 as integer) - 2592000000
 BEGIN
   SELECT RAISE(ABORT, 'Nimbus keeps audit events for at least 30 days');
 END;
+--> statement-breakpoint
+CREATE TRIGGER `nimbus_audit_event_no_replace`
+BEFORE INSERT ON `nimbus_audit_event`
+WHEN NEW.`id` IS NOT NULL AND EXISTS (SELECT 1 FROM `nimbus_audit_event` WHERE `id` = NEW.`id`)
+BEGIN
+  SELECT RAISE(ABORT, 'Nimbus audit events are append-only');
+END;

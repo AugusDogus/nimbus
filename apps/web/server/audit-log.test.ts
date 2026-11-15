@@ -30,6 +30,9 @@ describe("audit storage", () => {
     ]);
     await expect(client.execute("UPDATE nimbus_audit_event SET action = 'x'")).rejects.toThrow("append-only");
     await expect(client.execute("DELETE FROM nimbus_audit_event")).rejects.toThrow("at least 30 days");
+    await expect(
+      client.execute("INSERT OR REPLACE INTO nimbus_audit_event (id, at, action, actor_type) VALUES (1, 0, 'x', 'system')"),
+    ).rejects.toThrow("append-only");
     expect(await purgeAuditEvents(db, 365, now)).toBe(1);
     expect(await purgeAuditEvents(db, 30, now)).toBe(1);
     const remaining = await listAuditEvents(db, { limit: 50 });

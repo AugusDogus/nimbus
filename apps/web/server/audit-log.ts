@@ -41,17 +41,29 @@ export const createAuditSink = (db: Database) => async (events: RecordedAuditEve
   );
 };
 
-/** Deletes events older than the retention period in small batches, so writers are not blocked. */
-export async function purgeAuditEvents(db: Database, retentionDays: number, now = Date.now()) {
+/**
+ * Deletes events older than the retention period in small batches. Local SQLite calls
+ * block the event loop, so each batch is short, the loop yields between batches, and
+ * one run stops after a time budget; the hourly cleanup continues where it stopped.
+ */
+export async function purgeAuditEvents(
+  db: Database,
+  retentionDays: number,
+  now = Date.now(),
+  budgetMs = 2_000,
+) {
   const cutoff = now - retentionDays * 24 * 60 * 60 * 1000;
+  const started = performance.now();
   let removed = 0;
-  while (true) {
+  while (performance.now() - started < budgetMs) {
     const result = await db.run(
-      sql`DELETE FROM ${auditEvents} WHERE ${auditEvents.id} IN (SELECT ${auditEvents.id} FROM ${auditEvents} WHERE ${auditEvents.at} < ${cutoff} ORDER BY ${auditEvents.id} LIMIT 2000)`,
+      sql`DELETE FROM ${auditEvents} WHERE ${auditEvents.id} IN (SELECT ${auditEvents.id} FROM ${auditEvents} WHERE ${auditEvents.at} < ${cutoff} ORDER BY ${auditEvents.id} LIMIT 200)`,
     );
     removed += result.rowsAffected;
-    if (result.rowsAffected < 2000) return removed;
+    if (result.rowsAffected < 200) break;
+    await new Promise((resolve) => setImmediate(resolve));
   }
+  return removed;
 }
 
 export type AuditQuery = {
