@@ -10,11 +10,13 @@ RUN BETTER_AUTH_SECRET="$(bun -e 'process.stdout.write(require("node:crypto").ra
 FROM oven/bun:latest
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 NIMBUS_DATA_ROOT=/data NIMBUS_CONFIG_ROOT=/config PORT=3000
-COPY --from=build --chown=bun:bun /app /app
-RUN mkdir /data /config && chown bun:bun /data /config
-USER bun
+# Application files stay owned by root and read-only to the PUID:PGID the server runs as.
+COPY --from=build /app /app
+COPY --chmod=755 scripts/docker-entrypoint.sh /usr/local/bin/nimbus-entrypoint
+RUN mkdir /data /config && chown 1000:1000 /data /config
 WORKDIR /app/apps/web
 EXPOSE 3000
 VOLUME ["/data", "/config"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD bun -e 'fetch("http://127.0.0.1:3000/api/health").then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'
+ENTRYPOINT ["nimbus-entrypoint"]
 CMD ["bun", "server/start.ts"]

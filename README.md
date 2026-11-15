@@ -54,11 +54,11 @@ docker compose logs -f nimbus
 
 Open [http://localhost:3000/signup](http://localhost:3000/signup) to create the administrator. Compose binds port 3000 to the host's loopback interface. For remote access, put an HTTPS reverse proxy in front of it and set `BETTER_AUTH_URL` to the public origin, for example `https://files.example.com`. The proxy must preserve the request host and forwarded protocol, allow WebDAV methods, and permit your intended upload sizes and transfer durations. Disable buffering for the live event stream. Serve Nimbus at the origin root, not under a URL prefix.
 
-The container runs as the unprivileged `bun` user. Host directories can replace the named volumes if they are writable by that user. Persist both `/data` (managed files, trash, upload staging) and `/config` (database and thumbnail cache). Use one Nimbus process per data root, on a local filesystem. Locks, live events, and mutation coordination are maintained within that process.
+The server runs as an unprivileged user, by default UID and GID 1000. Set `PUID` and `PGID` to the numeric owner of your host directories, and Nimbus creates files as that user. `UMASK` (default `022`) sets the permissions of new files; `002` makes them group-writable. The container starts as root only to apply these settings, then drops privileges before the server starts. At startup it takes ownership of the config root and the reserved `/data/.nimbus` folder, which contain only Nimbus state, and of the `/data` directory itself; it never changes the ownership of your files. If you start the container with `--user` instead, these variables are ignored and the mounts must already be writable by that user. Persist both `/data` (managed files, trash, upload staging) and `/config` (database and thumbnail cache). Use one Nimbus process per data root, on a local filesystem. Locks, live events, and mutation coordination are maintained within that process.
 
 ### Published image
 
-The Docker workflow builds the Dockerfile for every PR without publishing. Pushes to `main` and version tags such as `v1.2.3` publish Linux amd64 images to GitHub Container Registry. Every build pulls the latest Bun base image.
+The Docker workflow builds the Dockerfile for `linux/amd64` and `linux/arm64` on native runners for every PR, without publishing. Pushes to `main` and version tags such as `v1.2.3` publish a multi-platform image to GitHub Container Registry with signed build provenance. Every build uses the latest Bun base image.
 
 - `ghcr.io/augusdogus/nimbus:1.2.3` is published from the `v1.2.3` tag.
 - `ghcr.io/augusdogus/nimbus:latest` tracks the most recently published stable release.
@@ -76,7 +76,7 @@ Publishing uses the workflow's `GITHUB_TOKEN`; no registry secret needs to be co
 
 ### Unraid
 
-Use these container path mappings:
+Set `PUID=99` and `PGID=100`, Unraid's `nobody:users` owner for shares, so files created by Nimbus are accessible over SMB and to other containers. Use these container path mappings:
 
 | Host path | Container path | Access |
 | --- | --- | --- |
@@ -109,6 +109,8 @@ Set the deployment values in `apps/web/.env` before startup. The Bun custom serv
 | `NIMBUS_CONFIG_ROOT`          | Database and thumbnail cache directory. Local default: `<data root>/.nimbus`. Container default: `/config`. |
 | `DATABASE_URL`                | Optional SQLite URL, overriding the config root for the database only. Default: `file:<config root>/db.sqlite`. Use an absolute path when overriding it. |
 | `PORT`                        | Listening port, default `3000`. Update the public origin and proxy when changing it.                                                |
+| `PUID`, `PGID`                | Container only. Numeric user and group the server runs as, default `1000`. |
+| `UMASK`                       | Container only. Permission mask for new files and folders, default `022`. |
 
 The reserved `<data root>/.nimbus` directory contains trash and temporary uploads. Without a separate config root, it also contains the database and thumbnail cache. Nimbus never exposes `.nimbus` through file browsing or sharing. Keep a separate config root outside the browsable data root. Symbolic links and special files are excluded. Nimbus needs read and write access to both roots; other local programs with access to those directories remain outside Nimbus's permission controls.
 
@@ -186,7 +188,7 @@ docker compose run --rm --no-deps --entrypoint sh nimbus -c '
 docker compose up -d
 ```
 
-For Unraid bind mounts or a local installation, stop Nimbus and copy the same database and any companion journal files from the old `.nimbus` directory to the new config directory. Keep `BETTER_AUTH_SECRET` unchanged and ensure the files are writable by the container user. Thumbnails can regenerate, or you can copy `.nimbus/cache` into the config directory too. Leave `.nimbus/trash` and `.nimbus/uploads` under the data root.
+For Unraid bind mounts or a local installation, stop Nimbus and copy the same database and any companion journal files from the old `.nimbus` directory to the new config directory. Keep `BETTER_AUTH_SECRET` unchanged. Startup gives the config directory to `PUID`:`PGID`. Thumbnails can regenerate, or you can copy `.nimbus/cache` into the config directory too. Leave `.nimbus/trash` and `.nimbus/uploads` under the data root.
 
 Verify your existing accounts, shares, and trash after restarting. The old database copy is a backup of the migration point; it does not receive subsequent changes. Once verified and backed up, you can remove the old database, its journal files, and the old thumbnail cache. An explicit `DATABASE_URL` continues to take precedence and is never relocated automatically.
 
