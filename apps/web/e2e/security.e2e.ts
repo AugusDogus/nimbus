@@ -106,7 +106,11 @@ test("sessions can be reviewed and signed out, and administrators can reset sign
 
     await page.goto("/settings/admin/audit");
     const events = page.getByRole("list", { name: "Audit events" });
-    await expect(events).toContainText("Reset sign-in methods");
+    // Audit events are written in the background a moment after the action.
+    await expect(async () => {
+      await page.reload();
+      await expect(events).toContainText("Reset sign-in methods", { timeout: 1_000 });
+    }).toPass();
     await expect(events).toContainText("Signed out other sessions");
     await page.getByRole("combobox", { name: "Event" }).click();
     await page.getByRole("option", { name: "Reset sign-in methods", exact: true }).click();
@@ -122,10 +126,10 @@ test("passkeys sign in without a password", async ({ browser, page, browserName 
   test.skip(browserName !== "chromium", "Virtual authenticators need the Chrome DevTools Protocol.");
   const { email } = await createMember(page);
   const member = await memberPage(browser, page);
+  const cdp = await member.context.newCDPSession(member.page);
   try {
-    const cdp = await member.context.newCDPSession(member.page);
     await cdp.send("WebAuthn.enable");
-    await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", {
       options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true },
     });
     await login(member.page, email);
@@ -137,10 +141,18 @@ test("passkeys sign in without a password", async ({ browser, page, browserName 
     await expect(section.getByRole("list", { name: "Passkeys" })).toContainText("Test authenticator");
 
     await member.context.clearCookies();
+    // Hold user presence so the email field's passkey autofill request stays pending,
+    // then answer the explicit button's request; the button aborts the autofill request.
+    await cdp.send("WebAuthn.setAutomaticPresenceSimulation", { authenticatorId, enabled: false });
     await member.page.goto("/login");
     await member.page.getByRole("button", { name: "Sign in with a passkey", exact: true }).click();
+    await cdp.send("WebAuthn.setAutomaticPresenceSimulation", { authenticatorId, enabled: true });
     await expect(member.page.getByRole("button", { name: "Account menu" })).toBeVisible();
+    // A pending autofill request keeps the virtual authenticator busy; remove it before closing.
+    await cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId });
   } finally {
+    await cdp.send("WebAuthn.disable").catch(() => undefined);
+    await cdp.detach().catch(() => undefined);
     await member.context.close();
   }
 });
@@ -177,5 +189,8 @@ test("WebDAV and public link passwords throttle repeated wrong credentials", asy
   expect(attempts.slice(0, 10).every((status) => status === 401)).toBe(true);
   expect(attempts[10]).toBe(429);
   await page.goto("/settings/admin/audit?action=share.password_failed");
-  await expect(page.getByRole("list", { name: "Audit events" }).getByRole("listitem").first()).toContainText("Wrong public link password · alpha.txt");
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("list", { name: "Audit events" }).getByRole("listitem").first()).toContainText("Wrong public link password · alpha.txt", { timeout: 1_000 });
+  }).toPass();
 });

@@ -105,9 +105,14 @@ export const nimbusAudit = () =>
               details.role = [input.data.role].flat().join(",");
             const userId = input.success ? input.data.userId : undefined;
             const createdUser = z.object({ user: userShape }).safeParse(returned);
+            // Label the account by email so the log stays readable after it is removed.
+            const subject =
+              userId !== undefined && action !== "account.removed"
+                ? await ctx.context.internalAdapter.findUserById(userId).catch(() => null)
+                : null;
             const target =
               userId !== undefined
-                ? { type: "user" as const, id: userId }
+                ? { type: "user" as const, id: userId, ...(subject && { label: subject.email }) }
                 : action === "account.created" && createdUser.success
                   ? { type: "user" as const, id: createdUser.data.user.id, label: createdUser.data.user.email }
                   : undefined;
