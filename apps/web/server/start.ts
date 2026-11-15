@@ -16,6 +16,7 @@ import { streamBody } from "./http-files";
 import { cleanExpiredData } from "./maintenance";
 import { runWithAuditRequest } from "@nimbus/api/audit";
 import { ClientIp, clientIpHeader, TrustedProxies } from "./client-ip";
+import { mailConfig } from "./mail";
 
 const port = Number(process.env.PORT ?? "3000");
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -30,6 +31,11 @@ if (
   );
 }
 const trustedProxies = TrustedProxies.parse(process.env.NIMBUS_TRUSTED_PROXIES);
+console.info(
+  mailConfig.kind === "smtp"
+    ? `Nimbus email is enabled through ${mailConfig.host}:${mailConfig.port}.`
+    : "Nimbus email is off. Administrators reset forgotten passwords.",
+);
 const origin = new URL(
   process.env.BETTER_AUTH_URL ?? `http://localhost:${port}`,
 );
