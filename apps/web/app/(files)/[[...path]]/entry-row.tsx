@@ -2,16 +2,14 @@
 
 import { Check, FileText, Folder } from "lucide-react";
 import Link from "next/link";
-import Image from "next/image";
 import { memo, type DragEvent, type MouseEvent, type PointerEvent } from "react";
 // Rows mount continuously while scrolling large folders. Their classes never conflict, so they
 // are joined directly instead of through tailwind-merge.
 const classes = (...values: (string | false)[]) => values.filter(Boolean).join(" ");
 import { EntryActionsButton, openMenuAt } from "./entry-menu";
+import { EntryThumbnail } from "./entry-thumbnail";
 import { fileHref, FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
-
-const imagePattern = /\.(png|jpe?g|webp|gif|avif)$/i;
 
 type DragProps = {
   draggable: boolean;
@@ -86,7 +84,6 @@ export const EntryRow = memo(function EntryRow({
   left,
   width,
 }: Props) {
-  const isImage = view === "grid" && entry.type === "file" && imagePattern.test(entry.name);
   const Icon = entry.type === "dir" ? Folder : FileText;
   // Handlers resolve at event time: the view's handlers do not exist during server rendering.
   const drag = touch
@@ -128,19 +125,12 @@ export const EntryRow = memo(function EntryRow({
       ) : (
         <>
           <span className="absolute left-2 top-2">{check}</span>
-          {isImage ? (
-            <Image
-              draggable={false}
-              unoptimized
-              src={`/api/files/thumbnail?path=${encodeURIComponent(entry.path)}`}
-              width={128}
-              height={80}
-              alt=""
-              className="h-20 w-full object-contain"
-            />
-          ) : (
-            <Icon className={classes("size-12 shrink-0 text-muted-foreground", entry.type === "dir" && "fill-muted")} />
-          )}
+          {/* The thumbnail box has a fixed size, so the windowed grid keeps fixed row heights. */}
+          <EntryThumbnail
+            entry={entry}
+            fallback={<Icon className={classes("size-12 shrink-0 text-muted-foreground", entry.type === "dir" && "fill-muted")} />}
+            className="h-20 w-full"
+          />
         </>
       )}
       <span className={classes("min-w-0 truncate text-sm", view === "grid" && "w-full text-center")}>{entry.name}</span>
