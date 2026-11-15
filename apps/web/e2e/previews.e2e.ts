@@ -19,12 +19,14 @@ test("steps through a folder's previews and renders text formats", async ({ page
   await writeFile(path.join(directory, "a-table.csv"), 'city,count\nOslo,3\n"Rome, IT",5\n');
   await writeFile(path.join(directory, "b-config.json"), '{"enabled":true}');
   await writeFile(path.join(directory, "c-notes.txt"), "Plain notes");
+  await writeFile(path.join(directory, "d-readme.md"), "# Release notes\n\n- [x] shipped\n\n[unsafe](javascript:alert(1)) <img src=x onerror=alert(1)>\n");
+  await writeFile(path.join(directory, "e-main.ts"), "export const answer: number = 42; // comment\n");
   await page.goto(`/browse/${folder}`);
   await page.locator('[data-entry-name="a-table.csv"]').filter({ visible: true }).click();
   let preview = page.getByRole("dialog", { name: "a-table.csv", exact: true });
   await expect(preview.getByRole("columnheader", { name: "city" })).toBeVisible();
   await expect(preview.getByRole("cell", { name: "Rome, IT" })).toBeVisible();
-  await expect(preview.getByText("1 of 3")).toBeVisible();
+  await expect(preview.getByText("1 of 5")).toBeVisible();
   await expect(preview.getByRole("button", { name: "Previous file" })).toBeDisabled();
   if (isMobile) await preview.getByRole("button", { name: "Next file" }).click();
   else await page.keyboard.press("ArrowRight");
@@ -33,9 +35,24 @@ test("steps through a folder's previews and renders text formats", async ({ page
   await preview.getByRole("button", { name: "Next file" }).click();
   preview = page.getByRole("dialog", { name: "c-notes.txt", exact: true });
   await expect(preview.locator("pre")).toHaveText("Plain notes");
+  await preview.getByRole("button", { name: "Next file" }).click();
+  preview = page.getByRole("dialog", { name: "d-readme.md", exact: true });
+  await expect(preview.getByRole("heading", { name: "Release notes" })).toBeVisible();
+  await expect(preview.getByRole("checkbox")).toBeChecked();
+  await expect(preview.locator("img")).toHaveCount(0);
+  await expect(preview.locator('a[href^="javascript"]')).toHaveCount(0);
+  await expect(preview.getByText("unsafe", { exact: true })).toBeVisible();
+  await preview.getByRole("button", { name: "Show source" }).click();
+  await expect(preview).toContainText("# Release notes");
+  await preview.getByRole("button", { name: "Next file" }).click();
+  preview = page.getByRole("dialog", { name: "e-main.ts", exact: true });
+  await expect(preview.locator("pre")).toHaveText("export const answer: number = 42; // comment\n");
+  // Colors are painted as CSS Custom Highlights, not as elements per token.
+  await expect.poll(() => page.evaluate(() => CSS.highlights.get("nimbus-code-keyword")?.size ?? 0)).toBeGreaterThan(0);
+  await expect(preview.locator("pre span")).toHaveCount(0);
   await expect(preview.getByRole("button", { name: "Next file" })).toBeDisabled();
   await preview.getByRole("button", { name: "Previous file" }).click();
-  await expect(page.getByRole("dialog", { name: "b-config.json", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "d-readme.md", exact: true })).toBeVisible();
 });
 
 test("edits text files and refuses to overwrite a concurrent change", async ({ page, context }) => {

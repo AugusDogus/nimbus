@@ -36,9 +36,10 @@ export default function SearchSuggestions({
   const [value, setValue] = useState(() => input.current?.value ?? "");
   const [open, setOpen] = useState(true);
   const query = useDebounced(value.trim(), 80);
-  // Selection belongs to the query it was made for, so typing clears it.
-  const [selection, setSelection] = useState({ query: "", index: -1 });
-  const active = selection.query === query ? selection.index : -1;
+  // Selection belongs to the text it was made for: any keystroke clears it,
+  // so Enter right after typing searches instead of reopening a stale match.
+  const [selection, setSelection] = useState({ value: "", index: -1 });
+  const active = selection.value === value ? selection.index : -1;
   const [preview, setPreview] = useState<{
     entry: FileEntry;
     files: FileEntry[];
@@ -73,9 +74,9 @@ export default function SearchSuggestions({
   };
 
   // Native listeners read the latest render through this ref.
-  const latest = useRef({ entries, active, query, choose });
+  const latest = useRef({ entries, active, value, choose });
   useEffect(() => {
-    latest.current = { entries, active, query, choose };
+    latest.current = { entries, active, value, choose };
   });
 
   useEffect(() => {
@@ -88,7 +89,7 @@ export default function SearchSuggestions({
     const onFocus = () => setOpen(true);
     const onBlur = () => setOpen(false);
     const onKeyDown = (event: KeyboardEvent) => {
-      const { entries, active, query, choose } = latest.current;
+      const { entries, active, value, choose } = latest.current;
       if (event.key === "Escape") {
         setOpen(false);
       } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -98,7 +99,7 @@ export default function SearchSuggestions({
         const step = event.key === "ArrowDown" ? 1 : -1;
         // -1 is the text itself, as in a native combobox.
         setSelection({
-          query,
+          value,
           index: ((active + 1 + step + states) % states) - 1,
         });
       } else if (event.key === "Enter" && entries[active]) {
@@ -148,7 +149,7 @@ export default function SearchSuggestions({
               // Keep focus in the input so the list stays open while choosing.
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => choose(entry)}
-              onMouseMove={() => setSelection({ query, index })}
+              onMouseMove={() => setSelection({ value, index })}
               className={cn(
                 "flex cursor-default items-center gap-3 rounded-md px-2 py-2",
                 index === active && "bg-accent text-accent-foreground",
