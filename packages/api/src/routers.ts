@@ -10,11 +10,12 @@ import { getDirEntries, setDirEntries } from "./dir-list-cache";
 import { statPath } from "./fs-utils";
 import { getListCache, getListCacheKey, setListCache } from "./list-cache";
 import { getPermissionsHash } from "./perms-hash";
-import { isFsError } from "./safe-path";
+import { isApiError, isFsError } from "./safe-path";
 import { getAccess, permissionFor } from "./access";
-import { fileNameSchema } from "./file-name";
+import { fileNameSchema, numberedName } from "./file-name";
 import { mutateFiles } from "./file-mutations";
 import {
+  copyItem,
   moveItem,
   requireExisting,
   safePath,
@@ -290,6 +291,36 @@ export const appRouter = router({
             .filter(Boolean)
             .join("/"),
         );
+      }),
+    copy: protectedProcedure
+      .input(z.object({ sourcePath: z.string(), destinationPath: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const source = await requireExisting(input.sourcePath);
+        // Copying a folder exposes its subtree at the destination, so it requires control of its sharing.
+        if (source.stats.isDirectory()) ctx.access.require(source.relative, "admin");
+        const destination = await requireExisting(input.destinationPath);
+        if (!destination.stats.isDirectory())
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Choose a folder as the destination.",
+          });
+        const name = path.basename(source.relative);
+        // Keep both on a name clash, as uploads do. Copying into the item's own folder duplicates it.
+        for (let index = 0; ; index++) {
+          const candidate = [destination.relative, numberedName(name, index, source.stats.isFile())]
+            .filter(Boolean)
+            .join("/");
+          if (candidate === source.relative) continue;
+          try {
+            const result = await copyItem(ctx.drive, ctx.access, source.relative, candidate);
+            return { name: path.basename(result.path), path: result.path };
+          } catch (error) {
+            const nameTaken =
+              isApiError(error, "CONFLICT") &&
+              !(error instanceof Error && error.name === "FileLockedError");
+            if (!nameTaken) throw error;
+          }
+        }
       }),
     delete: protectedProcedure
       .input(z.object({ path: z.string() }))

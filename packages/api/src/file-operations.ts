@@ -16,6 +16,7 @@ import type { DriveStore, TrashItem } from "./drive-store";
 import { publishFileEvent } from "./file-events";
 import { auditUser, recordAudit } from "./audit";
 import {
+  isApiError,
   isFsError,
   isWithinPath,
   PathError,
@@ -195,6 +196,9 @@ async function moveUnlocked(
 }
 
 /** Copy a file or folder tree into a staging path, skipping descendants the user cannot read. */
+// A clone shares extents on copy-on-write filesystems and falls back to a byte copy elsewhere.
+const copyMode = constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE;
+
 async function stageCopy(
   access: Access,
   source: { relative: string; absolute: string; stats: Stats },
@@ -202,7 +206,7 @@ async function stageCopy(
   depth: CopyDepth,
 ) {
   if (!source.stats.isDirectory()) {
-    await copyFile(source.absolute, staging, constants.COPYFILE_EXCL);
+    await copyFile(source.absolute, staging, copyMode);
     return;
   }
   await mkdir(staging);
@@ -221,8 +225,16 @@ async function stageCopy(
         await mkdir(destination);
         pending.push(entry.path);
       } else {
-        const file = await requireExisting(entry.path);
-        await copyFile(file.absolute, destination, constants.COPYFILE_EXCL);
+        try {
+          await copyFile(
+            (await requireExisting(entry.path)).absolute,
+            destination,
+            copyMode,
+          );
+        } catch (error) {
+          // Entries removed while copying are skipped, like a listing taken at that moment.
+          if (!isApiError(error, "NOT_FOUND")) throw error;
+        }
       }
     }
   }
@@ -230,6 +242,7 @@ async function stageCopy(
 
 /** `0` copies a folder without its contents (RFC 4918, section 9.8.3). */
 export type CopyDepth = "0" | "infinity";
+export type CopyOptions = TransferOptions & { depth?: CopyDepth };
 
 /**
  * Copy an item with its WebDAV dead properties, but without links, grants, or bookmarks. Data is staged without holding
@@ -240,7 +253,7 @@ export async function copyItem(
   access: Access,
   sourcePath: string,
   targetPath: string,
-  options: TransferOptions & { depth?: CopyDepth } = {},
+  options: CopyOptions = {},
 ) {
   const source = await requireExisting(sourcePath);
   const target = await safePath(targetPath);
