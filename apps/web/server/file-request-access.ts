@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { getAccess, type Access } from "@nimbus/api/access";
 import { FileRequest } from "@nimbus/api/file-request";
+import { requireExisting } from "@nimbus/api/file-operations";
 import { isApiError } from "@nimbus/api/safe-path";
 import { httpDriveStore } from "./http-files";
 import { recordAudit } from "@nimbus/api/audit";
@@ -18,8 +19,9 @@ const unavailable = () =>
   });
 
 /**
- * A file request works only while it is unexpired and its creator is active
- * and still manages sharing for the folder, mirroring public download links.
+ * A file request works only while it is unexpired, its folder exists, and its
+ * creator is active and still manages sharing for the folder, mirroring public
+ * download links.
  */
 export async function activeFileRequest(
   lookup: { token: string } | { id: string },
@@ -38,6 +40,15 @@ export async function activeFileRequest(
     throw error;
   }
   if (!owner.can(request.path, "admin")) throw unavailable();
+  // A trashed or moved folder stops the link before anyone uploads into nothing.
+  let folder;
+  try {
+    folder = await requireExisting(request.path);
+  } catch (error) {
+    if (isApiError(error, "NOT_FOUND")) throw unavailable();
+    throw error;
+  }
+  if (!folder.stats.isDirectory()) throw unavailable();
   return { request, owner };
 }
 
