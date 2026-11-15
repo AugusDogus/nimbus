@@ -2,6 +2,9 @@ import type { AppPassword, Bookmark, DavProperty, DriveStore, DriveUser, Grant, 
 import { isWithinPath } from "./safe-path";
 import { createTestFileRequestStore } from "./file-request-testing";
 import { createTestFileVersionStore } from "./file-versions-testing";
+import { crawl } from "./search-crawler";
+import { createSearchIndex } from "./search-index";
+import type { SearchService } from "./search-service";
 
 export function createTestDriveStore() {
   const users = new Map<string, DriveUser>([["user-1", { id: "user-1", name: "Owner", email: "owner@example.test", role: "admin", banned: false }], ["reader", { id: "reader", name: "Reader", email: "reader@example.test", role: "user", banned: false }]]);
@@ -93,4 +96,15 @@ export function createTestDriveStore() {
     return taken;
   }
   return { store, users, grants, groups, shares, trash, properties, homes };
+}
+
+/** Crawls `root` on every query, so tests always search the current disk. */
+export function crawlingSearchService(root: string): SearchService {
+  return {
+    async search(request) {
+      const index = createSearchIndex();
+      await crawl(index, root);
+      return { ...index.search(request), complete: true };
+    },
+  };
 }

@@ -54,28 +54,3 @@ export async function readDirectory(
   }
   return results;
 }
-
-export async function searchFiles(access: Access, root: string, query: string) {
-  const pending = [root];
-  const entries: FileEntry[] = [];
-  let visited = 0;
-  while (pending.length && entries.length < 500 && visited < 10000) {
-    const directory = pending.shift();
-    if (directory === undefined) break;
-    if (!access.canBrowse(directory)) continue;
-    for (const entry of await readDirectory(directory, access)) {
-      visited++;
-      if (entry.type === "dir") pending.push(entry.path);
-      if (
-        access.can(entry.path, "read") &&
-        entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())
-      )
-        entries.push(entry);
-      if (entries.length >= 500 || visited >= 10000) break;
-    }
-  }
-  return {
-    entries,
-    truncated: pending.length > 0 || entries.length >= 500 || visited >= 10000,
-  };
-}

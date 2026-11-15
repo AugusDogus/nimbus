@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 import { appRouter } from "./routers";
-import { createTestDriveStore } from "./testing";
+import { crawlingSearchService, createTestDriveStore } from "./testing";
+import { provideSearchService } from "./search-service";
 import { resetListCacheForTest } from "./list-cache";
 import { resetDirListCacheForTest } from "./dir-list-cache";
 import { flushAudit, resetAuditForTest, setAuditSink, type RecordedAuditEvent } from "./audit";
@@ -17,6 +18,7 @@ describe("drive workflows", () => {
     previousRoot = process.env.NIMBUS_DATA_ROOT;
     root = await mkdtemp(path.join(os.tmpdir(), "nimbus-drive-"));
     process.env.NIMBUS_DATA_ROOT = root;
+    provideSearchService(crawlingSearchService(root));
     memory = createTestDriveStore();
     resetListCacheForTest(); resetDirListCacheForTest();
     await mkdir(path.join(root, "docs"));

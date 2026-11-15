@@ -27,7 +27,10 @@
     "./file-request-testing": "./src/file-request-testing.ts",
     "./filesystem-capacity": "./src/filesystem-capacity.ts",
     "./file-versions": "./src/file-versions.ts",
-    "./file-versions-testing": "./src/file-versions-testing.ts"
+    "./file-versions-testing": "./src/file-versions-testing.ts",
+    "./search-index": "./src/search-index.ts",
+    "./search-crawler": "./src/search-crawler.ts",
+    "./search-service": "./src/search-service.ts"
   },
   "types": "./src/index.ts",
   "dependencies": {

@@ -1,7 +1,8 @@
 import { permissionFor } from "./access";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { entryAt, searchFiles } from "./file-browser";
+import { entryAt } from "./file-browser";
+import { searchEntries } from "./search-service";
 import { safePath } from "./file-operations";
 import { isApiError } from "./safe-path";
 import { protectedProcedure, router } from "./index";
@@ -26,14 +27,16 @@ export const catalogRouter = router({
       z.object({
         query: z.string().trim().min(1).max(200),
         path: z.string().default(""),
+        limit: z.number().int().min(1).max(200).default(50),
       }),
     )
     .query(async ({ ctx, input }) => {
       const target = await safePath(input.path);
-      const result = await searchFiles(
+      const result = await searchEntries(
         ctx.access,
         target.relative,
         input.query,
+        input.limit,
       );
       return {
         ...result,
