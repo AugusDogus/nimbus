@@ -70,14 +70,12 @@ export type AuditEvent = {
 
 export type AuditRequest = { ip: string; userAgent?: string };
 
-const requestStore = new AsyncLocalStorage<AuditRequest>();
-
 /**
  * Runs a request handler with its client metadata, so events recorded anywhere below it
  * carry the client address and user agent without threading them through every call.
  */
 export const runWithAuditRequest = <T>(request: AuditRequest, handler: () => T) =>
-  requestStore.run(request, handler);
+  state.requests.run(request, handler);
 
 export const auditUser = (user: { id: string; email: string }): AuditActor => ({
   type: "user",
@@ -89,6 +87,7 @@ export type RecordedAuditEvent = AuditEvent & { at: number };
 export type AuditSink = (events: RecordedAuditEvent[]) => Promise<void>;
 
 type AuditState = {
+  requests: AsyncLocalStorage<AuditRequest>;
   sink: AuditSink | null;
   queue: RecordedAuditEvent[];
   timer: ReturnType<typeof setTimeout> | null;
@@ -100,6 +99,7 @@ const globalForAudit = globalThis as typeof globalThis & {
 };
 // Next.js route bundles and the custom server load separate module copies in one process.
 const state: AuditState = (globalForAudit.__nimbusAudit ??= {
+  requests: new AsyncLocalStorage<AuditRequest>(),
   sink: null,
   queue: [],
   timer: null,
@@ -128,7 +128,7 @@ export function recordAudit(event: AuditEvent) {
     );
     return;
   }
-  const request = requestStore.getStore();
+  const request = state.requests.getStore();
   state.queue.push({
     ...(request && { ip: request.ip, userAgent: request.userAgent }),
     ...event,

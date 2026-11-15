@@ -75,7 +75,8 @@ export const nimbusAudit = () =>
               ? auditUser(caller.data.user)
               : { type: "anonymous", ...(email && { label: email }) };
             const path = ctx.path.startsWith("/callback/") ? "oidc" : ctx.path;
-            const method = path === "oidc" ? "oidc" : signIns[path];
+            // Confirming a new authenticator also calls verify-totp, from a signed-in session.
+            const method = path === "oidc" ? "oidc" : caller.success ? undefined : signIns[path];
             if (method) {
               const created = sessionShape.safeParse(ctx.context.newSession);
               if (created.success)
