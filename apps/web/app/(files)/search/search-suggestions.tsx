@@ -2,7 +2,6 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { FileText, Folder } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -28,10 +27,11 @@ function useDebounced<T>(value: T, delayMs: number) {
  */
 export default function SearchSuggestions({
   input,
+  navigate,
 }: {
   input: RefObject<HTMLInputElement | null>;
+  navigate: (href: string) => void;
 }) {
-  const router = useRouter();
   const id = useId();
   const [value, setValue] = useState(() => input.current?.value ?? "");
   const [open, setOpen] = useState(true);
@@ -60,7 +60,7 @@ export default function SearchSuggestions({
 
   const choose = (entry: FileEntry) => {
     setOpen(false);
-    if (entry.type === "dir") router.push(fileHref(entry.path));
+    if (entry.type === "dir") navigate(fileHref(entry.path));
     else
       setPreview({
         entry,

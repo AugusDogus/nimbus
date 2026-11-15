@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { useRef, useState, type PointerEvent } from "react";
 import { toast } from "sonner";
 import {
@@ -140,7 +140,9 @@ export default function PreviewDialog({
                 disabled={!next}
                 onClick={() => go(next)}
               >
-                <ChevronRight />
+                {/* A mirrored ChevronLeft: sharing ChevronRight with Settings
+                    makes the bundler split a chunk off every Settings page. */}
+                <ChevronLeft className="-scale-x-100" />
               </Button>
             </div>
           )}

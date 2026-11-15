@@ -43,7 +43,9 @@ export function SearchBox() {
       />
       {focused && (
         <Suspense fallback={null}>
-          <Suggestions input={input} />
+          {/* The router comes from here: importing next/navigation in the
+              lazy chunk makes the bundler re-split the shared root chunks. */}
+          <Suggestions input={input} navigate={router.push} />
         </Suspense>
       )}
     </form>
