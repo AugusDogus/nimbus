@@ -8,14 +8,20 @@ import { recordAudit } from "@nimbus/api/audit";
 import { ClientIp } from "./client-ip";
 import { httpDriveStore } from "./http-files";
 import { RateLimiter } from "./rate-limit";
+import { SharePolicy } from "./share-policy";
 
 export async function getPublicShare(token: string) {
   const share = await httpDriveStore.getShare(token);
-  if (!share || (share.expiresAt !== null && share.expiresAt <= Date.now()))
+  const availability = share
+    ? SharePolicy.availability(share, Date.now())
+    : { kind: "expired" as const };
+  if (!share || availability.kind !== "available")
     throw new TRPCError({
       code: "NOT_FOUND",
       message:
-        "This share link has expired or been revoked. Ask the owner for a new link.",
+        availability.kind === "exhausted"
+          ? "This share link has reached its download limit. Ask the owner for a new link."
+          : "This share link has expired or been revoked. Ask the owner for a new link.",
     });
   let access: Access;
   try {

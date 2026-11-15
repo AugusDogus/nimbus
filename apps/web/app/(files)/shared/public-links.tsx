@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import type { EditableLink } from "./edit-link-dialog";
+
+// The editor is only needed after a click; keep it out of the page's first load.
+const EditLinkDialog = dynamic(() => import("./edit-link-dialog"));
 
 export function PublicLinks() {
   const shares = useQuery({
@@ -21,6 +26,7 @@ export function PublicLinks() {
     queryFn: () => trpcClient.shares.list.query(),
   });
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [editing, setEditing] = useState<EditableLink | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const revoke = async () => {
@@ -78,7 +84,11 @@ export function PublicLinks() {
                   {share.expiresAt
                     ? `Expires ${new Date(share.expiresAt).toLocaleString()}`
                     : "No expiry"}{" "}
-                  · {share.downloadCount} downloads
+                  ·{" "}
+                  {share.maxDownloads === null
+                    ? `${share.downloadCount} downloads`
+                    : `${share.downloadCount} of ${share.maxDownloads} downloads`}
+                  {share.mode === "view" ? " · Preview only" : ""}
                 </p>
               </div>
               <Button
@@ -100,6 +110,13 @@ export function PublicLinks() {
               </Button>
               <Button
                 size="sm"
+                variant="outline"
+                onClick={() => setEditing(share)}
+              >
+                Edit
+              </Button>
+              <Button
+                size="sm"
                 variant="ghost"
                 onClick={() => setRevoking(share.id)}
               >
@@ -108,6 +125,9 @@ export function PublicLinks() {
             </li>
           ))}
         </ul>
+      )}
+      {editing && (
+        <EditLinkDialog link={editing} onClose={() => setEditing(null)} />
       )}
       <AlertDialog
         open={revoking !== null}

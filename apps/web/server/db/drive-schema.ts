@@ -20,6 +20,8 @@ export const shares = sqliteTable("nimbus_share", {
   createdBy: text("created_by").notNull().references(() => user.id, { onDelete: "cascade" }),
   createdAt: integer("created_at").notNull(), expiresAt: integer("expires_at"),
   passwordHash: text("password_hash"), downloadCount: integer("download_count").notNull().default(0),
+  maxDownloads: integer("max_downloads"),
+  mode: text("mode", { enum: ["download", "view"] }).notNull().default("download"),
 });
 export const trash = sqliteTable("nimbus_trash", {
   id: text("id").primaryKey(), path: text("path").notNull(),

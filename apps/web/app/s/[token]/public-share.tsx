@@ -23,6 +23,7 @@ const shareSchema = z.object({
   entry: entrySchema,
   entries: z.array(entrySchema),
   expiresAt: z.nullable(z.number()),
+  mode: z.enum(["download", "view"]),
 });
 const errorSchema = z.object({ error: z.string() });
 
@@ -139,17 +140,19 @@ export function PublicShare({ token }: { token: string }) {
                 {share.data.entry.name}
               </h1>
               <p className="text-pretty mt-1 text-sm text-muted-foreground">
-                Shared read-only
+                {share.data.mode === "view" ? "Preview only" : "Shared read-only"}
                 {share.data.expiresAt
                   ? ` · Expires ${new Date(share.data.expiresAt).toLocaleDateString()}`
                   : ""}
               </p>
             </div>
-            <Button asChild>
-              <a href={`${url}&download=1`} download>
-                {share.data.entry.type === "dir" ? "Download ZIP" : "Download"}
-              </a>
-            </Button>
+            {share.data.mode === "download" && (
+              <Button asChild>
+                <a href={`${url}&download=1`} download>
+                  {share.data.entry.type === "dir" ? "Download ZIP" : "Download"}
+                </a>
+              </Button>
+            )}
           </div>
           {path && (
             <Button

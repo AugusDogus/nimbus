@@ -22,6 +22,7 @@ import {
 import { queryClient, trpcClient } from "@/lib/trpc";
 import type { Permission } from "@nimbus/api/drive-store";
 import type { FileEntry } from "./types";
+import { LinkSettingsDraft, LinkSettingsFields } from "../shared/link-settings";
 
 export function SharingDialog({
   entry,
@@ -45,7 +46,7 @@ export function SharingDialog({
   const [subject, setSubject] = useState("");
   const [permission, setPermission] = useState<Permission>("read");
   const [password, setPassword] = useState("");
-  const [expiry, setExpiry] = useState("");
+  const [settings, setSettings] = useState<LinkSettingsDraft>(LinkSettingsDraft.empty);
   const [link, setLink] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,7 +81,7 @@ export function SharingDialog({
             Share {entry.name}
           </DialogTitle>
           <DialogDescription>
-            Grant access to an account or create a read-only public link.
+            Grant access to an account or create a public link.
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6">
@@ -183,7 +184,7 @@ export function SharingDialog({
               void perform(async () => {
                 const result = await trpcClient.shares.create.mutate({
                   path: entry.path,
-                  expiresAt: expiry ? new Date(expiry).getTime() : null,
+                  ...LinkSettingsDraft.toSettings(settings),
                   ...(password ? { password } : {}),
                 });
                 setLink(`${window.location.origin}/s/${result.token}`);
@@ -202,12 +203,10 @@ export function SharingDialog({
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
-            <Label htmlFor="share-expiry">Expires (optional)</Label>
-            <Input
-              id="share-expiry"
-              type="datetime-local"
-              value={expiry}
-              onChange={(event) => setExpiry(event.target.value)}
+            <LinkSettingsFields
+              id="share"
+              value={settings}
+              onChange={setSettings}
             />
             <Button disabled={busy}>Create link</Button>
             {link && (

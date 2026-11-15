@@ -20,6 +20,9 @@ export type Grant = {
   path: string;
   permission: Permission;
 };
+/** `view` links offer previews only; `download` links also offer downloads and ZIPs. */
+export const shareModeSchema = z.enum(["download", "view"]);
+export type ShareMode = z.infer<typeof shareModeSchema>;
 export type Group = { id: string; name: string; memberIds: string[] };
 export type Share = {
   id: string;
@@ -30,7 +33,13 @@ export type Share = {
   expiresAt: number | null;
   passwordHash: string | null;
   downloadCount: number;
+  maxDownloads: number | null;
+  mode: ShareMode;
 };
+export type ShareSettings = Pick<
+  Share,
+  "expiresAt" | "passwordHash" | "maxDownloads" | "mode"
+>;
 export type TrashItem = {
   id: string;
   path: string;
@@ -67,8 +76,10 @@ export type DriveStore = {
   createShare(share: Share): Promise<void>;
   getShare(token: string): Promise<Share | null>;
   listShares(userId: string): Promise<Share[]>;
+  updateShare(id: string, userId: string, settings: ShareSettings): Promise<Share | null>;
   revokeShare(id: string, userId: string): Promise<void>;
-  countDownload(id: string): Promise<void>;
+  /** Atomically count one download unless the link has used its limit. */
+  claimDownload(id: string): Promise<boolean>;
   homeOf(userId: string): Promise<string | null>;
   listHomes(): Promise<Home[]>;
   /** Whether a home folder is at or under a path. */

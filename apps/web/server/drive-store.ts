@@ -1,8 +1,9 @@
-import { and, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { z } from "zod";
 import {
   permissionSchema,
+  shareModeSchema,
   type DriveStore,
   type Grant,
 } from "@nimbus/api/drive-store";
@@ -53,6 +54,8 @@ const detachedAccessSchema = z.object({
       expiresAt: z.number().nullable(),
       passwordHash: z.string().nullable(),
       downloadCount: z.number(),
+      maxDownloads: z.number().nullable(),
+      mode: shareModeSchema,
     }),
   ),
   bookmarks: z.array(
@@ -236,16 +239,34 @@ export function createDriveStore(database: typeof db): DriveStore {
     async listShares(userId) {
       return database.select().from(shares).where(eq(shares.createdBy, userId));
     },
+    async updateShare(id, userId, settings) {
+      const [row] = await database
+        .update(shares)
+        .set(settings)
+        .where(and(eq(shares.id, id), eq(shares.createdBy, userId)))
+        .returning();
+      return row ?? null;
+    },
     async revokeShare(id, userId) {
       await database
         .delete(shares)
         .where(and(eq(shares.id, id), eq(shares.createdBy, userId)));
     },
-    async countDownload(id) {
-      await database
+    async claimDownload(id) {
+      const claimed = await database
         .update(shares)
         .set({ downloadCount: sql`${shares.downloadCount} + 1` })
-        .where(eq(shares.id, id));
+        .where(
+          and(
+            eq(shares.id, id),
+            or(
+              isNull(shares.maxDownloads),
+              lt(shares.downloadCount, shares.maxDownloads),
+            ),
+          ),
+        )
+        .returning({ id: shares.id });
+      return claimed.length > 0;
     },
     async addTrash(item) {
       await database.transaction(async (tx) => {

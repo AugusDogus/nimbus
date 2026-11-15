@@ -13,6 +13,15 @@ import {
   shareCookie,
   sharedTarget,
 } from "@/server/public-share";
+import { SharePolicy } from "@/server/share-policy";
+
+const refuse = (response: Response, status: number, error: string) => {
+  void response.body?.cancel();
+  return Response.json(
+    { error },
+    { status, headers: { "Cache-Control": "no-store" } },
+  );
+};
 
 type Context = { params: Promise<{ token: string }> };
 
@@ -32,10 +41,13 @@ export async function GET(request: Request, context: Context) {
       url.searchParams.get("path") ?? "",
     );
     const entry = await entryAt(scoped.target.relative);
-    if (
-      url.searchParams.get("download") === "1" ||
-      url.searchParams.get("preview") === "1"
-    ) {
+    const download = url.searchParams.get("download") === "1";
+    if (download || url.searchParams.get("preview") === "1") {
+      if (share.mode === "view" && (download || entry.type === "dir"))
+        return Response.json(
+          { error: "This link allows previews only. Ask the owner for a download link." },
+          { status: 403, headers: { "Cache-Control": "no-store" } },
+        );
       const response =
         entry.type === "dir"
           ? await serveZip(scoped.target.relative, scoped.access)
@@ -43,10 +55,23 @@ export async function GET(request: Request, context: Context) {
               request,
               scoped.target.relative,
               scoped.access,
-              url.searchParams.get("preview") === "1",
+              !download,
             );
-      if (response.ok && url.searchParams.get("download") === "1")
-        await httpDriveStore.countDownload(share.id);
+      if (!SharePolicy.permitsResponse(share.mode, response))
+        return refuse(
+          response,
+          403,
+          "This file cannot be previewed, and this link allows previews only. Ask the owner for a download link.",
+        );
+      if (
+        SharePolicy.countsAsTransfer(request.method, response) &&
+        !(await httpDriveStore.claimDownload(share.id))
+      )
+        return refuse(
+          response,
+          404,
+          "This share link has reached its download limit. Ask the owner for a new link.",
+        );
       return response;
     }
     const entries =
@@ -65,6 +90,7 @@ export async function GET(request: Request, context: Context) {
           path: relative(child.path),
         })),
         expiresAt: share.expiresAt,
+        mode: share.mode,
       },
       { headers: { "Cache-Control": "no-store" } },
     );

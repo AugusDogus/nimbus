@@ -40,6 +40,8 @@ const share = (id: string, path: string) => ({
   expiresAt: null,
   passwordHash: null,
   downloadCount: 0,
+  maxDownloads: null,
+  mode: "download" as const,
 });
 const grant = (id: string, path: string) => ({
   id,
@@ -134,4 +136,35 @@ test("dead properties follow moves, survive trash and restore, and are copied", 
   expect((await store.davProperties(["moved", "moved/file.txt"])).size).toBe(0);
   await store.restoreTrash("trash-4");
   expect((await store.davProperties(["moved", "moved/file.txt"])).size).toBe(2);
+});
+
+test("concurrent download claims never exceed the link's limit", async () => {
+  await store.createShare({ ...share("limited", "docs"), maxDownloads: 2 });
+  const claims = await Promise.all(
+    Array.from({ length: 5 }, () => store.claimDownload("limited")),
+  );
+  expect(claims.filter(Boolean)).toHaveLength(2);
+  expect((await store.getShare("token-limited"))?.downloadCount).toBe(2);
+});
+
+test("only a link's creator can change its settings", async () => {
+  await store.createShare({ ...share("limited", "docs"), maxDownloads: 2 });
+  const settings = {
+    expiresAt: 5000,
+    passwordHash: null,
+    maxDownloads: null,
+    mode: "view" as const,
+  };
+  expect(await store.updateShare("limited", "reader", settings)).toBeNull();
+  expect((await store.getShare("token-limited"))?.mode).toBe("download");
+  expect(await store.updateShare("limited", "owner", settings)).toMatchObject(settings);
+  expect(await store.claimDownload("limited")).toBe(true);
+});
+
+test("a link restored from trash keeps its download limit, count and preview-only mode", async () => {
+  await store.createShare({ ...share("limited", "docs"), maxDownloads: 3, mode: "view" });
+  expect(await store.claimDownload("limited")).toBe(true);
+  await store.addTrash({ id: "trash-limits", path: "docs", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  await store.restoreTrash("trash-limits");
+  expect(await store.getShare("token-limited")).toMatchObject({ maxDownloads: 3, downloadCount: 1, mode: "view" });
 });
