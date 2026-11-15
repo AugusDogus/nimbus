@@ -1,18 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { test } from "./helpers";
-import { adminEmail, client } from "./helpers";
+import { adminEmail, client, origin } from "./helpers";
 
 test("WebDAV app passwords support file operations and stop working after revocation", async ({ page, context, request }, testInfo) => {
   const folder = `dav-${randomUUID()}`;
   const device = `Laptop ${randomUUID()}`;
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/settings/webdav");
-  await expect(page.getByRole("textbox", { name: "Server address", exact: true })).toHaveValue("http://localhost:3100/dav/");
+  await expect(page.getByRole("textbox", { name: "Server address", exact: true })).toHaveValue(`${origin}/dav/`);
   await expect(page.getByRole("textbox", { name: "Username", exact: true })).toHaveValue(adminEmail);
   await page.getByRole("button", { name: "Copy server address", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "Server address copied" })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("http://localhost:3100/dav/");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`${origin}/dav/`);
   await page.getByRole("button", { name: "Create password", exact: true }).click();
   await page.getByLabel("Device name").fill(device);
   await page.getByRole("dialog", { name: "Create app password", exact: true }).getByRole("button", { name: "Create password", exact: true }).click();
@@ -37,7 +37,7 @@ test("WebDAV app passwords support file operations and stop working after revoca
   expect(propfind.status()).toBe(207);
   expect(await propfind.text()).toContain("note.txt");
   const renamed = `/dav/${folder}/renamed.txt`;
-  expect((await request.fetch(original, { method: "MOVE", headers: { ...headers, Destination: `http://localhost:3100${renamed}` } })).status()).toBe(201);
+  expect((await request.fetch(original, { method: "MOVE", headers: { ...headers, Destination: `${origin}${renamed}` } })).status()).toBe(201);
   expect((await request.get(original, { headers })).status()).toBe(404);
   expect((await request.get(renamed, { headers })).status()).toBe(200);
   const lock = await request.fetch(renamed, { method: "LOCK", headers });

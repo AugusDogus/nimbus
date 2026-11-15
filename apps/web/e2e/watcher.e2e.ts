@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { expect } from "@playwright/test";
 import { z } from "zod";
-import { client, createFolder, test } from "./helpers";
+import { client, createFolder, port, test } from "./helpers";
 
 test("external disk changes appear live and reserved folder names remain browsable", async ({ page, context, isMobile }) => {
   const parent = isMobile ? "trash" : "shared";
@@ -19,7 +19,7 @@ test("external disk changes appear live and reserved folder names remain browsab
   await page.getByRole("link", { name: "live", exact: true }).click();
   await expect(page).toHaveURL(`/browse/${parent}/live`);
   await expect(page.getByRole("heading", { name: "This folder is empty" })).toBeVisible();
-  const manifest: unknown = JSON.parse(await readFile(path.join(os.tmpdir(), "nimbus-e2e-3100.json"), "utf8"));
+  const manifest: unknown = JSON.parse(await readFile(path.join(os.tmpdir(), `nimbus-e2e-${port}.json`), "utf8"));
   const { dataRoot } = z.object({ dataRoot: z.string().startsWith(os.tmpdir()) }).parse(manifest);
   const directory = path.join(dataRoot, parent, "live");
   const source = path.join(directory, "external.txt");

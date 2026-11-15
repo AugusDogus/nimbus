@@ -4,6 +4,8 @@ import { createTRPCClient, httpBatchLink } from "@trpc/client";
 import { expect, test as base, type BrowserContext, type Download, type Page } from "@playwright/test";
 import type { AppRouter } from "@nimbus/api/routers";
 
+export const port = process.env.NIMBUS_E2E_PORT ?? "3100";
+export const origin = `http://localhost:${port}`;
 export const adminEmail = "admin@nimbus.test";
 export const password = "Nimbus-test-password-42";
 
@@ -33,9 +35,9 @@ export async function login(page: Page, email = adminEmail) {
 }
 
 export async function client(context: BrowserContext) {
-  const cookies = await context.cookies("http://localhost:3100");
+  const cookies = await context.cookies(origin);
   return createTRPCClient<AppRouter>({ links: [httpBatchLink({
-    url: "http://localhost:3100/api/trpc",
+    url: `${origin}/api/trpc`,
     headers: { cookie: cookies.map(({ name, value }) => `${name}=${value}`).join("; ") },
   })] });
 }

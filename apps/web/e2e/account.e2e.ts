@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
-import { login, password, test } from "./helpers";
+import { login, origin, password, test } from "./helpers";
 
 test("account shows identity and validates password changes", async ({
   context,
@@ -11,7 +11,7 @@ test("account shows identity and validates password changes", async ({
   const name = "Alex Morgan";
   const newPassword = `${password}-updated`;
   const created = await context.request.post("/api/auth/admin/create-user", {
-    headers: { Origin: "http://localhost:3100" },
+    headers: { Origin: origin },
     data: { name, email, password, role: "user" },
   });
   expect(created.ok()).toBe(true);
@@ -81,7 +81,7 @@ test("account shows identity and validates password changes", async ({
     const oldLogin = await memberContext.request.post(
       "/api/auth/sign-in/email",
       {
-        headers: { Origin: "http://localhost:3100" },
+        headers: { Origin: origin },
         data: { email, password },
       },
     );
@@ -89,7 +89,7 @@ test("account shows identity and validates password changes", async ({
     const newLogin = await memberContext.request.post(
       "/api/auth/sign-in/email",
       {
-        headers: { Origin: "http://localhost:3100" },
+        headers: { Origin: origin },
         data: { email, password: newPassword },
       },
     );
