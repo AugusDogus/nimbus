@@ -1,7 +1,8 @@
 "use client";
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { lazy, Suspense, useRef, type PointerEvent } from "react";
+import { lazy, Suspense, useRef, useState, type PointerEvent } from "react";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -68,6 +69,14 @@ export function PreviewDialog({
   const next =
     index >= 0 && index < entries.length - 1 ? entries[index + 1] : undefined;
   const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const guard = () => {
+    if (dirty) toast("Save or cancel your edits first.");
+    return dirty;
+  };
+  const go = (target: FileEntry | undefined) => {
+    if (target && !guard()) onNavigate(target);
+  };
   const details = [
     index >= 0 && entries.length > 1
       ? `${index + 1} of ${entries.length}`
@@ -85,14 +94,13 @@ export function PreviewDialog({
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
     if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) / 2) return;
-    const target = dx < 0 ? next : previous;
-    if (target) onNavigate(target);
+    go(dx < 0 ? next : previous);
   };
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open && !guard()) onClose();
       }}
     >
       <DialogContent
@@ -107,7 +115,7 @@ export function PreviewDialog({
                 : undefined;
           if (!target) return;
           event.preventDefault();
-          onNavigate(target);
+          go(target);
         }}
       >
         <DialogHeader className="min-w-0 pr-8">
@@ -129,6 +137,7 @@ export function PreviewDialog({
             name={entry.name}
             url={`${url}&preview=1`}
             editPath={entry.permission === "read" ? undefined : entry.path}
+            onDirtyChange={setDirty}
           />
         </div>
         <DialogFooter className="flex-row items-center justify-end gap-2">
@@ -139,7 +148,7 @@ export function PreviewDialog({
                 size="icon"
                 aria-label="Previous file"
                 disabled={!previous}
-                onClick={() => previous && onNavigate(previous)}
+                onClick={() => go(previous)}
               >
                 <ChevronLeft />
               </Button>
@@ -148,7 +157,7 @@ export function PreviewDialog({
                 size="icon"
                 aria-label="Next file"
                 disabled={!next}
-                onClick={() => next && onNavigate(next)}
+                onClick={() => go(next)}
               >
                 <ChevronRight />
               </Button>

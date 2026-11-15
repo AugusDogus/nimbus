@@ -20,6 +20,8 @@ export type FilePreviewProps = {
   url: string;
   /** Present when the viewer may write this file. */
   editPath?: string;
+  /** Reports whether unsaved edits exist, so the dialog can guard closing. */
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 const frame =
@@ -38,11 +40,23 @@ const loading = (
   />
 );
 
-export default function FilePreview({ name, url, editPath }: FilePreviewProps) {
+export default function FilePreview({
+  name,
+  url,
+  editPath,
+  onDirtyChange,
+}: FilePreviewProps) {
   const kind = FileKind.of(name);
   const [failed, setFailed] = useState(false);
   if (FileKind.isText(kind))
-    return <TextPreview kind={kind} url={url} editPath={editPath} />;
+    return (
+      <TextPreview
+        kind={kind}
+        url={url}
+        editPath={editPath}
+        onDirtyChange={onDirtyChange}
+      />
+    );
   if (failed)
     return (
       <Unavailable>
@@ -119,10 +133,12 @@ function TextPreview({
   kind,
   url,
   editPath,
+  onDirtyChange,
 }: {
   kind: FileKind;
   url: string;
   editPath?: string;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const queryKey = ["preview", url];
@@ -157,7 +173,11 @@ function TextPreview({
         <TextEditor
           initial={data.text}
           language={kind.type === "code" ? kind.language : undefined}
-          onCancel={() => setMode("view")}
+          onDirtyChange={onDirtyChange}
+          onCancel={() => {
+            onDirtyChange?.(false);
+            setMode("view");
+          }}
           onSave={async (text) => {
             const outcome = await saveText(editPath, etag, text);
             if (outcome.type === "saved") {
@@ -167,6 +187,7 @@ function TextPreview({
                 size: outcome.size,
                 etag: outcome.etag,
               });
+              onDirtyChange?.(false);
               setMode("view");
             }
             return outcome;
@@ -190,7 +211,7 @@ function TextPreview({
   const hasRendered = kind.type === "markdown" || kind.type === "table";
   return (
     <div className="space-y-2">
-      <div className={frame}>
+      <div className={frame} data-preview-scroll>
         <Suspense fallback={loading}>{view}</Suspense>
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { CodeLanguage } from "@/lib/file-kind";
 import type { SaveOutcome } from "./save-text";
@@ -9,13 +9,23 @@ export default function TextEditor({
   initial,
   onSave,
   onCancel,
+  onDirtyChange,
 }: {
   initial: string;
   language?: CodeLanguage;
   onSave: (text: string) => Promise<SaveOutcome>;
   onCancel: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [text, setText] = useState(initial);
+  const dirty = text !== initial;
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    addEventListener("beforeunload", warn);
+    return () => removeEventListener("beforeunload", warn);
+  }, [dirty, onDirtyChange]);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   return (
@@ -33,6 +43,12 @@ export default function TextEditor({
         aria-label="File contents"
         value={text}
         onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "s") {
+            event.preventDefault();
+            event.currentTarget.form?.requestSubmit();
+          }
+        }}
         spellCheck={false}
         autoCapitalize="off"
         autoComplete="off"
@@ -48,7 +64,7 @@ export default function TextEditor({
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button disabled={saving || text === initial}>
+        <Button disabled={saving || !dirty}>
           {saving ? "Saving…" : "Save"}
         </Button>
       </div>
