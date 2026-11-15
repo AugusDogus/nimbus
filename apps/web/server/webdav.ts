@@ -1,6 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, rename, rm, utimes, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { createHash } from "node:crypto";
+import { lstat, mkdir, utimes, writeFile } from "node:fs/promises";
 import { TRPCError } from "@trpc/server";
 import { getAccess, type Access } from "@nimbus/api/access";
 import { getDataRoot } from "@nimbus/api/data-root";
@@ -9,8 +8,8 @@ import {
   readDirectory,
   type FileEntry,
 } from "@nimbus/api/file-browser";
+import { commitStagedFile, fileTag, stageFile } from "@nimbus/api/file-content";
 import { publishFileEvent } from "@nimbus/api/file-events";
-import { FileVersions } from "@nimbus/api/file-versions";
 import {
   lockFile,
   locksCovering,
@@ -393,48 +392,42 @@ async function putFile(
   requested: string,
   credentials: MutationCredentials,
 ) {
-  const temporaryDirectory = path.join(getDataRoot(), ".nimbus", "uploads");
-  await mkdir(temporaryDirectory, { recursive: true });
-  const temporary = path.join(temporaryDirectory, `${randomUUID()}.dav`);
+  const staged = await stageFile(request.body);
   try {
-    await Bun.write(temporary, new Response(request.body));
-    return await mutateFiles([requested], credentials, async () => {
-      const current = await authenticate(request);
-      current.require(requested, "write");
-      const target = await safePath(requested);
-      const previous = await entryOrNull(requested);
-      if (previous?.type === "dir")
-        return textResponse(405, "This path is a folder. PUT can only write files.");
-      const tag = previous ? entityTag(previous) : "";
-      const noneMatch = request.headers.get("if-none-match");
-      const match = request.headers.get("if-match");
-      if (
-        (noneMatch && previous && matchesETag(noneMatch, tag)) ||
-        (match && (!previous || !matchesETag(match, tag)))
-      )
+    const mtime = requestedMtime(request);
+    // The staged file is private until it commits, so its time can be set outside the lock.
+    if (mtime) await setMtime(staged.path, mtime);
+    const noneMatch = request.headers.get("if-none-match");
+    const match = request.headers.get("if-match");
+    const outcome = await commitStagedFile(
+      {
+        ...credentials,
+        versions: httpDriveStore.versions,
+        authorize: () => authenticate(request),
+      },
+      requested,
+      staged,
+      (current) =>
+        !(
+          (noneMatch && current && matchesETag(noneMatch, fileTag(current))) ||
+          (match && (!current || !matchesETag(match, fileTag(current))))
+        ),
+    );
+    const accepted = mtime ? { "X-OC-Mtime": "accepted" } : undefined;
+    switch (outcome.kind) {
+      case "created":
+        return new Response(null, { status: 201, headers: accepted });
+      case "replaced":
+        return new Response(null, { status: 204, headers: accepted });
+      case "precondition_failed":
         return new Response(null, { status: 412 });
-      const mtime = requestedMtime(request);
-      if (mtime) await setMtime(temporary, mtime);
-      // The single commit point for new file content keeps the replaced content as a version.
-      await FileVersions.commitReplacement({
-        store: httpDriveStore.versions,
-        dataRoot: getDataRoot(),
-        target: target.absolute,
-        incoming: temporary,
-        archivedBy: current.user.id,
-      });
-      publishFileEvent({
-        path: target.absolute,
-        event: previous ? "change" : "rename",
-        ts: Date.now(),
-      });
-      return new Response(null, {
-        status: previous ? 204 : 201,
-        headers: mtime ? { "X-OC-Mtime": "accepted" } : undefined,
-      });
-    });
+      case "is_directory":
+        return textResponse(405, "This path is a folder. PUT can only write files.");
+      case "missing_parent":
+        return textResponse(409, "The parent folder does not exist. Create it first.");
+    }
   } finally {
-    await rm(temporary, { force: true });
+    await staged.discard();
   }
 }
 

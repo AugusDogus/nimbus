@@ -30,7 +30,8 @@
     "./file-versions-testing": "./src/file-versions-testing.ts",
     "./search-index": "./src/search-index.ts",
     "./search-crawler": "./src/search-crawler.ts",
-    "./search-service": "./src/search-service.ts"
+    "./search-service": "./src/search-service.ts",
+    "./file-content": "./src/file-content.ts"
   },
   "types": "./src/index.ts",
   "dependencies": {
