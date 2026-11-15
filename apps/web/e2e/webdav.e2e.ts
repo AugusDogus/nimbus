@@ -40,8 +40,15 @@ test("WebDAV app passwords support file operations and stop working after revoca
   expect((await request.fetch(original, { method: "MOVE", headers: { ...headers, Destination: `${origin}${renamed}` } })).status()).toBe(201);
   expect((await request.get(original, { headers })).status()).toBe(404);
   expect((await request.get(renamed, { headers })).status()).toBe(200);
-  const lock = await request.fetch(renamed, { method: "LOCK", headers });
+  // Without a body, LOCK refreshes an existing lock named in the If header (RFC 4918, section 9.10.2).
+  expect((await request.fetch(renamed, { method: "LOCK", headers })).status()).toBe(412);
+  const lock = await request.fetch(renamed, {
+    method: "LOCK",
+    headers: { ...headers, "Content-Type": "application/xml", Timeout: "Second-600" },
+    data: '<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:"><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype><D:owner>e2e</D:owner></D:lockinfo>',
+  });
   expect(lock.status()).toBe(200);
+  expect(await lock.text()).toContain("Second-600");
   expect((await request.put(renamed, { headers, data: "Must not overwrite a locked file" })).status()).toBe(423);
   const lockToken = lock.headers()["lock-token"];
   if (!lockToken) throw new Error("WebDAV LOCK did not return a lock token.");
@@ -49,6 +56,7 @@ test("WebDAV app passwords support file operations and stop working after revoca
   await expect(rpc.files.rename.mutate({ path: `${folder}/renamed.txt`, newName: "locked-rename.txt" })).rejects.toMatchObject({ data: { code: "CONFLICT" } });
   await expect(rpc.files.delete.mutate({ path: `${folder}/renamed.txt` })).rejects.toMatchObject({ data: { code: "CONFLICT" } });
   expect((await request.put(renamed, { headers: { ...headers, If: `(${lockToken})` }, data: "Saved with the lock token" })).status()).toBe(204);
+  expect((await request.fetch(renamed, { method: "LOCK", headers: { ...headers, If: `(${lockToken})`, Timeout: "Second-120" } })).status()).toBe(200);
   expect((await request.fetch(renamed, { method: "UNLOCK", headers: { ...headers, "Lock-Token": lockToken } })).status()).toBe(204);
   expect((await request.delete(renamed, { headers })).status()).toBe(204);
   expect((await request.get(renamed, { headers })).status()).toBe(404);

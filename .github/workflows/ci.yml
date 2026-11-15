@@ -10,7 +10,9 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # Playwright 1.58 installs browser dependencies only for distributions it supports;
+    # ubuntu-latest moves to Ubuntu 26.04 in November 2026.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       NEXT_TELEMETRY_DISABLED: "1"
@@ -19,6 +21,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.1
+      # Bun runs the Playwright CLI with the first node on PATH. Playwright 1.58 hangs while
+      # extracting browsers under Node 26, so pin an LTS release.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
       - run: bun install --frozen-lockfile
       - run: bun test
       - run: bun run lint
