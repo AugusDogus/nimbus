@@ -1,4 +1,8 @@
-import { createServer } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import next from "next";
@@ -10,6 +14,8 @@ import { createDriveStore } from "./drive-store";
 import { handleWebDAV } from "./webdav";
 import { streamBody } from "./http-files";
 import { cleanExpiredData } from "./maintenance";
+import { runWithAuditRequest } from "@nimbus/api/audit";
+import { ClientIp, clientIpHeader, TrustedProxies } from "./client-ip";
 
 const port = Number(process.env.PORT ?? "3000");
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -23,6 +29,7 @@ if (
     "Set BETTER_AUTH_SECRET to a random value of at least 32 characters. Run bun run setup for local setup.",
   );
 }
+const trustedProxies = TrustedProxies.parse(process.env.NIMBUS_TRUSTED_PROXIES);
 const origin = new URL(
   process.env.BETTER_AUTH_URL ?? `http://localhost:${port}`,
 );
@@ -55,7 +62,24 @@ async function* responseChunks(body: ReadableStream<Uint8Array>) {
   }
 }
 
-const server = createServer(async (incoming, outgoing) => {
+const server = createServer((incoming, outgoing) => {
+  // Derive the client address once, from the socket and trusted proxies only.
+  const ip = ClientIp.resolve(
+    incoming.socket.remoteAddress,
+    incoming.headers["x-forwarded-for"],
+    trustedProxies,
+  );
+  incoming.headers[clientIpHeader] = ip;
+  const userAgent = incoming.headers["user-agent"];
+  return runWithAuditRequest({ ip, userAgent }, () =>
+    handleRequest(incoming, outgoing),
+  );
+});
+
+async function handleRequest(
+  incoming: IncomingMessage,
+  outgoing: ServerResponse,
+) {
   try {
     const url = new URL(incoming.url ?? "/", origin);
     if (url.pathname !== "/dav" && !url.pathname.startsWith("/dav/")) {
@@ -100,7 +124,7 @@ const server = createServer(async (incoming, outgoing) => {
         .writeHead(500, { "Content-Type": "text/plain; charset=utf-8" })
         .end("The request failed. Check the server logs and try again.");
   }
-});
+}
 server.listen(port, "0.0.0.0", () =>
   console.info(`Nimbus is ready at http://localhost:${port}`),
 );
