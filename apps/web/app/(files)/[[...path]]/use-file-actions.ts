@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { queryClient, trpcClient } from "@/lib/trpc";
 
+import { BulkResult } from "./bulk-result";
 import type { FileEntry } from "./types";
 
 function invalidateFileQueries() {
@@ -144,6 +145,81 @@ export function useFileActions({
     }
   }, []);
 
+  const reportBulk = (result: BulkResult, verb: string, place = "") => {
+    invalidateFileQueries();
+    const summary = BulkResult.describe(result, verb, place);
+    if (summary.ok) toast.success(summary.message);
+    else toast.error(summary.message);
+    return result;
+  };
+
+  const moveEntries = useCallback(
+    async (entries: readonly FileEntry[], destinationPath: string) =>
+      reportBulk(
+        await BulkResult.run(entries, (entry) =>
+          trpcClient.files.move.mutate({ sourcePath: entry.path, destinationPath }),
+        ),
+        "Moved",
+      ),
+    [],
+  );
+
+  const copyEntries = useCallback(
+    async (entries: readonly FileEntry[], destinationPath: string) =>
+      reportBulk(
+        await BulkResult.run(entries, (entry) =>
+          trpcClient.files.copy.mutate({ sourcePath: entry.path, destinationPath }),
+        ),
+        "Copied",
+      ),
+    [],
+  );
+
+  const trashEntries = useCallback(
+    async (entries: readonly FileEntry[]) =>
+      reportBulk(
+        await BulkResult.run(entries, (entry) =>
+          trpcClient.files.delete.mutate({ path: entry.path }),
+        ),
+        "Moved",
+        " to trash",
+      ),
+    [],
+  );
+
+  /** Star every entry, or unstar them all when every entry is already starred. */
+  const starEntries = useCallback(async (entries: readonly FileEntry[]) => {
+    const existing = await trpcClient.catalog.bookmarks.query().catch(() => []);
+    const starredPaths = new Set(existing.filter((entry) => entry.starred).map((entry) => entry.path));
+    const starred = !entries.every((entry) => starredPaths.has(entry.path));
+    const result = await BulkResult.run(entries, (entry) =>
+      trpcClient.catalog.bookmark.mutate({ path: entry.path, starred }),
+    );
+    void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+    const summary = BulkResult.describe(result, starred ? "Starred" : "Unstarred");
+    if (summary.ok) toast.success(summary.message);
+    else toast.error(summary.message);
+    return result;
+  }, []);
+
+  /** One ZIP of several entries, streamed by the server. A form POST avoids URL length limits. */
+  const downloadEntries = useCallback((entries: readonly FileEntry[]) => {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "/api/files/archive";
+    form.hidden = true;
+    for (const entry of entries) {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "path";
+      input.value = entry.path;
+      form.append(input);
+    }
+    document.body.append(form);
+    form.submit();
+    form.remove();
+  }, []);
+
   const recordVisit = useCallback(async (filePath: string) => {
     try {
       await trpcClient.catalog.bookmark.mutate({ path: filePath });
@@ -179,6 +255,11 @@ export function useFileActions({
     createFolder,
     renameEntry,
     moveEntry,
+    moveEntries,
+    copyEntries,
+    trashEntries,
+    starEntries,
+    downloadEntries,
     deleteEntry,
     downloadFile,
     toggleStar,
