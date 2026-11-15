@@ -174,6 +174,12 @@ Nimbus limits sign-in, sign-up, password reset, second-factor, and passkey attem
 
 Rate limits, sessions, and the audit log use the client address. By default Nimbus uses the address of the connecting socket and ignores `X-Forwarded-For`, because any client can send that header. Behind a reverse proxy every request would then appear to come from the proxy. Set `NIMBUS_TRUSTED_PROXIES` to the proxy addresses, for example `127.0.0.1` for a proxy on the same host or the Docker network range for a proxy container. Nimbus then reads `X-Forwarded-For` from right to left, skipping trusted proxies, and uses the first untrusted address. List only addresses you control, and make sure clients cannot reach Nimbus without passing through the proxy.
 
+### Security headers
+
+Every page is served with a Content-Security-Policy that allows only same-origin scripts carrying a fresh per-request nonce (`'strict-dynamic'`), so injected scripts do not run. It also forbids plugins, `<base>` tags, cross-origin form targets, and embedding Nimbus in other sites (`frame-ancestors 'none'`). Inline styles stay allowed because the interface components set them at runtime. File previews keep their own sandbox policy. Responses also send `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, a `Permissions-Policy` that turns off camera, microphone, location, payment and USB access, and `Cross-Origin-Opener-Policy: same-origin`.
+
+When `BETTER_AUTH_URL` uses `https`, Nimbus adds `Strict-Transport-Security: max-age=31536000`, marks session and public link cookies `Secure`, and adds `upgrade-insecure-requests`. Configure your proxy to redirect plain HTTP to HTTPS. Session cookies are always `HttpOnly` and `SameSite=Lax`.
+
 ## Sharing and permissions
 
 Server administrators have access to the entire drive. Every account also gets a private home folder, opened with **My files**. Administrators can share other folders or the drive root; recipients find them under **Shared → Shared with me**.
@@ -294,6 +300,6 @@ bun playwright install chromium
 bun run test:e2e
 ```
 
-Unit tests cover path confinement, permissions, file operations, migrations, retention, and caches. Playwright tests use isolated temporary storage and accounts on port 3100 with desktop and mobile Chromium projects. Local tests use development mode; with `CI=true`, tests use the production build, so run `bun run build` first. Do not run a production build while the development test server is running. CI runs these checks and retains failed browser-test artifacts.
+Unit tests cover path confinement, permissions, file operations, migrations, retention, and caches. Playwright tests use isolated temporary storage and accounts on port 3100, or `NIMBUS_E2E_PORT` when set, with desktop and mobile Chromium projects. Every browser test fails on Content-Security-Policy violations. Local tests use development mode; with `CI=true`, tests use the production build, so run `bun run build` first. Do not run a production build while the development test server is running. CI runs these checks and retains failed browser-test artifacts.
 
 See [the web app README](apps/web/README.md) for the code layout and database development commands.

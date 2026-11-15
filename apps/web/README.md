@@ -21,6 +21,9 @@ The root scripts run this workspace with `apps/web` as its working directory, so
 - `server/db`: Drizzle schema and the SQLite connection.
 - `server/drive-store.ts`: persistent accounts, grants, groups, shares, trash records, bookmarks, and app passwords.
 - `server/webdav.ts`: WebDAV request handling.
+- `server/security-headers.ts`, `server/client-ip.ts`, `server/rate-limit.ts`: response hardening, trusted-proxy client addresses, and in-memory rate limits.
+- `server/audit-log.ts` and `../../packages/api/src/audit.ts`: the audit log store and the `recordAudit` function for recording events from any server code.
+- `lib/auth.ts`, `lib/auth-security.ts`, `lib/auth-audit.ts`: Better Auth configuration, Nimbus account-security endpoints, and sign-in auditing.
 - `server/maintenance.ts`: trash, upload staging, and thumbnail retention.
 - `../../packages/api/src`: typed API routers, permission checks, safe paths, and filesystem operations shared with the server.
 - `drizzle`: committed database migrations and schema snapshots.
@@ -60,4 +63,4 @@ bun playwright install chromium
 bun run test:e2e
 ```
 
-The browser tests create and remove their own temporary database and files. Keep port 3100 available. Production builds and browser tests must run sequentially because they share the Next.js build directory.
+The browser tests create and remove their own temporary database and files. Keep port 3100 available, or set `NIMBUS_E2E_PORT` to run on another port. Production builds and browser tests must run sequentially because they share the Next.js build directory.

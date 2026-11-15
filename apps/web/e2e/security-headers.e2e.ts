@@ -19,6 +19,9 @@ test("pages are served with an enforced Content-Security-Policy and hardening he
   const second = (await request.get("/login")).headers()["content-security-policy"];
   expect(second).not.toBe(policy);
 
+  const session = (await page.context().cookies()).find((cookie) => cookie.name.endsWith("better-auth.session_token"));
+  expect(session).toMatchObject({ httpOnly: true, sameSite: "Lax" });
+
   const violations: string[] = [];
   await page.exposeFunction("reportViolation", (text: string) => violations.push(text));
   await page.addInitScript(() => {
