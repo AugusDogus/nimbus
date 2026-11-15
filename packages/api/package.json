@@ -17,6 +17,7 @@
     "./audit": "./src/audit.ts",
     "./drive-store": "./src/drive-store.ts",
     "./file-name": "./src/file-name.ts",
+    "./numbered-name": "./src/numbered-name.ts",
     "./testing": "./src/testing.ts",
     "./file-operations": "./src/file-operations.ts",
     "./file-browser": "./src/file-browser.ts",

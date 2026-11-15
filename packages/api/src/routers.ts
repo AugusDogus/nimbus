@@ -14,7 +14,8 @@ import { isApiError, isFsError } from "./safe-path";
 import { getAccess } from "./access";
 import type { Permission } from "./drive-store";
 import { FolderAccess } from "./folder-access";
-import { fileNameSchema, numberedName } from "./file-name";
+import { numberedName } from "./numbered-name";
+import { fileNameSchema } from "./file-name";
 import { mutateFiles } from "./file-mutations";
 import {
   copyItem,

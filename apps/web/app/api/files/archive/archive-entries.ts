@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import path from "node:path";
 import type { Access } from "@nimbus/api/access";
 import { readDirectory } from "@nimbus/api/file-browser";
-import { numberedName } from "@nimbus/api/file-name";
+import { numberedName } from "@nimbus/api/numbered-name";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { isApiError } from "@nimbus/api/safe-path";
 
