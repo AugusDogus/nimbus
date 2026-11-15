@@ -1,0 +1,94 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import sharp from "sharp";
+import { pdfRenderer, runBounded, videoRenderer } from "./thumbnail-renderers";
+
+const pdftoppm = Bun.which("pdftoppm");
+const ffmpeg = Bun.which("ffmpeg");
+const signal = () => new AbortController().signal;
+let root: string;
+
+/** A one-page 400×200pt PDF with a filled rectangle. */
+function pdf() {
+  const content = "0.2 0.4 0.8 rg 20 20 360 160 re f";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 200] /Contents 4 0 R >>",
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+  ];
+  let body = "%PDF-1.4\n";
+  const offsets = objects.map((object, index) => {
+    const offset = body.length;
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    return offset;
+  });
+  const xref = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}`;
+  return `${body}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+}
+
+beforeAll(async () => {
+  root = await mkdtemp(path.join(os.tmpdir(), "nimbus-renderers-"));
+});
+afterAll(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+describe("runBounded", () => {
+  test("kills a process at its deadline", async () => {
+    const started = performance.now();
+    await expect(runBounded(["sleep", "5"], { timeoutMs: 200, memoryBytes: 2 ** 28, cpuSeconds: 1, maxOutputBytes: 10 }, signal())).rejects.toThrow(/sleep exited/);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  test("rejects output beyond the cap", async () => {
+    await expect(runBounded(["yes"], { timeoutMs: 2_000, memoryBytes: 2 ** 28, cpuSeconds: 1, maxOutputBytes: 1024 }, signal())).rejects.toThrow(/yes exited/);
+  });
+
+  test("stops when the requester aborts", async () => {
+    const controller = new AbortController();
+    const running = runBounded(["sleep", "5"], { timeoutMs: 5_000, memoryBytes: 2 ** 28, cpuSeconds: 1, maxOutputBytes: 10 }, controller.signal);
+    controller.abort();
+    await expect(running).rejects.toBeDefined();
+  });
+});
+
+describe.skipIf(!pdftoppm)("PDF thumbnails (requires pdftoppm)", () => {
+  test("renders the first page within the thumbnail size", async () => {
+    const file = path.join(root, "page.pdf");
+    await writeFile(file, pdf());
+    const output = await pdfRenderer(pdftoppm ?? "")(file, signal());
+    expect(await sharp(output).metadata()).toMatchObject({ format: "webp", width: 256, height: 128 });
+  });
+
+  test("fails on input that is not a PDF", async () => {
+    const file = path.join(root, "fake.pdf");
+    await writeFile(file, "not a pdf");
+    await expect(pdfRenderer(pdftoppm ?? "")(file, signal())).rejects.toThrow();
+  });
+});
+
+describe.skipIf(!ffmpeg)("video thumbnails (requires ffmpeg)", () => {
+  for (const [name, codec] of [["clip.mp4", "mpeg4"], ["short.webm", "libvpx-vp9"]] as const)
+    test(`extracts a frame from ${name}`, async () => {
+      const file = path.join(root, name);
+      const duration = name.startsWith("short") ? "0.4" : "2";
+      const made = Bun.spawnSync([ffmpeg ?? "", "-v", "error", "-f", "lavfi", "-i", `testsrc=size=640x360:rate=10:duration=${duration}`, "-c:v", codec, "-y", file]);
+      expect(made.exitCode).toBe(0);
+      const output = sharp(await videoRenderer(ffmpeg ?? "")(file, signal()));
+      expect(await output.metadata()).toMatchObject({ format: "webp", width: 256, height: 256 });
+      // Letterboxing is transparent, so a 16:9 frame leaves clear bars.
+      const { data } = await output.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      expect(data[3]).toBe(0);
+      expect(data[(128 * 256 + 128) * 4 + 3]).toBe(255);
+    });
+
+  test("fails on input that is not a video", async () => {
+    const file = path.join(root, "fake.mp4");
+    await writeFile(file, "not a video");
+    await expect(videoRenderer(ffmpeg ?? "")(file, signal())).rejects.toThrow();
+  });
+});
