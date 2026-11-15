@@ -41,11 +41,9 @@ export default async function FilesPage({
           notFound();
         throw error;
       }
+      // The listing reaches the client once, as initialEntries. Prefetching it too would embed a
+      // second copy under a query key the client never reads.
       await api.prefs.get.prefetch();
-      await api.files.list.prefetch({
-        path: currentPath || undefined,
-        includeStats,
-      });
     }
   }
 

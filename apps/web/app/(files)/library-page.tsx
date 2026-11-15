@@ -62,11 +62,10 @@ export function LibraryPage({
       ) : entries.length ? (
         <EntriesView
           view="list"
-          groupByType={false}
-          folders={[]}
-          files={[]}
-          sortedEntries={entries}
+          sections={[{ title: "", entries }]}
           actions={actions}
+          restoreKey={`${kind}:${query}`}
+          label={title}
         />
       ) : (
         <div className="space-y-3 rounded-lg border p-8 text-center">

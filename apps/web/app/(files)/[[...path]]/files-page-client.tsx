@@ -2,7 +2,7 @@
 
 import { Folder, HardDrive } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/lib/auth-client";
 import { decodeFilePathSegments } from "@/lib/file-route";
@@ -96,16 +96,32 @@ export function FilesPageClient({
     return sorted;
   }, [entries, prefs.groupByType, prefs.sortDirection, prefs.sortField]);
 
-  const folders = prefs.groupByType
-    ? sortedEntries.filter((e) => e.type === "dir")
-    : [];
-  const files = prefs.groupByType
-    ? sortedEntries.filter((e) => e.type !== "dir")
-    : [];
+  const sections = useMemo(
+    () =>
+      prefs.groupByType
+        ? [
+            { title: "Folders", entries: sortedEntries.filter((e) => e.type === "dir") },
+            { title: "Files", entries: sortedEntries.filter((e) => e.type !== "dir") },
+          ]
+        : [{ title: "", entries: sortedEntries }],
+    [prefs.groupByType, sortedEntries],
+  );
+  // While the next folder loads, the previous folder stays on screen. Keep restoring and saving
+  // scroll positions for the folder actually shown.
+  const [shownPath, setShownPath] = useState(currentPath);
+  if (!listQuery.isPlaceholderData && shownPath !== currentPath)
+    setShownPath(currentPath);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [selectionSlot, setSelectionSlot] = useState<HTMLDivElement | null>(null);
 
   return (
     <>
-      <div className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-background px-4 py-3 md:-mx-6 md:flex md:justify-between md:px-6 lg:-mx-8 lg:-mt-8 lg:px-8">
+      <div
+        ref={(element) => {
+          toolbarRef.current = element;
+          setSelectionSlot(element);
+        }}
+        className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-background px-4 py-3 md:-mx-6 md:flex md:justify-between md:px-6 lg:-mx-8 lg:-mt-8 lg:px-8">
         <div className="min-w-0 overflow-hidden">
           <FileBreadcrumbs pathSegments={effectiveSegments} />
         </div>
@@ -141,11 +157,12 @@ export function FilesPageClient({
           ) : entries.length > 0 ? (
             <EntriesView
               view={view}
-              groupByType={prefs.groupByType}
-              folders={folders}
-              files={files}
-              sortedEntries={sortedEntries}
+              sections={sections}
               actions={actions}
+              restoreKey={`${shownPath}:${view}`}
+              label={effectiveSegments.at(-1) ?? "My Drive"}
+              toolbarRef={toolbarRef}
+              selectionSlot={selectionSlot}
             />
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-center">
