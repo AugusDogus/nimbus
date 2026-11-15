@@ -161,9 +161,24 @@ In **Settings → WebDAV**, select **Create password** and name the device. Copy
 
 Your normal file permissions apply. Revoking the app password immediately blocks subsequent requests from that client. Use HTTPS for remote access because WebDAV sends credentials using HTTP Basic authentication.
 
-Supported operations are `OPTIONS`, `GET`, `HEAD`, `PROPFIND`, `PUT`, `MKCOL`, `DELETE`, `MOVE`, `COPY`, `LOCK`, and `UNLOCK`. `PROPFIND` supports depth `0` and `1`. Deletes go to trash. File downloads support single byte ranges.
+Nimbus implements WebDAV classes 1 and 2 (RFC 4918) and passes the complete [Litmus 0.18](https://notroj.github.io/litmus/) conformance suite, which runs in CI.
 
-WebDAV is intended for basic file access, not a complete distributed collaboration protocol. `MOVE` and `COPY` refuse to overwrite existing destinations. Locks are exclusive, last one hour, and are cleared on restart. Persistent custom properties (`PROPPATCH`), infinite-depth listings, and shared locks are unsupported. Test the operations your chosen client needs before relying on its editing or synchronization workflow.
+- **Methods:** `OPTIONS`, `GET`, `HEAD`, `PROPFIND`, `PROPPATCH`, `PUT`, `MKCOL`, `DELETE`, `MOVE`, `COPY`, `LOCK`, and `UNLOCK`. Deletes go to trash. Downloads support single byte ranges. Uploads may use chunked transfer encoding.
+- **Listings:** `PROPFIND` supports depth `0` and `1`, `allprop`, `propname`, and named properties. Infinite depth is refused, as RFC 4918 permits. Properties include size, content type, modification and creation dates, ETag, lock state, and the filesystem's free and used space (RFC 4331).
+- **Custom properties:** `PROPPATCH` stores properties set by clients, such as the Windows `Win32*` file attributes, and returns them in later listings. They move, copy, and go to trash with their item. Setting `Win32LastModifiedTime` also sets the file's modification time.
+- **Replacing items:** `MOVE` and `COPY` honor the `Overwrite` header, which defaults to `T`. Moving a file over another file replaces its content and keeps the destination's links, grants, and stars, so applications that save through a temporary file keep their sharing. Replacing a folder, or a file with a folder, sends the replaced item to trash.
+- **Locks:** exclusive and shared write locks, depth `0` or infinity, on files, folders, and unmapped URLs (which creates an empty file). A lock lasts for the client's requested timeout, up to one hour, and clients can refresh it. Locks also block conflicting changes from the web interface. They are kept in memory and cleared on restart. `If` header conditions with lock tokens and ETags are evaluated.
+- **Modification times:** uploads, moves, and copies accept the `X-OC-Mtime` header used by rclone and ownCloud clients.
+- Request URLs must percent-encode `#` in names as `%23`; a URL containing `#` is refused so a fragment can never redirect a delete to the parent folder.
+
+Client notes:
+
+- **Windows Explorer** (Map network drive): use an HTTPS address, because Windows only sends Basic credentials over HTTP after a registry change (`BasicAuthLevel`). Windows also limits downloads to 50 MB by default (`FileSizeLimitInBytes` under the WebClient service parameters). Not yet tested against Nimbus directly.
+- **macOS Finder** (Go → Connect to Server): mounts read-write because locks are supported. Finder stores metadata in `._` files; Nimbus keeps them as ordinary files. Not yet tested against Nimbus directly.
+- **GNOME Files, KDE Dolphin, davfs2:** use `davs://your-nimbus-server/dav/`. GNOME Files was tested: mounting, uploads, renames, replacing files, server-side copies, free space, and deletes work.
+- **rclone:** configure the remote with `vendor = rclone`. Nimbus then keeps modification times for uploads, moves, and copies, so `rclone sync` detects edits that do not change a file's size, and `rclone mount` preserves times. With `vendor = other`, rclone compares sizes only. `rclone touch` of an existing file is not supported by either profile. Tested with rclone 1.76: `sync`, `check`, `moveto` and `copyto` over existing files, `about`, `purge`, and `mount --vfs-cache-mode writes` with editors that save by renaming a temporary file over the original.
+
+Your normal file permissions apply to every operation. Folders you cannot browse are omitted from listings. To check conformance locally, build Litmus from its release tarball and run `LITMUS_DIR=/path/to/litmus-0.18 bun scripts/webdav-conformance.ts`.
 
 ## Backups and upgrades
 
