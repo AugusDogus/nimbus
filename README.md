@@ -14,8 +14,9 @@ Files stay on your filesystem. Accounts, permissions, links, and preferences are
 - Upload files with resumable transfers, create folders, rename, move, download, and restore deleted items.
 - Keep earlier versions of replaced files, and download or restore them.
 - Install Nimbus as an app from supporting browsers.
-- Preview images, PDF, text, audio, and video. Download folders as ZIP archives.
-- Search filenames and keep starred and recently opened items.
+- Preview images, PDF, audio, video, rendered Markdown, CSV and TSV tables, and syntax-highlighted code. Step through a folder with the arrow keys or by swiping. Edit text files in the browser. Download folders as ZIP archives.
+- Thumbnails for images, PDFs, and videos in grid view and on public links.
+- Search filenames as you type and keep starred and recently opened items.
 - Share files and folders with existing users or groups using read, write, or sharing-management permissions.
 - Create read-only public links with optional passwords, expiration, download limits, and a preview-only mode. Edit or revoke them later.
 - Request files: share an upload link so people without an account can add files to a folder without seeing its contents.
@@ -99,7 +100,7 @@ bun run build
 bun run start
 ```
 
-Set the deployment values in `apps/web/.env` before startup. The Bun custom server is required for startup migrations, WebDAV methods, and retention cleanup. Use `bun run start`, not `next start`. The process listens on all interfaces; put your service manager and HTTPS proxy in front of it as appropriate.
+Set the deployment values in `apps/web/.env` before startup. For PDF and video thumbnails, install Poppler's `pdftoppm` and `ffmpeg` (for example `apt install poppler-utils ffmpeg`); without them those files show generic icons. The Docker image includes both. The Bun custom server is required for startup migrations, WebDAV methods, and retention cleanup. Use `bun run start`, not `next start`. The process listens on all interfaces; put your service manager and HTTPS proxy in front of it as appropriate.
 
 ## Configuration
 
@@ -216,6 +217,14 @@ Moving an item to trash suspends its public links, direct grants, and stars. The
 Select **Edit** on a public link to change its password, expiry, download limit, or mode without changing its address. A new or removed password ends earlier unlocks. A download limit counts each transfer of a file or ZIP, including opening a preview; resumed downloads and video seeking do not count again. Once the limit is used, the link stops working until you raise it. **Preview only** removes download and ZIP actions and refuses files the browser cannot preview. It is not copy protection: anything a browser displays can still be saved.
 
 To request files, open a folder's **Share** action and select **Request files**. Anyone with the upload link can add files to that folder. They cannot list, open, replace, or delete anything, including their own uploads. A file with a taken name gets a number added. Optional settings are a password, an expiry, a note shown to uploaders, a largest file size, a number of files, and a total size. Uploads are resumable; unfinished uploads count toward the limits for up to a day, then their space is released. Each link accepts at most 20 uploads at a time, and uploads are refused when less than 1 GB of disk space would remain. Upload links stop working under the same conditions as public links. Files uploaded through a link belong to the folder like any other file.
+
+## Previews, editing, and search
+
+Text, Markdown, and code previews load the first 1 MB of a file. Markdown is rendered without raw HTML or images, and only web, email, and in-page links are kept, so a file cannot run scripts or contact other servers. Previews are served with a sandboxing Content Security Policy.
+
+Users with write permission can edit text files up to 1 MB from the preview. Saving checks that the file has not changed since it was opened; if it has, the save is refused, the file on disk is kept, and your edits stay in the editor so you can copy them. Saves also respect WebDAV locks held by other clients.
+
+Search matches file and folder names anywhere in the drive that you can read. Nimbus indexes names in memory at startup, keeps the index current from filesystem changes, and re-checks the whole drive every 30 minutes to catch changes made while it was stopped. Until the first index completes, the search page says results may be incomplete. One-letter searches match the beginning of names.
 
 ## Trash and retention
 
