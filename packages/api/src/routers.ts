@@ -36,12 +36,7 @@ import {
   iterateFileEvents,
   type FileDelta,
 } from "./file-events";
-import {
-  createCallerFactory,
-  protectedProcedure,
-  publicProcedure,
-  router,
-} from "./index";
+import { createCallerFactory, protectedProcedure, router } from "./index";
 
 const fileEventSchema = z.object({
   path: z.string(),
@@ -69,15 +64,6 @@ export const appRouter = router({
   trash: trashRouter,
   appPasswords: appPasswordsRouter,
   catalog: catalogRouter,
-  healthCheck: publicProcedure.query(() => {
-    return "OK";
-  }),
-  privateData: protectedProcedure.query(({ ctx }) => {
-    return {
-      message: "Authenticated",
-      session: ctx.session,
-    };
-  }),
   prefs: router({
     get: protectedProcedure.query(async ({ ctx }) => {
       const userId = ctx.access.user.id;
