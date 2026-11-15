@@ -30,8 +30,10 @@ test("pages are served with an enforced Content-Security-Policy and hardening he
     });
   });
   for (const path of ["/", "/settings/account", "/settings/appearance", "/settings/admin", "/settings/admin/audit", "/shared", "/trash"]) {
-    await page.goto(path);
-    await page.waitForLoadState("networkidle");
+    // The live update stream keeps the network busy, so wait for load and hydration instead of idle.
+    await page.goto(path, { waitUntil: "load" });
+    await page.waitForFunction(() => document.readyState === "complete");
+    await page.waitForTimeout(500);
   }
   expect(violations).toEqual([]);
 });

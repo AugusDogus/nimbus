@@ -41,8 +41,8 @@ test("two-factor authentication guards password sign-in and recovers with a code
     await member.page.goto("/settings/account");
     const section = member.page.getByRole("region", { name: "Two-factor authentication", exact: true });
     await section.getByRole("button", { name: "Set up", exact: true }).click();
-    await member.page.getByLabel("Password", { exact: true }).fill(password);
-    await member.page.getByRole("button", { name: "Continue", exact: true }).click();
+    await member.page.getByRole("dialog").getByLabel("Password", { exact: true }).fill(password);
+    await member.page.getByRole("dialog").getByRole("button", { name: "Continue", exact: true }).click();
     await expect(member.page.getByRole("img", { name: "QR code for your authenticator app" })).toBeVisible();
     const secret = await member.page.getByRole("textbox", { name: "Setup key", exact: true }).inputValue();
     await member.page.getByLabel("Code from the app").fill("000000");

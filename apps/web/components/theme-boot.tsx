@@ -25,7 +25,8 @@ export function ThemeBoot({ nonce }: { nonce: string | undefined }) {
   return (
     <>
       <style id={themeStyleId} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: "" }} />
-      <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      {/* Browsers hide nonce attributes after parsing, so hydration sees an empty value. */}
+      <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeBootScript }} />
     </>
   );
 }

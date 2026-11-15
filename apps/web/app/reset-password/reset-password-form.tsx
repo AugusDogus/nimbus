@@ -33,7 +33,7 @@ export function ResetPasswordForm({ token, expired }: { token: string | null; ex
     return (
       <Card>
         <CardHeader className="text-center">
-          <CardTitle className="text-balance text-xl">Choose a new password</CardTitle>
+          <CardTitle className="text-balance text-xl"><h1>Choose a new password</h1></CardTitle>
           <CardDescription className="text-pretty">
             Resetting your password signs out every session. WebDAV app passwords stay active.
           </CardDescription>
@@ -94,7 +94,7 @@ export function ResetPasswordForm({ token, expired }: { token: string | null; ex
   return (
     <Card>
       <CardHeader className="text-center">
-        <CardTitle className="text-balance text-xl">Reset your password</CardTitle>
+        <CardTitle className="text-balance text-xl"><h1>Reset your password</h1></CardTitle>
         <CardDescription className="text-pretty">
           Enter your account email and Nimbus will send you a link to choose a new password.
         </CardDescription>

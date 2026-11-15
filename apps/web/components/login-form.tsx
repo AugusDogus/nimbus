@@ -184,7 +184,7 @@ export function LoginForm({
         <Card>
           <CardHeader className="text-center">
             <CardTitle className="text-balance text-xl">
-              {step.method === "totp" ? "Enter your code" : "Use a recovery code"}
+              <h1>{step.method === "totp" ? "Enter your code" : "Use a recovery code"}</h1>
             </CardTitle>
             <CardDescription className="text-pretty">
               {step.method === "totp"
@@ -270,7 +270,9 @@ export function LoginForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader className="text-center">
-          <CardTitle className="text-balance text-xl">Welcome back</CardTitle>
+          <CardTitle className="text-balance text-xl">
+            <h1>Welcome back</h1>
+          </CardTitle>
           <CardDescription className="text-pretty">
             Use your email and password to sign in.
           </CardDescription>
