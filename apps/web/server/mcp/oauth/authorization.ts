@@ -7,6 +7,7 @@ import { mcpResource } from "../config";
 import { findClient, type OAuthClient } from "./clients";
 import type { BrowserSession, OAuthContext } from "./context";
 import { htmlError, seeOther } from "./http";
+import { matchesRegisteredRedirect } from "./redirect-uri";
 import { AUTHORIZATION_CODE_TTL_MS, mintSecret, TokenPrefix } from "./secrets";
 
 /** A validated authorization request (RFC 6749 4.1.1 with PKCE and RFC 8707). */
@@ -41,10 +42,12 @@ export async function validateAuthorization(ctx: OAuthContext, params: URLSearch
     return { kind: "untrusted", message: `This request does not name exactly one app (client_id). ${restart}` };
   const client = await findClient(ctx.db, clientId);
   if (!client) return { kind: "untrusted", message: `The app requesting access is not registered with this Nimbus server. ${restart}` };
-  const redirectUri = redirectUris[0];
-  if (redirectUris.length !== 1 || redirectUri === undefined)
+  const requestedRedirect = redirectUris[0];
+  if (redirectUris.length !== 1 || requestedRedirect === undefined)
     return { kind: "untrusted", message: `This request must include exactly one redirect_uri. ${restart}` };
-  if (!client.redirectUris.includes(redirectUri))
+  // Always continue with the registered spelling; never with the requested one.
+  const redirectUri = client.redirectUris.find((uri) => matchesRegisteredRedirect(uri, requestedRedirect));
+  if (redirectUri === undefined)
     return {
       kind: "untrusted",
       message: `The redirect_uri does not exactly match one this app registered, so Nimbus will not send you there. ${restart}`,
