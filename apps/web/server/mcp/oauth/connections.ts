@@ -1,0 +1,42 @@
+import { McpScope } from "@nimbus/api/mcp-scope";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { mcpClients, mcpGrants } from "../../db/mcp-schema";
+import type { Database } from "./context";
+import { revokeGrant } from "./tokens";
+
+/** An approved MCP client as Settings lists it. */
+export type McpConnection = {
+  id: string;
+  clientName: string;
+  scopes: McpScope[];
+  connectedAt: number;
+  lastUsedAt: number | null;
+};
+
+export async function listConnections(db: Database, userId: string): Promise<McpConnection[]> {
+  const rows = await db
+    .select({
+      id: mcpGrants.id,
+      clientName: mcpClients.clientName,
+      scope: mcpGrants.scope,
+      connectedAt: mcpGrants.createdAt,
+      lastUsedAt: mcpGrants.lastUsedAt,
+    })
+    .from(mcpGrants)
+    .innerJoin(mcpClients, eq(mcpClients.clientId, mcpGrants.clientId))
+    .where(and(eq(mcpGrants.userId, userId), isNull(mcpGrants.revokedAt)))
+    .orderBy(desc(mcpGrants.createdAt));
+  return rows.map(({ scope, ...row }) => ({ ...row, scopes: McpScope.parse(scope).scopes }));
+}
+
+/** Revoke one of `userId`'s own connections. False when it does not exist or belongs to someone else. */
+export async function revokeConnection(db: Database, userId: string, grantId: string, now: number) {
+  const [grant] = await db
+    .select({ id: mcpGrants.id })
+    .from(mcpGrants)
+    .where(and(eq(mcpGrants.id, grantId), eq(mcpGrants.userId, userId), isNull(mcpGrants.revokedAt)))
+    .limit(1);
+  if (!grant) return false;
+  await revokeGrant(db, grantId, now);
+  return true;
+}

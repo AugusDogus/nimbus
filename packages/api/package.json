@@ -31,7 +31,10 @@
     "./search-index": "./src/search-index.ts",
     "./search-crawler": "./src/search-crawler.ts",
     "./search-service": "./src/search-service.ts",
-    "./file-content": "./src/file-content.ts"
+    "./file-content": "./src/file-content.ts",
+    "./mcp-scope": "./src/mcp-scope.ts",
+    "./mcp-tool": "./src/mcp-tool.ts",
+    "./mcp-tools": "./src/mcp-tools.ts"
   },
   "types": "./src/index.ts",
   "dependencies": {
