@@ -12,11 +12,16 @@ import {
   activeFileRequest,
   FileRequestLimits,
   isFileRequestUnlocked,
+  Uploader,
   uploaderAddress,
 } from "@/server/file-request-access";
 import { httpDriveStore, httpError } from "@/server/http-files";
 import { tusFailure } from "@/server/tus-failure";
-import { publishUpload, uploadStaging } from "@/server/upload-publish";
+import {
+  createUploadFinisher,
+  publishUpload,
+  uploadStaging,
+} from "@/server/upload-publish";
 
 const fail = (status_code: number, body: string) => ({ status_code, body });
 const locked = () =>
@@ -24,8 +29,8 @@ const locked = () =>
 
 /**
  * Anonymous tus endpoint for file requests. It shares the signed-in upload
- * staging store and publish step; only authorization differs. Uploaders hold
- * a 128-bit upload id as their capability and can never read anything back.
+ * staging store and publish step; only authorization differs. Each upload is
+ * bound to its uploader's browser, and uploaders can never read anything back.
  */
 let server: Server | undefined;
 
@@ -33,7 +38,8 @@ async function reservedUpload(request: Request, id: string) {
   if (!/^[a-f0-9]{32}$/.test(id))
     throw fail(400, "This upload identifier is invalid. Start the upload again.");
   const upload = await httpDriveStore.fileRequests.getUpload(id);
-  if (!upload)
+  // Uploads of other browsers are indistinguishable from missing ones.
+  if (!upload || upload.uploaderHash !== Uploader.hash(request))
     throw fail(404, "This upload expired or was cancelled. Start it again.");
   const active = await activeFileRequest({ id: upload.requestId });
   if (!isFileRequestUnlocked(active.request, request)) throw locked();
@@ -43,7 +49,30 @@ async function reservedUpload(request: Request, id: string) {
 async function getServer() {
   if (server) return server;
   const store = await uploadStaging();
-  const finishes = new Map<string, Promise<void>>();
+  const finisher = createUploadFinisher(store);
+  /** Publish once, however many requests race to finish the same upload. */
+  const publish = (request: Request, id: string, filename: string | null | undefined) =>
+    finisher.finish(id, async () => {
+      const { request: fileRequest } = await reservedUpload(request, id);
+      await mutateFiles([], { userId: fileRequest.createdBy }, async () => {
+        // Re-check inside the queue: the owner may have lost access meanwhile.
+        const { request: current, owner } = await activeFileRequest({ id: fileRequest.id });
+        const result = await publishUpload({
+          store,
+          uploadId: id,
+          filename: fileNameSchema.parse(filename),
+          folder: current.path,
+          conflict: "keep-both",
+          credentials: { userId: owner.user.id },
+          requireWrite: (relative) => {
+            if (!owner.can(relative, "write"))
+              throw new TRPCError({ code: "NOT_FOUND", message: "This upload link is no longer available." });
+          },
+        });
+        if (result.kind === "published")
+          await httpDriveStore.fileRequests.finishUpload(id, result.path, Date.now());
+      });
+    });
   server = new Server({
     path: "/api/file-request/upload",
     datastore: store,
@@ -53,21 +82,27 @@ async function getServer() {
       if (request.method === "POST" || request.method === "OPTIONS") return;
       try {
         await reservedUpload(request, id);
+        await finisher.recover(request, id, (metadata) => publish(request, id, metadata?.filename));
       } catch (error) {
         throw tusFailure(error);
       }
     },
     async onUploadCreate(request, upload) {
       try {
-        const perClient = FileRequestLimits.uploadsPerClient.consume(uploaderAddress(request));
-        if (!perClient.allowed)
-          throw fail(429, `Too many uploads from this network. Try again in ${perClient.retryAfterSeconds} seconds.`);
+        const uploaderHash = Uploader.hash(request);
+        if (!uploaderHash)
+          throw fail(401, "Reload the upload page, then add the file again.");
         const token = upload.metadata?.request ?? "";
         const { request: fileRequest } = await activeFileRequest({ token });
         if (!isFileRequestUnlocked(fileRequest, request)) throw locked();
-        const perLink = FileRequestLimits.uploadsPerLink.consume(fileRequest.id);
-        if (!perLink.allowed)
-          throw fail(429, `This link is receiving too many uploads. Try again in ${perLink.retryAfterSeconds} seconds.`);
+        const client = uploaderAddress(request);
+        for (const decision of [
+          FileRequestLimits.uploadsPerClientAndLink.consume(`${client} ${fileRequest.id}`),
+          FileRequestLimits.uploadsPerClient.consume(client),
+          FileRequestLimits.uploadsPerLink.consume(fileRequest.id),
+        ])
+          if (!decision.allowed)
+            throw fail(429, `Too many uploads right now. Try again in ${decision.retryAfterSeconds} seconds.`);
         const name = fileNameSchema.safeParse(upload.metadata?.filename);
         if (!name.success)
           throw fail(400, "Rename the file without slashes or reserved names, then upload it again.");
@@ -79,12 +114,13 @@ async function getServer() {
         const capacity = await FilesystemCapacity.read(getDataRoot());
         if (
           capacity &&
-          capacity.availableBytes - upload.size < FileRequestLimits.minimumFreeBytes
+          capacity.availableBytes - upload.size <
+            FileRequestLimits.minimumFreeBytes(capacity.totalBytes)
         )
           throw fail(507, "The server does not have enough free space for this file. Tell the person who sent the link.");
         const now = Date.now();
         const reservation = await httpDriveStore.fileRequests.reserve(
-          { id: upload.id, requestId: fileRequest.id, size: upload.size, createdAt: now },
+          { id: upload.id, requestId: fileRequest.id, uploaderHash, size: upload.size, createdAt: now },
           { activeSince: now - reservationLifetimeMs, maxActive: FileRequestLimits.maxActiveUploads },
         );
         if (reservation.kind === "file-limit")
@@ -101,37 +137,10 @@ async function getServer() {
       }
     },
     async onUploadFinish(request, upload) {
-      const existing = finishes.get(upload.id);
-      const task =
-        existing ??
-        (async () => {
-          const { request: fileRequest } = await reservedUpload(request, upload.id);
-          await mutateFiles([], { userId: fileRequest.createdBy }, async () => {
-            // Re-check inside the queue: the owner may have lost access meanwhile.
-            const { request: current, owner } = await activeFileRequest({ id: fileRequest.id });
-            const result = await publishUpload({
-              store,
-              uploadId: upload.id,
-              filename: fileNameSchema.parse(upload.metadata?.filename),
-              folder: current.path,
-              conflict: "keep-both",
-              credentials: { userId: owner.user.id },
-              requireWrite: (relative) => {
-                if (!owner.can(relative, "write"))
-                  throw new TRPCError({ code: "NOT_FOUND", message: "This upload link is no longer available." });
-              },
-            });
-            if (result.kind === "published")
-              await httpDriveStore.fileRequests.finishUpload(upload.id, result.path, Date.now());
-          });
-        })();
-      if (!existing) finishes.set(upload.id, task);
       try {
-        await task;
+        await publish(request, upload.id, upload.metadata?.filename);
       } catch (error) {
         throw tusFailure(error);
-      } finally {
-        if (!existing) finishes.delete(upload.id);
       }
       return {};
     },

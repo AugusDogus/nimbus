@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "556af4ed-c6d0-468b-b543-2a90600de5a1",
+  "id": "b188473a-77be-45f3-8581-3fffed3b4089",
   "prevId": "95d3e18d-d879-4c21-a824-5ccbf79e14a5",
   "tables": {
     "nimbus_note": {
@@ -1396,6 +1396,13 @@
         },
         "request_id": {
           "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "uploader_hash": {
+          "name": "uploader_hash",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

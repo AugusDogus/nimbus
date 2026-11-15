@@ -19,6 +19,7 @@ export const fileRequests = sqliteTable("nimbus_file_request", {
 export const fileRequestUploads = sqliteTable("nimbus_file_request_upload", {
   id: text("id").primaryKey(),
   requestId: text("request_id").notNull().references(() => fileRequests.id, { onDelete: "cascade" }),
+  uploaderHash: text("uploader_hash").notNull(),
   size: integer("size").notNull(),
   createdAt: integer("created_at").notNull(),
   finishedAt: integer("finished_at"),

@@ -1,6 +1,7 @@
 CREATE TABLE `nimbus_file_request_upload` (
 	`id` text PRIMARY KEY NOT NULL,
 	`request_id` text NOT NULL,
+	`uploader_hash` text NOT NULL,
 	`size` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	`finished_at` integer,

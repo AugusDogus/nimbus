@@ -6,6 +6,7 @@ import {
   fileRequestCookie,
   FileRequestPasswordAttempts,
   isFileRequestUnlocked,
+  Uploader,
 } from "@/server/file-request-access";
 import { RateLimiter } from "@/server/rate-limit";
 
@@ -17,8 +18,11 @@ export async function GET(request: Request, context: Context) {
   try {
     const { token } = await context.params;
     const { request: fileRequest } = await activeFileRequest({ token });
+    const headers = new Headers(noStore);
+    const uploader = Uploader.issue(request);
+    if (uploader) headers.append("Set-Cookie", uploader);
     if (!isFileRequestUnlocked(fileRequest, request))
-      return Response.json({ passwordRequired: true }, { status: 401, headers: noStore });
+      return Response.json({ passwordRequired: true }, { status: 401, headers });
     const used = await httpDriveStore.fileRequests.usage(
       fileRequest.id,
       Date.now() - reservationLifetimeMs,
@@ -34,7 +38,7 @@ export async function GET(request: Request, context: Context) {
             ? null
             : Math.max(0, fileRequest.maxFiles - used.files),
       },
-      { headers: noStore },
+      { headers },
     );
   } catch (error) {
     return httpError(error);

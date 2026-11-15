@@ -118,3 +118,41 @@ export async function publishUpload({
     return { kind: "published", path: destination.relative, replaced: false };
   }
 }
+
+/**
+ * Runs each upload's publish step at most once at a time, since tus completion
+ * (PATCH) and recovery (HEAD) can race. Shared by both tus servers.
+ */
+export function createUploadFinisher(store: UploadStore) {
+  const pending = new Map<string, Promise<void>>();
+  const finish = async (id: string, publish: () => Promise<void>) => {
+    const existing = pending.get(id);
+    if (existing) return existing;
+    const task = publish();
+    pending.set(id, task);
+    try {
+      await task;
+    } finally {
+      pending.delete(id);
+    }
+  };
+  return {
+    finish,
+    /**
+     * A fully received upload whose publish failed would otherwise look
+     * finished to a resuming client, which would then report success for a
+     * file that is not in the drive. On HEAD, publish it now, or throw so the
+     * client retries.
+     */
+    async recover(
+      request: Request,
+      id: string,
+      publish: (metadata: Record<string, string | null> | undefined) => Promise<void>,
+    ) {
+      if (request.method !== "HEAD" || (await store.isFinished(id))) return;
+      const staged = await store.getUpload(id);
+      if (staged.size !== undefined && staged.offset === staged.size)
+        await finish(id, () => publish(staged.metadata));
+    },
+  };
+}

@@ -2,6 +2,7 @@ import { Server } from "@tus/server";
 import { TRPCError } from "@trpc/server";
 import type { Access } from "@nimbus/api/access";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
+import { createUploadFinisher } from "@/server/upload-publish";
 import type { UploadStore } from "@/server/upload-store";
 import { commitUpload, UploadMetadata } from "./upload-commit";
 
@@ -25,12 +26,9 @@ export function createUploadServer({
   access: (request: Request) => Promise<Access>;
   fail: (error: unknown) => TusFailure;
 }) {
-  const finishes = new Map<string, Promise<void>>();
-  // One commit per upload at a time: PATCH completion and HEAD recovery can race.
-  const finish = async (request: Request, id: string, metadata: Record<string, string | null> | undefined) => {
-    const pending = finishes.get(id);
-    if (pending) return pending;
-    const task = (async () => {
+  const finisher = createUploadFinisher(store);
+  const finish = (request: Request, id: string, metadata: Record<string, string | null> | undefined) =>
+    finisher.finish(id, async () => {
       const parsed = UploadMetadata.safeParse(present(metadata));
       if (!parsed.success)
         throw new TRPCError({
@@ -38,14 +36,7 @@ export function createUploadServer({
           message: "This upload's stored details are invalid. Start a new upload.",
         });
       await commitUpload(store, id, parsed.data, () => access(request));
-    })();
-    finishes.set(id, task);
-    try {
-      await task;
-    } finally {
-      finishes.delete(id);
-    }
-  };
+    });
 
   return new Server({
     path: "/api/upload",
@@ -68,11 +59,7 @@ export function createUploadServer({
           });
         const target = await safePath(upload.metadata?.targetPath ?? "");
         current.require(target.relative, "write");
-        // A fully received upload whose publish failed would otherwise look finished to a resuming
-        // client, which would then report success for a file that is not in the drive. Publish it
-        // now, or fail so the client retries.
-        if (request.method === "HEAD" && upload.size !== undefined && upload.offset === upload.size && !(await store.isFinished(id)))
-          await finish(request, id, upload.metadata);
+        await finisher.recover(request, id, (metadata) => finish(request, id, metadata));
       } catch (error) {
         throw fail(error);
       }

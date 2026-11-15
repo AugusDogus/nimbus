@@ -25,6 +25,7 @@ const request: FileRequest = {
 const upload = (id: string, size: number, createdAt = 1000) => ({
   id,
   requestId: "request",
+  uploaderHash: "uploader",
   size,
   createdAt,
 });

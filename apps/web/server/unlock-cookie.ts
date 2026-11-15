@@ -28,11 +28,13 @@ function signature(scope: UnlockScope, expires: string) {
 }
 
 // Behind a TLS-terminating proxy the request URL is plain HTTP, so use the public origin.
-const secureCookies = (process.env.BETTER_AUTH_URL ?? "").startsWith("https:");
+const secureAttribute = (process.env.BETTER_AUTH_URL ?? "").startsWith("https:")
+  ? "; Secure"
+  : "";
 
 function issue(scope: UnlockScope) {
   const expires = String(Date.now() + lifetimeMs);
-  const secure = secureCookies ? "; Secure" : "";
+  const secure = secureAttribute;
   return `${scope.name}=${expires}.${signature(scope, expires)}; HttpOnly; SameSite=Lax; Path=${scope.path}; Max-Age=${lifetimeMs / 1000}${secure}`;
 }
 
@@ -56,4 +58,4 @@ function verify(scope: UnlockScope, request: Request) {
   return timingSafeEqual(Buffer.from(received), Buffer.from(expected));
 }
 
-export const UnlockCookie = { issue, verify } as const;
+export const UnlockCookie = { issue, verify, secureAttribute } as const;

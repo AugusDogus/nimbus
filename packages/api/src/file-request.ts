@@ -39,6 +39,8 @@ export type FileRequestSummary = FileRequest & {
 export type FileRequestUpload = {
   id: string;
   requestId: string;
+  /** SHA-256 of the uploader's browser cookie; only that browser may resume it. */
+  uploaderHash: string;
   size: number;
   createdAt: number;
 };

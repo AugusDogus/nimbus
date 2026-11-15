@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { getAccess, type Access } from "@nimbus/api/access";
 import { FileRequest } from "@nimbus/api/file-request";
@@ -82,12 +83,43 @@ export const FileRequestPasswordAttempts = {
 export const uploaderAddress = (incoming: Request) =>
   ClientIp.bucket(ClientIp.fromHeaders(incoming.headers));
 
-/** Abuse limits for anonymous callers, keyed by link and by client address. */
+const uploaderCookieName = "nimbus-uploader";
+
+/**
+ * A random, HttpOnly identity for this browser. Each upload is bound to it, so
+ * other people holding the same link cannot resume, probe or cancel it.
+ */
+export const Uploader = {
+  hash(request: Request) {
+    const value = request.headers
+      .get("cookie")
+      ?.split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${uploaderCookieName}=`))
+      ?.slice(uploaderCookieName.length + 1);
+    return value && /^[\w-]{43}$/.test(value)
+      ? createHash("sha256").update(value).digest("hex")
+      : null;
+  },
+  /** A Set-Cookie value for a browser without an identity, or null if it has one. */
+  issue(request: Request) {
+    if (Uploader.hash(request)) return null;
+    return `${uploaderCookieName}=${randomBytes(32).toString("base64url")}; HttpOnly; SameSite=Strict; Path=/api/file-request; Max-Age=${7 * 24 * 60 * 60}${UnlockCookie.secureAttribute}`;
+  },
+} as const;
+
+const minute = 60 * 1000;
+
+/**
+ * Abuse limits for anonymous uploaders, on top of the password limits above. The
+ * client address is derived once per request from the socket and trusted proxies.
+ */
 export const FileRequestLimits = {
-  uploadsPerClient: RateLimiter.shared("file-request-uploads-client", { limit: 120, windowMs: 60 * 60 * 1000 }),
-  uploadsPerLink: RateLimiter.shared("file-request-uploads-link", { limit: 1000, windowMs: 60 * 60 * 1000 }),
+  uploadsPerClientAndLink: RateLimiter.shared("file-request-uploads-client-link", { limit: 20, windowMs: minute }),
+  uploadsPerClient: RateLimiter.shared("file-request-uploads-client", { limit: 60, windowMs: minute }),
+  uploadsPerLink: RateLimiter.shared("file-request-uploads-link", { limit: 1000, windowMs: 60 * minute }),
   /** Unfinished uploads one link may hold at once. */
   maxActiveUploads: 20,
-  /** Free space each upload must leave on the data filesystem. */
-  minimumFreeBytes: 1024 ** 3,
+  /** Free space each upload must leave: the larger of 1 GiB and 5% of the disk. */
+  minimumFreeBytes: (totalBytes: number) => Math.max(1024 ** 3, totalBytes * 0.05),
 } as const;

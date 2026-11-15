@@ -75,8 +75,8 @@ export function createFileRequestStore(database: typeof db): FileRequestStore {
       const u = fileRequestUploads;
       // One statement, so concurrent uploads cannot both pass a limit check.
       const inserted = await database.all<{ id: string }>(sql`
-        INSERT INTO ${u} (id, request_id, size, created_at)
-        SELECT ${upload.id}, r.id, ${upload.size}, ${upload.createdAt}
+        INSERT INTO ${u} (id, request_id, uploader_hash, size, created_at)
+        SELECT ${upload.id}, r.id, ${upload.uploaderHash}, ${upload.size}, ${upload.createdAt}
         FROM ${fileRequests} r
         WHERE r.id = ${upload.requestId}
           AND (SELECT count(*) FROM ${u} WHERE request_id = r.id AND finished_at IS NULL AND created_at >= ${activeSince}) < ${maxActive}
@@ -105,6 +105,7 @@ export function createFileRequestStore(database: typeof db): FileRequestStore {
         .select({
           id: fileRequestUploads.id,
           requestId: fileRequestUploads.requestId,
+          uploaderHash: fileRequestUploads.uploaderHash,
           size: fileRequestUploads.size,
           createdAt: fileRequestUploads.createdAt,
         })

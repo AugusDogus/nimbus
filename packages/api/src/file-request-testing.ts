@@ -56,7 +56,7 @@ export function createTestFileRequestStore(): FileRequestStore {
     usage,
     async getUpload(id) {
       const upload = uploads.get(id);
-      return upload ? { id: upload.id, requestId: upload.requestId, size: upload.size, createdAt: upload.createdAt } : null;
+      return upload ? { id: upload.id, requestId: upload.requestId, uploaderHash: upload.uploaderHash, size: upload.size, createdAt: upload.createdAt } : null;
     },
     async finishUpload(id, name, finishedAt) {
       const upload = uploads.get(id);
