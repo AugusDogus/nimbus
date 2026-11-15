@@ -65,6 +65,17 @@ async function ensureFolders(access: Access, base: string, folder: string, userI
 }
 
 /**
+ * Put a staged upload at `destination`, replacing the file there. This is the single commit point
+ * for replacing content from the browser and runs inside `mutateFiles`, after access and lock
+ * checks. File versioning (`FileVersions.commitReplacement` on the drive extras branch) belongs
+ * here, so the previous content is kept before the new content takes its place.
+ */
+async function replaceWithUpload(store: UploadStore, id: string, destination: string) {
+  await store.replace(id, destination);
+  publishFileEvent({ path: destination, event: "change", ts: Date.now() });
+}
+
+/**
  * Move a finished upload into the drive. Runs in the mutation queue and re-checks access, so
  * permission or lock changes during the transfer apply. Replacing never targets a folder.
  */
@@ -101,8 +112,7 @@ export async function commitUpload(
             code: "CONFLICT",
             message: `A folder named “${metadata.filename}” already exists here. Uploads cannot replace folders; rename the file or keep both.`,
           });
-        await store.replace(id, destination.absolute);
-        publishFileEvent({ path: destination.absolute, event: "change", ts: Date.now() });
+        await replaceWithUpload(store, id, destination.absolute);
         return { path: destination.relative, replaced: true };
       }
       if (existing && !(await store.isPublishedAt(id, destination.absolute))) continue;
