@@ -12,6 +12,8 @@ Files stay on your filesystem. Accounts, permissions, links, and preferences are
 
 - Browse folders in list or grid views with sorting, breadcrumbs, and live updates.
 - Upload files with resumable transfers, create folders, rename, move, download, and restore deleted items.
+- Keep earlier versions of replaced files, and download or restore them.
+- Install Nimbus as an app from supporting browsers.
 - Preview images, PDF, text, audio, and video. Download folders as ZIP archives.
 - Search filenames and keep starred and recently opened items.
 - Share files and folders with existing users or groups using read, write, or sharing-management permissions.
@@ -124,6 +126,7 @@ Set the deployment values in `apps/web/.env` before startup. The Bun custom serv
 | `NIMBUS_OIDC_NAME`            | Provider name on the sign-in button, for example `Authentik`. Default `single sign-on`. |
 | `NIMBUS_OIDC_AUTO_PROVISION`  | `true` lets provider identities without a Nimbus account create a member account. Default `false`. |
 | `NIMBUS_OIDC_GROUPS_CLAIM`    | Optional ID token claim listing group names, for example `groups`. See [Single sign-on](#single-sign-on). |
+| `NIMBUS_BACKUP_KEEP`          | Daily database backups to keep in `<config root>/backups`, default `7`. |
 
 Startup fails with a message naming the problem when an optional integration is only partly configured, so a typo cannot silently turn email or single sign-on off.
 
@@ -220,6 +223,16 @@ Deleted items remain in **Trash** for 30 days. Users see their own deleted items
 
 Cleanup runs at startup and hourly. It permanently removes expired trash, upload staging files inactive for more than 24 hours, and thumbnails older than 30 days. Browser uploads finalize with a hardlink when supported: the visible file and its temporary staging name share the same data, allowing completion retries without a second full copy. Removing the staging link preserves the visible file. Across filesystem boundaries or where hardlinks are unavailable, Nimbus falls back to a copy and needs additional storage headroom until staging expires. Trash is a recovery convenience, not a backup.
 
+## Versions
+
+When a file is replaced, Nimbus keeps its previous content as a version. Open a file's actions and select **Version history** to download a version or, with write access, restore it. Restoring keeps the current content as another version, so it can be undone. Versions follow the file through renames, moves, and trash, and are removed when the file is permanently deleted. Each file keeps its 25 most recent versions for up to 30 days; hourly cleanup removes older ones.
+
+Versions are stored in `<data root>/.nimbus/versions`. Keeping a version adds a hardlink to the previous content rather than copying it. Where hardlinks are unavailable, Nimbus uses a reflink on filesystems that support them (Btrfs, XFS, recent ZFS), and otherwise a full copy. Each version still holds its content on disk until it expires. Replacing a file over WebDAV creates a version. Edits that other programs make directly on the host do not.
+
+## Installing the app
+
+Browsers that support installable web apps, such as Chrome, Edge, and Safari, can install Nimbus from the address bar or share menu. The installed app's title bar follows the selected theme. Installation requires HTTPS, except on `localhost`. Nimbus does not use a service worker: in measurements it made navigation slower without saving any downloads, so it works online only.
+
 ## WebDAV
 
 In **Settings → WebDAV**, select **Create password** and name the device. Copy the generated password before selecting **I’ve saved it**; it is shown only once. Copy the server address and username from the Connection section, then configure the client with:
@@ -251,7 +264,24 @@ Your normal file permissions apply to every operation. Folders you cannot browse
 
 ## Backups and upgrades
 
-Stop Nimbus before taking a filesystem backup, then copy the entire data root, including `.nimbus`, the config root, and the environment configuration. If `DATABASE_URL` points elsewhere, back up that SQLite database and any journal files too. Restore those together while Nimbus is stopped. Do not delete either Compose volume when stopping the service.
+### Database backups
+
+Nimbus backs up its database every day while running, using SQLite's `VACUUM INTO` in a separate process. Requests continue during the backup. Backups are compact, consistent snapshots, stored with owner-only permissions in `<config root>/backups` as `nimbus-<UTC time>.sqlite`. The newest `NIMBUS_BACKUP_KEEP` (default 7) are kept. Server administrators can select **Back up now** and download backups from **Settings → Administration**. Failed backups are logged and retried within an hour; earlier backups are unaffected.
+
+These backups contain accounts, permissions, links, file requests, trash records, version records, and preferences. They do not contain files. Back up the data root, including `.nimbus` (trash, versions), with your usual file backup tool, and keep the environment configuration with it.
+
+To restore a database backup:
+
+1. Stop Nimbus: `docker compose stop nimbus`, or stop the local process.
+2. Move the current `db.sqlite`, `db.sqlite-wal`, and `db.sqlite-shm` from the config root to a safe place. Never combine an old `-wal` file with a restored database.
+3. Copy the chosen backup to the config root as `db.sqlite`, writable by the user running Nimbus.
+4. Start Nimbus. It applies any newer migrations at startup.
+
+Records created after the backup are lost. Files on disk are unaffected, but items moved to trash or versions created after the backup lose their records; trash and version cleanup removes their leftover content.
+
+### Full backups
+
+For a complete copy, stop Nimbus, then copy the entire data root, including `.nimbus`, the config root, and the environment configuration. If `DATABASE_URL` points elsewhere, back up that SQLite database and any journal files too. Restore those together while Nimbus is stopped. Do not delete either Compose volume when stopping the service.
 
 ### Storage migration
 
@@ -292,7 +322,7 @@ bun run --cwd apps/web db:migrate
 
 Existing installations from the original file manager should retain their `DATABASE_URL` and `NIMBUS_DATA_ROOT`. The original default database was `apps/web/nimbus.db`; set `DATABASE_URL=file:/absolute/path/to/apps/web/nimbus.db` to keep using it. The upgrade preserves existing accounts and promotes the oldest account to administrator. Each account gets a home folder at the next startup; other folders must be shared with them. Do not use `db:push` as an upgrade procedure.
 
-`GET /api/health` reports that the HTTP server is available. It is not a storage-capacity or backup check. Startup fails when configuration or migrations cannot be applied; inspect the process or Compose logs for the failing operation.
+`GET /api/health` reports readiness: it returns `200` when the database answers and both the data root and the config root accept writes, and `503` otherwise. The Docker health check uses it. Results are cached for five seconds, and the response never includes details; the server log names the failing check when the state changes. `GET /api/health/live` reports only that the server responds. Neither is a storage-capacity check. Startup fails when configuration or migrations cannot be applied; inspect the process or Compose logs for the failing operation.
 
 ## Development and verification
 

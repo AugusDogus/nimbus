@@ -16,7 +16,8 @@ The root scripts run this workspace with `apps/web` as its working directory, so
 - `app/(files)`: authenticated file browser, shared and saved items, and trash.
 - `app/(settings)/settings`: dedicated settings sidebar with Appearance, Account, WebDAV, and admin-only Users & groups pages.
 - `app/s/[token]`: public file and folder sharing pages.
-- `app/api`: authentication, tRPC, resumable uploads, downloads, thumbnails, public shares, and health endpoint.
+- `app/r/[token]`: public upload page for file requests.
+- `app/api`: authentication, tRPC, resumable uploads (signed-in and file requests), downloads, versions, thumbnails, public shares, backups, and health endpoints.
 - `server/start.ts`: startup migrations, Next.js and WebDAV routing, cleanup scheduling, and process shutdown.
 - `server/db`: Drizzle schema and the SQLite connection.
 - `server/drive-store.ts`: persistent accounts, grants, groups, shares, trash records, bookmarks, and app passwords.
@@ -24,7 +25,9 @@ The root scripts run this workspace with `apps/web` as its working directory, so
 - `server/security-headers.ts`, `server/client-ip.ts`, `server/rate-limit.ts`: response hardening, trusted-proxy client addresses, and in-memory rate limits.
 - `server/audit-log.ts` and `../../packages/api/src/audit.ts`: the audit log store and the `recordAudit` function for recording events from any server code.
 - `lib/auth.ts`, `lib/auth-security.ts`, `lib/auth-audit.ts`: Better Auth configuration, Nimbus account-security endpoints, and sign-in auditing.
-- `server/maintenance.ts`: trash, upload staging, and thumbnail retention.
+- `server/maintenance.ts`: trash, upload staging, file request reservation, version, and thumbnail retention.
+- `server/backup.ts`: daily online database backups.
+- `server/upload-publish.ts`: the staging store and publish step shared by every tus endpoint.
 - `../../packages/api/src`: typed API routers, permission checks, safe paths, and filesystem operations shared with the server.
 - `drizzle`: committed database migrations and schema snapshots.
 - `e2e`: Playwright tests and fixtures, started using `../../scripts/e2e-server.ts`.
