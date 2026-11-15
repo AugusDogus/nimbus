@@ -112,7 +112,7 @@ test("queued uploads keep their destination while visiting settings", async ({
   await expect(page).toHaveURL(`/browse/${folder}`);
   const started = Promise.withResolvers<void>();
   const resume = Promise.withResolvers<void>();
-  await page.route("**/api/upload/**", async (route) => {
+  await page.route("**/api/upload**", async (route) => {
     // Small uploads send their bytes with the creation POST; larger ones use PATCH.
     if (["POST", "PATCH"].includes(route.request().method())) {
       started.resolve();
