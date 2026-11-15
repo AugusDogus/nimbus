@@ -126,3 +126,18 @@ test("replacing an empty file keeps no version but keeps earlier history", async
   await save(target, "again");
   expect(await contents(target)).toEqual(["content"]);
 });
+
+test("moving a file over another keeps the destination's history and discards the moved file's", async () => {
+  // Save-by-replace editors and WebDAV MOVE or COPY with Overwrite commit a live file over the target.
+  const original = path.join(root, "report.txt");
+  const draft = path.join(root, "draft.txt");
+  await save(original, "report v1");
+  await save(original, "report v2");
+  await save(draft, "draft v1");
+  await save(draft, "draft v2");
+  const result = await FileVersions.commitReplacement({ store, dataRoot: root, target: original, incoming: draft, archivedBy: "editor" });
+  expect(result.kind).toBe("replaced");
+  expect(await readFile(original, "utf8")).toBe("draft v2");
+  expect(await contents(original)).toEqual(["report v2", "report v1"]);
+  expect((await store.archivedBefore(Number.MAX_SAFE_INTEGER)).map((version) => version.name).sort()).toEqual(["report.txt", "report.txt"]);
+});

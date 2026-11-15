@@ -128,13 +128,30 @@ export type ReplacementResult =
   | { kind: "replaced"; version: FileVersion | null };
 
 /**
- * The single commit point for replacing a file's content. Moves the staged
- * `incoming` file over `target` atomically, first preserving the previous
- * content as a version. Readers see either the old or the new file, never
- * neither. Call inside `mutateFiles` so the target cannot change meanwhile.
+ * The replaced file keeps its history under its new identity. Like links and
+ * grants when content merges into another item, the incoming file's own
+ * earlier history is discarded: the result is a new version of `target`.
+ */
+async function adoptHistory(
+  store: FileVersionStore,
+  dataRoot: string,
+  previousKey: string,
+  currentKey: string,
+) {
+  await removePayloads(dataRoot, await store.removeFileKeys([currentKey]));
+  await store.rekey(previousKey, currentKey);
+}
+
+/**
+ * The single commit point for replacing a file's content. Moves `incoming`
+ * over `target` atomically, first preserving the previous content as a
+ * version. Readers see either the old or the new file, never neither. Call
+ * inside `mutateFiles` so the target cannot change meanwhile.
  *
- * `incoming` must be a complete file on the same filesystem as `target`.
- * If preserving fails, nothing is replaced and the staged file is kept.
+ * `incoming` is any complete regular file on the same filesystem as `target`:
+ * a staged upload, WebDAV PUT body, editor save or COPY, or a live file moved
+ * over another one. If preserving fails, nothing is replaced and `incoming`
+ * is left where it was.
  */
 async function commitReplacement({
   store,
@@ -161,7 +178,7 @@ async function commitReplacement({
     // nothing to keep; its earlier history still moves to the new content.
     await rename(incoming, target);
     const current = await identity(target);
-    if (current) await store.rekey(previous.key, current.key);
+    if (current) await adoptHistory(store, dataRoot, previous.key, current.key);
     return { kind: "replaced", version: null };
   }
   const version: FileVersion = {
@@ -191,7 +208,7 @@ async function commitReplacement({
       `${target} disappeared immediately after it was replaced. Its previous version is kept at ${payload}.`,
     );
   version.fileKey = current.key;
-  await store.rekey(previous.key, current.key);
+  await adoptHistory(store, dataRoot, previous.key, current.key);
   await store.add(version);
   const excess = (await store.list(current.key)).slice(versionRetention.maxCount);
   if (excess.length)
