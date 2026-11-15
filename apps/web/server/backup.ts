@@ -22,19 +22,36 @@ export type BackupOptions = {
 
 const backupName = /^nimbus-(\d{8}T\d{6}Z)\.sqlite$/;
 
+// Runs in its own process with Bun's built-in SQLite, so it needs no package
+// resolution and never shares this process's file locks.
 const snapshotScript = `
-const { createClient } = await import("@libsql/client");
-const [url, destination] = process.argv.slice(-2);
-const client = createClient({ url });
+const { Database } = require("bun:sqlite");
+const [source, destination] = process.argv.slice(-2);
+const database = new Database(source, { readonly: true });
 try {
-  await client.execute("PRAGMA busy_timeout = 5000");
-  await client.execute({ sql: "VACUUM INTO ?", args: [destination] });
-  const check = await createClient({ url: "file:" + destination }).execute("PRAGMA quick_check");
-  if (check.rows[0]?.[0] !== "ok") throw new Error("The snapshot failed its integrity check: " + JSON.stringify(check.rows));
+  database.run("PRAGMA busy_timeout = 5000");
+  database.query("VACUUM INTO ?").run(destination);
 } finally {
-  client.close();
+  database.close();
+}
+const copy = new Database(destination, { readonly: true });
+try {
+  const [check] = copy.query("PRAGMA quick_check").values();
+  if (check?.[0] !== "ok") throw new Error("The snapshot failed its integrity check: " + JSON.stringify(check));
+} finally {
+  copy.close();
 }
 `;
+
+/** Local database file behind a libsql `file:` URL. */
+function databaseFile(databaseUrl: string) {
+  const match = /^file:(?:\/\/)?([^?]+)/.exec(databaseUrl);
+  if (!match?.[1])
+    throw new Error(
+      `Backups need a local SQLite database, but DATABASE_URL is "${databaseUrl}". Use a file: URL or back up the remote database with its own tools.`,
+    );
+  return decodeURIComponent(match[1]);
+}
 
 function stamp(now: number) {
   return new Date(now).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
@@ -42,7 +59,7 @@ function stamp(now: number) {
 
 async function snapshot(databaseUrl: string, destination: string) {
   const child = Bun.spawn(
-    [process.execPath, "--eval", snapshotScript, databaseUrl, destination],
+    [process.execPath, "--eval", snapshotScript, databaseFile(databaseUrl), destination],
     { stdout: "ignore", stderr: "pipe", env: { ...process.env } },
   );
   const [code, stderr] = await Promise.all([

@@ -87,3 +87,9 @@ test("the retention setting is validated", async () => {
   expect(() => backupsToKeep("0")).toThrow("NIMBUS_BACKUP_KEEP");
   expect(() => backupsToKeep("two")).toThrow("NIMBUS_BACKUP_KEEP");
 });
+
+test("remote databases are refused with guidance instead of a partial backup", async () => {
+  await expect(
+    Backup.create({ databaseUrl: "libsql://example.turso.io", directory: path.join(root, "backups"), keep: 1 }),
+  ).rejects.toThrow("Backups need a local SQLite database");
+});
