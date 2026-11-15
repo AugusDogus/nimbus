@@ -10,6 +10,7 @@ import {
   type FileEntry,
 } from "@nimbus/api/file-browser";
 import { publishFileEvent } from "@nimbus/api/file-events";
+import { FileVersions } from "@nimbus/api/file-versions";
 import {
   lockFile,
   locksCovering,
@@ -398,7 +399,8 @@ async function putFile(
   try {
     await Bun.write(temporary, new Response(request.body));
     return await mutateFiles([requested], credentials, async () => {
-      (await authenticate(request)).require(requested, "write");
+      const current = await authenticate(request);
+      current.require(requested, "write");
       const target = await safePath(requested);
       const previous = await entryOrNull(requested);
       if (previous?.type === "dir")
@@ -413,8 +415,14 @@ async function putFile(
         return new Response(null, { status: 412 });
       const mtime = requestedMtime(request);
       if (mtime) await setMtime(temporary, mtime);
-      // The atomic rename is the commit point for new file content.
-      await rename(temporary, target.absolute);
+      // The single commit point for new file content keeps the replaced content as a version.
+      await FileVersions.commitReplacement({
+        store: httpDriveStore.versions,
+        dataRoot: getDataRoot(),
+        target: target.absolute,
+        incoming: temporary,
+        archivedBy: current.user.id,
+      });
       publishFileEvent({
         path: target.absolute,
         event: previous ? "change" : "rename",

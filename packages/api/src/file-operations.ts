@@ -15,6 +15,7 @@ import { getDataRoot } from "./data-root";
 import type { DriveStore, TrashItem } from "./drive-store";
 import { publishFileEvent } from "./file-events";
 import { auditUser, recordAudit } from "./audit";
+import { FileVersions } from "./file-versions";
 import {
   isApiError,
   isFsError,
@@ -167,7 +168,14 @@ async function moveUnlocked(
     if (replacement.kind === "content") {
       // Discard the source's records before the content commits, failing closed if this fails.
       await store.discardPath(source.relative);
-      await rename(source.absolute, target.absolute);
+      // The replaced content is kept as a version of the destination.
+      await FileVersions.commitReplacement({
+        store: store.versions,
+        dataRoot: getDataRoot(),
+        target: target.absolute,
+        incoming: source.absolute,
+        archivedBy: access.user.id,
+      });
     } else {
       await rename(source.absolute, target.absolute);
       try {
@@ -284,7 +292,16 @@ export async function copyItem(
           existingDestination,
         );
         try {
-          await rename(staging, target.absolute);
+          if (replacement.kind === "content")
+            // The replaced content is kept as a version of the destination.
+            await FileVersions.commitReplacement({
+              store: store.versions,
+              dataRoot: getDataRoot(),
+              target: target.absolute,
+              incoming: staging,
+              archivedBy: current.user.id,
+            });
+          else await rename(staging, target.absolute);
         } catch (error) {
           await undoReplacement(store, current, replacement);
           throw error;
@@ -394,7 +411,9 @@ async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
 
 async function purgeUnlocked(store: DriveStore, access: Access, id: string) {
   const item = await getOwnedTrash(store, access, id);
-  await rm(path.join(getDataRoot(), ".nimbus", "trash", item.id), {
+  const trashed = path.join(getDataRoot(), ".nimbus", "trash", item.id);
+  await FileVersions.discardTree(store.versions, getDataRoot(), trashed);
+  await rm(trashed, {
     recursive: true,
     force: true,
   });

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { getAccess } from "./access";
 import { copyItem, moveItem } from "./file-operations";
+import { FileVersions } from "./file-versions";
 import { createTestDriveStore } from "./testing";
 
 describe("moving and copying onto existing destinations", () => {
@@ -81,5 +82,14 @@ describe("moving and copying onto existing destinations", () => {
     expect(await copyItem(memory.store, await owner(), "draft.tmp", "copy.txt")).toMatchObject({ replaced: false });
     expect(await copyItem(memory.store, await owner(), "docs/report.txt", "copy.txt", { existing: "replace" })).toMatchObject({ replaced: true });
     expect(await read("copy.txt")).toBe("original");
+  });
+
+  it("keeps the replaced content as a version when a file is moved or copied over another", async () => {
+    const versions = async () => (await FileVersions.history(memory.store.versions, path.join(root, "docs/report.txt"))).map((version) => version.size).sort((a, b) => a - b);
+    await moveItem(memory.store, await owner(), "draft.tmp", "docs/report.txt", { existing: "replace" });
+    expect(await versions()).toEqual(["original".length]);
+    await copyItem(memory.store, await owner(), "docs/sub/nested.txt", "docs/report.txt", { existing: "replace" });
+    expect(await read("docs/report.txt")).toBe("nested");
+    expect(await versions()).toEqual(["edited".length, "original".length].sort((a, b) => a - b));
   });
 });

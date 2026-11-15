@@ -12,14 +12,16 @@ import os from "node:os";
 import path from "node:path";
 import type { DriveStore, TrashItem } from "@nimbus/api/drive-store";
 import { createTestFileRequestStore } from "@nimbus/api/file-request-testing";
+import { createTestFileVersionStore } from "@nimbus/api/file-versions-testing";
 import { cleanExpiredData } from "./maintenance";
 
 const day = 24 * 60 * 60 * 1000;
 const now = Date.now();
 let root: string;
 let trash: TrashItem[];
-const store: Pick<DriveStore, "listTrash" | "removeTrash" | "fileRequests"> = {
+const store: Pick<DriveStore, "listTrash" | "removeTrash" | "fileRequests" | "versions"> = {
   fileRequests: createTestFileRequestStore(),
+  versions: createTestFileVersionStore(),
   async listTrash() {
     return trash;
   },

@@ -31,6 +31,7 @@ import type { useFileActions } from "./use-file-actions";
 export type EntryDialog =
   | { action: "preview"; entry: FileEntry }
   | { action: "share"; entry: FileEntry }
+  | { action: "versions"; entry: FileEntry }
   | { action: "rename"; entry: FileEntry }
   | { action: "move"; entries: readonly FileEntry[] }
   | { action: "copy"; entries: readonly FileEntry[] }
@@ -46,7 +47,7 @@ export function EditEntryDialog({
   actions,
   onClose,
 }: {
-  dialog: Exclude<EntryDialog, { action: "preview" | "share" }>;
+  dialog: Exclude<EntryDialog, { action: "preview" | "share" | "versions" }>;
   actions: ReturnType<typeof useFileActions>;
   onClose: () => void;
 }) {

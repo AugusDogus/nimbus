@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
@@ -29,6 +30,8 @@ import type { useFileActions } from "./use-file-actions";
 import { useFileDrag } from "./use-file-drag";
 import { useGridColumns } from "./use-grid-columns";
 import { useVirtualRows } from "./use-virtual-rows";
+
+const VersionsDialog = dynamic(() => import("./versions-dialog"));
 
 type Props = {
   view: "list" | "grid";
@@ -453,6 +456,8 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
         <PreviewDialog entry={dialog.entry} onClose={() => setDialog(null)} />
       ) : dialog?.action === "share" ? (
         <SharingDialog entry={dialog.entry} onClose={() => setDialog(null)} />
+      ) : dialog?.action === "versions" ? (
+        <VersionsDialog entry={dialog.entry} onClose={() => setDialog(null)} />
       ) : (
         dialog && (
           <EditEntryDialog

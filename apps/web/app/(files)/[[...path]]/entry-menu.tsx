@@ -7,6 +7,7 @@ import {
   EllipsisVertical,
   Eye,
   FolderInput,
+  History,
   Pencil,
   Share2,
   Star,
@@ -84,7 +85,10 @@ export function entryMenuItems(
   return [
     ...(entry.type === "dir"
       ? []
-      : [{ label: "Preview", icon: Eye, select: () => open({ action: "preview", entry }) }]),
+      : [
+          { label: "Preview", icon: Eye, select: () => open({ action: "preview", entry }) },
+          { label: "Version history", icon: History, select: () => open({ action: "versions", entry }) },
+        ]),
     {
       label: entry.type === "dir" ? "Download ZIP" : "Download",
       icon: Download,

@@ -5,6 +5,7 @@ import { getAccess, type Access } from "./access";
 import { getDataRoot } from "./data-root";
 import type { DriveStore } from "./drive-store";
 import { mutateFiles } from "./file-mutations";
+import { FileVersions } from "./file-versions";
 
 /**
  * Permanently delete every trash item the caller can manage: their own items, or all items for
@@ -18,7 +19,9 @@ export async function emptyTrash(store: DriveStore, access: Access) {
     let deleted = 0;
     for (const item of items) {
       try {
-        await rm(path.join(trashDirectory, item.id), { recursive: true, force: true });
+        const trashed = path.join(trashDirectory, item.id);
+        await FileVersions.discardTree(store.versions, getDataRoot(), trashed);
+        await rm(trashed, { recursive: true, force: true });
         await store.removeTrash(item.id);
       } catch (error) {
         throw new TRPCError({

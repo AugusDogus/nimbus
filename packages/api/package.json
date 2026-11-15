@@ -26,7 +26,9 @@
     "./homes": "./src/homes.ts",
     "./file-request": "./src/file-request.ts",
     "./file-request-testing": "./src/file-request-testing.ts",
-    "./filesystem-capacity": "./src/filesystem-capacity.ts"
+    "./filesystem-capacity": "./src/filesystem-capacity.ts",
+    "./file-versions": "./src/file-versions.ts",
+    "./file-versions-testing": "./src/file-versions-testing.ts"
   },
   "types": "./src/index.ts",
   "dependencies": {

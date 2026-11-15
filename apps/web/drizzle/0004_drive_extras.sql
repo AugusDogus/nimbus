@@ -26,5 +26,18 @@ CREATE TABLE `nimbus_file_request` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `nimbus_file_request_token_unique` ON `nimbus_file_request` (`token`);--> statement-breakpoint
+CREATE TABLE `nimbus_file_version` (
+	`id` text PRIMARY KEY NOT NULL,
+	`file_key` text NOT NULL,
+	`name` text NOT NULL,
+	`size` integer NOT NULL,
+	`modified_at` integer NOT NULL,
+	`archived_at` integer NOT NULL,
+	`archived_by` text,
+	FOREIGN KEY (`archived_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE INDEX `nimbus_file_version_file` ON `nimbus_file_version` (`file_key`,`archived_at`);--> statement-breakpoint
+CREATE INDEX `nimbus_file_version_archived` ON `nimbus_file_version` (`archived_at`);--> statement-breakpoint
 ALTER TABLE `nimbus_share` ADD `max_downloads` integer;--> statement-breakpoint
 ALTER TABLE `nimbus_share` ADD `mode` text DEFAULT 'download' NOT NULL;

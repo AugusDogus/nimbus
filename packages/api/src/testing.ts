@@ -1,6 +1,7 @@
 import type { AppPassword, Bookmark, DavProperty, DriveStore, DriveUser, Grant, Group, Home, Share, TrashItem } from "./drive-store";
 import { isWithinPath } from "./safe-path";
 import { createTestFileRequestStore } from "./file-request-testing";
+import { createTestFileVersionStore } from "./file-versions-testing";
 
 export function createTestDriveStore() {
   const users = new Map<string, DriveUser>([["user-1", { id: "user-1", name: "Owner", email: "owner@example.test", role: "admin", banned: false }], ["reader", { id: "reader", name: "Reader", email: "reader@example.test", role: "user", banned: false }]]);
@@ -68,6 +69,7 @@ export function createTestDriveStore() {
     async findAppPassword(hash) { return [...passwords.values()].find((password) => password.tokenHash === hash) ?? null; },
     async removeAppPassword(id, userId) { if (passwords.get(id)?.userId === userId) passwords.delete(id); },
     fileRequests: createTestFileRequestStore(),
+    versions: createTestFileVersionStore(),
     async discardPath(path) { take(path); },
     async movePath(from, to) {
       take(to);
