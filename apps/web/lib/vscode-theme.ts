@@ -1,5 +1,6 @@
 import { parse, type ParseError } from "jsonc-parser";
-import { z } from "zod";
+// zod/mini keeps the theme parser small in the root layout bundle.
+import * as z from "zod/mini";
 import { ThemeColor } from "./theme-color";
 
 export type ThemeResult<T> =
@@ -37,18 +38,18 @@ export const themeColorKeys = [
 ] as const;
 
 export const importedThemeSchema = z.object({
-  id: z.string().min(1).max(200),
-  name: z.string().trim().min(1).max(80),
+  id: z.string().check(z.minLength(1), z.maxLength(200)),
+  name: z.string().check(z.trim(), z.minLength(1), z.maxLength(80)),
   appearance: z.enum(["light", "dark"]),
-  colors: z.record(z.enum(themeColorKeys), z.string().regex(/^#[\da-f]{6}$/i)),
+  colors: z.record(z.enum(themeColorKeys), z.string().check(z.regex(/^#[\da-f]{6}$/i))),
 });
 export type VsCodeTheme = z.infer<typeof importedThemeSchema>;
 
 const sourceSchema = z.object({
-  name: z.string().optional(),
-  displayName: z.string().optional(),
-  type: z.string().optional(),
-  include: z.string().optional(),
+  name: z.optional(z.string()),
+  displayName: z.optional(z.string()),
+  type: z.optional(z.string()),
+  include: z.optional(z.string()),
   colors: z.record(z.string(), z.unknown()),
 });
 

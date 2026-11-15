@@ -1,26 +1,25 @@
 import { parse, type ParseError } from "jsonc-parser";
 import { unzipSync } from "fflate";
-import { z } from "zod";
+import * as z from "zod/mini";
 import { VsCodeTheme, type ThemeResult } from "./vscode-theme";
 
 export const maxExtensionBytes = 20 * 1024 * 1024;
 const maxJsonBytes = 1024 * 1024;
 const themeFileSchema = z.object({
-  include: z.string().max(1024).optional(),
-  colors: z.record(z.string(), z.unknown()).optional(),
+  include: z.optional(z.string().check(z.maxLength(1024))),
+  colors: z.optional(z.record(z.string(), z.unknown())),
 });
 const manifestSchema = z.object({
   contributes: z.object({
     themes: z
       .array(
         z.object({
-          label: z.string().max(200).optional(),
-          path: z.string().max(1024),
+          label: z.optional(z.string().check(z.maxLength(200))),
+          path: z.string().check(z.maxLength(1024)),
           uiTheme: z.enum(["vs", "vs-dark", "hc-black", "hc-light"]),
         }),
       )
-      .min(1)
-      .max(40),
+      .check(z.minLength(1), z.maxLength(40)),
   }),
 });
 

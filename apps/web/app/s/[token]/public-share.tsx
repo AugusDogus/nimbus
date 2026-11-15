@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { z } from "zod";
+import * as z from "zod/mini";
 import { FileText, Folder } from "lucide-react";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { NimbusWordmark } from "@/components/nimbus-wordmark";
@@ -22,7 +22,7 @@ const entrySchema = z.object({
 const shareSchema = z.object({
   entry: entrySchema,
   entries: z.array(entrySchema),
-  expiresAt: z.number().nullable(),
+  expiresAt: z.nullable(z.number()),
 });
 const errorSchema = z.object({ error: z.string() });
 

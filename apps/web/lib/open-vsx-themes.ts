@@ -1,14 +1,14 @@
-import { z } from "zod";
+import * as z from "zod/mini";
 import type { ThemeResult, VsCodeTheme } from "./vscode-theme";
 
 const extensionSchema = z.object({
-  namespace: z.string().min(1).max(100),
-  name: z.string().min(1).max(100),
-  displayName: z.string().max(200).optional(),
-  description: z.string().max(2000).optional(),
-  downloadCount: z.number().nonnegative().optional(),
+  namespace: z.string().check(z.minLength(1), z.maxLength(100)),
+  name: z.string().check(z.minLength(1), z.maxLength(100)),
+  displayName: z.optional(z.string().check(z.maxLength(200))),
+  description: z.optional(z.string().check(z.maxLength(2000))),
+  downloadCount: z.optional(z.number().check(z.nonnegative())),
   files: z.object({
-    download: z.url().refine((value) => {
+    download: z.url().check(z.refine((value) => {
       const url = new URL(value);
       return (
         url.origin === "https://open-vsx.org" &&
@@ -16,7 +16,7 @@ const extensionSchema = z.object({
         !url.username &&
         !url.password
       );
-    }),
+    })),
   }),
 });
 export type OpenVsxExtension = z.infer<typeof extensionSchema>;
@@ -89,7 +89,7 @@ async function search(
   try {
     const value: unknown = JSON.parse(new TextDecoder().decode(response.value));
     const result = z
-      .object({ extensions: z.array(extensionSchema).max(12) })
+      .object({ extensions: z.array(extensionSchema).check(z.maxLength(12)) })
       .safeParse(value);
     if (result.success) return { ok: true, value: result.data.extensions };
   } catch {

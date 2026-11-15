@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
-import { z } from "zod";
+import * as z from "zod/mini";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,7 +22,7 @@ import { CopyField } from "../webdav/copy-field";
 const enrollment = z.object({
   totpURI: z.string(),
   backupCodes: z.array(z.string()),
-  qrCode: z.string().startsWith("data:image/svg+xml,"),
+  qrCode: z.string().check(z.startsWith("data:image/svg+xml,")),
 });
 
 type Flow =

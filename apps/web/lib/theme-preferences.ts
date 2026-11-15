@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "zod/mini";
 import { BuiltInThemes } from "./built-in-themes";
 import {
   importedThemeSchema,
@@ -11,11 +11,11 @@ export const themeStyleId = "nimbus-custom-themes";
 const schema = z
   .object({
     version: z.literal(1),
-    themes: z.array(importedThemeSchema).max(100),
-    light: z.string().nullable(),
-    dark: z.string().nullable(),
+    themes: z.array(importedThemeSchema).check(z.maxLength(100)),
+    light: z.nullable(z.string()),
+    dark: z.nullable(z.string()),
   })
-  .superRefine((value, context) => {
+  .check(z.superRefine((value, context) => {
     if (
       new Set([...BuiltInThemes.all, ...value.themes].map((theme) => theme.id))
         .size !==
@@ -36,7 +36,7 @@ const schema = z
         });
       }
     }
-  });
+  }));
 
 export type ThemePreferences = z.infer<typeof schema>;
 const empty: ThemePreferences = {

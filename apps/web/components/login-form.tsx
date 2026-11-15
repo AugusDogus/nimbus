@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
-import { z } from "zod";
+import * as z from "zod/mini";
 
 import { Button } from "@/components/ui/button";
 import {
