@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { EntriesView } from "./[[...path]]/entries-view";
+import { useEntryDialog } from "./[[...path]]/use-entry-dialog";
 import { useFileActions } from "./[[...path]]/use-file-actions";
 import { Highlighted, parentLabel } from "./search/highlight";
 
@@ -60,6 +61,7 @@ export function LibraryPage({
             (entry) => kind !== "starred" || entry.starred,
           );
   const actions = useFileActions({ currentPath: "", includeStats: true });
+  const { selection: dialog, select: onDialog } = useEntryDialog(kind, actions.recordVisit);
   const title =
     kind === "shared"
       ? "Shared with me"
@@ -87,6 +89,8 @@ export function LibraryPage({
           restoreKey={`${kind}:${query}`}
           label={title}
           renderName={kind === "search" ? renderSearchName : undefined}
+          dialog={dialog}
+          onDialog={onDialog}
         />
       ) : (
         <div className="space-y-3 rounded-lg border p-8 text-center">

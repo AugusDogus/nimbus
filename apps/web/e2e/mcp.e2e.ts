@@ -11,7 +11,7 @@ import {
 } from "@modelcontextprotocol/client";
 import { expect, type Page } from "@playwright/test";
 import { z } from "zod";
-import { adminEmail, e2eOrigin, password, test } from "./helpers";
+import { adminEmail, origin, password, test } from "./helpers";
 
 /** A loopback redirect listener, as CLI clients run during authorization (RFC 8252). */
 async function loopbackCallback() {
@@ -83,7 +83,7 @@ class TestAuthProvider implements OAuthClientProvider {
   }
 }
 
-const endpoint = () => new URL(`${e2eOrigin}/api/mcp`);
+const endpoint = () => new URL(`${origin}/api/mcp`);
 
 /** Run discovery and registration, approve in the browser, and return a connected client. */
 async function connect(page: Page, name: string, approve: (page: Page) => Promise<void>) {
@@ -94,11 +94,11 @@ async function connect(page: Page, name: string, approve: (page: Page) => Promis
     await expect(new Client({ name, version: "1.0.0" }).connect(first)).rejects.toBeInstanceOf(UnauthorizedError);
     const authorizationUrl = auth.authorizationUrl;
     if (!authorizationUrl) throw new Error("The client was not sent to Nimbus to authorize.");
-    expect(authorizationUrl.origin).toBe(e2eOrigin);
+    expect(authorizationUrl.origin).toBe(origin);
     await page.goto(authorizationUrl.href);
     await approve(page);
     const returned = await callback.received;
-    expect(returned.searchParams.get("iss")).toBe(e2eOrigin);
+    expect(returned.searchParams.get("iss")).toBe(origin);
     await expect(page.getByText("Connected. You can close this window.")).toBeVisible();
     await first.finishAuth(returned.searchParams);
     const client = new Client({ name, version: "1.0.0" });
@@ -147,7 +147,7 @@ test("an MCP client connects through OAuth, works with files, and is cut off whe
   expect(await download.text()).toBe("written by an agent");
 
   await page.goto("/settings/mcp");
-  await expect(page.getByRole("textbox", { name: "Server address", exact: true })).toHaveValue(`${e2eOrigin}/api/mcp`);
+  await expect(page.getByRole("textbox", { name: "Server address", exact: true })).toHaveValue(`${origin}/api/mcp`);
   const row = page.getByRole("listitem").filter({ hasText: name });
   await expect(row).toContainText("Last used");
   await row.getByRole("button", { name: "Disconnect", exact: true }).click();

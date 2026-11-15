@@ -51,12 +51,15 @@ type Props = {
   selectionSlot?: HTMLElement | null;
   /** Replaces the plain name, e.g. to add search context. Keep it stable so rows stay memoized. */
   renderName?: (entry: FileEntry) => ReactNode;
+  /** The open dialog, owned by the page (`useEntryDialog`) so page tools (WebMCP) can open dialogs too. */
+  dialog: EntryDialog | null;
+  onDialog: (dialog: EntryDialog | null) => void;
 };
 
 const longPressMs = 450;
 const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
 
-export function EntriesView({ view, sections, actions, restoreKey, label, toolbarRef, selectionSlot, renderName }: Props) {
+export function EntriesView({ view, sections, actions, restoreKey, label, toolbarRef, selectionSlot, renderName, dialog, onDialog }: Props) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const columns = useGridColumns();
@@ -67,7 +70,6 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   const [selection, setSelection] = useState(Selection.empty);
   const [focusPath, setFocusPath] = useState<string | null>(null);
   const [touchSelecting, setTouchSelecting] = useState(false);
-  const [dialog, setDialog] = useState<EntryDialog | null>(null);
   // Preview navigation follows the displayed order. Only computed while a preview is open.
   const previewing = dialog?.action === "preview";
   const previewable = useMemo(
@@ -104,10 +106,7 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
     [selectedEntries, selection.paths],
   );
 
-  const open = (next: EntryDialog) => {
-    setDialog(next);
-    if (next.action === "preview") void actions.recordVisit(next.entry.path);
-  };
+  const open = (next: EntryDialog) => onDialog(next);
 
   const focusEntry = (index: number, mode: "select" | "extend" | "focus" | "toggle") => {
     const path = order.paths[index];
@@ -469,20 +468,20 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
         <PreviewDialog
           entry={dialog.entry}
           entries={previewable}
-          onNavigate={(entry) => setDialog({ action: "preview", entry })}
-          onClose={() => setDialog(null)}
+          onNavigate={(entry) => onDialog({ action: "preview", entry })}
+          onClose={() => onDialog(null)}
         />
       ) : dialog?.action === "share" ? (
-        <SharingDialog entry={dialog.entry} onClose={() => setDialog(null)} />
+        <SharingDialog entry={dialog.entry} onClose={() => onDialog(null)} />
       ) : dialog?.action === "versions" ? (
-        <VersionsDialog entry={dialog.entry} onClose={() => setDialog(null)} />
+        <VersionsDialog entry={dialog.entry} onClose={() => onDialog(null)} />
       ) : (
         dialog && (
           <EditEntryDialog
             key={dialog.action === "rename" ? `rename:${dialog.entry.path}` : dialog.action}
             dialog={dialog}
             actions={actions}
-            onClose={() => setDialog(null)}
+            onClose={() => onDialog(null)}
           />
         )
       )}

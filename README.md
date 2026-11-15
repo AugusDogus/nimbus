@@ -296,6 +296,10 @@ These permissions only narrow what a client may attempt. Every tool runs the sam
 
 Disconnect a client in **Settings → MCP**; its tokens stop working immediately. Disabling an account cuts off its clients too. Access tokens last one hour and refresh tokens 30 days, rotating on each use; a reused refresh token disconnects the client. Nimbus stores only hashes of tokens. Registration, token, and MCP requests are rate limited per address and per connection. Set `NIMBUS_MCP_ENABLED=false` to turn MCP off.
 
+### WebMCP
+
+In browsers that support [WebMCP](https://webmachinelearning.github.io/webmcp/) (`document.modelContext`, currently a Chrome and Edge origin trial or `chrome://flags/#enable-webmcp-testing`), the folder view offers page tools to agents running in the browser: list the open folder, open a folder, search, preview a file, create a folder, and start a rename or move. They act with your signed-in session. Rename and move only open their dialogs, so you confirm each change. Other browsers do not download this code.
+
 ## Backups and upgrades
 
 ### Database backups

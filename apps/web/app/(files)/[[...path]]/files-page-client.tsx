@@ -1,7 +1,7 @@
 "use client";
 
 import { Folder, HardDrive } from "lucide-react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/lib/auth-client";
@@ -11,8 +11,11 @@ import { FileBreadcrumbs } from "./breadcrumbs";
 import { EntriesView } from "./entries-view";
 import { FiltersRow } from "./filters-row";
 import { LoadingSkeleton } from "./loading-skeleton";
+import { fileHref } from "./types";
+import { useEntryDialog } from "./use-entry-dialog";
 import { useFileActions } from "./use-file-actions";
 import { useFileList } from "./use-file-list";
+import { WebMcpFileTools } from "./webmcp-tools";
 import { useFilePreferences } from "./use-file-preferences";
 
 type SessionData = ReturnType<typeof useSession>["data"];
@@ -62,6 +65,8 @@ export function FilesPageClient({
   });
   const actions = useFileActions({ currentPath, includeStats });
   const { recordVisit } = actions;
+  const { selection: dialog, select: onDialog } = useEntryDialog(currentPath, recordVisit);
+  const router = useRouter();
   useEffect(() => {
     if (isAuthed && currentPath) void recordVisit(currentPath);
   }, [currentPath, isAuthed, recordVisit]);
@@ -146,6 +151,13 @@ export function FilesPageClient({
         </div>
       ) : (
         <div className="space-y-6">
+          <WebMcpFileTools
+            currentPath={currentPath}
+            entries={sortedEntries}
+            openFolder={(path) => router.push(fileHref(path))}
+            openDialog={onDialog}
+            createFolder={actions.createFolder}
+          />
           {listQuery.isLoading ? (
             <LoadingSkeleton view={view} />
           ) : listQuery.isError ? (
@@ -163,6 +175,8 @@ export function FilesPageClient({
               label={effectiveSegments.at(-1) ?? "My Drive"}
               toolbarRef={toolbarRef}
               selectionSlot={selectionSlot}
+              dialog={dialog}
+              onDialog={onDialog}
             />
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-center">
