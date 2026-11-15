@@ -9,7 +9,9 @@ export default async function Page({
   return (
     <div className="space-y-6">
       <h1 className="text-balance text-2xl font-semibold">Shared</h1>
-      <SharedTabs tab={tab === "links" ? "links" : "with-me"} />
+      <SharedTabs
+        tab={tab === "links" || tab === "requests" ? tab : "with-me"}
+      />
     </div>
   );
 }

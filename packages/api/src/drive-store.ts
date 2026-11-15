@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { FileRequestStore } from "./file-request";
 
 export const permissionSchema = z.enum(["read", "write", "admin"]);
 export type Permission = z.infer<typeof permissionSchema>;
@@ -119,4 +120,5 @@ export type DriveStore = {
   movePath(from: string, to: string): Promise<void>;
   /** Delete links, direct grants, bookmarks, and dead properties at or under a path whose content is merged into another item. */
   discardPath(path: string): Promise<void>;
+  fileRequests: FileRequestStore;
 };

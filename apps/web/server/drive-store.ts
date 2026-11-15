@@ -8,6 +8,7 @@ import {
   type Grant,
 } from "@nimbus/api/drive-store";
 import type { db } from "./db";
+import { createFileRequestStore } from "./file-request-store";
 import {
   appPasswords,
   bookmarks,
@@ -371,6 +372,7 @@ export function createDriveStore(database: typeof db): DriveStore {
         .delete(appPasswords)
         .where(and(eq(appPasswords.id, id), eq(appPasswords.userId, userId)));
     },
+    fileRequests: createFileRequestStore(database),
     async discardPath(path) {
       await database.transaction((tx) => detach(tx, path));
     },

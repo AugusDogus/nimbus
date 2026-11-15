@@ -30,6 +30,7 @@ import {
   appPasswordsRouter,
 } from "./management-router";
 import { sharesRouter } from "./shares-router";
+import { fileRequestsRouter } from "./file-requests-router";
 import { catalogRouter } from "./catalog-router";
 import { getForDir, setStats } from "./stats-cache";
 import { getStorageUsage } from "./storage-cache";
@@ -65,6 +66,7 @@ const defaultPreferences: UserPreferences = {
 export const appRouter = router({
   access: managementRouter,
   shares: sharesRouter,
+  fileRequests: fileRequestsRouter,
   trash: trashRouter,
   appPasswords: appPasswordsRouter,
   catalog: catalogRouter,

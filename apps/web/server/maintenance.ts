@@ -2,6 +2,7 @@ import { lstat, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { DriveStore } from "@nimbus/api/drive-store";
 import { recordAudit } from "@nimbus/api/audit";
+import { reservationLifetimeMs } from "@nimbus/api/file-request";
 import { mutateFiles } from "@nimbus/api/file-mutations";
 import { isFsError } from "@nimbus/api/safe-path";
 import { getConfigRoot } from "./storage-paths";
@@ -48,7 +49,7 @@ async function cleanFiles(
 }
 
 export async function cleanExpiredData(
-  store: Pick<DriveStore, "listTrash" | "removeTrash">,
+  store: Pick<DriveStore, "listTrash" | "removeTrash" | "fileRequests">,
   dataRoot: string,
   now = Date.now(),
   configRoot = getConfigRoot(dataRoot),
@@ -72,6 +73,7 @@ export async function cleanExpiredData(
     }
   });
   await cleanFiles(path.join(internal, "uploads"), now - day, true);
+  await store.fileRequests.releaseAbandoned(now - reservationLifetimeMs);
   await cleanFiles(
     path.join(configRoot, "cache", "thumbnails"),
     now - 30 * day,

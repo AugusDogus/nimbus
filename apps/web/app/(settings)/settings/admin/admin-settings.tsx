@@ -228,7 +228,7 @@ export function AdminSettings() {
       )}
       {sharing && (
         <SharingDialog
-          entry={{ name: "My Drive", path: "" }}
+          entry={{ name: "My Drive", path: "", type: "dir" }}
           onClose={() => setSharing(false)}
         />
       )}

@@ -40,3 +40,4 @@ export * from "./auth-schema";
 export * from "./drive-schema";
 
 export * from "./audit-schema";
+export * from "./file-request-schema";

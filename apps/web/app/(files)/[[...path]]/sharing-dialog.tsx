@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
@@ -24,11 +25,13 @@ import type { Permission } from "@nimbus/api/drive-store";
 import type { FileEntry } from "./types";
 import { LinkSettingsDraft, LinkSettingsFields } from "../shared/link-settings";
 
+const FileRequestDialog = dynamic(() => import("../shared/file-request-dialog"));
+
 export function SharingDialog({
   entry,
   onClose,
 }: {
-  entry: Pick<FileEntry, "name" | "path">;
+  entry: Pick<FileEntry, "name" | "path" | "type">;
   onClose: () => void;
 }) {
   const people = useQuery({
@@ -50,6 +53,7 @@ export function SharingDialog({
   const [link, setLink] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [requesting, setRequesting] = useState(false);
   const perform = async (action: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);
@@ -229,6 +233,17 @@ export function SharingDialog({
               </div>
             )}
           </form>
+          {entry.type === "dir" && (
+            <div className="space-y-2 border-t pt-3">
+              <p className="text-sm font-medium">File request</p>
+              <p className="text-pretty text-sm text-muted-foreground">
+                Let people without an account upload into this folder without seeing its contents.
+              </p>
+              <Button type="button" variant="outline" onClick={() => setRequesting(true)}>
+                Request files
+              </Button>
+            </div>
+          )}
           {(error || grants.error || people.error || groups.error) && (
             <p role="alert" className="text-pretty text-sm text-destructive">
               {error ??
@@ -238,6 +253,13 @@ export function SharingDialog({
             </p>
           )}
         </div>
+        {/* Nested inside the content so Radix treats it as a child layer. */}
+        {requesting && (
+          <FileRequestDialog
+            mode={{ kind: "create", folder: entry }}
+            onClose={() => setRequesting(false)}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

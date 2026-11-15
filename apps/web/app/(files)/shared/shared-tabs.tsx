@@ -4,15 +4,23 @@ import { useRouter } from "next/navigation";
 import { Tabs } from "radix-ui";
 import { LibraryPage } from "../library-page";
 import { PublicLinks } from "./public-links";
+import { FileRequests } from "./file-requests";
 
-export function SharedTabs({ tab }: { tab: "with-me" | "links" }) {
+export type SharedTab = "with-me" | "links" | "requests";
+const tabs: { value: SharedTab; label: string }[] = [
+  { value: "with-me", label: "Shared with me" },
+  { value: "links", label: "Public links" },
+  { value: "requests", label: "File requests" },
+];
+
+export function SharedTabs({ tab }: { tab: SharedTab }) {
   const router = useRouter();
 
   return (
     <Tabs.Root
       value={tab}
       onValueChange={(value) => {
-        router.replace(value === "links" ? "/shared?tab=links" : "/shared", {
+        router.replace(value === "with-me" ? "/shared" : `/shared?tab=${value}`, {
           scroll: false,
         });
       }}
@@ -22,10 +30,7 @@ export function SharedTabs({ tab }: { tab: "with-me" | "links" }) {
         aria-label="Shared files"
         className="inline-flex gap-1 rounded-lg bg-muted p-1"
       >
-        {[
-          { value: "with-me", label: "Shared with me" },
-          { value: "links", label: "Public links" },
-        ].map(({ value, label }) => (
+        {tabs.map(({ value, label }) => (
           <Tabs.Trigger
             key={value}
             value={value}
@@ -40,6 +45,9 @@ export function SharedTabs({ tab }: { tab: "with-me" | "links" }) {
       </Tabs.Content>
       <Tabs.Content value="links">
         <PublicLinks />
+      </Tabs.Content>
+      <Tabs.Content value="requests">
+        <FileRequests />
       </Tabs.Content>
     </Tabs.Root>
   );

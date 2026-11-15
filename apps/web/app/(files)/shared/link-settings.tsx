@@ -12,7 +12,8 @@ export type LinkSettingsDraft = {
   mode: ShareMode;
 };
 
-const localInput = (timestamp: number) =>
+/** Value for a `datetime-local` input in the browser's time zone. */
+export const localDateTimeInput = (timestamp: number) =>
   new Date(timestamp - new Date(timestamp).getTimezoneOffset() * 60_000)
     .toISOString()
     .slice(0, 16);
@@ -25,7 +26,7 @@ export const LinkSettingsDraft = {
     mode: ShareMode;
   }): LinkSettingsDraft {
     return {
-      expiry: share.expiresAt === null ? "" : localInput(share.expiresAt),
+      expiry: share.expiresAt === null ? "" : localDateTimeInput(share.expiresAt),
       maxDownloads: share.maxDownloads === null ? "" : String(share.maxDownloads),
       mode: share.mode,
     };
