@@ -5,16 +5,20 @@ import { isWithinPath } from "./safe-path";
 
 /** `0` protects a collection and its membership but not its members' content (RFC 4918, section 7). */
 export type LockDepth = "0" | "infinity";
+/** Shared locks coexist with each other; an exclusive lock excludes every other lock. */
+export type LockScope = "exclusive" | "shared";
 export type FileLock = {
   path: string;
   token: string;
   userId: string;
+  scope: LockScope;
   depth: LockDepth;
   /** The client's DAV:owner element, serialized, echoed back in lock discovery. */
   owner: string;
   timeoutSeconds: number;
   expiresAt: number;
 };
+/** Active locks by token. */
 type MutationState = { tail: Promise<void>; locks: Map<string, FileLock> };
 
 /** Locks never outlive a client that stops refreshing them by more than this. */
@@ -51,8 +55,8 @@ function state() {
     current = { tail: Promise.resolve(), locks: new Map() };
     states.set(root, current);
   }
-  for (const [path, lock] of current.locks)
-    if (lock.expiresAt <= Date.now()) current.locks.delete(path);
+  for (const [token, lock] of current.locks)
+    if (lock.expiresAt <= Date.now()) current.locks.delete(token);
   return current;
 }
 
@@ -71,15 +75,24 @@ export type MutationCredentials = {
   userId: string;
   lockTokens?: readonly string[];
 };
+/**
+ * Refuse a change to locked resources unless the user submits a token they own: for every
+ * exclusive lock involved, and for at least one of the shared locks protecting each path.
+ */
 export function requireUnlocked(
   paths: readonly string[],
   credentials: MutationCredentials,
 ) {
-  for (const lock of state().locks.values()) {
-    if (!paths.some((path) => lockProtects(lock, path))) continue;
+  const submitted = (lock: FileLock) =>
+    lock.userId === credentials.userId &&
+    (credentials.lockTokens?.includes(lock.token) ?? false);
+  const locks = [...state().locks.values()];
+  for (const path of paths) {
+    const protecting = locks.filter((lock) => lockProtects(lock, path));
+    const shared = protecting.filter((lock) => lock.scope === "shared");
     if (
-      lock.userId !== credentials.userId ||
-      !credentials.lockTokens?.includes(lock.token)
+      protecting.some((lock) => lock.scope === "exclusive" && !submitted(lock)) ||
+      (shared.length > 0 && !shared.some(submitted))
     )
       throw new FileLockedError();
   }
@@ -107,22 +120,24 @@ export async function mutateFiles<T>(
 }
 
 export type LockRequest = {
+  scope: LockScope;
   depth: LockDepth;
   owner: string;
   timeoutSeconds: number;
 };
 
-/** Create an exclusive write lock. Any lock with an overlapping scope conflicts. */
+/** Create a write lock. Locks with overlapping scopes conflict unless both are shared. */
 export function lockFile(
   path: string,
   credentials: MutationCredentials,
-  request: LockRequest = { depth: "infinity", owner: "", timeoutSeconds: maxLockSeconds },
+  request: LockRequest = { scope: "exclusive", depth: "infinity", owner: "", timeoutSeconds: maxLockSeconds },
 ) {
   const current = state();
   for (const lock of current.locks.values())
     if (
-      lockCovers(lock, path) ||
-      (request.depth === "infinity" && isWithinPath(path, lock.path))
+      (lockCovers(lock, path) ||
+        (request.depth === "infinity" && isWithinPath(path, lock.path))) &&
+      (lock.scope === "exclusive" || request.scope === "exclusive")
     )
       throw new FileLockedError();
   if (current.locks.size >= 1000)
@@ -138,7 +153,7 @@ export function lockFile(
     ...request,
     expiresAt: Date.now() + request.timeoutSeconds * 1000,
   };
-  current.locks.set(path, lock);
+  current.locks.set(lock.token, lock);
   return lock;
 }
 
@@ -165,15 +180,11 @@ export function refreshLock(
 /** Release a lock by its token from any URL within its scope. */
 export function unlockFile(path: string, userId: string, token: string) {
   const current = state();
-  for (const [lockedPath, lock] of current.locks)
-    if (
-      lock.userId === userId &&
-      token === `<${lock.token}>` &&
-      lockCovers(lock, path)
-    ) {
-      current.locks.delete(lockedPath);
-      return;
-    }
+  const lock = current.locks.get(token.replace(/^<|>$/g, ""));
+  if (lock && lock.userId === userId && token === `<${lock.token}>` && lockCovers(lock, path)) {
+    current.locks.delete(lock.token);
+    return;
+  }
   throw new TRPCError({
     code: "CONFLICT",
     message:
@@ -184,8 +195,8 @@ export function unlockFile(path: string, userId: string, token: string) {
 /** A lock ends when DELETE or MOVE removes its root URL (RFC 4918, section 6.1). */
 export function forgetFileLocks(path: string) {
   const current = state();
-  for (const lockedPath of current.locks.keys())
-    if (isWithinPath(path, lockedPath)) current.locks.delete(lockedPath);
+  for (const [token, lock] of current.locks)
+    if (isWithinPath(path, lock.path)) current.locks.delete(token);
 }
 
 /** Active locks whose scope includes a resource. */

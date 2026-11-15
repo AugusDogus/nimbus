@@ -57,6 +57,13 @@ const server = createServer(async (incoming, outgoing) => {
       await handleNext(incoming, outgoing);
       return;
     }
+    // URL parsing drops a fragment, which would retarget a DELETE or MOVE at the parent.
+    if (incoming.url?.includes("#")) {
+      outgoing
+        .writeHead(400, { "Content-Type": "text/plain; charset=utf-8" })
+        .end("WebDAV request URLs cannot contain a fragment (#). Percent-encode # in file names as %23.");
+      return;
+    }
     const headers = new Headers();
     for (const [key, value] of Object.entries(incoming.headers)) {
       if (Array.isArray(value))

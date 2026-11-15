@@ -67,7 +67,7 @@ export type PropfindContext = {
 
 function activeLock(lock: FileLock, rootType: FileEntry["type"]) {
   const remaining = Math.max(0, Math.ceil((lock.expiresAt - Date.now()) / 1000));
-  return `<d:activelock><d:locktype><d:write/></d:locktype><d:lockscope><d:exclusive/></d:lockscope><d:depth>${lock.depth}</d:depth>${lock.owner ? `<d:owner>${lock.owner}</d:owner>` : ""}<d:timeout>Second-${remaining}</d:timeout><d:locktoken><d:href>${escapeXml(lock.token)}</d:href></d:locktoken><d:lockroot><d:href>${escapeXml(davHref(lock.path, rootType))}</d:href></d:lockroot></d:activelock>`;
+  return `<d:activelock><d:locktype><d:write/></d:locktype><d:lockscope><d:${lock.scope}/></d:lockscope><d:depth>${lock.depth}</d:depth>${lock.owner ? `<d:owner>${lock.owner}</d:owner>` : ""}<d:timeout>Second-${remaining}</d:timeout><d:locktoken><d:href>${escapeXml(lock.token)}</d:href></d:locktoken><d:lockroot><d:href>${escapeXml(davHref(lock.path, rootType))}</d:href></d:lockroot></d:activelock>`;
 }
 
 /** Locks covering a resource. Only a collection's lock can cover a resource it does not root. */
@@ -104,7 +104,7 @@ async function liveValue(
     case "getetag":
       return escapeXml(entityTag(entry));
     case "supportedlock":
-      return "<d:lockentry><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockentry>";
+      return "<d:lockentry><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockentry><d:lockentry><d:lockscope><d:shared/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockentry>";
     case "lockdiscovery":
       return lockDiscovery(context.locks(entry.path), entry).slice(
         "<d:lockdiscovery>".length,

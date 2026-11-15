@@ -16,6 +16,7 @@ import {
   maxLockSeconds,
   mutateFiles,
   refreshLock,
+  requireUnlocked,
   unlockFile,
   type LockDepth,
   type MutationCredentials,
@@ -305,9 +306,10 @@ async function lock(
   const info = body.value;
   if (info.namespace !== DAV || info.local !== "lockinfo")
     return textResponse(400, "A LOCK body must be a DAV:lockinfo element.");
-  const scope = child(info, DAV, "lockscope");
-  if (!scope || !child(scope, DAV, "exclusive"))
-    return textResponse(412, "Only exclusive write locks are supported. Request <D:exclusive/>.");
+  const scopeElement = child(info, DAV, "lockscope");
+  const scope = scopeElement && child(scopeElement, DAV, "shared") ? "shared" : scopeElement && child(scopeElement, DAV, "exclusive") ? "exclusive" : null;
+  if (!scope)
+    return textResponse(400, "A LOCK body needs <D:lockscope> with <D:exclusive/> or <D:shared/>.");
   const type = child(info, DAV, "locktype");
   if (!type || !child(type, DAV, "write"))
     return textResponse(400, "Only write locks are supported. Request <D:write/>.");
@@ -321,7 +323,8 @@ async function lock(
         .map((node) => (typeof node === "string" ? escapeXml(node) : serializeXml(node, DAV, ownerElement.lang)))
         .join("")
     : "";
-  return mutateFiles([target], credentials, async () => {
+  // Lock compatibility is decided by lockFile; only creating a file is a write.
+  return mutateFiles([], credentials, async () => {
     (await authenticate(request)).require(target, "write");
     const destination = await safePath(target);
     let entry = await entryOrNull(target);
@@ -329,12 +332,13 @@ async function lock(
     if (!entry) {
       // Locking an unmapped URL creates an empty file (RFC 4918, section 7.3).
       requireMutable(target);
+      requireUnlocked([target], credentials);
       await writeFile(destination.absolute, "", { flag: "wx" });
       created = true;
       publishFileEvent({ path: destination.absolute, event: "rename", ts: Date.now() });
       entry = await entryAt(target);
     }
-    const granted = lockFile(target, credentials, { depth, owner, timeoutSeconds });
+    const granted = lockFile(target, credentials, { scope, depth, owner, timeoutSeconds });
     return xmlResponse(
       `<d:prop xmlns:d="DAV:">${lockDiscovery([granted], entry)}</d:prop>`,
       created ? 201 : 200,

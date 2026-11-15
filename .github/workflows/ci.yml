@@ -27,6 +27,21 @@ jobs:
           BETTER_AUTH_SECRET="$(bun -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("base64url"))')" \
           BETTER_AUTH_URL=http://localhost:3000 \
           bun run build
+      - name: Build Litmus 0.18
+        run: |
+          pkg-config --exists expat || { sudo apt-get update && sudo apt-get install -y --no-install-recommends libexpat1-dev; }
+          mkdir -p "$RUNNER_TEMP/litmus" && cd "$RUNNER_TEMP/litmus"
+          curl -fsSLo litmus.tar.gz https://notroj.github.io/litmus/litmus-0.18.tar.gz
+          echo 'efb3a1b91472760f66f2fcb4ca2b58af19c024fb0263ca725f1f1b44182fd8ca  litmus.tar.gz' | sha256sum -c -
+          tar xzf litmus.tar.gz
+          cd litmus-0.18
+          ./configure --with-included-neon --with-expat --without-ssl --without-gssapi --without-libproxy --without-libntlm
+          make -j"$(nproc)"
+      - name: WebDAV conformance (Litmus)
+        timeout-minutes: 5
+        run: bun scripts/webdav-conformance.ts
+        env:
+          LITMUS_DIR: ${{ runner.temp }}/litmus/litmus-0.18
       - run: bun playwright install --with-deps chromium
       - run: bun run test:e2e
       - uses: actions/upload-artifact@v4
