@@ -1,4 +1,6 @@
-import { and, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, sql, type SQL } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { z } from "zod";
 import type { FileRequestStore } from "@nimbus/api/file-request";
 import type { db } from "./db";
 import { fileRequestUploads, fileRequests } from "./db/schema";
@@ -136,3 +138,103 @@ export function createFileRequestStore(database: typeof db): FileRequestStore {
     },
   };
 }
+
+type Transaction = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
+
+const detachedSchema = z.object({
+  requests: z.array(
+    z.object({
+      id: z.string(),
+      token: z.string(),
+      path: z.string(),
+      createdBy: z.string(),
+      createdAt: z.number(),
+      expiresAt: z.number().nullable(),
+      passwordHash: z.string().nullable(),
+      note: z.string().nullable(),
+      maxFileBytes: z.number().nullable(),
+      maxFiles: z.number().nullable(),
+      maxTotalBytes: z.number().nullable(),
+    }),
+  ),
+  uploads: z.array(
+    z.object({
+      id: z.string(),
+      requestId: z.string(),
+      uploaderHash: z.string(),
+      size: z.number(),
+      createdAt: z.number(),
+      finishedAt: z.number().nullable(),
+      name: z.string().nullable(),
+    }),
+  ),
+});
+/** File requests suspended while their folder is in trash, with their upload ledger. */
+export type DetachedFileRequests = z.infer<typeof detachedSchema>;
+
+/** Match a path and its descendants. Comparing a prefix keeps SQL wildcards literal. */
+function atOrUnder(column: SQLiteColumn, path: string): SQL {
+  if (!path)
+    throw new Error(
+      "Nimbus refused to rewrite file request links for the drive root. The root cannot be moved or trashed; no links were changed.",
+    );
+  return sql`(${column} = ${path} OR substr(${column}, 1, length(${path}) + 1) = ${path} || '/')`;
+}
+
+/**
+ * File request links follow their folder by the same rules as public links:
+ * rewritten on rename and move, suspended with the trash record, restored with
+ * it, and discarded on permanent deletion. Each function runs inside the
+ * caller's transaction, so it joins the drive store's own record changes.
+ */
+export const FileRequestRecords = {
+  empty: { requests: [], uploads: [] } satisfies DetachedFileRequests,
+  /** Validate suspended records read back from a trash row. */
+  parse: (value: unknown) => detachedSchema.parse(value),
+  /** Delete and return the requests at or under `path`, with their uploads. */
+  async detach(tx: Transaction, path: string): Promise<DetachedFileRequests> {
+    const requests = await tx
+      .select()
+      .from(fileRequests)
+      .where(atOrUnder(fileRequests.path, path));
+    const ids = requests.map((row) => row.id);
+    const uploads = ids.length
+      ? await tx
+          .select()
+          .from(fileRequestUploads)
+          .where(inArray(fileRequestUploads.requestId, ids))
+      : [];
+    if (ids.length) {
+      await tx
+        .delete(fileRequestUploads)
+        .where(inArray(fileRequestUploads.requestId, ids));
+      await tx.delete(fileRequests).where(inArray(fileRequests.id, ids));
+    }
+    return { requests, uploads };
+  },
+  /** Reinsert suspended records, except those of accounts removed meanwhile. */
+  async reattach(
+    tx: Transaction,
+    detached: DetachedFileRequests,
+    liveUserIds: ReadonlySet<string>,
+  ) {
+    const requests = detached.requests.filter((row) =>
+      liveUserIds.has(row.createdBy),
+    );
+    const restored = new Set(requests.map((row) => row.id));
+    const uploads = detached.uploads.filter((row) =>
+      restored.has(row.requestId),
+    );
+    if (requests.length) await tx.insert(fileRequests).values(requests);
+    if (uploads.length) await tx.insert(fileRequestUploads).values(uploads);
+  },
+  /** Rewrite the paths at or under `from` to the same place under `to`. */
+  async relocate(tx: Transaction, from: string, to: string) {
+    await tx
+      .update(fileRequests)
+      .set({
+        path: sql`${to} || substr(${fileRequests.path}, length(${from}) + 1)`,
+      })
+      .where(atOrUnder(fileRequests.path, from));
+  },
+} as const;
