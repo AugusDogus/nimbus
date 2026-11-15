@@ -44,6 +44,30 @@ function updateRenameInCache(
   });
 }
 
+function downloadFrame() {
+  const name = "nimbus-download-frame";
+  const existing = document.querySelector<HTMLIFrameElement>(`iframe[name="${name}"]`);
+  if (existing) return existing;
+  const frame = document.createElement("iframe");
+  frame.name = name;
+  frame.hidden = true;
+  frame.addEventListener("load", () => {
+    const text = frame.contentDocument?.body?.textContent ?? "";
+    if (!text) return;
+    let message = "The ZIP download could not start. Refresh the folder and try again.";
+    try {
+      const body: unknown = JSON.parse(text);
+      if (typeof body === "object" && body !== null && "error" in body && typeof body.error === "string")
+        message = `The ZIP download could not start. ${body.error}`;
+    } catch {
+      // A non-JSON error page keeps the generic message.
+    }
+    toast.error(message);
+  });
+  document.body.append(frame);
+  return frame;
+}
+
 type UseFileActionsOptions = {
   currentPath: string;
   includeStats: boolean;
@@ -202,11 +226,17 @@ export function useFileActions({
     return result;
   }, []);
 
-  /** One ZIP of several entries, streamed by the server. A form POST avoids URL length limits. */
+  /**
+   * One ZIP of several entries, streamed by the server straight to the browser's download manager.
+   * A form POST avoids URL length limits. It targets a hidden frame: downloads never load a
+   * document there, so a load means the server answered with an error to show instead.
+   */
   const downloadEntries = useCallback((entries: readonly FileEntry[]) => {
+    const frame = downloadFrame();
     const form = document.createElement("form");
     form.method = "POST";
     form.action = "/api/files/archive";
+    form.target = frame.name;
     form.hidden = true;
     for (const entry of entries) {
       const input = document.createElement("input");
