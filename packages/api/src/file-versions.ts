@@ -124,7 +124,8 @@ async function removePayloads(dataRoot: string, versions: readonly FileVersion[]
 
 export type ReplacementResult =
   | { kind: "created" }
-  | { kind: "replaced"; version: FileVersion };
+  /** `version` is null when the previous content was empty and not worth keeping. */
+  | { kind: "replaced"; version: FileVersion | null };
 
 /**
  * The single commit point for replacing a file's content. Moves the staged
@@ -154,6 +155,14 @@ async function commitReplacement({
   if (!previous) {
     await rename(incoming, target);
     return { kind: "created" };
+  }
+  if (previous.stats.size === BigInt(0)) {
+    // An empty file, such as one created by a WebDAV LOCK before its PUT, has
+    // nothing to keep; its earlier history still moves to the new content.
+    await rename(incoming, target);
+    const current = await identity(target);
+    if (current) await store.rekey(previous.key, current.key);
+    return { kind: "replaced", version: null };
   }
   const version: FileVersion = {
     id: randomUUID(),

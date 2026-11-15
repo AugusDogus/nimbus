@@ -39,7 +39,7 @@ test("replacing a file keeps its previous content as a version without copying i
   const original = await stat(target);
   const result = await save(target, "second");
   expect(await readFile(target, "utf8")).toBe("second");
-  if (result.kind !== "replaced") throw new Error("Expected a replacement.");
+  if (result.kind !== "replaced" || !result.version) throw new Error("Expected a kept version.");
   expect(result.version).toMatchObject({ name: "notes.txt", size: 5, archivedBy: "editor" });
   const found = await FileVersions.find(store, target, result.version.id);
   if (!found) throw new Error("The new version is not attached to the file.");
@@ -114,4 +114,15 @@ test("permanent deletion and age limits remove history and payloads", async () =
   expect(await readdir(path.dirname(orphan))).toEqual(["ab000000-0000-4000-8000-000000000000"]);
   await FileVersions.cleanup(store, root, Date.now() + 2 * 24 * 60 * 60 * 1000);
   expect(await readdir(path.dirname(orphan))).toEqual([]);
+});
+
+test("replacing an empty file keeps no version but keeps earlier history", async () => {
+  const target = path.join(root, "locked.txt");
+  // WebDAV clients often LOCK a new path, creating an empty file, then PUT it.
+  await save(target, "");
+  expect(await save(target, "content")).toEqual({ kind: "replaced", version: null });
+  expect(await FileVersions.history(store, target)).toEqual([]);
+  await save(target, "");
+  await save(target, "again");
+  expect(await contents(target)).toEqual(["content"]);
 });
