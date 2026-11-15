@@ -10,6 +10,7 @@ import { readDirectory } from "@nimbus/api/file-browser";
 import { requireExisting } from "@nimbus/api/file-operations";
 
 import { auth } from "@/lib/auth";
+import { FileKind } from "@/lib/file-kind";
 import { db } from "./db";
 import { createDriveStore } from "./drive-store";
 
@@ -89,26 +90,6 @@ export function streamBody(stream: Readable) {
   });
 }
 
-const previewTypes: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".avif": "image/avif",
-  ".pdf": "application/pdf",
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-  ".mp3": "audio/mpeg",
-  ".wav": "audio/wav",
-  ".ogg": "audio/ogg",
-  ".txt": "text/plain; charset=utf-8",
-  ".md": "text/plain; charset=utf-8",
-  ".csv": "text/plain; charset=utf-8",
-  ".json": "text/plain; charset=utf-8",
-  ".log": "text/plain; charset=utf-8",
-};
-
 export async function serveFile(
   request: Request,
   requested: string,
@@ -123,9 +104,7 @@ export async function serveFile(
       message: "Choose a file to download.",
     });
   const filename = path.basename(target.absolute);
-  const contentType =
-    previewTypes[path.extname(filename).toLowerCase()] ??
-    "application/octet-stream";
+  const contentType = FileKind.previewContentType(FileKind.of(filename));
   const headers = new Headers({
     "Content-Type": inline ? contentType : "application/octet-stream",
     "Content-Disposition": `${inline && contentType !== "application/octet-stream" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(filename)}`,
