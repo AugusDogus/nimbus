@@ -4,7 +4,10 @@ import { getAccess, type Access } from "@nimbus/api/access";
 import type { Share } from "@nimbus/api/drive-store";
 import { safePath } from "@nimbus/api/file-operations";
 import { isApiError, isWithinPath } from "@nimbus/api/safe-path";
+import { recordAudit } from "@nimbus/api/audit";
+import { ClientIp } from "./client-ip";
 import { httpDriveStore } from "./http-files";
+import { RateLimiter } from "./rate-limit";
 
 export async function getPublicShare(token: string) {
   const share = await httpDriveStore.getShare(token);
@@ -103,18 +106,31 @@ export async function sharedTarget(
   return { target, access: scoped };
 }
 
-const attempts = new Map<string, { count: number; expires: number }>();
-export function allowSharePasswordAttempt(token: string) {
-  const now = Date.now();
-  for (const [key, attempt] of attempts)
-    if (attempt.expires <= now) attempts.delete(key);
-  const attempt = attempts.get(token) ?? {
-    count: 0,
-    expires: now + 15 * 60 * 1000,
-  };
-  if (attempt.count >= 20 || (attempts.size >= 1000 && !attempts.has(token)))
-    return false;
-  attempt.count++;
-  attempts.set(token, attempt);
-  return true;
-}
+// Wrong public link passwords, counted per client and per link. Checked before the
+// password hash is verified, so throttled guesses cost no hashing.
+const failuresByClient = RateLimiter.shared("share-password-client", {
+  limit: 10,
+  windowMs: 15 * 60 * 1000,
+});
+const failuresByLink = RateLimiter.shared("share-password-link", {
+  limit: 50,
+  windowMs: 60 * 60 * 1000,
+});
+
+export const SharePasswordAttempts = {
+  check(token: string, request: Request) {
+    const client = ClientIp.bucket(ClientIp.fromHeaders(request.headers));
+    for (const decision of [failuresByClient.check(client), failuresByLink.check(token)])
+      if (!decision.allowed) return decision;
+    return { allowed: true } as const;
+  },
+  fail(share: Share, request: Request) {
+    failuresByClient.consume(ClientIp.bucket(ClientIp.fromHeaders(request.headers)));
+    failuresByLink.consume(share.token);
+    recordAudit({
+      action: "share.password_failed",
+      actor: { type: "anonymous" },
+      target: { type: "share", id: share.id, label: share.path },
+    });
+  },
+} as const;

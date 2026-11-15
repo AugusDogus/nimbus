@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { expect, type Browser, type Page } from "@playwright/test";
-import { login, origin, password, test } from "./helpers";
+import { client, login, origin, password, test } from "./helpers";
 
 /** RFC 6238 code for a base32 secret, so the test can act as an authenticator app. */
 function totp(secret: string, at = Date.now()) {
@@ -157,4 +157,25 @@ test("repeated wrong passwords are throttled", async ({ browser, page }) => {
   } finally {
     await member.context.close();
   }
+});
+
+test("WebDAV and public link passwords throttle repeated wrong credentials", async ({ page, request }) => {
+  const wrong = { Authorization: `Basic ${Buffer.from(`nobody@nimbus.test:${randomUUID()}`).toString("base64")}` };
+  expect((await request.fetch("/dav/", { method: "PROPFIND", headers: { Depth: "0" } })).status()).toBe(401);
+  const dav: number[] = [];
+  for (let attempt = 0; attempt < 21; attempt++)
+    dav.push((await request.fetch("/dav/", { method: "PROPFIND", headers: { ...wrong, Depth: "0" } })).status());
+  expect(dav.slice(0, 20).every((status) => status === 401)).toBe(true);
+  expect(dav[20]).toBe(429);
+
+  const caller = page.context().request;
+  const created = await client(page.context());
+  const share = await created.shares.create.mutate({ path: "alpha.txt", expiresAt: null, password: "correct-horse-1" });
+  const attempts: number[] = [];
+  for (let attempt = 0; attempt < 11; attempt++)
+    attempts.push((await caller.post(`/api/share/${share.token}`, { data: { password: "wrong-password" } })).status());
+  expect(attempts.slice(0, 10).every((status) => status === 401)).toBe(true);
+  expect(attempts[10]).toBe(429);
+  await page.goto("/settings/admin/audit?action=share.password_failed");
+  await expect(page.getByRole("list", { name: "Audit events" }).getByRole("listitem").first()).toContainText("Wrong public link password · alpha.txt");
 });

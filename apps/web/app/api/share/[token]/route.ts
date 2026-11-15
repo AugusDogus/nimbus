@@ -5,8 +5,9 @@ import {
   serveFile,
   serveZip,
 } from "@/server/http-files";
+import { RateLimiter } from "@/server/rate-limit";
 import {
-  allowSharePasswordAttempt,
+  SharePasswordAttempts,
   getPublicShare,
   isShareUnlocked,
   shareCookie,
@@ -76,11 +77,9 @@ export async function POST(request: Request, context: Context) {
   try {
     const { token } = await context.params;
     const { share } = await getPublicShare(token);
-    if (!allowSharePasswordAttempt(token))
-      return Response.json(
-        { error: "Too many password attempts. Try again in 15 minutes." },
-        { status: 429, headers: { "Retry-After": "900" } },
-      );
+    const allowed = SharePasswordAttempts.check(token, request);
+    if (!allowed.allowed)
+      return RateLimiter.response(allowed, "wrong passwords for this link");
     let body: unknown;
     try {
       body = await request.json();
@@ -104,11 +103,13 @@ export async function POST(request: Request, context: Context) {
     if (
       share.passwordHash &&
       !(await Bun.password.verify(body.password, share.passwordHash))
-    )
+    ) {
+      SharePasswordAttempts.fail(share, request);
       return Response.json(
         { error: "That password is incorrect. Try again or ask the owner." },
         { status: 401 },
       );
+    }
     return Response.json(
       { unlocked: true },
       {
