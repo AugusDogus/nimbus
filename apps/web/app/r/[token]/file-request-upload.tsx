@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { z } from "zod";
+import * as z from "zod/mini";
 import { Check, CircleAlert, Upload as UploadIcon } from "lucide-react";
 // Already in every page: the root layout's upload provider uses it.
 import * as tus from "tus-js-client";
@@ -16,10 +16,10 @@ import { ByteSize } from "@/lib/byte-size";
 
 const detailsSchema = z.object({
   folder: z.string(),
-  note: z.string().nullable(),
-  expiresAt: z.number().nullable(),
+  note: z.nullable(z.string()),
+  expiresAt: z.nullable(z.number()),
   maxFileBytes: z.number(),
-  remainingFiles: z.number().nullable(),
+  remainingFiles: z.nullable(z.number()),
 });
 const errorSchema = z.object({ error: z.string() });
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { z } from "zod";
+import * as z from "zod/mini";
 import { Button } from "@/components/ui/button";
 import { ByteSize } from "@/lib/byte-size";
 import { queryClient } from "@/lib/trpc";
@@ -12,7 +12,7 @@ const backupSchema = z.object({ name: z.string(), size: z.number(), createdAt: z
 const listSchema = z.object({ backups: z.array(backupSchema) });
 const errorSchema = z.object({ error: z.string() });
 
-async function request<T>(init: RequestInit, schema: z.ZodType<T>) {
+async function request<T>(init: RequestInit, schema: z.ZodMiniType<T>) {
   const response = await fetch("/api/backups", { ...init, cache: "no-store" });
   const body: unknown = await response.json();
   if (!response.ok) {

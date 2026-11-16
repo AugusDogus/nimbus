@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Users } from "lucide-react";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -110,13 +111,11 @@ export function GroupDialog({
                   key={user.id}
                   className="flex cursor-pointer items-center gap-3 px-3 py-3 hover:bg-accent/50"
                 >
-                  <input
-                    type="checkbox"
-                    className="size-4 shrink-0 accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  <Checkbox
                     checked={members.includes(user.id)}
-                    onChange={(event) =>
+                    onCheckedChange={(checked) =>
                       setMembers(
-                        event.target.checked
+                        checked
                           ? [...members, user.id]
                           : members.filter((id) => id !== user.id),
                       )

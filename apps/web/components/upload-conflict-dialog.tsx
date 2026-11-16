@@ -1,5 +1,6 @@
 "use client";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,12 +51,10 @@ export function UploadConflictDialog({ prompt }: { prompt: ClashPrompt | null })
         </DialogHeader>
         {remaining > 0 && (
           <label htmlFor={checkboxId} className="flex items-center gap-2 text-sm">
-            <input
+            <Checkbox
               id={checkboxId}
-              type="checkbox"
-              className="size-4 accent-primary"
               checked={all}
-              onChange={(event) => setAll(event.target.checked)}
+              onCheckedChange={setAll}
             />
             Apply to all {(remaining + 1).toLocaleString()} name clashes
           </label>

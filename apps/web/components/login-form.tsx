@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import * as z from "zod/mini";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -226,11 +227,9 @@ export function LoginForm({
                   />
                 </Field>
                 <label className="flex items-center gap-3 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4 rounded accent-primary"
+                  <Checkbox
                     checked={trustDevice}
-                    onChange={(event) => setTrustDevice(event.target.checked)}
+                    onCheckedChange={setTrustDevice}
                   />
                   Trust this browser for 30 days
                 </label>
