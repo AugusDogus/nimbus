@@ -97,6 +97,8 @@ test("navigates with arrows, type-ahead, select all, rename, and the shortcut sh
   await page.keyboard.press("?");
   await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
   await page.keyboard.press("Escape");
+  // Closing the sheet returns focus to the entry that opened it.
+  await expect(entry(page, "renamed.txt")).toBeFocused();
   await page.keyboard.press(" ");
   await expect(page.getByRole("dialog", { name: "renamed.txt" })).toBeVisible();
 });
@@ -118,7 +120,7 @@ test("copies a file into another folder and beside itself", async ({ page, conte
   await dialog.getByRole("button", { name: "Copy here" }).click();
   const rpc = await client(context);
   await expect.poll(async () => (await rpc.files.list.query({ path: folder })).map((item) => item.name).sort()).toEqual(["archive", "report (1).txt", "report.txt"]);
-  expect((await rpc.files.list.query({ path: `${folder}/archive` })).map((item) => item.name)).toEqual(["report.txt"]);
+  await expect.poll(async () => (await rpc.files.list.query({ path: `${folder}/archive` })).map((item) => item.name)).toEqual(["report.txt"]);
 });
 
 test("asks about name clashes when uploading, replacing or keeping both", async ({ page, context }) => {
