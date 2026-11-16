@@ -9,6 +9,7 @@ import {
   password,
   upload,
 } from "./helpers";
+import { FileListing } from "@nimbus/api/file-listing";
 
 test("administrators create groups and members receive only their granted read or write access", async ({
   page,
@@ -130,12 +131,14 @@ test("administrators create groups and members receive only their granted read o
       home: `homes/member-${suffix}`,
     });
     expect(
-      (await memberRPC.files.list.query({})).map((entry) => entry.name).sort(),
+      FileListing.entries(await memberRPC.files.list.query({}))
+        .map((entry) => entry.name)
+        .sort(),
     ).toEqual([folder, "homes"].sort());
     expect(
-      (await memberRPC.files.list.query({ path: "homes" })).map(
-        (entry) => entry.name,
-      ),
+      FileListing.entries(
+        await memberRPC.files.list.query({ path: "homes" }),
+      ).map((entry) => entry.name),
     ).toEqual([`member-${suffix}`]);
     expect(
       (
@@ -198,7 +201,9 @@ test("administrators create groups and members receive only their granted read o
       member.getByRole("link", { name: "member-created", exact: true }),
     ).toHaveAttribute("draggable", "false");
     expect(
-      (await rpc.files.list.query({ path: folder })).map((entry) => entry.name),
+      FileListing.entries(await rpc.files.list.query({ path: folder })).map(
+        (entry) => entry.name,
+      ),
     ).toContain("member-created");
     await member
       .getByRole("button", { name: "Actions for member-created", exact: true })

@@ -19,6 +19,7 @@ import {
   type RecordedAuditEvent,
 } from "./audit";
 import { FileVersions } from "./file-versions";
+import { FileListing } from "./file-listing";
 
 // bun-types declares asymmetric matchers as returning any; typing it unknown keeps any out of the assertions.
 const anyString: unknown = expect.any(String);
@@ -83,11 +84,15 @@ describe("drive workflows", () => {
       permission: "read",
     });
     expect(
-      (await caller("reader").files.list({})).map((entry) => entry.name),
+      FileListing.entries(await caller("reader").files.list({})).map(
+        (entry) => entry.name,
+      ),
     ).toEqual(["docs"]);
-    expect((await caller("reader").files.list({ path: "docs" }))[0]?.name).toBe(
-      "report.txt",
-    );
+    expect(
+      FileListing.entries(
+        await caller("reader").files.list({ path: "docs" }),
+      )[0]?.name,
+    ).toBe("report.txt");
     await expect(
       caller("reader").files.delete({ path: "docs/report.txt" }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -344,9 +349,9 @@ describe("drive workflows", () => {
       name: "notes",
     });
     expect(
-      (await caller("reader").files.list({ path: "archive/docs" })).map(
-        (entry) => entry.name,
-      ),
+      FileListing.entries(
+        await caller("reader").files.list({ path: "archive/docs" }),
+      ).map((entry) => entry.name),
     ).toEqual(["team"]);
     expect(
       (await caller().access.permissions({ path: "archive/docs/team" })).map(
@@ -367,9 +372,9 @@ describe("drive workflows", () => {
       destinationPath: "",
     });
     await caller().files.rename({ path: "report.txt", newName: "private.txt" });
-    await expect(caller("reader").files.list({ path: "" })).resolves.toEqual(
-      [],
-    );
+    expect(
+      FileListing.entries(await caller("reader").files.list({ path: "" })),
+    ).toEqual([]);
   });
   it("detaches sharing while an item is in trash and restores it with the item", async () => {
     const link = await caller().shares.create({

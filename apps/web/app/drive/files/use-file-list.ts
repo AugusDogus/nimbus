@@ -6,7 +6,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 
-import { trpcClient } from "@/lib/trpc";
+import { fetchFileList } from "@/lib/file-list";
 
 import type { FileEntry } from "./types";
 
@@ -20,10 +20,7 @@ type UseFileListOptions = {
 export const fileListQueryOptions = (path: string, includeStats: boolean) =>
   queryOptions<FileEntry[]>({
     queryKey: ["files.list", path, includeStats],
-    queryFn: () =>
-      trpcClient.files.list.query(
-        path ? { path, includeStats } : { includeStats },
-      ),
+    queryFn: () => fetchFileList(path, includeStats),
   });
 
 export const useFileList = ({

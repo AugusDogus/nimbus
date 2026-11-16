@@ -25,6 +25,7 @@ import {
   toEntry,
   toolFailure,
 } from "./mcp-tool";
+import { FileListing } from "./file-listing";
 
 export const MAX_TEXT_READ_BYTES = 256 * 1024;
 export const MAX_TEXT_WRITE_BYTES = 4 * 1024 * 1024;
@@ -50,10 +51,9 @@ const listFolder = defineTool({
   }),
   async run({ caller }, input) {
     const target = await safePath(input.path);
-    const entries = await caller.files.list({
-      path: target.relative,
-      includeStats: true,
-    });
+    const entries = FileListing.entries(
+      await caller.files.list({ path: target.relative, includeStats: true }),
+    );
     const page = paginate([...entries].sort(byFolderThenName), input);
     return {
       path: target.relative,

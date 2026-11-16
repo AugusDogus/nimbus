@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { trpcClient } from "@/lib/trpc";
+import { fileListQueryOptions } from "./use-file-list";
 import { FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
 
@@ -243,10 +243,7 @@ function DestinationDialog({
   const [destination, setDestination] = useState("");
   const { busy, error, submit } = useSubmit(onClose);
   const sources = new Set(entries.map((entry) => entry.path));
-  const folders = useQuery({
-    queryKey: ["files.list", destination, false],
-    queryFn: () => trpcClient.files.list.query({ path: destination }),
-  });
+  const folders = useQuery(fileListQueryOptions(destination, false));
   const choices = (folders.data ?? []).filter(
     (folder) => folder.type === "dir" && !sources.has(folder.path),
   );

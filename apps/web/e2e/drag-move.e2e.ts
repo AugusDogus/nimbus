@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { client, test, upload } from "./helpers";
+import { FileListing } from "@nimbus/api/file-listing";
 
 for (const view of ["list", "grid"] as const) {
   test(`drags files and folders into folders in ${view} view without overwriting conflicts`, async ({
@@ -43,9 +44,9 @@ for (const view of ["list", "grid"] as const) {
     await expect(source).toHaveCount(0);
     await expect
       .poll(async () =>
-        (await rpc.files.list.query({ path: `${root}/${destination}` })).map(
-          (entry) => entry.name,
-        ),
+        FileListing.entries(
+          await rpc.files.list.query({ path: `${root}/${destination}` }),
+        ).map((entry) => entry.name),
       )
       .toContain(filename);
     await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -64,8 +65,10 @@ for (const view of ["list", "grid"] as const) {
     await page.mouse.up();
     await expect(sourceFolder).toHaveCount(0);
     expect(
-      (
-        await rpc.files.list.query({ path: `${root}/${destination}/${folder}` })
+      FileListing.entries(
+        await rpc.files.list.query({
+          path: `${root}/${destination}/${folder}`,
+        }),
       ).map((entry) => entry.name),
     ).toContain("Nested notes");
 
@@ -102,7 +105,9 @@ for (const view of ["list", "grid"] as const) {
       page.getByRole("button", { name: "Dropped notes.txt", exact: true }),
     ).toBeVisible();
     expect(
-      (await rpc.files.list.query({ path: root })).map((entry) => entry.name),
+      FileListing.entries(await rpc.files.list.query({ path: root })).map(
+        (entry) => entry.name,
+      ),
     ).toContain("Dropped notes.txt");
   });
 }

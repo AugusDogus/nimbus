@@ -11,10 +11,11 @@ import { webRouter } from "@/server/web-router";
 
 ensureFileWatcher();
 
-// The server does not compress responses on its own. Large listings are mostly repeated JSON keys
-// and paths: a 50,000-entry folder shrinks from 6.1 MB to 283 KB. Level 3 measured both smaller
-// and about three times faster than the default level. JSON query responses are complete
-// documents, so compressing the whole body adds no latency. Event streams stay uncompressed.
+// The server does not compress responses on its own. A 50,000-entry listing, sent as columns,
+// shrinks from 2 MB to 141 KB. Level 3 measured both smaller and about three times faster than
+// the default level. JSON query responses are complete documents, so compressing the whole body
+// adds no latency. Gzipping that listing takes about 4 ms here; a worker measured no faster end
+// to end, so it stays on this thread. Event streams stay uncompressed.
 const minimumCompressedBytes = 1024;
 
 async function compress(request: Request, response: Response) {

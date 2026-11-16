@@ -6,6 +6,7 @@ import { expect, type Page } from "@playwright/test";
 import { unzipSync, strFromU8 } from "fflate";
 import { z } from "zod";
 import { client, test } from "./helpers";
+import { FileListing } from "@nimbus/api/file-listing";
 
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 
@@ -95,7 +96,9 @@ test("selects with the mouse and keyboard, then downloads one ZIP and trashes th
   await expect(entry(page, "b.txt")).toHaveCount(0);
   await expect(entry(page, "c.txt")).toHaveCount(0);
   expect(
-    (await (await client(context)).files.list.query({ path: folder }))
+    FileListing.entries(
+      await (await client(context)).files.list.query({ path: folder }),
+    )
       .map((item) => item.name)
       .sort(),
   ).toEqual(["a.txt", "d.txt"]);
@@ -180,16 +183,16 @@ test("copies a file into another folder and beside itself", async ({
   const rpc = await client(context);
   await expect
     .poll(async () =>
-      (await rpc.files.list.query({ path: folder }))
+      FileListing.entries(await rpc.files.list.query({ path: folder }))
         .map((item) => item.name)
         .sort(),
     )
     .toEqual(["archive", "report (1).txt", "report.txt"]);
   await expect
     .poll(async () =>
-      (await rpc.files.list.query({ path: `${folder}/archive` })).map(
-        (item) => item.name,
-      ),
+      FileListing.entries(
+        await rpc.files.list.query({ path: `${folder}/archive` }),
+      ).map((item) => item.name),
     )
     .toEqual(["report.txt"]);
 });
@@ -267,13 +270,15 @@ test("uploads a folder from the folder picker, preserving its structure", async 
     const rpc = await client(context);
     await expect
       .poll(async () =>
-        (await rpc.files.list.query({ path: `${folder}/trip/day 1` })).map(
-          (item) => item.name,
-        ),
+        FileListing.entries(
+          await rpc.files.list.query({ path: `${folder}/trip/day 1` }),
+        ).map((item) => item.name),
       )
       .toEqual(["photo.txt"]);
     expect(
-      (await rpc.files.list.query({ path: `${folder}/trip` }))
+      FileListing.entries(
+        await rpc.files.list.query({ path: `${folder}/trip` }),
+      )
         .map((item) => item.name)
         .sort(),
     ).toEqual(["day 1", "plan.txt"]);

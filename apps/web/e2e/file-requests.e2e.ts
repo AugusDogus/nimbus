@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { z } from "zod";
 import { action, client, test } from "./helpers";
+import { FileListing } from "@nimbus/api/file-listing";
 
 test("file requests accept anonymous uploads into one folder without exposing it", async ({
   page,
@@ -124,7 +125,9 @@ test("file requests accept anonymous uploads into one folder without exposing it
     expect(create.status()).toBe(401);
     await outsider.close();
 
-    const received = (await rpc.files.list.query({ path: folder }))
+    const received = FileListing.entries(
+      await rpc.files.list.query({ path: folder }),
+    )
       .map((entry) => entry.name)
       .sort();
     expect(received).toEqual(["form (1).txt", "form.txt", "private"]);

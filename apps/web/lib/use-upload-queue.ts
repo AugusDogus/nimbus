@@ -3,6 +3,7 @@ import { TRPCClientError } from "@trpc/client";
 import { toast } from "sonner";
 import { coalesce } from "@/lib/coalesce";
 import { queryClient, trpcClient } from "@/lib/trpc";
+import { fetchFileList } from "./file-list";
 import type { ClashChoice, EntryKind, UploadClash } from "./upload-plan";
 import {
   createUploadQueue,
@@ -119,7 +120,7 @@ export type ClashPrompt = {
 };
 
 async function existingNames(path: string) {
-  const entries = await trpcClient.files.list.query(path ? { path } : {});
+  const entries = await fetchFileList(path, false);
   return new Map<string, EntryKind>(
     entries.map((entry) => [entry.name, entry.type === "dir" ? "dir" : "file"]),
   );

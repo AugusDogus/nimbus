@@ -9,6 +9,7 @@ import {
   navigate,
   upload,
 } from "./helpers";
+import { FileListing } from "@nimbus/api/file-listing";
 
 test("opens folders and downloads files with spaces in their names", async ({
   page,
@@ -168,9 +169,9 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   });
   await confirmation.getByRole("button", { name: "Cancel" }).click();
   expect(
-    (await rpc.files.list.query({ path: `${folder}/archive` })).map(
-      (entry) => entry.name,
-    ),
+    FileListing.entries(
+      await rpc.files.list.query({ path: `${folder}/archive` }),
+    ).map((entry) => entry.name),
   ).toContain(renamed);
   await action(page, renamed, "Move to trash", isMobile);
   await confirmation

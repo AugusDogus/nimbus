@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect } from "@playwright/test";
 import { z } from "zod";
 import { client, createFolder, port, test } from "./helpers";
+import { FileListing } from "@nimbus/api/file-listing";
 
 test("external disk changes appear live and reserved folder names remain browsable", async ({
   page,
@@ -55,8 +56,8 @@ test("external disk changes appear live and reserved folder names remain browsab
     page.locator('[data-entry-name="external-renamed.txt"]'),
   ).toHaveCount(0);
   expect(
-    (await rpc.files.list.query({ path: `${parent}/live` })).map(
-      (entry) => entry.name,
-    ),
+    FileListing.entries(
+      await rpc.files.list.query({ path: `${parent}/live` }),
+    ).map((entry) => entry.name),
   ).toEqual([]);
 });

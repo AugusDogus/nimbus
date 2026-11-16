@@ -1242,8 +1242,13 @@ const scenarios: Record<string, () => Promise<void>> = {
               throw new Error(
                 "file-listing.ts does not export FileListing.decode.",
               );
-            return (data: unknown): unknown =>
-              Reflect.apply(decode, listing, [data]);
+            return (data: unknown): unknown => {
+              const result: unknown = Reflect.apply(decode, listing, [data]);
+              // Decoding yields { ok, entries } or { ok: false, error }.
+              return typeof result === "object" && result !== null
+                ? Reflect.get(result, "entries")
+                : undefined;
+            };
           })()
         : (data: unknown) => data;
       for (const size of sizes) {

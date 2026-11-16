@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { toast } from "sonner";
 
 import { queryClient, trpcClient } from "@/lib/trpc";
+import { fileListQueryOptions } from "./use-file-list";
 
 import { BulkResult } from "./bulk-result";
 import type { FileEntry } from "./types";
@@ -287,13 +288,8 @@ export function useFileActions({
   const prefetchFolder = useCallback(
     (entry: FileEntry) => {
       if (entry.type !== "dir") return;
-      const listKey = ["files.list", entry.path, includeStats];
       void queryClient.prefetchQuery({
-        queryKey: listKey,
-        queryFn: () =>
-          trpcClient.files.list.query(
-            entry.path ? { path: entry.path, includeStats } : { includeStats },
-          ),
+        ...fileListQueryOptions(entry.path, includeStats),
         staleTime: 30_000,
       });
     },

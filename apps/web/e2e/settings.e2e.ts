@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { client, createFolder, test } from "./helpers";
+import { FileListing } from "@nimbus/api/file-listing";
 
 test("settings replaces the drive shell and keeps its sections independently navigable", async ({
   page,
@@ -142,7 +143,7 @@ test("queued uploads keep their destination while visiting settings", async ({
     resume.resolve();
     await expect
       .poll(async () =>
-        (await rpc.files.list.query({ path: folder }))
+        FileListing.entries(await rpc.files.list.query({ path: folder }))
           .map((file) => file.name)
           .sort(),
       )

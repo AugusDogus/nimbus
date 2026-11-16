@@ -5,6 +5,7 @@ import path from "node:path";
 import { appRouter } from "./routers";
 import { Homes } from "./homes";
 import { createTestDriveStore } from "./testing";
+import { FileListing } from "./file-listing";
 
 describe("home folders", () => {
   let root: string;
@@ -66,9 +67,9 @@ describe("home folders", () => {
       expiresAt: null,
     });
     expect(
-      (await caller("reader").files.list({ path: "homes" })).map(
-        (entry) => entry.name,
-      ),
+      FileListing.entries(
+        await caller("reader").files.list({ path: "homes" }),
+      ).map((entry) => entry.name),
     ).toEqual(["reader"]);
   });
 
@@ -93,9 +94,9 @@ describe("home folders", () => {
       "reader",
     ]);
     expect(
-      (await caller("reader").files.list({ path: "homes" })).map(
-        (entry) => entry.name,
-      ),
+      FileListing.entries(
+        await caller("reader").files.list({ path: "homes" }),
+      ).map((entry) => entry.name),
     ).toEqual(["reader"]);
     await expect(
       caller("reader").files.list({ path: "homes/owner" }),

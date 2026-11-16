@@ -1,6 +1,7 @@
 import { TRPCError, tracked } from "@trpc/server";
 import { mkdir, readdir } from "node:fs/promises";
 import { readDirectory } from "./file-browser";
+import { FileListing } from "./file-listing";
 import path from "node:path";
 import { z } from "zod";
 
@@ -162,31 +163,37 @@ export const appRouter = router({
           });
         // Without stats, names and types come from the directory itself.
         if (!input.includeStats)
-          return allowed(
-            (await readdir(resolved, { withFileTypes: true }))
-              .filter(
-                (entry) =>
-                  entry.name.toLowerCase() !== ".nimbus" &&
-                  (entry.isFile() || entry.isDirectory()),
-              )
-              .map((entry) => ({
-                name: entry.name,
-                path: relative ? `${relative}/${entry.name}` : entry.name,
-                type: entry.isDirectory()
-                  ? ("dir" as const)
-                  : ("file" as const),
-                mtime: null,
-                size: null,
-              })),
+          return FileListing.encode(
+            relative,
+            allowed(
+              (await readdir(resolved, { withFileTypes: true }))
+                .filter(
+                  (entry) =>
+                    entry.name.toLowerCase() !== ".nimbus" &&
+                    (entry.isFile() || entry.isDirectory()),
+                )
+                .map((entry) => ({
+                  name: entry.name,
+                  type: entry.isDirectory()
+                    ? ("dir" as const)
+                    : ("file" as const),
+                  mtime: null,
+                  size: null,
+                })),
+            ),
+            false,
           );
-        return allowed(
-          (await readDirectory(relative, ctx.access)).map((entry) => ({
-            name: entry.name,
-            path: entry.path,
-            type: entry.type,
-            mtime: entry.mtime,
-            size: entry.size,
-          })),
+        return FileListing.encode(
+          relative,
+          allowed(
+            (await readDirectory(relative, ctx.access)).map((entry) => ({
+              name: entry.name,
+              type: entry.type,
+              mtime: entry.mtime,
+              size: entry.size,
+            })),
+          ),
+          true,
         );
       }),
 

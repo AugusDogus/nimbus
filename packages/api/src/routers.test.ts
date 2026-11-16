@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { appRouter } from "./routers";
+import { FileListing } from "./file-listing";
 
 const createCaller = () => {
   return appRouter.createCaller({
@@ -52,7 +53,7 @@ describe("files.list", () => {
     await mkdir(path.join(root, ".nimbus"));
     await writeFile(path.join(root, "visible.txt"), "hello");
 
-    const entries = await caller.files.list({});
+    const entries = FileListing.entries(await caller.files.list({}));
     const names = entries.map((entry) => entry.name);
 
     expect(names).toContain("visible.txt");
