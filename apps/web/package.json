@@ -15,6 +15,7 @@
     "typecheck": "bun node_modules/typescript7/bin/tsc --noEmit"
   },
   "dependencies": {
+    "@base-ui/react": "^1.9.0",
     "@better-auth/passkey": "^1.7.25",
     "@libsql/client": "^0.17.0",
     "@modelcontextprotocol/server": "2.4.0",

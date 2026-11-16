@@ -191,19 +191,21 @@ export function FiltersRow({
       </Select>
 
       <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            variant="default"
-            size="sm"
-            pressed={prefs.groupByType}
-            onPressedChange={(pressed) =>
-              updatePreferences({ groupByType: pressed })
-            }
-            aria-label="Group files by type"
-            className={`hidden md:inline-flex ${prefs.groupByType ? "bg-accent" : ""}`}
-          >
-            <Layers className="size-4" />
-          </Toggle>
+        <TooltipTrigger
+          render={
+            <Toggle
+              variant="default"
+              size="sm"
+              pressed={prefs.groupByType}
+              onPressedChange={(pressed) =>
+                updatePreferences({ groupByType: pressed })
+              }
+              aria-label="Group files by type"
+              className="hidden md:inline-flex"
+            />
+          }
+        >
+          <Layers className="size-4" />
         </TooltipTrigger>
         <TooltipContent>
           <p>Group by type</p>
@@ -213,7 +215,6 @@ export function FiltersRow({
       {/* View toggle is always visible */}
       <ToggleGroup
         aria-label="File view"
-        type="single"
         value={view}
         onValueChange={(value) => {
           if (value === "grid" || value === "list") {
@@ -226,28 +227,32 @@ export function FiltersRow({
         className="rounded-lg bg-muted/70 p-1"
       >
         <Tooltip>
-          <TooltipTrigger asChild>
-            <ToggleGroupItem
-              value="list"
-              aria-label="List view"
-              className="size-8 rounded-md px-0 data-[state=on]:bg-card data-[state=on]:shadow-sm dark:data-[state=on]:bg-accent"
-            >
-              <List className="size-4" />
-            </ToggleGroupItem>
+          <TooltipTrigger
+            render={
+              <ToggleGroupItem
+                value="list"
+                aria-label="List view"
+                className="size-8 rounded-md px-0 data-checked:bg-card data-checked:shadow-sm dark:data-checked:bg-accent"
+              />
+            }
+          >
+            <List className="size-4" />
           </TooltipTrigger>
           <TooltipContent>
             <p>List view</p>
           </TooltipContent>
         </Tooltip>
         <Tooltip>
-          <TooltipTrigger asChild>
-            <ToggleGroupItem
-              value="grid"
-              aria-label="Grid view"
-              className="size-8 rounded-md px-0 data-[state=on]:bg-card data-[state=on]:shadow-sm dark:data-[state=on]:bg-accent"
-            >
-              <Grid2X2 className="size-4" />
-            </ToggleGroupItem>
+          <TooltipTrigger
+            render={
+              <ToggleGroupItem
+                value="grid"
+                aria-label="Grid view"
+                className="size-8 rounded-md px-0 data-checked:bg-card data-checked:shadow-sm dark:data-checked:bg-accent"
+              />
+            }
+          >
+            <Grid2X2 className="size-4" />
           </TooltipTrigger>
           <TooltipContent>
             <p>Grid view</p>

@@ -132,32 +132,34 @@ export function ThemeSwatch({
 }) {
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Use ${name} for ${mode} mode`}
-          aria-pressed={selected}
-          disabled={disabled}
-          onClick={onSelect}
-          className={cn(
-            "relative flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:pointer-events-none disabled:opacity-50 sm:size-16",
-            selected && "ring-2 ring-ring",
-          )}
-        >
-          <ThemePreviewCircle colors={colors} mode={mode} />
-          {selected && (
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute bottom-0 right-0 flex size-5 items-center justify-center rounded-full border bg-background text-foreground shadow-sm"
-            >
-              {mode === "light" ? (
-                <SunIcon className="size-3" />
-              ) : (
-                <MoonIcon className="size-3" />
-              )}
-            </span>
-          )}
-        </button>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`Use ${name} for ${mode} mode`}
+            aria-pressed={selected}
+            disabled={disabled}
+            onClick={onSelect}
+            className={cn(
+              "relative flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:pointer-events-none disabled:opacity-50 sm:size-16",
+              selected && "ring-2 ring-ring",
+            )}
+          />
+        }
+      >
+        <ThemePreviewCircle colors={colors} mode={mode} />
+        {selected && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-0 right-0 flex size-5 items-center justify-center rounded-full border bg-background text-foreground shadow-sm"
+          >
+            {mode === "light" ? (
+              <SunIcon className="size-3" />
+            ) : (
+              <MoonIcon className="size-3" />
+            )}
+          </span>
+        )}
       </TooltipTrigger>
       <TooltipContent>
         {mode === "light" ? "Use for light mode" : "Use for dark mode"}
