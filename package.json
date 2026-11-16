@@ -19,7 +19,8 @@
     "start": "bun run --cwd apps/web start",
     "typecheck": "turbo typecheck typecheck:root",
     "typecheck:root": "bun node_modules/typescript7/bin/tsc --noEmit",
-    "bench:files": "bun apps/web/server/bench/files-bench.ts"
+    "bench:files": "bun apps/web/server/bench/files-bench.ts",
+    "bench:search": "bun apps/web/server/bench/search-bench.ts"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.4.0",
