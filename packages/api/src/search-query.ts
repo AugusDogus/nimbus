@@ -168,7 +168,13 @@ export function createSearchState() {
     ) {
       if (scratch?.layout !== layout)
         scratch = { layout, space: ScanScratch.for(layout) };
-      scanLayout(layout, plan, scratch.space, add);
+      const { space } = scratch;
+      ScanScratch.setBoosts(space, plan);
+      try {
+        scanLayout(layout, plan, space, add);
+      } finally {
+        ScanScratch.clearBoosts(space, plan);
+      }
     },
   };
 }

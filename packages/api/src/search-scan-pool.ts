@@ -8,10 +8,13 @@
  *
  * One scan runs at a time, so many users' searches take turns on the same few
  * threads instead of multiplying them. A newer scan, or `stop`, ends the
- * running one within about a thousand matches per worker.
+ * running one within about a thousand matches per worker, and starts only
+ * once every worker has let go of it, so the workers can share one scratch
+ * space instead of each keeping its own.
  */
 import type { SearchIndex, SearchRequest, SearchResult } from "./search-index";
 import {
+  ScanScratch,
   splitRanges,
   type CompactRanks,
   type ScanPlan,
@@ -20,7 +23,13 @@ import {
 
 /** Messages to a scan worker. */
 export type ScanWorkerInbound =
-  | { type: "layout"; generation: number; layout: SearchLayout }
+  | {
+      type: "layout";
+      generation: number;
+      layout: SearchLayout;
+      /** Shared by every worker; see the module comment. */
+      scratch: ScanScratch;
+    }
   | { type: "drop"; generation: number }
   | {
       type: "scan";
@@ -60,10 +69,16 @@ export function scanBytes(layout: SearchLayout, plan: ScanPlan) {
 
 type Running = {
   job: number;
+  /** Workers yet to report, whether the scan was stopped or not. */
   waiting: number;
   parts: CompactRanks[];
   limit: number;
-  resolve: (outcome: ScanOutcome) => void;
+  plan: ScanPlan;
+  scratch: ScanScratch;
+  /** Null once the caller has its outcome; the workers may still be finishing. */
+  resolve: ((outcome: ScanOutcome) => void) | null;
+  /** Called when the last worker reports. */
+  drained: () => void;
 };
 
 /** Merge the workers' best ranks into one sorted list of at most `limit`. */
@@ -87,20 +102,34 @@ function merge(parts: CompactRanks[], limit: number): CompactRanks {
 export function createScanPool(spawn: () => Worker, size: number) {
   const workers = Array.from({ length: size }, spawn);
   const control = new Int32Array(new SharedArrayBuffer(4));
-  const generations = new WeakMap<SearchLayout, number>();
-  let published: SearchLayout | null = null;
+  let published: {
+    layout: SearchLayout;
+    generation: number;
+    scratch: ScanScratch;
+  } | null = null;
   let nextGeneration = 1;
   let nextJob = 1;
   let running: Running | null = null;
+  /** Resolves when the running job's workers have all reported. */
+  let idle = Promise.resolve();
   let broken: string | null = null;
 
   const post = (worker: Worker, message: ScanWorkerInbound) =>
     worker.postMessage(message);
 
-  const settle = (outcome: ScanOutcome) => {
-    const job = running;
-    running = null;
-    job?.resolve(outcome);
+  /** Give the caller its outcome now; the job stays until its workers drain. */
+  const settle = (job: Running, outcome: ScanOutcome) => {
+    const resolve = job.resolve;
+    job.resolve = null;
+    resolve?.(outcome);
+  };
+
+  const reported = (job: Running) => {
+    if (--job.waiting > 0) return;
+    ScanScratch.clearBoosts(job.scratch, job.plan);
+    if (running === job) running = null;
+    settle(job, { ok: true, ranks: merge(job.parts, job.limit) });
+    job.drained();
   };
 
   for (const worker of workers) {
@@ -108,38 +137,47 @@ export function createScanPool(spawn: () => Worker, size: number) {
       const message = event.data;
       const job = running;
       if (!job || message.job !== job.job) return;
-      if (message.type === "failed") {
-        settle({ ok: false, reason: "failed", message: message.message });
-        return;
-      }
-      if (message.type === "stopped") {
-        settle({ ok: false, reason: "stopped" });
-        return;
-      }
-      job.parts.push(message.ranks);
-      if (--job.waiting === 0)
-        settle({ ok: true, ranks: merge(job.parts, job.limit) });
+      if (message.type === "failed")
+        settle(job, { ok: false, reason: "failed", message: message.message });
+      else if (message.type === "stopped")
+        settle(job, { ok: false, reason: "stopped" });
+      else job.parts.push(message.ranks);
+      reported(job);
     };
     worker.onerror = (event) => {
       broken = `A search scan worker stopped: ${event.message}`;
-      settle({ ok: false, reason: "failed", message: broken });
+      const job = running;
+      if (!job) return;
+      // A dead worker never reports; release the job without it.
+      settle(job, { ok: false, reason: "failed", message: broken });
+      ScanScratch.clearBoosts(job.scratch, job.plan);
+      running = null;
+      job.drained();
     };
   }
 
-  /** The generation workers know `layout` by, sending it to them first if needed. */
+  /** `layout` as the workers know it, sending it to them first if needed. */
   const publish = (layout: SearchLayout) => {
-    const known = generations.get(layout);
-    if (known !== undefined && published === layout) return known;
-    const generation = known ?? nextGeneration++;
-    generations.set(layout, generation);
-    const previous = published ? generations.get(published) : undefined;
+    if (published?.layout === layout) return published;
+    const previous = published?.generation;
+    const next = {
+      layout,
+      generation: nextGeneration++,
+      scratch: ScanScratch.for(layout, true),
+    };
     for (const worker of workers) {
-      post(worker, { type: "layout", generation, layout });
-      if (previous !== undefined && previous !== generation)
+      post(worker, { type: "layout", ...next });
+      if (previous !== undefined)
         post(worker, { type: "drop", generation: previous });
     }
-    published = layout;
-    return generation;
+    published = next;
+    return next;
+  };
+
+  /** Stop the running job; its caller hears now, its workers drain on their own. */
+  const stopRunning = () => {
+    Atomics.store(control, 0, 0);
+    if (running) settle(running, { ok: false, reason: "stopped" });
   };
 
   return {
@@ -147,43 +185,50 @@ export function createScanPool(spawn: () => Worker, size: number) {
 
     /**
      * Scan `plan` over `layout` across the workers, keeping the best `limit`
-     * ranks. Stops a scan still running. Fails, as a value, if a worker
-     * stopped; the caller scans on its own thread instead.
+     * ranks. Stops a scan still running and waits for its workers. Fails, as
+     * a value, if a worker died; the caller scans on its own thread instead.
      */
-    scan(
+    async scan(
       layout: SearchLayout,
       plan: ScanPlan,
       limit: number,
     ): Promise<ScanOutcome> {
-      if (broken !== null)
-        return Promise.resolve({
-          ok: false,
-          reason: "failed",
-          message: broken,
-        });
       if (!isShared(layout))
-        return Promise.resolve({
+        return {
           ok: false,
           reason: "failed",
           message:
             "The index layout is not on shared memory, so scan workers cannot read it.",
-        });
-      settle({ ok: false, reason: "stopped" });
-      const generation = publish(layout);
-      const groups = splitRanges(layout, plan.ranges, workers.length);
+        };
+      stopRunning();
       const job = nextJob++;
+      // Later scans queue here; only the newest proceeds.
+      while (running) {
+        await idle;
+        if (nextJob !== job + 1) return { ok: false, reason: "stopped" };
+      }
+      if (broken !== null)
+        return { ok: false, reason: "failed", message: broken };
+      const { generation, scratch } = publish(layout);
+      const groups = splitRanges(layout, plan.ranges, workers.length);
+      if (groups.length === 0)
+        return { ok: true, ranks: { best: new Float64Array(0), total: 0 } };
+      ScanScratch.setBoosts(scratch, plan);
       Atomics.store(control, 0, job);
+      let drained = () => {};
+      idle = new Promise<void>((resolve) => {
+        drained = resolve;
+      });
       return new Promise<ScanOutcome>((resolve) => {
-        if (groups.length === 0) {
-          resolve({ ok: true, ranks: { best: new Float64Array(0), total: 0 } });
-          return;
-        }
         running = {
           job,
           waiting: groups.length,
           parts: [],
           limit,
+          plan,
+          scratch,
           resolve,
+          drained,
         };
         groups.forEach((ranges, index) => {
           const worker = workers[index];
@@ -201,13 +246,10 @@ export function createScanPool(spawn: () => Worker, size: number) {
     },
 
     /** End the running scan, if any; its promise resolves as stopped. */
-    stop() {
-      Atomics.store(control, 0, 0);
-      settle({ ok: false, reason: "stopped" });
-    },
+    stop: stopRunning,
 
     close() {
-      this.stop();
+      stopRunning();
       for (const worker of workers) worker.terminate();
     },
   };

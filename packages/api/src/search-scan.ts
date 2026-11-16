@@ -293,19 +293,38 @@ export function collector(limit: number) {
   };
 }
 
-/** Scratch space for scans of one layout: a byte per slot for word marks and boosts. */
+/**
+ * Scratch space for scans of one layout: a byte per slot for word marks and
+ * for history boosts. Scan workers share one, on shared memory: each writes
+ * marks only in its own slots, and boosts are set before they start and
+ * cleared after they all finish.
+ */
 export type ScanScratch = { marks: Uint8Array; boosts: Uint8Array };
 
 export const ScanScratch = {
-  for: (layout: SearchLayout): ScanScratch => ({
-    marks: new Uint8Array(layout.slots),
-    boosts: new Uint8Array(layout.slots),
-  }),
+  for: (layout: SearchLayout, shared = false): ScanScratch => {
+    const bytes = (length: number): Uint8Array =>
+      shared
+        ? new Uint8Array(new SharedArrayBuffer(length))
+        : new Uint8Array(length);
+    return { marks: bytes(layout.slots), boosts: bytes(layout.slots) };
+  },
+  /** Put a plan's history boosts in place, before its scan starts. */
+  setBoosts(scratch: ScanScratch, plan: ScanPlan) {
+    for (let i = 0; i + 1 < plan.boosts.length; i += 2)
+      scratch.boosts[plan.boosts[i] ?? 0] = plan.boosts[i + 1] ?? 0;
+  },
+  /** Take them away again, once every scan of the plan has finished. */
+  clearBoosts(scratch: ScanScratch, plan: ScanPlan) {
+    for (let i = 0; i < plan.boosts.length; i += 2)
+      scratch.boosts[plan.boosts[i] ?? 0] = 0;
+  },
 } as const;
 
 /**
- * Run both layers over the compacted names in `plan.ranges`, passing each
+ * Run the layers over the compacted names in `plan.ranges`, passing each
  * match's rank to `add`. Removed entries are skipped through `layout.dead`.
+ * The plan's boosts must already be in `scratch` (ScanScratch.setBoosts).
  * False when `stopped` ended it early, with only some ranks passed.
  */
 export function scanLayout(
@@ -315,7 +334,7 @@ export function scanLayout(
   add: (rank: number) => void,
   stopped: Stopped = never,
 ) {
-  const { boosts, marks } = scratch;
+  const { marks } = scratch;
   const { terms, after } = plan;
   const keep =
     after < 0
@@ -323,41 +342,34 @@ export function scanLayout(
       : (rank: number) => {
           if (rank > after) add(rank);
         };
-  for (let i = 0; i + 1 < plan.boosts.length; i += 2)
-    boosts[plan.boosts[i] ?? 0] = plan.boosts[i + 1] ?? 0;
-  try {
-    const marking = terms.length > 0 || plan.fuzzy !== null;
-    if (marking)
-      for (const range of plan.ranges) marks.fill(0, range.first, range.end);
-    return (
-      names(layout, plan, scratch, keep, stopped, marking) &&
-      (!terms.length ||
-        words(
-          layout,
-          plan.ranges,
-          terms.map((term) => [term]),
-          [TIER_WORDS_IN_NAME, TIER_WORDS_IN_PATH],
-          LITERAL,
-          scratch,
-          keep,
-          stopped,
-        )) &&
-      (plan.fuzzy === null ||
-        words(
-          layout,
-          plan.ranges,
-          plan.fuzzy,
-          [TIER_FUZZY_IN_NAME, TIER_FUZZY_IN_PATH],
-          LITERAL | FOUND,
-          scratch,
-          keep,
-          stopped,
-        ))
-    );
-  } finally {
-    for (let i = 0; i < plan.boosts.length; i += 2)
-      boosts[plan.boosts[i] ?? 0] = 0;
-  }
+  const marking = terms.length > 0 || plan.fuzzy !== null;
+  if (marking)
+    for (const range of plan.ranges) marks.fill(0, range.first, range.end);
+  return (
+    names(layout, plan, scratch, keep, stopped, marking) &&
+    (!terms.length ||
+      words(
+        layout,
+        plan.ranges,
+        terms.map((term) => [term]),
+        [TIER_WORDS_IN_NAME, TIER_WORDS_IN_PATH],
+        LITERAL,
+        scratch,
+        keep,
+        stopped,
+      )) &&
+    (plan.fuzzy === null ||
+      words(
+        layout,
+        plan.ranges,
+        plan.fuzzy,
+        [TIER_FUZZY_IN_NAME, TIER_FUZZY_IN_PATH],
+        LITERAL | FOUND,
+        scratch,
+        keep,
+        stopped,
+      ))
+  );
 }
 
 function names(

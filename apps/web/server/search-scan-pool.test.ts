@@ -118,4 +118,27 @@ describe("search scan pool", () => {
     expect(await first).toBeNull();
     expect(await second).toEqual(index.search({ ...request, query: "notes" }));
   });
+
+  it("answers only the newest of a burst, with marks no stopped scan disturbed", async () => {
+    const { index } = tree(17);
+    const queries = ["e", "report 2024", "alpha beta", "notes café", "invoice"];
+    const request = (query: string): SearchRequest => ({
+      query,
+      root: "",
+      limit: 30,
+      scope: { type: "all" },
+      depth: "full",
+    });
+    const answers = await Promise.all(
+      queries.map((query) =>
+        searchWithPool(() => index, request(query), pool, 0),
+      ),
+    );
+    expect(answers.slice(0, -1)).toEqual(queries.slice(0, -1).map(() => null));
+    expect(answers.at(-1)).toEqual(index.search(request("invoice")));
+    // The next words search starts from clean marks.
+    expect(
+      await searchWithPool(() => index, request("report 2024"), pool, 0),
+    ).toEqual(index.search(request("report 2024")));
+  });
 });

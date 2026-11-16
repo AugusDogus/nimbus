@@ -4,7 +4,7 @@
 import {
   collector,
   scanLayout,
-  ScanScratch,
+  type ScanScratch,
   type SearchLayout,
 } from "@nimbus/api/search-scan";
 import type {
@@ -36,7 +36,7 @@ self.onmessage = (event: MessageEvent<ScanWorkerInbound>) => {
       current = {
         generation: message.generation,
         layout,
-        scratch: ScanScratch.for(layout),
+        scratch: message.scratch,
       };
       return;
     }
