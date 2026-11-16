@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { Tabs } from "@base-ui/react/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LibraryPage } from "../library-page";
 import { PublicLinks } from "./public-links";
 import { FileRequests } from "./file-requests";
@@ -15,7 +15,7 @@ export function SharedTabs({ tab }: { tab: SharedTab }) {
   const navigate = useNavigate();
 
   return (
-    <Tabs.Root
+    <Tabs
       value={tab}
       onValueChange={(value) => {
         const next = tabs.find((entry) => entry.value === value)?.value;
@@ -27,32 +27,24 @@ export function SharedTabs({ tab }: { tab: SharedTab }) {
             resetScroll: false,
           });
       }}
-      className="space-y-6"
+      className="gap-6"
     >
-      <Tabs.List
-        aria-label="Shared files"
-        activateOnFocus
-        className="inline-flex gap-1 rounded-lg bg-muted p-1"
-      >
+      <TabsList aria-label="Shared files" activateOnFocus>
         {tabs.map(({ value, label }) => (
-          <Tabs.Tab
-            key={value}
-            value={value}
-            className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring data-active:bg-background data-active:text-foreground data-active:shadow-sm"
-          >
+          <TabsTrigger key={value} value={value}>
             {label}
-          </Tabs.Tab>
+          </TabsTrigger>
         ))}
-      </Tabs.List>
-      <Tabs.Panel value="with-me">
+      </TabsList>
+      <TabsContent value="with-me">
         <LibraryPage kind="shared" />
-      </Tabs.Panel>
-      <Tabs.Panel value="links">
+      </TabsContent>
+      <TabsContent value="links">
         <PublicLinks />
-      </Tabs.Panel>
-      <Tabs.Panel value="requests">
+      </TabsContent>
+      <TabsContent value="requests">
         <FileRequests />
-      </Tabs.Panel>
-    </Tabs.Root>
+      </TabsContent>
+    </Tabs>
   );
 }
