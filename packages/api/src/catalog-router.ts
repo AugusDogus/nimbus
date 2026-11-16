@@ -52,7 +52,7 @@ export const catalogRouter = router({
         /** "instant" for names only while typing; "full" adds the words layer and paging. */
         depth: z.enum(["instant", "full"]).default("full"),
         /** `next` from the previous page. */
-        offset: z.number().int().min(0).default(0),
+        cursor: z.string().max(64).optional(),
       }),
     )
     .query(async ({ ctx, input, signal }) => {
@@ -64,7 +64,7 @@ export const catalogRouter = router({
         input.limit,
         {
           depth: input.depth,
-          offset: input.offset,
+          cursor: input.cursor,
           history: searchHistory(
             await ctx.drive.listBookmarks(ctx.access.user.id),
           ),

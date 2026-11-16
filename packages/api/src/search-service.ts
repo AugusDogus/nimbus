@@ -54,7 +54,7 @@ export const driveUsage = () => runningService().usage();
 
 export type SearchOptions = {
   depth?: SearchDepth;
-  offset?: number;
+  cursor?: string;
   history?: readonly HistoryEntry[];
   signal?: AbortSignal;
 };
@@ -87,7 +87,7 @@ export async function searchEntries(
         ? { type: "all" }
         : { type: "grants", paths: access.grants.map((grant) => grant.path) },
       depth: options.depth,
-      offset: options.offset,
+      cursor: options.cursor,
       history: options.history,
     },
     options.signal,

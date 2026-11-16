@@ -29,6 +29,8 @@
     "./file-versions": "./src/file-versions.ts",
     "./file-versions-testing": "./src/file-versions-testing.ts",
     "./search-index": "./src/search-index.ts",
+    "./search-scan": "./src/search-scan.ts",
+    "./search-scan-pool": "./src/search-scan-pool.ts",
     "./search-crawler": "./src/search-crawler.ts",
     "./search-service": "./src/search-service.ts",
     "./file-content": "./src/file-content.ts",

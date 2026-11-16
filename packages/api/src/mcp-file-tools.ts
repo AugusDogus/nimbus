@@ -113,6 +113,16 @@ const search = defineTool({
       .default("")
       .describe("Folder to search under. Defaults to the whole drive."),
     ...pageInput(50, 200),
+    cursor: z
+      .string()
+      .regex(
+        /^[\d-]{1,64}$/,
+        "Pass a cursor exactly as a previous call returned it.",
+      )
+      .optional()
+      .describe(
+        "Opaque cursor from a previous call's nextCursor. Omit for the first page.",
+      ),
   }),
   output: z.object({
     entries: z.array(entryOutput),
@@ -127,14 +137,14 @@ const search = defineTool({
       path: input.path,
       limit: input.limit,
       depth: "full",
-      offset: input.cursor === undefined ? 0 : Number(input.cursor),
+      cursor: input.cursor,
     });
     return {
       entries: result.entries.map(toEntry),
       total: result.total,
       truncated: result.truncated,
       complete: result.complete,
-      nextCursor: result.next === null ? null : String(result.next),
+      nextCursor: result.next,
     };
   },
 });

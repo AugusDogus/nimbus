@@ -21,13 +21,16 @@
 import {
   createSearchState,
   foldName,
+  prepareSearch,
   runSearch,
+  scanCompacted,
   type IndexView,
   type IndexedKind,
   type SearchLayout,
   type SearchRequest,
   type SearchResult,
   type VisibleRange,
+  type ScanPlan,
 } from "./search-query";
 
 export {
@@ -91,9 +94,14 @@ const hashName = (parentId: number, name: string) => {
   return hash >>> 0;
 };
 
+/** Layout generations, distinct across every index this process builds. */
+let nextGeneration = 1;
+
 export function createSearchIndex(initialCapacity = 1024) {
   let count = 1;
   let live = 0;
+  /** Bumped by every change searches could see, so a scan elsewhere can tell it went stale. */
+  let changes = 0;
   let parent = new Int32Array(initialCapacity);
   let firstChild = new Int32Array(initialCapacity);
   let nextSibling = new Int32Array(initialCapacity);
@@ -105,12 +113,14 @@ export function createSearchIndex(initialCapacity = 1024) {
   let slotOf = new Int32Array(initialCapacity).fill(NONE);
 
   // Compacted layout, in depth-first slot order.
-  let folded = Buffer.from(SEPARATOR);
+  // Compaction puts the arrays search scans on shared memory, so scan workers
+  // can read them in place (search-scan-pool.ts).
+  let folded: Buffer = Buffer.from(SEPARATOR);
   let raw = SEPARATOR;
-  let foldedStarts = new Int32Array([1, 2]);
+  let foldedStarts: Int32Array = new Int32Array([1, 2]);
   let rawStarts = new Int32Array([1, 2]);
-  let slotId = new Int32Array([ROOT]);
-  let subtreeEnd = new Int32Array([1]);
+  let slotId: Int32Array = new Int32Array([ROOT]);
+  let subtreeEnd: Int32Array = new Int32Array([1]);
   let slots = 1;
   /** The arrays above as one value, replaced whenever compaction replaces them. */
   let layout: SearchLayout = {
@@ -121,6 +131,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     parentSlot: new Int32Array([NONE]),
     dead: new Uint8Array(1),
     slots,
+    generation: nextGeneration++,
   };
   // Names for entries added since compaction.
   const deltaNames = new Map<number, { raw: string; folded: string }>();
@@ -217,6 +228,7 @@ export function createSearchIndex(initialCapacity = 1024) {
 
   function remove(id: number) {
     if (id === ROOT || kinds[id] === FREE) return;
+    changes++;
     // The subtree's total leaves its ancestors once; freed entries are zeroed below.
     addBytes(parent[id], -bytes[id]);
     const before = previousSibling[id];
@@ -256,6 +268,7 @@ export function createSearchIndex(initialCapacity = 1024) {
       remove(existing);
     }
     if ((tableUsed + 1) * 2 > table.length) rehash(table.length * 2);
+    changes++;
     const id = count++;
     ensureCapacity(count);
     kinds[id] = code;
@@ -278,7 +291,10 @@ export function createSearchIndex(initialCapacity = 1024) {
 
   /** Lay out live entries depth-first and drop freed text. */
   const compact = () => {
-    const order = new Int32Array(live + 1);
+    changes++;
+    const sharedInt32 = (length: number) =>
+      new Int32Array(new SharedArrayBuffer(length * 4));
+    const order = sharedInt32(live + 1);
     const nextSlotOf = new Int32Array(slotOf.length).fill(NONE);
     let used = 0;
     const stack = [ROOT];
@@ -294,7 +310,7 @@ export function createSearchIndex(initialCapacity = 1024) {
       )
         stack.push(child);
     }
-    const ends = new Int32Array(used);
+    const ends = sharedInt32(used);
     const size = new Int32Array(count);
     for (let slot = used - 1; slot >= 0; slot--) {
       const id = order[slot];
@@ -303,7 +319,7 @@ export function createSearchIndex(initialCapacity = 1024) {
       if (id !== ROOT) size[parent[id]] += size[id];
     }
     // Folded bytes: compacted names are copied, delta names encoded once.
-    const nextFoldedStarts = new Int32Array(used + 1);
+    const nextFoldedStarts = sharedInt32(used + 1);
     let bytes = 1;
     for (let slot = 0; slot < used; slot++) {
       const id = order[slot];
@@ -316,7 +332,7 @@ export function createSearchIndex(initialCapacity = 1024) {
           : foldedStarts[previous + 1] - foldedStarts[previous] - 1) + 1;
     }
     nextFoldedStarts[used] = bytes;
-    const nextFolded = Buffer.alloc(bytes);
+    const nextFolded = Buffer.from(new SharedArrayBuffer(bytes));
     const rawParts = new Array<string>(used);
     for (let slot = 0; slot < used; slot++) {
       const id = order[slot];
@@ -352,7 +368,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     slotId = order.subarray(0, used);
     subtreeEnd = ends;
     slots = used;
-    const parentSlot = new Int32Array(used);
+    const parentSlot = sharedInt32(used);
     for (let slot = 0; slot < used; slot++) {
       const id = order[slot];
       parentSlot[slot] = id === ROOT ? NONE : nextSlotOf[parent[id]];
@@ -363,8 +379,9 @@ export function createSearchIndex(initialCapacity = 1024) {
       slotId,
       subtreeEnd,
       parentSlot,
-      dead: new Uint8Array(used),
+      dead: new Uint8Array(new SharedArrayBuffer(used)),
       slots,
+      generation: nextGeneration++,
     };
     slotOf = nextSlotOf;
     deltaNames.clear();
@@ -551,6 +568,23 @@ export function createSearchIndex(initialCapacity = 1024) {
     /** Filename search; see search-query.ts for its layers and order. */
     search(request: SearchRequest): SearchResult {
       return runSearch(view, state, request);
+    },
+
+    /**
+     * A search whose compacted scan the caller runs, on this thread with
+     * `scanHere` or in scan workers, before calling its `finish`.
+     */
+    prepareSearch(request: SearchRequest) {
+      return prepareSearch(view, request);
+    },
+
+    scanHere(layout: SearchLayout, plan: ScanPlan, limit: number) {
+      return scanCompacted(state, layout, plan, limit);
+    },
+
+    /** Changes so far; a different value after an await means the index moved meanwhile. */
+    get changes() {
+      return changes;
     },
   };
 }

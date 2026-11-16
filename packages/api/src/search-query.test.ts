@@ -153,12 +153,12 @@ describe("paging", () => {
     const first = index.search(request);
     expect(first.total).toBe(641);
     const seen: string[] = [];
-    let offset: number | null = 0;
-    while (offset !== null) {
-      const page = index.search({ ...request, offset });
+    let cursor: string | undefined;
+    do {
+      const page = index.search({ ...request, cursor });
       seen.push(...page.hits.map((hit) => hit.path));
-      offset = page.next;
-    }
+      cursor = page.next ?? undefined;
+    } while (cursor !== undefined);
     expect(seen).toHaveLength(641);
     expect(new Set(seen).size).toBe(641);
     expect(seen.slice(0, 7)).toEqual(first.hits.map((hit) => hit.path));
@@ -167,7 +167,7 @@ describe("paging", () => {
     ).toEqual(seen);
   });
 
-  it("skips entries removed after the first page", () => {
+  it("continues after the last result shown while the index changes between pages", () => {
     const index = createSearchIndex();
     for (let file = 0; file < 10; file++) index.add(`a/note-${file}`, "file");
     index.compact();
@@ -179,19 +179,62 @@ describe("paging", () => {
       depth: "full",
     };
     const first = index.search(request);
-    const gone = index
-      .search({ ...request, offset: 3, limit: 1 })
-      .hits.map((hit) => hit.path)[0];
-    if (gone === undefined) throw new Error("expected a second page");
+    const shown = first.hits.map((hit) => hit.path);
+    const order = index
+      .search({ ...request, limit: 100 })
+      .hits.map((hit) => hit.path);
+    // One not yet shown disappears, one already shown disappears, and a new one arrives.
+    const gone = order[5] ?? "";
     index.remove(gone);
+    index.remove(shown[0] ?? "");
+    index.add("b/note-late", "file");
     const rest: string[] = [];
-    for (let offset = first.next; offset !== null;) {
-      const page = index.search({ ...request, offset });
+    for (let cursor = first.next ?? undefined; cursor !== undefined;) {
+      const page = index.search({ ...request, cursor });
       rest.push(...page.hits.map((hit) => hit.path));
-      offset = page.next;
+      cursor = page.next ?? undefined;
     }
-    expect(rest).toHaveLength(6);
-    expect(rest).not.toContain(gone);
+    const expected = order.slice(3).filter((path) => path !== gone);
+    expect(rest).toEqual([...expected, "b/note-late"]);
+  });
+
+  it("continues by position after a compaction renumbers the tree", () => {
+    const index = createSearchIndex();
+    for (let file = 0; file < 10; file++) index.add(`a/note-${file}`, "file");
+    index.compact();
+    const request: SearchRequest = {
+      query: "note",
+      root: "",
+      limit: 4,
+      scope: all,
+      depth: "full",
+    };
+    const first = index.search(request);
+    index.compact();
+    const second = index.search({
+      ...request,
+      cursor: first.next ?? undefined,
+    });
+    expect(second.hits.map((hit) => hit.path)).toEqual(
+      index
+        .search({ ...request, limit: 8 })
+        .hits.slice(4)
+        .map((hit) => hit.path),
+    );
+    expect(second.total).toBe(10);
+  });
+
+  it("starts over for a cursor no page returned", () => {
+    const index = drive();
+    expect(
+      index.search({
+        query: "notes",
+        root: "",
+        limit: 50,
+        scope: all,
+        cursor: "not-a-cursor",
+      }).hits,
+    ).toHaveLength(3);
   });
 });
 

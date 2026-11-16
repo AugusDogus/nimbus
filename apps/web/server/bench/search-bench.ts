@@ -18,6 +18,11 @@ import { parseArgs } from "node:util";
 import { availableParallelism } from "node:os";
 import { createSearchIndex } from "@nimbus/api/search-index";
 import {
+  createScanPool,
+  POOL_MIN_BYTES,
+  searchWithPool,
+} from "@nimbus/api/search-scan-pool";
+import {
   pathAt,
   plantedFiles,
   plantedHistory,
@@ -34,6 +39,10 @@ const { values: options } = parseArgs({
     out: { type: "string" },
     compare: { type: "string" },
     label: { type: "string", default: "" },
+    /** Scan workers; 0 scans on the benchmark's own thread. */
+    threads: { type: "string", default: "0" },
+    /** Smallest scan handed to the workers, in name bytes. */
+    "min-bytes": { type: "string" },
   },
 });
 
@@ -69,6 +78,7 @@ type Results = {
   label: string;
   bun: string;
   parallelism: number;
+  threads: number;
   sizes: SizeResult[];
 };
 
@@ -206,6 +216,22 @@ type BenchIndex = {
 };
 
 const now = () => performance.now();
+const threads = Number(options.threads);
+if (!Number.isInteger(threads) || threads < 0)
+  throw new Error(
+    `--threads takes a whole number of scan workers, not "${options.threads}".`,
+  );
+const minBytes =
+  options["min-bytes"] === undefined
+    ? POOL_MIN_BYTES
+    : Number(options["min-bytes"]);
+const pool =
+  threads > 0
+    ? createScanPool(
+        () => new Worker(new URL("../search-scan.worker.ts", import.meta.url)),
+        threads,
+      )
+    : null;
 const admin = { type: "all" } as const;
 const user = { type: "grants", paths: userGrants } as const;
 const scopes = [
@@ -218,7 +244,8 @@ const LIMIT = 50;
 async function measureSize(entries: number): Promise<SizeResult> {
   const before = memory();
   const started = now();
-  const index: BenchIndex = createSearchIndex(1 << 16);
+  const real = createSearchIndex(1 << 16);
+  const index: BenchIndex = real;
   for (const planted of plantedFiles) index.add(planted, "file", 1000);
   let generated = 0;
   while (index.size < entries) {
@@ -236,12 +263,19 @@ async function measureSize(entries: number): Promise<SizeResult> {
   );
 
   const queries: ClassResult[] = [];
+  const search = async (request: BenchRequest): Promise<BenchAnswer> => {
+    if (!pool) return index.search(request);
+    const answer = await searchWithPool(() => real, request, pool, minBytes);
+    if (!answer)
+      throw new Error("A benchmark search was stopped; none run concurrently.");
+    return answer;
+  };
   for (const [scopeName, scope] of scopes)
     for (const depth of depths)
       for (const queryClass of queryClassNames) {
         const list = queryClasses[queryClass];
         const ask = (query: string) =>
-          index.search({ query, root: "", limit: LIMIT, scope, depth });
+          search({ query, root: "", limit: LIMIT, scope, depth });
         for (let warm = 0; warm < 2; warm++)
           for (const query of list) await ask(query);
         let matches = 0;
@@ -277,7 +311,7 @@ async function measureSize(entries: number): Promise<SizeResult> {
   const relevance: RelevanceResult[] = [];
   for (const [scopeName, scope] of scopes)
     for (const item of relevanceCases) {
-      const answer = await index.search({
+      const answer = await search({
         query: item.query,
         root: "",
         limit: 50,
@@ -334,6 +368,7 @@ const results: Results = {
   label: options.label ?? "",
   bun: Bun.version,
   parallelism: availableParallelism(),
+  threads,
   sizes: [],
 };
 for (const size of (options.sizes ?? "").split(",").map(Number)) {
@@ -342,3 +377,4 @@ for (const size of (options.sizes ?? "").split(",").map(Number)) {
   results.sizes.push(await measureSize(size));
 }
 if (options.out) await Bun.write(options.out, JSON.stringify(results, null, 2));
+pool?.close();

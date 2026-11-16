@@ -29,6 +29,8 @@ export type SearchLayout = {
   /** 1 for entries removed since compaction. The only part that changes. */
   readonly dead: Uint8Array;
   readonly slots: number;
+  /** Distinct for every layout any index builds, so a page cursor can tell its layout. */
+  readonly generation: number;
 };
 
 /**
@@ -46,6 +48,8 @@ export type ScanPlan = {
   ranges: readonly VisibleRange[];
   /** Flat [slot, boost, slot, boost, ...] pairs from the caller's history. */
   boosts: readonly number[];
+  /** Only ranks after this one, to continue a page; -1 for all. */
+  after: number;
 };
 
 const SEPARATOR = "\0";
@@ -115,14 +119,26 @@ export const slotName = (layout: SearchLayout, slot: number) =>
     (layout.foldedStarts[slot + 1] ?? 1) - 1,
   );
 
-/** Call `visit(slot, at)` for each slot in `range` whose folded name holds `pattern`. */
+/** Asked between batches of matches; true abandons the scan. */
+export type Stopped = () => boolean;
+
+/** Matches visited between checks of `stopped`. */
+const CHECK_EVERY = 1024;
+
+/**
+ * Call `visit(slot, at)` for each slot in `range` whose folded name holds
+ * `pattern`. False when `stopped` ended it early.
+ */
 function scan(
   layout: SearchLayout,
   range: VisibleRange,
   pattern: Buffer,
   prefixOnly: boolean,
   visit: (slot: number, at: number) => void,
+  stopped: Stopped,
 ) {
+  if (stopped()) return false;
+  let budget = CHECK_EVERY;
   const { folded, foldedStarts } = layout;
   const shift = prefixOnly ? 1 : 0;
   const stop = foldedStarts[range.end] ?? folded.length;
@@ -154,8 +170,104 @@ function scan(
       slot = low;
     }
     visit(slot, at);
+    if (--budget === 0) {
+      if (stopped()) return false;
+      budget = CHECK_EVERY;
+    }
     position = haystack.indexOf(pattern, (foldedStarts[slot + 1] ?? 0) - shift);
   }
+  return true;
+}
+
+const never: Stopped = () => false;
+
+/**
+ * `ranges` cut into at most `parts` groups of about equal name bytes, for
+ * scan workers. A cut range's later piece takes as its outside the folder
+ * above its first slot: every folder above a slot in the piece but before it
+ * is above that first slot too, since subtrees are contiguous. (Not every
+ * folder above the first slot is above the others, which `words` allows for.)
+ */
+export function splitRanges(
+  layout: SearchLayout,
+  ranges: readonly VisibleRange[],
+  parts: number,
+): VisibleRange[][] {
+  const { foldedStarts, parentSlot } = layout;
+  const bytesOf = (range: VisibleRange) =>
+    (foldedStarts[range.end] ?? 0) - (foldedStarts[range.first] ?? 0);
+  let total = 0;
+  for (const range of ranges) total += bytesOf(range);
+  const share = Math.max(1, Math.ceil(total / Math.max(1, parts)));
+  const groups: VisibleRange[][] = [];
+  let group: VisibleRange[] = [];
+  let room = share;
+  for (const whole of ranges) {
+    let range = whole;
+    while (range.first < range.end) {
+      const bytes = bytesOf(range);
+      if (bytes <= room || groups.length === parts - 1) {
+        group.push(range);
+        room -= bytes;
+        break;
+      }
+      // The first slot whose name starts at or after the share runs out.
+      const limit = (foldedStarts[range.first] ?? 0) + room;
+      let low = range.first + 1;
+      let high = range.end;
+      while (low < high) {
+        const middle = (low + high) >> 1;
+        if ((foldedStarts[middle] ?? 0) < limit) low = middle + 1;
+        else high = middle;
+      }
+      const cut = Math.min(low, range.end);
+      if (cut > range.first) group.push({ ...range, end: cut });
+      groups.push(group);
+      group = [];
+      room = share;
+      range = {
+        first: cut,
+        end: range.end,
+        outside: parentSlot[cut] ?? -1,
+      };
+    }
+  }
+  if (group.length) groups.push(group);
+  return groups;
+}
+
+/** What a scan of the compacted names found: the best `limit` ranks, sorted, and how many matched. */
+export type CompactRanks = { best: Float64Array; total: number };
+
+/** The best `limit` ranks, sorted, and how many were offered. */
+export function collector(limit: number) {
+  const best = new Float64Array(limit);
+  let kept = 0;
+  let total = 0;
+  const insert = (rank: number) => {
+    if (kept === limit && rank >= (best[limit - 1] ?? 0)) return;
+    let index = kept < limit ? kept++ : limit - 1;
+    while (index > 0 && (best[index - 1] ?? 0) > rank) {
+      best[index] = best[index - 1] ?? 0;
+      index--;
+    }
+    best[index] = rank;
+  };
+  return {
+    add(rank: number) {
+      total++;
+      insert(rank);
+    },
+    /** Fold in ranks counted elsewhere: their best, and how many. */
+    merge(ranks: CompactRanks) {
+      total += ranks.total;
+      for (const rank of ranks.best) insert(rank);
+    },
+    get total() {
+      return total;
+    },
+    best: () => best.subarray(0, kept),
+  };
 }
 
 /** Scratch space for scans of one layout: a byte per slot for word marks and boosts. */
@@ -171,22 +283,32 @@ export const ScanScratch = {
 /**
  * Run both layers over the compacted names in `plan.ranges`, passing each
  * match's rank to `add`. Removed entries are skipped through `layout.dead`.
+ * False when `stopped` ended it early, with only some ranks passed.
  */
 export function scanLayout(
   layout: SearchLayout,
   plan: ScanPlan,
   scratch: ScanScratch,
   add: (rank: number) => void,
+  stopped: Stopped = never,
 ) {
   const { boosts, marks } = scratch;
-  const { terms } = plan;
+  const { terms, after } = plan;
+  const keep =
+    after < 0
+      ? add
+      : (rank: number) => {
+          if (rank > after) add(rank);
+        };
   for (let i = 0; i + 1 < plan.boosts.length; i += 2)
     boosts[plan.boosts[i] ?? 0] = plan.boosts[i + 1] ?? 0;
   try {
     if (terms.length)
       for (const range of plan.ranges) marks.fill(0, range.first, range.end);
-    names(layout, plan, scratch, add);
-    if (terms.length) words(layout, plan, scratch, add);
+    return (
+      names(layout, plan, scratch, keep, stopped) &&
+      (!terms.length || words(layout, plan, scratch, keep, stopped))
+    );
   } finally {
     for (let i = 0; i < plan.boosts.length; i += 2)
       boosts[plan.boosts[i] ?? 0] = 0;
@@ -198,6 +320,7 @@ function names(
   plan: ScanPlan,
   { boosts, marks }: ScanScratch,
   add: (rank: number) => void,
+  stopped: Stopped,
 ) {
   const { folded, foldedStarts, dead } = layout;
   const { needle } = plan;
@@ -205,25 +328,35 @@ function names(
   const prefixOnly = needle.length === 1;
   const pattern = Buffer.from(prefixOnly ? SEPARATOR + needle : needle);
   const needleBytes = pattern.length - (prefixOnly ? 1 : 0);
-  for (const range of plan.ranges)
-    scan(layout, range, pattern, prefixOnly, (slot, at) => {
-      if (dead[slot]) return;
-      const start = foldedStarts[slot] ?? 0;
-      const length = (foldedStarts[slot + 1] ?? 0) - start - 1;
-      if (marking) marks[slot] = (marks[slot] ?? 0) | LITERAL;
-      add(
-        Rank.of(
-          Rank.literalTier(
-            length === needleBytes,
-            at - start,
-            folded[at - 1] ?? 0,
+  for (const range of plan.ranges) {
+    const finished = scan(
+      layout,
+      range,
+      pattern,
+      prefixOnly,
+      (slot, at) => {
+        if (dead[slot]) return;
+        const start = foldedStarts[slot] ?? 0;
+        const length = (foldedStarts[slot + 1] ?? 0) - start - 1;
+        if (marking) marks[slot] = (marks[slot] ?? 0) | LITERAL;
+        add(
+          Rank.of(
+            Rank.literalTier(
+              length === needleBytes,
+              at - start,
+              folded[at - 1] ?? 0,
+            ),
+            boosts[slot] ?? 0,
+            length,
+            slot,
           ),
-          boosts[slot] ?? 0,
-          length,
-          slot,
-        ),
-      );
-    });
+        );
+      },
+      stopped,
+    );
+    if (!finished) return false;
+  }
+  return true;
 }
 
 /** Names holding every word, or some with the rest in folders above. Literal matches are skipped. */
@@ -232,20 +365,31 @@ function words(
   plan: ScanPlan,
   { boosts, marks }: ScanScratch,
   add: (rank: number) => void,
+  stopped: Stopped,
 ) {
   const { foldedStarts, parentSlot, dead } = layout;
   const { terms } = plan;
   const all = (1 << terms.length) - 1;
   for (const range of plan.ranges) {
-    let outer = 0;
+    // Folders above the range, each with the words it and every folder above
+    // it hold. A candidate's walk up leaves the range at one of these: any
+    // folder above a slot in the range but before it is above `first` too.
+    const chain: number[] = [];
     for (let slot = range.outside; slot > 0; slot = parentSlot[slot] ?? -1)
-      outer |= termBits(slotName(layout, slot), terms);
+      chain.push(slot);
+    const above = new Map<number, number>();
+    let carried = 0;
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const slot = chain[i] ?? 0;
+      carried |= termBits(slotName(layout, slot), terms);
+      above.set(slot, carried);
+    }
     const candidates: number[] = [];
     for (let term = 0; term < terms.length; term++) {
       const text = terms[term] ?? "";
       const prefixOnly = text.length === 1;
       const bit = 1 << term;
-      scan(
+      const finished = scan(
         layout,
         range,
         Buffer.from(prefixOnly ? SEPARATOR + text : text),
@@ -255,18 +399,20 @@ function words(
           if (mark === 0) candidates.push(slot);
           marks[slot] = mark | bit;
         },
+        stopped,
       );
+      if (!finished) return false;
     }
     for (const slot of candidates) {
       if (dead[slot]) continue;
       const inName = (marks[slot] ?? 0) & all;
-      let bits = inName | outer;
-      for (
-        let parent = parentSlot[slot] ?? -1;
-        bits !== all && parent >= range.first;
-        parent = parentSlot[parent] ?? -1
-      )
+      let bits = inName;
+      let parent = parentSlot[slot] ?? -1;
+      while (bits !== all && parent >= range.first) {
         bits |= (marks[parent] ?? 0) & all;
+        parent = parentSlot[parent] ?? -1;
+      }
+      if (bits !== all) bits |= above.get(parent) ?? 0;
       if (bits !== all) continue;
       const start = foldedStarts[slot] ?? 0;
       add(
@@ -279,4 +425,5 @@ function words(
       );
     }
   }
+  return true;
 }

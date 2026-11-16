@@ -32,8 +32,8 @@ export type SearchState = {
 /**
  * A search in two steps: names containing the query come back first (the
  * instant layer), then every layer, which starts with those same results in
- * the same order and continues below them. Later pages come from the list the
- * server ranked for the first one, so loading more only appends.
+ * the same order and continues below them. Each later page continues after
+ * the last result shown, so loading more only appends.
  */
 export function useSearch(query: string, limit: number): SearchState {
   const enabled = query.length > 0;
@@ -55,10 +55,10 @@ export function useSearch(query: string, limit: number): SearchState {
     queryKey: ["catalog", "search", query, limit, "full"],
     queryFn: ({ signal, pageParam }) =>
       trpcClient.catalog.search.query(
-        { query, path: "", limit, depth: "full", offset: pageParam },
+        { query, path: "", limit, depth: "full", cursor: pageParam },
         { signal },
       ),
-    initialPageParam: 0,
+    initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next ?? undefined,
     enabled: enabled && instantReady,
     staleTime: 5_000,
