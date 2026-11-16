@@ -1,5 +1,5 @@
 import { Link } from "@/components/link";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 
 export function FolderError({ reset }: { reset: () => void }) {
   return (
@@ -13,9 +13,9 @@ export function FolderError({ reset }: { reset: () => void }) {
       </p>
       <div className="flex gap-3">
         <Button onClick={reset}>Try again</Button>
-        <Button nativeButton={false} variant="outline" render={<Link to="/" />}>
+        <Link to="/" className={buttonVariants({ variant: "outline" })}>
           Open My Drive
-        </Button>
+        </Link>
       </div>
     </div>
   );

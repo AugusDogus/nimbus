@@ -2,7 +2,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { ScrollText } from "lucide-react";
 import type { AuditAction } from "@nimbus/api/audit";
 import { Link } from "@/components/link";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { SettingsSection } from "../../settings-section";
 import { auditLabels } from "./audit-labels";
@@ -152,29 +152,22 @@ export function AuditPage({ search }: { search: AuditSearch }) {
       {(page.next !== undefined || page.before !== null) && (
         <div className="flex justify-end gap-2">
           {page.before !== null && (
-            <Button
-              nativeButton={false}
-              variant="outline"
-              size="sm"
-              render={<Link to="/settings/admin/audit" search={filters} />}
+            <Link
+              to="/settings/admin/audit"
+              search={filters}
+              className={buttonVariants({ variant: "outline", size: "sm" })}
             >
               Newest
-            </Button>
+            </Link>
           )}
           {page.next !== undefined && (
-            <Button
-              nativeButton={false}
-              variant="outline"
-              size="sm"
-              render={
-                <Link
-                  to="/settings/admin/audit"
-                  search={{ ...filters, before: String(page.next) }}
-                />
-              }
+            <Link
+              to="/settings/admin/audit"
+              search={{ ...filters, before: String(page.next) }}
+              className={buttonVariants({ variant: "outline", size: "sm" })}
             >
               Older
-            </Button>
+            </Link>
           )}
         </div>
       )}

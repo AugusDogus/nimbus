@@ -2,7 +2,7 @@ import { Link } from "@/components/link";
 import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { trpcClient } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { EntriesView } from "./files/entries-view";
 import { useEntryDialog } from "./files/use-entry-dialog";
 import { useFileActions } from "./files/use-file-actions";
@@ -104,13 +104,9 @@ export function LibraryPage({
                   ? "Files you preview and folders you visit will appear here."
                   : "No matching files. Try a different filename."}
           </p>
-          <Button
-            nativeButton={false}
-            variant="outline"
-            render={<Link to="/" />}
-          >
+          <Link to="/" className={buttonVariants({ variant: "outline" })}>
             Open My Drive
-          </Button>
+          </Link>
         </div>
       )}
       {kind === "search" && search.data?.complete === false && (

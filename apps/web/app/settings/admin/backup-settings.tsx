@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import * as z from "zod/mini";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { ByteSize } from "@/lib/byte-size";
 import { queryClient } from "@/lib/trpc";
 import { SettingsSection } from "../settings-section";
@@ -95,19 +95,13 @@ export function BackupSettings() {
                   {ByteSize.format(backup.size)}
                 </p>
               </div>
-              <Button
-                nativeButton={false}
-                size="sm"
-                variant="ghost"
-                render={
-                  <a
-                    href={`/api/backups/${encodeURIComponent(backup.name)}`}
-                    download
-                  />
-                }
+              <a
+                href={`/api/backups/${encodeURIComponent(backup.name)}`}
+                download
+                className={buttonVariants({ variant: "ghost", size: "sm" })}
               >
                 Download
-              </Button>
+              </a>
             </li>
           ))}
         </ul>

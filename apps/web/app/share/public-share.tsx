@@ -4,7 +4,7 @@ import * as z from "zod/mini";
 import { FileText, Folder } from "lucide-react";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { NimbusWordmark } from "@/components/nimbus-wordmark";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -140,12 +140,13 @@ export function PublicShare({ token }: { token: string }) {
               </p>
             </div>
             {share.data.mode === "download" && (
-              <Button
-                nativeButton={false}
-                render={<a href={`${url}&download=1`} download />}
+              <a
+                href={`${url}&download=1`}
+                download
+                className={buttonVariants()}
               >
                 {share.data.entry.type === "dir" ? "Download ZIP" : "Download"}
-              </Button>
+              </a>
             )}
           </div>
           {path && (

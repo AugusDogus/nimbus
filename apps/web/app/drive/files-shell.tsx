@@ -11,7 +11,7 @@ import { UploadProgress } from "@/components/upload-progress";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { DrawerActionItem } from "@/components/drawer-action-item";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Drawer,
   DrawerClose,
@@ -195,13 +195,9 @@ export function FilesShell({ children }: FilesShellProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Button
-                nativeButton={false}
-                size="sm"
-                render={<Link to="/login" />}
-              >
+              <Link to="/login" className={buttonVariants({ size: "sm" })}>
                 Sign in
-              </Button>
+              </Link>
             )}
           </div>
         </header>

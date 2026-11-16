@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileKind } from "@/lib/file-kind";
 import { saveText } from "./save-text";
@@ -107,14 +107,17 @@ export default function FilePreview({
             src={url}
             className="h-[65dvh] w-full rounded-md border bg-muted"
           />
-          <Button
-            nativeButton={false}
-            variant="link"
-            className="h-auto p-0"
-            render={<a href={url} target="_blank" rel="noopener" />}
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener"
+            className={buttonVariants({
+              variant: "link",
+              className: "h-auto p-0",
+            })}
           >
             Open in a new tab
-          </Button>
+          </a>
         </div>
       );
     case "other":

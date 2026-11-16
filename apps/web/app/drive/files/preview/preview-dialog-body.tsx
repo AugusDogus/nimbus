@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { FilePreview } from "../preview-dialog";
 import type { FileEntry } from "../types";
 
@@ -144,9 +144,9 @@ export default function PreviewDialog({
               </Button>
             </div>
           )}
-          <Button nativeButton={false} render={<a href={url} download />}>
+          <a href={url} download className={buttonVariants()}>
             Download
-          </Button>
+          </a>
         </DialogFooter>
       </DialogContent>
     </Dialog>

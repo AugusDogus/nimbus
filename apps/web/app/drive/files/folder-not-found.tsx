@@ -1,5 +1,5 @@
 import { Link } from "@/components/link";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 
 export function FolderNotFound() {
   return (
@@ -9,9 +9,9 @@ export function FolderNotFound() {
         This folder may have moved or been deleted. Open your drive to find it
         again.
       </p>
-      <Button nativeButton={false} render={<Link to="/" />}>
+      <Link to="/" className={buttonVariants()}>
         Open My Drive
-      </Button>
+      </Link>
     </div>
   );
 }
