@@ -298,10 +298,8 @@ export const appRouter = router({
     copy: protectedProcedure
       .input(z.object({ sourcePath: z.string(), destinationPath: z.string() }))
       .mutation(async ({ ctx, input }) => {
+        // copyItem requires Read on the source and Write on the destination, as WebDAV COPY does.
         const source = await requireExisting(input.sourcePath);
-        // Copying a folder exposes its subtree at the destination, so it requires control of its sharing.
-        if (source.stats.isDirectory())
-          ctx.access.require(source.relative, "admin");
         const destination = await requireExisting(input.destinationPath);
         if (!destination.stats.isDirectory())
           throw new TRPCError({

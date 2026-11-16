@@ -431,7 +431,7 @@ const copy = defineTool({
   name: "copy_item",
   title: "Copy item",
   description:
-    "Copy a file or folder into another folder. A taken name gets a number added, such as \"report (1).txt\". Copying a folder needs admin permission on it. The copy has the destination folder's permissions, without the original's public links, file requests, direct sharing, or stars.",
+    "Copy a file or folder into another folder. A taken name gets a number added, such as \"report (1).txt\". It needs read permission on the item and write permission on the destination. The copy has the destination folder's permissions, without the original's public links, file requests, direct sharing, or stars.",
   scope: McpScope.write,
   annotations: additive,
   input: z.object({ path: pathInput, destinationFolder: pathInput }),

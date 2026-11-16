@@ -203,25 +203,74 @@ describe("copying files and folders", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
-  it("requires folder admin to copy a folder through the API", async () => {
+  it("copies a folder through the API without folder admin, but moving it still requires admin", async () => {
     memory.grants.set("write-root", {
       id: "write-root",
       subject: { type: "user", id: "reader" },
       path: "",
       permission: "write",
     });
+    expect(
+      await caller("reader").files.copy({
+        sourcePath: "docs",
+        destinationPath: "archive",
+      }),
+    ).toEqual({ name: "docs", path: "archive/docs" });
+    expect(
+      await readFile(path.join(root, "archive/docs/nested/deep.txt"), "utf8"),
+    ).toBe("deep");
     await expect(
-      caller("reader").files.copy({
+      caller("reader").files.move({
+        sourcePath: "docs",
+        destinationPath: "archive/docs",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("copies a folder with read on it and write on the destination, but cannot move it", async () => {
+    memory.grants.set("read-docs", {
+      id: "read-docs",
+      subject: { type: "user", id: "reader" },
+      path: "docs",
+      permission: "read",
+    });
+    memory.grants.set("write-archive", {
+      id: "write-archive",
+      subject: { type: "user", id: "reader" },
+      path: "archive",
+      permission: "write",
+    });
+    // Internal storage is never listed, so a nested `.nimbus` folder stays out of the copy.
+    await mkdir(path.join(root, "docs/.nimbus"));
+    await writeFile(path.join(root, "docs/.nimbus/hidden.txt"), "hidden");
+    expect(
+      await caller("reader").files.copy({
+        sourcePath: "docs",
+        destinationPath: "archive",
+      }),
+    ).toEqual({ name: "docs", path: "archive/docs" });
+    expect((await readdir(path.join(root, "archive/docs"))).sort()).toEqual([
+      "first.txt",
+      "nested",
+    ]);
+    expect(
+      await readFile(path.join(root, "archive/docs/nested/deep.txt"), "utf8"),
+    ).toBe("deep");
+    await expect(
+      caller("reader").files.move({
         sourcePath: "docs",
         destinationPath: "archive",
       }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(
-      await caller("reader").files.copy({
-        sourcePath: "docs/first.txt",
-        destinationPath: "archive",
+    expect(await readFile(path.join(root, "docs/first.txt"), "utf8")).toBe(
+      "first",
+    );
+    await expect(
+      caller("reader").files.copy({
+        sourcePath: "archive/docs",
+        destinationPath: "docs",
       }),
-    ).toMatchObject({ path: "archive/first.txt" });
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("does not retry other names when a WebDAV lock blocks the destination", async () => {

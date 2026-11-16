@@ -205,7 +205,7 @@ Homes live in a `homes` folder at the data root, one folder per account. The fol
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Read       | Browse, preview, and download the item and its contents.                                                                                |
 | Write      | Read access plus uploads, folder creation, file changes, and moving items to trash.                                                     |
-| Admin      | Write access plus managing permissions, public links, and file requests for that subtree. Moving a folder requires this level on it, and so does copying a folder in the browser or over MCP. WebDAV `COPY` of a folder requires Read. |
+| Admin      | Write access plus managing permissions, public links, and file requests for that subtree. Moving a folder requires this level on it. Copying a file or folder requires Read on it and Write on the destination, in the browser, over WebDAV, and over MCP. |
 
 Permissions apply to descendants and are additive. User and group grants combine using the strongest matching permission. A narrower grant cannot reduce access inherited from a parent. Remove the parent or group grant to remove that inherited access. A folder administrator is distinct from a server administrator.
 
