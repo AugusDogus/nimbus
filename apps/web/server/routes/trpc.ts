@@ -58,6 +58,8 @@ const handler = async (req: Request) => {
         drive: driveStore,
       }),
     onError({ error, path }) {
+      // The client went away (a newer search replaced this one): nothing to fix.
+      if (error.code === "CLIENT_CLOSED_REQUEST") return;
       console.error(`>>> tRPC Error on '${path ?? "unknown"}'`, error);
     },
   });

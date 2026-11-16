@@ -90,13 +90,14 @@ test("finds words across folders and loads every match", async ({
   }).toPass();
   await expect(first.first().locator("mark").first()).toHaveText(token);
   await expect(first.first().locator("mark").last()).toHaveText("2024");
+  // The files, and the 2024 folder itself: its name holds the year, its parent the token.
   await expect(
-    suggestions.getByRole("option", { name: /Show all 205 results/ }),
+    suggestions.getByRole("option", { name: /Show all 206 results/ }),
   ).toBeVisible();
 
   await box.press("Enter");
   const status = page.getByRole("status").filter({ hasText: "matches" });
-  await expect(status).toHaveText("Showing 200 of 205 matches.");
-  await page.getByRole("button", { name: "Show 5 more", exact: true }).click();
-  await expect(status).toHaveText("205 matches.");
+  await expect(status).toHaveText("Showing 200 of 206 matches.");
+  await page.getByRole("button", { name: "Show 6 more", exact: true }).click();
+  await expect(status).toHaveText("206 matches.");
 });
