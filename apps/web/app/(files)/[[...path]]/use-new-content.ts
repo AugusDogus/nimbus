@@ -25,7 +25,7 @@ export function useNewContent({
   }, []);
 
   const handleCreateFolder = useCallback(
-    async (e: React.FormEvent) => {
+    async (e: React.SubmitEvent) => {
       e.preventDefault();
       if (!folderName.trim()) return;
       setCreating(true);

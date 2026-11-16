@@ -359,7 +359,7 @@ const restoreVersion = defineTool({
     "Replace a file's content with one of its earlier versions from list_versions. The current content is kept as a new version, so this can be undone.",
   scope: McpScope.write,
   annotations: destructive,
-  input: z.object({ path: pathInput, versionId: z.string().uuid() }),
+  input: z.object({ path: pathInput, versionId: z.uuid() }),
   output: z.object({ path: z.string() }),
   async run({ caller }, input) {
     const target = await safePath(input.path);
@@ -390,7 +390,7 @@ const restore = defineTool({
     "Restore a trashed item to its original location. The original parent folder must exist and nothing may occupy the original path.",
   scope: McpScope.write,
   annotations: additive,
-  input: z.object({ trashId: z.string().uuid() }),
+  input: z.object({ trashId: z.uuid() }),
   output: z.object({ path: z.string() }),
   async run({ caller }, input) {
     return { path: (await caller.trash.restore({ id: input.trashId })).path };

@@ -84,7 +84,7 @@ export const sharesRouter = router({
   update: protectedProcedure
     .input(
       settingsSchema.extend({
-        id: z.string().uuid(),
+        id: z.uuid(),
         password: z.discriminatedUnion("kind", [
           z.object({ kind: z.literal("keep") }),
           z.object({ kind: z.literal("set"), value: passwordSchema }),
@@ -135,7 +135,7 @@ export const sharesRouter = router({
       return publicShare(updated);
     }),
   revoke: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
       const share = (await ctx.drive.listShares(ctx.access.user.id)).find(
         (entry) => entry.id === input.id,

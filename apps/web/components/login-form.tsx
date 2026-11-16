@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { FormEvent } from "react";
+import type { SubmitEvent } from "react";
 import { useEffect, useState } from "react";
 import * as z from "zod/mini";
 
@@ -114,7 +114,7 @@ export function LoginForm({
     }
   };
 
-  const handleCredentials = (event: FormEvent<HTMLFormElement>) => {
+  const handleCredentials = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!email || !password) {
       setError("Enter an email and password to continue.");
@@ -136,7 +136,7 @@ export function LoginForm({
     });
   };
 
-  const handleSecondFactor = (event: FormEvent<HTMLFormElement>) => {
+  const handleSecondFactor = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (step.kind !== "second-factor") return;
     const method = step.method;

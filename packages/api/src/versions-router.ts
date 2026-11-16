@@ -35,7 +35,7 @@ export const versionsRouter = router({
       }));
     }),
   restore: protectedProcedure
-    .input(z.object({ path: z.string(), id: z.string().uuid() }))
+    .input(z.object({ path: z.string(), id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
       const target = await safePath(input.path);
       ctx.access.require(target.relative, "write");

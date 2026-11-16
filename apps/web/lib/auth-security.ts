@@ -21,7 +21,7 @@ export function totpQrCode(uri: string) {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
-const enableResult = z.object({ totpURI: z.string().startsWith("otpauth://totp/") }).passthrough();
+const enableResult = z.object({ totpURI: z.string().startsWith("otpauth://totp/") }).loose();
 
 /**
  * Nimbus account-security endpoints that Better Auth does not provide:

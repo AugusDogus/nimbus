@@ -15,7 +15,7 @@ const body = z
     userId: z.string().max(200).optional(),
     role: z.union([z.string(), z.array(z.string())]).optional(),
   })
-  .passthrough();
+  .loose();
 const userShape = z.object({ id: z.string(), email: z.string() });
 const sessionShape = z.object({ user: userShape });
 

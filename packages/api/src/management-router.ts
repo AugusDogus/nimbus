@@ -179,10 +179,10 @@ export const trashRouter = router({
     ctx.drive.listTrash(ctx.access.isAdmin ? null : ctx.access.user.id),
   ),
   restore: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.uuid() }))
     .mutation(({ ctx, input }) => restoreItem(ctx.drive, ctx.access, input.id)),
   purge: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
       await getOwnedTrash(ctx.drive, ctx.access, input.id);
       await purgeItem(ctx.drive, ctx.access, input.id);
@@ -218,7 +218,7 @@ export const appPasswordsRouter = router({
       return { token };
     }),
   revoke: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
       const password = (
         await ctx.drive.listAppPasswords(ctx.access.user.id)

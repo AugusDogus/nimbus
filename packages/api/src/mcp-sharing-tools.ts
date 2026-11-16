@@ -91,7 +91,7 @@ const revokeLink = defineTool({
   description: "Permanently disable one of your public links. People who already downloaded the content keep their copies.",
   scope: McpScope.share,
   annotations: { ...destructive, idempotentHint: true },
-  input: z.object({ linkId: z.string().uuid() }),
+  input: z.object({ linkId: z.uuid() }),
   output: z.object({ revoked: z.boolean() }),
   async run({ caller }, input) {
     if (!(await caller.shares.list()).some((link) => link.id === input.linkId))
@@ -156,7 +156,7 @@ const grantPermission = defineTool({
   input: z.object({
     path: pathInput,
     subject: z.discriminatedUnion("type", [
-      z.object({ type: z.literal("user"), email: z.string().email() }),
+      z.object({ type: z.literal("user"), email: z.email() }),
       z.object({ type: z.literal("group"), name: z.string().min(1).max(100) }),
     ]),
     permission: permissionSchema,
