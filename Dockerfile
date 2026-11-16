@@ -23,7 +23,7 @@ RUN curl -fsSLo ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSI
     && make -j"$(nproc)" ffmpeg \
     && strip ffmpeg
 
-FROM oven/bun:latest AS build
+FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS build
 WORKDIR /app
 COPY . .
 RUN bun install --frozen-lockfile
@@ -32,7 +32,7 @@ RUN BETTER_AUTH_SECRET="$(bun -e 'process.stdout.write(require("node:crypto").ra
     BETTER_AUTH_URL=http://localhost:3000 \
     bun run build
 
-FROM oven/bun:latest
+FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d
 # pdftoppm renders PDF thumbnails; Debian ships its security updates.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends poppler-utils \

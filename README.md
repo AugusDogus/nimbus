@@ -27,7 +27,7 @@ Files stay on your filesystem. Accounts, permissions, links, and preferences are
 
 ## Local setup
 
-Use the latest Bun release. Run these commands from the repository root:
+Use Bun 1.4.4, the version the repository pins. Upgrading Bun is a deliberate change made in three places: `packageManager` in the root `package.json`, `bun-version` in `.github/workflows`, and the `oven/bun` tag and digest in the `Dockerfile`. Run these commands from the repository root:
 
 ```bash
 bun install --frozen-lockfile
@@ -63,7 +63,7 @@ The server runs as an unprivileged user, by default UID and GID 1000. Set `PUID`
 
 ### Published image
 
-The Docker workflow builds the Dockerfile for `linux/amd64` and `linux/arm64` on native runners for every PR, without publishing. Pushes to `main` and version tags such as `v1.2.3` publish a multi-platform image to GitHub Container Registry with signed build provenance. Every build uses the latest Bun base image.
+The Docker workflow builds the Dockerfile for `linux/amd64` and `linux/arm64` on native runners for every PR, without publishing. Pushes to `main` and version tags such as `v1.2.3` publish a multi-platform image to GitHub Container Registry with signed build provenance. Each Bun stage uses the `oven/bun:1.4.4` base image pinned by its multi-platform digest.
 
 - `ghcr.io/augusdogus/nimbus:1.2.3` is published from the `v1.2.3` tag.
 - `ghcr.io/augusdogus/nimbus:latest` tracks the most recently published stable release.

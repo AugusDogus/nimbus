@@ -2,6 +2,8 @@
 
 This workspace contains the Next.js interface and the Bun server. Follow [the repository README](../../README.md) for setup, deployment, configuration, sharing semantics, and backups.
 
+Nimbus pins Bun 1.4.4. To upgrade it, change the root `package.json` `packageManager`, the `bun-version` in `.github/workflows`, and the `Dockerfile` base image tag and digest together.
+
 Run commands from the repository root unless noted:
 
 ```bash
