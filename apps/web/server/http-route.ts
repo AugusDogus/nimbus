@@ -39,7 +39,9 @@ export function route<P>(
   module: RouteModule<P>,
 ): Route {
   const parts = pattern.split("/").slice(1);
-  const allowed = methods.filter((method) => module[method] !== undefined);
+  // As with any GET resource, HEAD answers with GET's headers; Bun.serve drops the body.
+  const handlers: RouteModule<P> = { HEAD: module.GET, ...module };
+  const allowed = methods.filter((method) => handlers[method] !== undefined);
   const allow = [...new Set([...allowed, "OPTIONS"])].join(", ");
   return {
     match(segments) {
@@ -63,7 +65,7 @@ export function route<P>(
   function dispatch(captures: string[]) {
     return async (request: Request) => {
       const method = isMethod(request.method) ? request.method : undefined;
-      const handler = method && module[method];
+      const handler = method && handlers[method];
       if (handler)
         return handler(request, { params: Promise.resolve(params(captures)) });
       if (method === "OPTIONS")

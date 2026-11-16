@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect } from "react";
 import { ThemePreferences, themeStyleId } from "@/lib/theme-preferences";
 import { useThemePreferences } from "@/lib/theme-store";

@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, publicProcedure, router, t } from "@nimbus/api";
+import { auditActions } from "@nimbus/api/audit";
 import { appRouter } from "@nimbus/api/routers";
 import { deviceLabel } from "@/lib/device-label";
 import { oidcConfig } from "@/lib/oidc-config";
@@ -142,7 +143,12 @@ const webOnlyRouter = router({
             .from(user)
             .orderBy(asc(user.email)),
         ]);
-        return { ...page, accounts, before: query.before ?? null };
+        return {
+          ...page,
+          accounts,
+          actions: auditActions,
+          before: query.before ?? null,
+        };
       }),
   }),
 });

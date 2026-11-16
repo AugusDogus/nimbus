@@ -1,6 +1,4 @@
-"use client";
-
-import Link from "next/link";
+import { Link } from "@/components/link";
 import type { SubmitEvent } from "react";
 import { useState } from "react";
 
@@ -188,7 +186,7 @@ export function SignupForm({
                   Already have an account?{" "}
                   <Link
                     className="underline-offset-4 hover:underline"
-                    href="/login"
+                    to="/login"
                   >
                     Sign in
                   </Link>

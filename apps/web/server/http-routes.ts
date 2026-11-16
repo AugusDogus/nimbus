@@ -1,4 +1,6 @@
+import type { AppShell } from "./app-shell";
 import { pathSegments, route, type Route } from "./http-route";
+import type { SecurityMode } from "./security-headers";
 import * as auth from "./routes/auth";
 import * as backupFile from "./routes/backup-file";
 import * as backups from "./routes/backups";
@@ -16,6 +18,7 @@ import * as mcp from "./routes/mcp";
 import * as mcpConnection from "./routes/mcp-connection";
 import * as mcpDownload from "./routes/mcp-download";
 import * as oauthAuthorize from "./routes/oauth-authorize";
+import * as oauthConsent from "./routes/oauth-consent";
 import * as oauthConsentDecision from "./routes/oauth-consent-decision";
 import * as oauthRegister from "./routes/oauth-register";
 import * as oauthRevoke from "./routes/oauth-revoke";
@@ -24,7 +27,6 @@ import * as share from "./routes/share";
 import * as trpc from "./routes/trpc";
 import * as upload from "./routes/upload";
 
-/** The server's API, OAuth and discovery endpoints, matched in order. */
 const none = () => ({});
 const discovery = {
   authorizationServer: {
@@ -37,8 +39,11 @@ const discovery = {
   },
 };
 
+/** What server-rendered pages need: the app's stylesheets and the security mode. */
+type PageContext = { shell: AppShell; mode: SecurityMode };
+
 // Literal segments come before parameters that could also match them.
-const routes: Route[] = [
+const routes = ({ shell, mode }: PageContext): Route[] => [
   route("/api/auth/*", none, auth),
   route("/api/backups", none, backups),
   route("/api/backups/:name", ([name]) => ({ name }), backupFile),
@@ -58,6 +63,9 @@ const routes: Route[] = [
   route("/api/trpc/:procedures", none, trpc),
   route("/api/upload/*?", none, upload),
   route("/oauth/authorize", none, oauthAuthorize),
+  route("/oauth/consent", none, {
+    GET: (request) => oauthConsent.GET(request, shell, mode),
+  }),
   route("/oauth/consent/decision", none, oauthConsentDecision),
   route("/oauth/register", none, oauthRegister),
   route("/oauth/revoke", none, oauthRevoke),
@@ -87,24 +95,32 @@ const routes: Route[] = [
 /** Path prefixes that belong to the server. Unknown paths under them are 404, never the app. */
 const serverPrefixes = ["/api/", "/oauth/", "/.well-known/"];
 
+export type HttpRoutes = {
+  /** The handler for `pathname`, or null when no endpoint matches. */
+  find(pathname: string): ((request: Request) => Promise<Response>) | null;
+};
+
+/** The server's API, OAuth and discovery endpoints, matched in order. */
 export const HttpRoutes = {
+  create(context: PageContext): HttpRoutes {
+    const table = routes(context);
+    return {
+      // A path with a malformed percent-encoding matches nothing.
+      find(pathname) {
+        const segments = pathSegments(pathname);
+        if (!segments) return null;
+        for (const candidate of table) {
+          const handler = candidate.match(segments);
+          if (handler) return handler;
+        }
+        return null;
+      },
+    };
+  },
   /** Whether `pathname` belongs to a server endpoint rather than a browser page. */
   owns(pathname: string) {
     return serverPrefixes.some(
       (prefix) => pathname.startsWith(prefix) || `${pathname}/` === prefix,
     );
-  },
-  /**
-   * The handler for `pathname`, or null when no endpoint matches. A path with a malformed
-   * percent-encoding matches nothing.
-   */
-  find(pathname: string): ((request: Request) => Promise<Response>) | null {
-    const segments = pathSegments(pathname);
-    if (!segments) return null;
-    for (const candidate of routes) {
-      const handler = candidate.match(segments);
-      if (handler) return handler;
-    }
-    return null;
   },
 } as const;

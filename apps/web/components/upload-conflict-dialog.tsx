@@ -1,5 +1,3 @@
-"use client";
-
 import { Checkbox } from "@/components/ui/checkbox";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";

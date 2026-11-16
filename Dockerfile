@@ -27,7 +27,6 @@ FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb472
 WORKDIR /app
 COPY . .
 RUN bun install --frozen-lockfile
-ENV NEXT_TELEMETRY_DISABLED=1
 RUN BETTER_AUTH_SECRET="$(bun -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("base64url"))')" \
     BETTER_AUTH_URL=http://localhost:3000 \
     bun run build
@@ -39,7 +38,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ffmpeg /src/ffmpeg /usr/local/bin/ffmpeg
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 NIMBUS_DATA_ROOT=/data NIMBUS_CONFIG_ROOT=/config PORT=3000
+ENV NODE_ENV=production NIMBUS_DATA_ROOT=/data NIMBUS_CONFIG_ROOT=/config PORT=3000
 # Application files stay owned by root and read-only to the PUID:PGID the server runs as.
 COPY --from=build /app /app
 COPY --chmod=755 scripts/docker-entrypoint.sh /usr/local/bin/nimbus-entrypoint

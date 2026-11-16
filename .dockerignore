@@ -1,6 +1,5 @@
 .git
 **/node_modules
-**/.next
 **/.turbo
 **/.env*
 !**/.env.example

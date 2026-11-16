@@ -1,0 +1,106 @@
+import { readdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { brotliCompressSync, constants, gzipSync } from "node:zlib";
+import tailwindcss from "@tailwindcss/vite";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig, type Plugin } from "vite";
+import { htmlNonce } from "./client/html-nonce";
+import { themeBoot } from "./lib/theme-boot-script";
+
+const root = fileURLToPath(new URL(".", import.meta.url));
+
+/**
+ * Runs the theme boot script inline, right after the custom theme style element it fills, before
+ * the first paint. It carries the per-request nonce like every other script the server sends.
+ */
+function themeBootScript(): Plugin {
+  const marker = "<!-- nimbus:theme-boot -->";
+  return {
+    name: "nimbus-theme-boot",
+    transformIndexHtml: (html) => {
+      if (!html.includes(marker))
+        throw new Error(
+          `index.html has no ${marker} marker, so the theme would apply only after the app loads. Restore the marker after the custom theme style element.`,
+        );
+      return html.replace(
+        marker,
+        `<script nonce="${htmlNonce}">${themeBoot}</script>`,
+      );
+    },
+  };
+}
+
+/**
+ * Writes brotli and gzip variants beside each compressible file, at the highest levels, so the
+ * server never compresses them per request. The HTML shell is compressed per response instead,
+ * because every response carries its own nonce.
+ */
+function precompress(): Plugin {
+  const compressible = /\.(js|css|svg|json|webmanifest|txt|html)$/;
+  let outDir = "";
+  return {
+    name: "nimbus-precompress",
+    apply: "build",
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
+    async closeBundle() {
+      const names = await readdir(outDir, { recursive: true });
+      await Promise.all(
+        names
+          .filter((name) => compressible.test(name) && name !== "index.html")
+          .map(async (name) => {
+            const file = path.join(outDir, name);
+            const body = await readFile(file);
+            if (body.byteLength < 1024) return;
+            const brotli = brotliCompressSync(body, {
+              params: {
+                [constants.BROTLI_PARAM_QUALITY]: 11,
+                [constants.BROTLI_PARAM_SIZE_HINT]: body.byteLength,
+              },
+            });
+            const gzip = gzipSync(body, { level: 9 });
+            await Promise.all([
+              brotli.byteLength < body.byteLength &&
+                writeFile(`${file}.br`, brotli),
+              gzip.byteLength < body.byteLength &&
+                writeFile(`${file}.gz`, gzip),
+            ]);
+          }),
+      );
+    },
+  };
+}
+
+export default defineConfig({
+  root,
+  resolve: { tsconfigPaths: true },
+  html: { cspNonce: htmlNonce },
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+    manifest: true,
+  },
+  server: {
+    host: "localhost",
+    port: Number(process.env.NIMBUS_VITE_PORT ?? "5173"),
+    strictPort: true,
+    // Pages load through the Nimbus server, which forwards module requests here. The HMR
+    // socket connects to this port directly.
+    ws: { clientPort: Number(process.env.NIMBUS_VITE_PORT ?? "5173") },
+  },
+  plugins: [
+    tanstackRouter({
+      target: "react",
+      autoCodeSplitting: true,
+      routesDirectory: "routes",
+      generatedRouteTree: "client/route-tree.gen.ts",
+    }),
+    react(),
+    tailwindcss(),
+    themeBootScript(),
+    precompress(),
+  ],
+});

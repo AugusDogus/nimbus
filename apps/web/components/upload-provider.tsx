@@ -1,15 +1,11 @@
-"use client";
-
-import dynamic from "next/dynamic";
+import { lazyComponent } from "@/components/lazy-component";
 import { createContext, useContext, type ReactNode } from "react";
 import { useUploadQueue } from "@/lib/use-upload-queue";
 
 // Only needed when an upload's name is taken; it loads then, not with every page.
-const UploadConflictDialog = dynamic(() =>
-  import("./upload-conflict-dialog").then(
-    (module) => module.UploadConflictDialog,
-  ),
-);
+const UploadConflictDialog = lazyComponent(async () => ({
+  default: (await import("./upload-conflict-dialog")).UploadConflictDialog,
+}));
 
 const UploadContext = createContext<ReturnType<typeof useUploadQueue> | null>(
   null,

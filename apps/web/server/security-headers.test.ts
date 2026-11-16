@@ -4,24 +4,15 @@ import { SecurityHeaders } from "./security-headers";
 const production = { development: false, https: true };
 
 describe("SecurityHeaders", () => {
-  it("applies the document policy to pages only", () => {
-    for (const path of [
-      "/",
-      "/login",
-      "/browse/a%20b",
-      "/s/token",
-      "/settings/admin/audit",
-      "/apis-folder",
-    ])
-      expect(SecurityHeaders.isDocument(path)).toBe(true);
-    for (const path of [
-      "/api/files/download",
-      "/api",
-      "/dav/x",
-      "/_next/static/a.js",
-      "/icon.svg",
-    ])
-      expect(SecurityHeaders.isDocument(path)).toBe(false);
+  it("lets a document's forms reach only the targets it names", () => {
+    expect(SecurityHeaders.policy("abc", production)).toContain(
+      "form-action 'self';",
+    );
+    expect(
+      SecurityHeaders.policy("abc", production, {
+        formTargets: ["http://127.0.0.1:43123"],
+      }),
+    ).toContain("form-action 'self' http://127.0.0.1:43123;");
   });
   it("allows scripts only with the request nonce in production", () => {
     const policy = SecurityHeaders.policy("abc", production);

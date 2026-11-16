@@ -1,6 +1,4 @@
-"use client";
-
-import Link from "next/link";
+import { Link } from "@/components/link";
 import type { SubmitEvent } from "react";
 import { useEffect, useState } from "react";
 import * as z from "zod/mini";
@@ -338,7 +336,7 @@ export function LoginForm({
                   <FieldLabel htmlFor="password">Password</FieldLabel>
                   {passwordReset && (
                     <Link
-                      href="/reset-password"
+                      to="/reset-password"
                       className="text-sm underline-offset-4 hover:underline"
                     >
                       Forgot password?
@@ -407,10 +405,7 @@ export function LoginForm({
                 )}
                 <FieldDescription className="text-pretty text-center">
                   {setupAvailable ? (
-                    <Link
-                      className="underline underline-offset-4"
-                      href="/signup"
-                    >
+                    <Link className="underline underline-offset-4" to="/signup">
                       Set up your server
                     </Link>
                   ) : (

@@ -1,6 +1,4 @@
-"use client";
-
-import type { AppRouter } from "@nimbus/api/routers";
+import type { WebRouter } from "@/server/web-router";
 import {
   createTRPCClient,
   httpBatchLink,
@@ -14,11 +12,11 @@ import { createQueryClient } from "./query-client";
 
 export const queryClient = createQueryClient();
 
-const trpcClient = createTRPCClient<AppRouter>({
+const trpcClient = createTRPCClient<WebRouter>({
   links: [
     loggerLink({
       enabled: (op) =>
-        process.env.NODE_ENV === "development" ||
+        import.meta.env.DEV ||
         (op.direction === "down" && op.result instanceof Error),
     }),
     splitLink({
@@ -33,7 +31,7 @@ const trpcClient = createTRPCClient<AppRouter>({
   ],
 });
 
-export const trpc = createTRPCOptionsProxy<AppRouter>({
+export const trpc = createTRPCOptionsProxy<WebRouter>({
   client: trpcClient,
   queryClient,
 });

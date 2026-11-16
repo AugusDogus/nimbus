@@ -1,33 +1,30 @@
 import { randomBytes } from "node:crypto";
 
 /**
- * Response hardening applied by the custom server. Document responses get a nonce-based
- * Content-Security-Policy: Next.js reads the nonce from the request's policy header and
- * adds it to its own scripts, so injected inline scripts are refused. API, WebDAV and
- * static asset responses keep their own policies (file previews use a sandbox policy).
+ * Response hardening applied by the server. HTML documents get a nonce-based
+ * Content-Security-Policy: the server writes a fresh nonce into every script tag it sends, so
+ * injected scripts are refused. API, WebDAV and static file responses keep their own policies
+ * (file previews use a sandbox policy).
  */
 export type SecurityMode = { development: boolean; https: boolean };
 
-/** Request header carrying the document nonce to server components. Set only by the custom server. */
-export const nonceHeader = "x-nimbus-nonce";
-
-const documentExclusions =
-  /^\/(?:api|dav|_next)(?:\/|$)|^\/(?:icon\.svg|favicon\.ico)$/;
+/** Per-document additions to the policy. */
+export type DocumentPolicy = {
+  /** Other places the page's forms may submit to or redirect through, as CSP sources. */
+  formTargets?: readonly string[];
+};
 
 export const SecurityHeaders = {
-  isDocument(pathname: string) {
-    return !documentExclusions.test(pathname);
-  },
   nonce() {
     return randomBytes(16).toString("base64");
   },
-  policy(nonce: string, mode: SecurityMode) {
+  policy(nonce: string, mode: SecurityMode, document: DocumentPolicy = {}) {
     return [
       "default-src 'self'",
       // React development tooling evaluates code; production never needs eval.
       `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${mode.development ? " 'unsafe-eval'" : ""}`,
       "script-src-attr 'none'",
-      // Sonner, Vaul, Radix and React style attributes need inline styles.
+      // Sonner, Base UI and React style attributes need inline styles.
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "media-src 'self' blob:",
@@ -37,7 +34,7 @@ export const SecurityHeaders = {
       "frame-src 'self'",
       "object-src 'none'",
       "base-uri 'none'",
-      "form-action 'self'",
+      ["form-action 'self'", ...(document.formTargets ?? [])].join(" "),
       "frame-ancestors 'none'",
       ...(mode.https ? ["upgrade-insecure-requests"] : []),
     ].join("; ");
@@ -51,9 +48,13 @@ export const SecurityHeaders = {
     };
   },
   /** Additional headers for HTML documents. */
-  document(nonce: string, mode: SecurityMode): Record<string, string> {
+  document(
+    nonce: string,
+    mode: SecurityMode,
+    document: DocumentPolicy = {},
+  ): Record<string, string> {
     return {
-      "Content-Security-Policy": SecurityHeaders.policy(nonce, mode),
+      "Content-Security-Policy": SecurityHeaders.policy(nonce, mode, document),
       "Permissions-Policy":
         "camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self), clipboard-write=(self)",
       "Cross-Origin-Opener-Policy": "same-origin",

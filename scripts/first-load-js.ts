@@ -1,12 +1,9 @@
-// Computes First Load JS per App Router page from a production build.
+// Computes the initial JavaScript of each page from the Vite build manifest.
 //
-// Next 16 no longer prints First Load JS, so this script reconstructs it from
-// the build manifests: the shared root chunks (`rootMainFiles` in
-// build-manifest.json) plus every chunk listed in the page's client reference
-// manifest `entryJSFiles` (layouts, templates, loading, error and not-found
-// boundaries, and the page itself). Legacy `polyfillFiles` are excluded, as
-// Next did, because modern browsers skip them. Lazy chunks loaded by
-// `import()` or `next/dynamic` are not counted.
+// A page loads the app entry with its static imports, then the code-split chunk of its route
+// and of every layout route around it, each with its static imports. Chunks loaded later by
+// `import()`, such as dialogs and preview renderers, are not counted. The theme boot script is
+// inline in the HTML and not counted either.
 //
 // Sizes are per file, then summed: gzip at level 9 and brotli at quality 11.
 //
@@ -16,10 +13,11 @@
 //   bun scripts/first-load-js.ts --compare base.json compare with a saved run
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { runInNewContext } from "node:vm";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 
-const nextDir = path.resolve(import.meta.dir, "../apps/web/.next");
+const dist = path.resolve(import.meta.dir, "../apps/web/dist");
+const routePrefix = "routes/";
+const splitSuffix = "?tsr-split=component";
 
 type RouteSize = {
   route: string;
@@ -31,9 +29,15 @@ type RouteSize = {
 
 type Sizes = { raw: number; gzip: number; brotli: number };
 
+type Chunk = { file: string; imports: string[] };
+
 function fail(message: string): never {
   console.error(message);
   process.exit(1);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -42,40 +46,49 @@ function isStringArray(value: unknown): value is string[] {
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-async function readJson(file: string): Promise<unknown> {
+async function readManifest(): Promise<Map<string, Chunk>> {
+  const file = path.join(dist, ".vite/manifest.json");
+  let parsed: unknown;
   try {
-    return JSON.parse(await readFile(path.join(nextDir, file), "utf8"));
+    parsed = JSON.parse(await readFile(file, "utf8"));
   } catch (error) {
     fail(
-      `Could not read ${path.join(nextDir, file)}: ${error instanceof Error ? error.message : String(error)}. Run \`bun run build\` first.`,
+      `Could not read ${file}: ${error instanceof Error ? error.message : String(error)}. Run \`bun run build\` first.`,
     );
   }
+  if (!isRecord(parsed)) fail(`${file} is not an object.`);
+  const chunks = new Map<string, Chunk>();
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!isRecord(value) || typeof value.file !== "string")
+      fail(`${file} has an entry for ${key} without a file.`);
+    chunks.set(key, {
+      file: value.file,
+      imports: isStringArray(value.imports) ? value.imports : [],
+    });
+  }
+  return chunks;
 }
 
-async function entryFiles(page: string): Promise<string[]> {
-  const file = path.join(
-    nextDir,
-    "server/app",
-    `${page}_client-reference-manifest.js`,
-  );
-  const source = await readFile(file, "utf8");
-  const sandbox: { globalThis: Record<string, unknown> } = { globalThis: {} };
-  sandbox.globalThis = sandbox;
-  runInNewContext(source, sandbox);
-  const manifests = sandbox.globalThis.__RSC_MANIFEST;
-  const manifest = isRecord(manifests) ? manifests[page] : undefined;
-  const entries = isRecord(manifest) ? manifest.entryJSFiles : undefined;
-  if (!isRecord(entries))
-    fail(
-      `${file} has no entryJSFiles for ${page}; the manifest format changed.`,
-    );
-  return Object.values(entries).flatMap((value) =>
-    isStringArray(value) ? value : [],
-  );
+/** The JavaScript files `key` loads before it runs: itself and its static imports. */
+function staticFiles(
+  chunks: Map<string, Chunk>,
+  key: string,
+  into: Set<string>,
+) {
+  const chunk = chunks.get(key);
+  if (!chunk) fail(`The manifest references ${key}, which it does not list.`);
+  if (!chunk.file.endsWith(".js") || into.has(chunk.file)) return;
+  into.add(chunk.file);
+  for (const imported of chunk.imports) staticFiles(chunks, imported, into);
+}
+
+/** `routes/_authed/_files/browse/$.tsx` → `/browse/$`; pathless `_layout` segments drop out. */
+function routePath(file: string) {
+  const segments = file
+    .slice(routePrefix.length, -".tsx".length)
+    .split("/")
+    .filter((segment) => !segment.startsWith("_") && segment !== "index");
+  return `/${segments.join("/")}`;
 }
 
 const sizeCache = new Map<string, Sizes>();
@@ -83,7 +96,7 @@ const sizeCache = new Map<string, Sizes>();
 async function sizeOf(file: string): Promise<Sizes> {
   const cached = sizeCache.get(file);
   if (cached) return cached;
-  const bytes = await readFile(path.join(nextDir, file));
+  const bytes = await readFile(path.join(dist, file));
   const sizes = {
     raw: bytes.byteLength,
     gzip: gzipSync(bytes, { level: 9 }).byteLength,
@@ -96,29 +109,36 @@ async function sizeOf(file: string): Promise<Sizes> {
 }
 
 async function measure(): Promise<RouteSize[]> {
-  const buildManifest = await readJson("build-manifest.json");
-  const rootMainFiles = isRecord(buildManifest)
-    ? buildManifest.rootMainFiles
-    : undefined;
-  if (!isStringArray(rootMainFiles))
-    fail("build-manifest.json has no rootMainFiles array.");
-  const routes = await readJson("app-path-routes-manifest.json");
-  if (!isRecord(routes))
-    fail("app-path-routes-manifest.json is not an object.");
-
+  const chunks = await readManifest();
+  const routeFiles = [...chunks.keys()]
+    .filter((key) => key.startsWith(routePrefix) && key.endsWith(splitSuffix))
+    .map((key) => key.slice(0, -splitSuffix.length));
+  const split = new Set(routeFiles);
+  // A layout route is `x.tsx` with routes under `x/`.
+  const layouts = new Set(
+    routeFiles.filter((file) =>
+      routeFiles.some((other) => other.startsWith(`${file.slice(0, -4)}/`)),
+    ),
+  );
   const results: RouteSize[] = [];
-  for (const [page, route] of Object.entries(routes)) {
-    if (!page.endsWith("/page") || typeof route !== "string") continue;
-    if (route.startsWith("/_")) continue;
-    const files = [...new Set([...rootMainFiles, ...(await entryFiles(page))])];
+  for (const file of routeFiles) {
+    if (layouts.has(file)) continue;
+    const files = new Set<string>();
+    staticFiles(chunks, "index.html", files);
+    const parts = file.slice(0, -".tsx".length).split("/");
+    for (let depth = 2; depth <= parts.length; depth++) {
+      const ancestor = `${parts.slice(0, depth).join("/")}.tsx`;
+      if (split.has(ancestor))
+        staticFiles(chunks, ancestor + splitSuffix, files);
+    }
     const total: Sizes = { raw: 0, gzip: 0, brotli: 0 };
-    for (const file of files) {
-      const sizes = await sizeOf(file);
+    for (const name of files) {
+      const sizes = await sizeOf(name);
       total.raw += sizes.raw;
       total.gzip += sizes.gzip;
       total.brotli += sizes.brotli;
     }
-    results.push({ route, files: files.length, ...total });
+    results.push({ route: routePath(file), files: files.size, ...total });
   }
   return results.sort((a, b) => a.route.localeCompare(b.route));
 }

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { runInNewContext } from "node:vm";
 import { ThemePreferences } from "./theme-preferences";
 import { VsCodeTheme } from "./vscode-theme";
-import { themeBootScript } from "../components/theme-boot";
+import { themeBootScript } from "./theme-boot-script";
 import { BuiltInThemes } from "./built-in-themes";
 import { importedThemeSchema } from "./vscode-theme";
 

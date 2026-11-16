@@ -1,18 +1,10 @@
-import {
-  createServer,
-  type IncomingMessage,
-  type ServerResponse,
-} from "node:http";
-import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import next from "next";
 import { migrate } from "drizzle-orm/libsql/migrator";
 import { getDataRoot } from "@nimbus/api/data-root";
 import { Homes } from "@nimbus/api/homes";
 import { client, db } from "./db";
 import { createDriveStore } from "./drive-store";
 import { handleWebDAV } from "./webdav";
-import { streamBody } from "./http-files";
 import { cleanExpiredData } from "./maintenance";
 import {
   flushAudit,
@@ -23,8 +15,9 @@ import {
 import { AuditRetention, createAuditSink, purgeAuditEvents } from "./audit-log";
 import { ClientIp, clientIpHeader, TrustedProxies } from "./client-ip";
 import { mailConfig } from "./mail";
-import { nonceHeader, SecurityHeaders } from "./security-headers";
+import { SecurityHeaders } from "./security-headers";
 import { HttpRoutes } from "./http-routes";
+import { AppShell } from "./app-shell";
 import { backups, backupsToKeep } from "./backup";
 
 const port = Number(process.env.PORT ?? "3000");
@@ -55,7 +48,7 @@ const securityMode = {
   development: process.env.NODE_ENV !== "production",
   https: origin.protocol === "https:",
 };
-const commonHeaders = Object.entries(SecurityHeaders.common(securityMode));
+const commonHeaders = SecurityHeaders.common(securityMode);
 backupsToKeep();
 await migrate(db, {
   migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
@@ -68,65 +61,16 @@ const store = createDriveStore(db);
 for (const home of await Homes.backfill(store))
   if (home.kind === "failed") console.error(home.message);
   else console.info(`Nimbus created the home folder ${home.path}.`);
-const app = next({
-  dev: process.env.NODE_ENV !== "production",
-  hostname: "0.0.0.0",
-  port,
-});
-await app.prepare();
-const handleNext = app.getRequestHandler();
+const shell = await AppShell.start(securityMode);
+const routes = HttpRoutes.create({ shell, mode: securityMode });
+// Aborted at shutdown, which ends live event streams so the server can drain.
+const streams = new AbortController();
 
-async function* responseChunks(body: ReadableStream<Uint8Array>) {
-  const reader = body.getReader();
-  try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) return;
-      yield chunk.value;
-    }
-  } finally {
-    await reader.cancel();
-    reader.releaseLock();
-  }
-}
-
-const server = createServer((incoming, outgoing) => {
-  // Derive the client address once, from the socket and trusted proxies only.
-  const ip = ClientIp.resolve(
-    incoming.socket.remoteAddress,
-    incoming.headers["x-forwarded-for"],
-    trustedProxies,
-  );
-  incoming.headers[clientIpHeader] = ip;
-  const userAgent = incoming.headers["user-agent"];
-  void runWithAuditRequest({ ip, userAgent }, () =>
-    handleRequest(incoming, outgoing),
-  );
-});
-
-function webRequest(incoming: IncomingMessage, url: URL) {
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(incoming.headers)) {
-    if (Array.isArray(value))
-      for (const item of value) headers.append(key, item);
-    else if (value !== undefined) headers.set(key, value);
-  }
-  const method = incoming.method ?? "GET";
-  return new Request(url, {
-    method,
-    headers,
-    ...(method === "GET" || method === "HEAD"
-      ? {}
-      : { body: streamBody(incoming), duplex: "half" }),
+const textResponse = (status: number, text: string) =>
+  new Response(text, {
+    status,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
-}
-
-async function send(response: Response, outgoing: ServerResponse) {
-  outgoing.statusCode = response.status;
-  response.headers.forEach((value, key) => outgoing.setHeader(key, value));
-  if (response.body) await pipeline(responseChunks(response.body), outgoing);
-  else outgoing.end();
-}
 
 // The MCP consent page grants access with one click, so no OAuth response may be framed.
 const unframeable = {
@@ -134,71 +78,126 @@ const unframeable = {
   "Content-Security-Policy": "frame-ancestors 'none'",
 };
 
-async function handleRequest(
-  incoming: IncomingMessage,
-  outgoing: ServerResponse,
+/**
+ * Adds `headers` to `response`. Responses from `fetch` and `Response.redirect` have read-only
+ * headers, so those are copied; others are changed in place, which keeps file bodies on Bun's
+ * zero-copy path.
+ */
+function withHeaders(
+  response: Response,
+  headers: Record<string, string>,
+  { replace }: { replace: boolean },
 ) {
+  const apply = (target: Headers) => {
+    for (const [name, value] of Object.entries(headers))
+      if (replace || !target.has(name)) target.set(name, value);
+  };
   try {
-    const url = new URL(incoming.url ?? "/", origin);
-    for (const [name, value] of commonHeaders) outgoing.setHeader(name, value);
-    if (url.pathname.startsWith("/oauth/"))
-      for (const [name, value] of Object.entries(unframeable))
-        outgoing.setHeader(name, value);
-    if (HttpRoutes.owns(url.pathname) && url.pathname !== "/oauth/consent") {
-      const handler = HttpRoutes.find(url.pathname);
-      if (handler)
-        await send(await handler(webRequest(incoming, url)), outgoing);
-      else
-        outgoing
-          .writeHead(404, { "Content-Type": "text/plain; charset=utf-8" })
-          .end(`Nothing is served at ${url.pathname}. Check the address.`);
-      return;
-    }
-    if (url.pathname !== "/dav" && !url.pathname.startsWith("/dav/")) {
-      // Until it moves to the server, the consent page keeps only frame-ancestors, as before.
-      if (
-        SecurityHeaders.isDocument(url.pathname) &&
-        url.pathname !== "/oauth/consent"
-      ) {
-        // Next.js reads the nonce from the request policy and applies it to its scripts.
-        const nonce = SecurityHeaders.nonce();
-        const headers = SecurityHeaders.document(nonce, securityMode);
-        incoming.headers["content-security-policy"] =
-          headers["Content-Security-Policy"];
-        incoming.headers[nonceHeader] = nonce;
-        for (const [name, value] of Object.entries(headers))
-          outgoing.setHeader(name, value);
-      }
-      await handleNext(incoming, outgoing);
-      return;
-    }
-    // URL parsing drops a fragment, which would retarget a DELETE or MOVE at the parent.
-    if (incoming.url?.includes("#")) {
-      outgoing
-        .writeHead(400, { "Content-Type": "text/plain; charset=utf-8" })
-        .end(
-          "WebDAV request URLs cannot contain a fragment (#). Percent-encode # in file names as %23.",
-        );
-      return;
-    }
-    await send(await handleWebDAV(webRequest(incoming, url)), outgoing);
-  } catch (error) {
-    if (outgoing.destroyed) return;
-    // Query strings can carry credentials, such as MCP download link tokens.
-    console.error(
-      `Nimbus request failed: ${incoming.method} ${incoming.url?.split("?")[0]}`,
-      error,
-    );
-    if (outgoing.headersSent) outgoing.destroy();
-    else
-      outgoing
-        .writeHead(500, { "Content-Type": "text/plain; charset=utf-8" })
-        .end("The request failed. Check the server logs and try again.");
+    apply(response.headers);
+    return response;
+  } catch {
+    const copy = new Headers(response.headers);
+    apply(copy);
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: copy,
+    });
   }
 }
-server.listen(port, "0.0.0.0", () =>
-  console.info(`Nimbus is ready at http://localhost:${port}`),
-);
+
+/** WebDAV compares Destination URLs with the request URL, which names the public origin. */
+function webDavRequest(request: Request, url: URL) {
+  return new Request(new URL(url.pathname + url.search, origin), request);
+}
+
+async function route(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const { pathname } = url;
+  if (pathname === "/dav" || pathname.startsWith("/dav/")) {
+    // URL parsing drops a fragment, which would retarget a DELETE or MOVE at the parent.
+    if (request.url.includes("#"))
+      return textResponse(
+        400,
+        "WebDAV request URLs cannot contain a fragment (#). Percent-encode # in file names as %23.",
+      );
+    return handleWebDAV(webDavRequest(request, url));
+  }
+  if (HttpRoutes.owns(pathname)) {
+    const handler = routes.find(pathname);
+    const response = handler
+      ? await handler(request)
+      : textResponse(
+          404,
+          `Nothing is served at ${pathname}. Check the address.`,
+        );
+    return pathname.startsWith("/oauth/")
+      ? withHeaders(response, unframeable, { replace: false })
+      : response;
+  }
+  if (request.method !== "GET" && request.method !== "HEAD")
+    return new Response(`${request.method} is not supported here.`, {
+      status: 405,
+      headers: { Allow: "GET, HEAD" },
+    });
+  // In development Vite answers every path, so only documents skip it for the page.
+  const page = AppShell.wantsPage(request);
+  if (!page || !securityMode.development) {
+    const file = await shell.file(request, pathname);
+    if (file) return file;
+    if (!page) return textResponse(404, `Nothing is served at ${pathname}.`);
+  }
+  const nonce = SecurityHeaders.nonce();
+  return AppShell.htmlResponse(
+    request,
+    await shell.html(nonce),
+    new Headers(SecurityHeaders.document(nonce, securityMode)),
+  );
+}
+
+const server = Bun.serve({
+  port,
+  hostname: "0.0.0.0",
+  development: false,
+  // Bun's maximum. Event streams opt out of the timeout entirely.
+  idleTimeout: 255,
+  // Uploads stream to disk, so the body size is limited by storage, not memory.
+  maxRequestBodySize: Number.MAX_SAFE_INTEGER,
+  async fetch(request, server) {
+    // Derive the client address once, from the socket and trusted proxies only.
+    const ip = ClientIp.resolve(
+      server.requestIP(request)?.address,
+      request.headers.get("x-forwarded-for") ?? undefined,
+      trustedProxies,
+    );
+    request.headers.set(clientIpHeader, ip);
+    const userAgent = request.headers.get("user-agent") ?? undefined;
+    const events = request.headers.get("accept")?.includes("text/event-stream");
+    if (events) server.timeout(request, 0);
+    const incoming = events
+      ? new Request(request, {
+          signal: AbortSignal.any([request.signal, streams.signal]),
+        })
+      : request;
+    try {
+      const response = await runWithAuditRequest({ ip, userAgent }, () =>
+        route(incoming),
+      );
+      return withHeaders(response, commonHeaders, { replace: true });
+    } catch (error) {
+      // Query strings can carry credentials, such as MCP download link tokens.
+      console.error(
+        `Nimbus request failed: ${request.method} ${new URL(request.url).pathname}`,
+        error,
+      );
+      return textResponse(
+        500,
+        "The request failed. Check the server logs and try again.",
+      );
+    }
+  },
+});
+console.info(`Nimbus is ready at http://localhost:${server.port}`);
 
 let pendingCleanup: Promise<void> | undefined;
 function cleanup() {
@@ -243,27 +242,26 @@ function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(cleanupTimer);
+  streams.abort();
   const deadline = setTimeout(() => {
     console.error(
       "Nimbus shutdown exceeded 30 seconds. Closing remaining connections.",
     );
-    server.closeAllConnections();
+    void server.stop(true);
     client.close();
     process.exit(1);
   }, 30_000);
   deadline.unref();
-  server.close(() => {
-    void (async () => {
-      await pendingCleanup;
-      await app.close();
-      await flushAudit();
-      client.close();
-      clearTimeout(deadline);
-      process.exit(0);
-    })().catch((error: unknown) => {
-      console.error("Nimbus shutdown failed.", error);
-      process.exit(1);
-    });
+  void (async () => {
+    await server.stop();
+    await pendingCleanup;
+    await flushAudit();
+    client.close();
+    clearTimeout(deadline);
+    process.exit(0);
+  })().catch((error: unknown) => {
+    console.error("Nimbus shutdown failed.", error);
+    process.exit(1);
   });
 }
 process.on("SIGINT", shutdown);

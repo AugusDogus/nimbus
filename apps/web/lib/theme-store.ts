@@ -1,5 +1,3 @@
-"use client";
-
 import { useSyncExternalStore } from "react";
 import { ThemePreferences, themeStorageKey } from "./theme-preferences";
 import type { ThemeResult } from "./vscode-theme";

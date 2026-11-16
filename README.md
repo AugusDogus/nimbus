@@ -101,7 +101,7 @@ bun run build
 bun run start
 ```
 
-Set the deployment values in `apps/web/.env` before startup. For PDF and video thumbnails, install Poppler's `pdftoppm` and `ffmpeg` (for example `apt install poppler-utils ffmpeg`); without them those files show generic icons. The Docker image includes both. The Bun custom server is required for startup migrations, WebDAV methods, and retention cleanup. Use `bun run start`, not `next start`. The process listens on all interfaces; put your service manager and HTTPS proxy in front of it as appropriate.
+Set the deployment values in `apps/web/.env` before startup. For PDF and video thumbnails, install Poppler's `pdftoppm` and `ffmpeg` (for example `apt install poppler-utils ffmpeg`); without them those files show generic icons. The Docker image includes both. `bun run build` builds the browser app into `apps/web/dist`; `bun run start` runs one Bun process that applies migrations, serves that app, the API, and WebDAV, and schedules retention cleanup. The process listens on all interfaces; put your service manager and HTTPS proxy in front of it as appropriate.
 
 ## Configuration
 
@@ -184,7 +184,7 @@ Rate limits, sessions, and the audit log use the client address. By default Nimb
 
 ### Security headers
 
-Every page is served with a Content-Security-Policy that allows only same-origin scripts carrying a fresh per-request nonce (`'strict-dynamic'`), so injected scripts do not run. It also forbids plugins, `<base>` tags, cross-origin form targets, and embedding Nimbus in other sites (`frame-ancestors 'none'`). Inline styles stay allowed because the interface components set them at runtime. File previews keep their own sandbox policy. Responses also send `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, a `Permissions-Policy` that turns off camera, microphone, location, payment and USB access, and `Cross-Origin-Opener-Policy: same-origin`.
+Every page is served with a Content-Security-Policy that allows only scripts carrying a fresh per-request nonce (`'strict-dynamic'`), so injected scripts do not run. The server writes the nonce into the page's own script tags; the page is never cached. It also forbids plugins, `<base>` tags, cross-origin form targets, and embedding Nimbus in other sites (`frame-ancestors 'none'`). Inline styles stay allowed because the interface components set them at runtime. File previews keep their own sandbox policy. Responses also send `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, a `Permissions-Policy` that turns off camera, microphone, location, payment and USB access, and `Cross-Origin-Opener-Policy: same-origin`.
 
 When `BETTER_AUTH_URL` uses `https`, Nimbus adds `Strict-Transport-Security: max-age=31536000`, marks session, public link, and file request cookies `Secure`, and adds `upgrade-insecure-requests`. Configure your proxy to redirect plain HTTP to HTTPS. Session cookies are always `HttpOnly` and `SameSite=Lax`.
 
@@ -374,9 +374,9 @@ bun playwright install chromium
 bun run test:e2e
 ```
 
-`bun run format` rewrites files with [oxfmt](https://oxc.rs/docs/guide/usage/formatter), configured in `.oxfmtrc.jsonc`. `bun run lint` runs [oxlint](https://oxc.rs/docs/guide/usage/linter) over the whole repository with the rules in `.oxlintrc.jsonc`, including type-aware rules that reject `any` flowing into typed code, non-null assertions, unchecked type assertions, and floating promises; warnings fail it. `bun run typecheck` checks each workspace and the root scripts with the native TypeScript 7 compiler, installed as `typescript7`. The `typescript` 5 package remains because Next.js 16 and editors load its JavaScript API. To skip the formatting commit in `git blame`, run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
+`bun run format` rewrites files with [oxfmt](https://oxc.rs/docs/guide/usage/formatter), configured in `.oxfmtrc.jsonc`. `bun run lint` runs [oxlint](https://oxc.rs/docs/guide/usage/linter) over the whole repository with the rules in `.oxlintrc.jsonc`, including type-aware rules that reject `any` flowing into typed code, non-null assertions, unchecked type assertions, and floating promises; warnings fail it. `bun run typecheck` checks each workspace and the root scripts with the native TypeScript 7 compiler, installed as `typescript7`. To skip the formatting commit in `git blame`, run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
 
-Unit tests cover path confinement, permissions, file operations, migrations, retention, and caches. Playwright tests use isolated temporary storage and accounts on port 3100, or `NIMBUS_E2E_PORT` when set, with desktop and mobile Chromium projects. Every browser test fails on Content-Security-Policy violations. Local tests use development mode; with `CI=true`, tests use the production build, so run `bun run build` first. Do not run a production build while the development test server is running. CI runs these checks and retains failed browser-test artifacts.
+Unit tests cover path confinement, permissions, file operations, migrations, retention, and caches. Playwright tests use isolated temporary storage and accounts on port 3100, or `NIMBUS_E2E_PORT` when set, with desktop and mobile Chromium projects. Every browser test fails on Content-Security-Policy violations. Local tests use development mode, with Vite on the test port plus 10000 (or `NIMBUS_E2E_VITE_PORT`); with `CI=true`, tests use the production build, so run `bun run build` first. CI runs these checks and retains failed browser-test artifacts.
 
 See [the web app README](apps/web/README.md) for the code layout and database development commands.
 

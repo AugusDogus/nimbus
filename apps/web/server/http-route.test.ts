@@ -72,6 +72,13 @@ describe("route", () => {
     expect(response?.headers.get("allow")).toBe("GET, HEAD, OPTIONS");
   });
 
+  test("answers HEAD with the GET handler", async () => {
+    const response = await call("/api/file-request/abc", "HEAD");
+    expect(response?.status).toBe(200);
+    const refused = await call("/api/file-request/abc", "POST");
+    expect(refused?.headers.get("allow")).toBe("GET, HEAD, OPTIONS");
+  });
+
   test("answers OPTIONS for routes that do not handle it", async () => {
     const response = await call("/api/health", "OPTIONS");
     expect(response?.status).toBe(204);

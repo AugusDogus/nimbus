@@ -1,7 +1,5 @@
-"use client";
-
 import { Moon, Sun } from "lucide-react";
-import { useTheme } from "next-themes";
+import { useColorScheme } from "@/lib/color-scheme";
 import type { ComponentProps } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -17,7 +15,7 @@ type ThemeToggleProps = {
 };
 
 export function ThemeToggle({ side = "bottom" }: ThemeToggleProps) {
-  const { setTheme } = useTheme();
+  const { setScheme } = useColorScheme();
 
   return (
     <DropdownMenu>
@@ -36,13 +34,13 @@ export function ThemeToggle({ side = "bottom" }: ThemeToggleProps) {
         <span className="sr-only">Toggle theme</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side={side} sideOffset={8}>
-        <DropdownMenuItem onClick={() => setTheme("light")}>
+        <DropdownMenuItem onClick={() => setScheme("light")}>
           Light
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>
+        <DropdownMenuItem onClick={() => setScheme("dark")}>
           Dark
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>
+        <DropdownMenuItem onClick={() => setScheme("system")}>
           System
         </DropdownMenuItem>
       </DropdownMenuContent>

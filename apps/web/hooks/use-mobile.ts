@@ -8,15 +8,10 @@ const subscribe = (onChange: () => void) => {
   return () => window.removeEventListener("resize", onChange);
 };
 
-/**
- * Whether the viewport is narrower than the `md` breakpoint. Components that mount on the client
- * read the right value on their first render. While hydrating, React uses the server's answer,
- * false, because the server cannot know the viewport, and re-renders once if it differs.
- */
+/** Whether the viewport is narrower than the `md` breakpoint, right from the first render. */
 export function useIsMobile() {
   return React.useSyncExternalStore(
     subscribe,
     () => window.innerWidth < MOBILE_BREAKPOINT,
-    () => false,
   );
 }

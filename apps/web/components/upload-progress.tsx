@@ -1,5 +1,3 @@
-"use client";
-
 import { ChevronDown, RotateCw, X } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
