@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import { createSearchIndex, type SearchScope } from "./search-index";
 
 const all: SearchScope = { type: "all" };
@@ -188,4 +188,31 @@ describe("search index against a brute-force oracle", () => {
       expect(actual.truncated).toBe(false);
     }
   });
+});
+
+test("lists and removes children by id, and counts the id slots removal frees", () => {
+  const index = createSearchIndex();
+  const docs = index.add("docs", "dir");
+  index.add("docs/a.txt", "file", 3);
+  index.add("docs/deep/b.txt", "file", 4);
+  expect(index.isFolder(docs)).toBe(true);
+  expect(
+    index
+      .childrenOf(docs)
+      .map(({ name, kind }) => `${name} ${kind}`)
+      .sort(),
+  ).toEqual(["a.txt file", "deep dir"]);
+  expect(index.freedIds).toBe(0);
+  const deep = index.childrenOf(docs).find((child) => child.name === "deep");
+  if (!deep) throw new Error("Expected the deep folder.");
+  index.removeId(deep.id);
+  expect(index.bytesAt("docs")).toBe(3);
+  expect(index.bytesAt("")).toBe(3);
+  // The folder and its file.
+  expect(index.freedIds).toBe(2);
+  expect(index.isFolder(deep.id)).toBe(false);
+  expect(index.childrenOf(deep.id)).toEqual([]);
+  // The root cannot be removed.
+  index.removeId(0);
+  expect(index.bytesAt("")).toBe(3);
 });
