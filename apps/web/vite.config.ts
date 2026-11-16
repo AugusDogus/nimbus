@@ -6,10 +6,12 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
+import { startupChunkGroups } from "./vite/startup-chunk-groups";
 import { htmlNonce } from "./client/html-nonce";
 import { themeBoot } from "./lib/theme-boot-script";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
+const chunkPlan = path.join(root, "node_modules/.cache/nimbus-chunk-plan.json");
 
 /**
  * Runs the theme boot script inline, right after the custom theme style element it fills, before
@@ -83,7 +85,9 @@ function precompress(): Plugin {
   let outDir = "";
   return {
     name: "nimbus-precompress",
-    apply: "build",
+    // The chunk probe build is thrown away, so it needs no compressed copies.
+    apply: (_config, env) =>
+      env.command === "build" && process.env.NIMBUS_CHUNK_PROBE !== "1",
     configResolved(config) {
       outDir = path.resolve(config.root, config.build.outDir);
     },
@@ -115,43 +119,51 @@ function precompress(): Plugin {
   };
 }
 
-export default defineConfig({
-  root,
-  resolve: { tsconfigPaths: true },
-  html: { cspNonce: htmlNonce },
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
-    manifest: true,
-  },
-  optimizeDeps: {
-    // Scan every client module up front, including ones loaded only when a preview or dialog
-    // opens, so the dev server never finds a new dependency mid-session and reloads the page.
-    entries: [
-      "index.html",
-      "{app,client,components,hooks,lib,routes}/**/*.{ts,tsx}",
-      "!**/*.test.{ts,tsx}",
+export default defineConfig(({ command }) => {
+  const startup =
+    command === "build" ? startupChunkGroups(root, chunkPlan, 0) : undefined;
+  return {
+    root,
+    resolve: { tsconfigPaths: true },
+    html: { cspNonce: htmlNonce },
+    build: {
+      outDir: "dist",
+      emptyOutDir: true,
+      manifest: true,
+      rolldownOptions: {
+        output: { codeSplitting: startup?.codeSplitting ?? true },
+      },
+    },
+    optimizeDeps: {
+      // Scan every client module up front, including ones loaded only when a preview or dialog
+      // opens, so the dev server never finds a new dependency mid-session and reloads the page.
+      entries: [
+        "index.html",
+        "{app,client,components,hooks,lib,routes}/**/*.{ts,tsx}",
+        "!**/*.test.{ts,tsx}",
+      ],
+    },
+    server: {
+      host: "localhost",
+      port: Number(process.env.NIMBUS_VITE_PORT ?? "5173"),
+      strictPort: true,
+      // Pages load through the Nimbus server, which forwards module requests here. The HMR
+      // socket connects to this port directly.
+      ws: { clientPort: Number(process.env.NIMBUS_VITE_PORT ?? "5173") },
+    },
+    plugins: [
+      tanstackRouter({
+        target: "react",
+        autoCodeSplitting: true,
+        routesDirectory: "routes",
+        generatedRouteTree: "client/route-tree.gen.ts",
+      }),
+      react(),
+      tailwindcss(),
+      themeBootScript(),
+      preloadFonts(),
+      precompress(),
+      startup?.plugin,
     ],
-  },
-  server: {
-    host: "localhost",
-    port: Number(process.env.NIMBUS_VITE_PORT ?? "5173"),
-    strictPort: true,
-    // Pages load through the Nimbus server, which forwards module requests here. The HMR
-    // socket connects to this port directly.
-    ws: { clientPort: Number(process.env.NIMBUS_VITE_PORT ?? "5173") },
-  },
-  plugins: [
-    tanstackRouter({
-      target: "react",
-      autoCodeSplitting: true,
-      routesDirectory: "routes",
-      generatedRouteTree: "client/route-tree.gen.ts",
-    }),
-    react(),
-    tailwindcss(),
-    themeBootScript(),
-    preloadFonts(),
-    precompress(),
-  ],
+  };
 });

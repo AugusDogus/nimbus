@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "bun server/dev.ts",
-    "build": "bun --bun vite build --configLoader runner",
+    "build": "NIMBUS_CHUNK_PROBE=1 bun --bun vite build --configLoader runner --outDir node_modules/.cache/nimbus-chunk-probe --emptyOutDir && bun --bun vite build --configLoader runner",
     "start": "NODE_ENV=production bun server/start.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun server/db/migrate.ts",
