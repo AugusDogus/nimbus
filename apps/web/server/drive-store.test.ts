@@ -168,3 +168,57 @@ test("a link restored from trash keeps its download limit, count and preview-onl
   await store.restoreTrash("trash-limits");
   expect(await store.getShare("token-limited")).toMatchObject({ maxDownloads: 3, downloadCount: 1, mode: "view" });
 });
+
+const fileRequest = (id: string, path: string) => ({
+  id,
+  token: `request-${id}`,
+  path,
+  createdBy: "owner",
+  createdAt: 1,
+  expiresAt: null,
+  passwordHash: null,
+  note: null,
+  maxFileBytes: null,
+  maxFiles: 5,
+  maxTotalBytes: null,
+});
+
+test("file requests follow their folder through moves, and trash suspends them with their upload ledger", async () => {
+  await store.fileRequests.create(fileRequest("inbox", "docs/inbox"));
+  await store.fileRequests.reserve(
+    { id: "upload-1", requestId: "inbox", uploaderHash: "browser", size: 10, createdAt: 1 },
+    { activeSince: 0, maxActive: 5 },
+  );
+  await store.fileRequests.finishUpload("upload-1", "docs/inbox/a.txt", 2);
+  await store.movePath("docs", "moved");
+  expect((await store.fileRequests.getByToken("request-inbox"))?.path).toBe("moved/inbox");
+  await store.addTrash({ id: "trash-requests", path: "moved", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  expect(await store.fileRequests.getByToken("request-inbox")).toBeNull();
+  // A request created at the vacant path while the folder was in trash is not kept on restore.
+  await store.fileRequests.create(fileRequest("intruder", "moved/inbox"));
+  await store.restoreTrash("trash-requests");
+  expect((await store.fileRequests.getByToken("request-inbox"))?.path).toBe("moved/inbox");
+  expect(await store.fileRequests.getByToken("request-intruder")).toBeNull();
+  expect(await store.fileRequests.usage("inbox", 0)).toEqual({ files: 1, bytes: 10 });
+});
+
+test("file requests are discarded with content merged into another item, and with trash", async () => {
+  await store.fileRequests.create(fileRequest("merged", "merged"));
+  await store.discardPath("merged");
+  expect(await store.fileRequests.getByToken("request-merged")).toBeNull();
+  await store.fileRequests.create(fileRequest("purged", "purged"));
+  await store.addTrash({ id: "trash-purged", path: "purged", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  await store.removeTrash("trash-purged");
+  await store.restoreTrash("trash-purged");
+  expect(await store.fileRequests.getByToken("request-purged")).toBeNull();
+});
+
+test("trash rows saved without file requests still restore", async () => {
+  await store.createShare(share("legacy", "legacy"));
+  await store.addTrash({ id: "trash-legacy", path: "legacy", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  await client.execute(
+    `UPDATE nimbus_trash SET detached_access = json_remove(detached_access, '$.fileRequests') WHERE id = 'trash-legacy'`,
+  );
+  await store.restoreTrash("trash-legacy");
+  expect((await store.getShare("token-legacy"))?.path).toBe("legacy");
+});

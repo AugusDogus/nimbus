@@ -68,3 +68,27 @@ test("file requests accept anonymous uploads into one folder without exposing it
     await anonymous.close();
   }
 });
+
+test("file request links follow their folder through moves, trash and restore", async ({ context, browser }) => {
+  const folder = `moving-${randomUUID()}`;
+  const parent = `parent-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: folder });
+  await rpc.files.createFolder.mutate({ name: parent });
+  const { token } = await rpc.fileRequests.create.mutate({ path: folder, note: "", expiresAt: null, maxFileBytes: null, maxFiles: null, maxTotalBytes: null });
+  const anonymous = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  try {
+    const details = () => anonymous.request.get(`/api/file-request/${token}`);
+    await rpc.files.move.mutate({ sourcePath: folder, destinationPath: parent });
+    expect(await (await details()).json()).toMatchObject({ folder });
+    expect((await rpc.fileRequests.list.query()).find((request) => request.token === token)?.path).toBe(`${parent}/${folder}`);
+    await rpc.files.delete.mutate({ path: parent });
+    expect((await details()).status()).toBe(404);
+    const trashed = (await rpc.trash.list.query()).find((item) => item.path === parent);
+    if (!trashed) throw new Error(`Expected ${parent} in trash.`);
+    await rpc.trash.restore.mutate({ id: trashed.id });
+    expect(await (await details()).json()).toMatchObject({ folder });
+  } finally {
+    await anonymous.close();
+  }
+});

@@ -189,6 +189,8 @@ function atOrUnder(column: SQLiteColumn, path: string): SQL {
  */
 export const FileRequestRecords = {
   empty: { requests: [], uploads: [] } satisfies DetachedFileRequests,
+  /** The shape of suspended records inside a trash row. */
+  schema: detachedSchema,
   /** Validate suspended records read back from a trash row. */
   parse: (value: unknown) => detachedSchema.parse(value),
   /** Delete and return the requests at or under `path`, with their uploads. */

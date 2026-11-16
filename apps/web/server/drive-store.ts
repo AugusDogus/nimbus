@@ -8,7 +8,7 @@ import {
   type Grant,
 } from "@nimbus/api/drive-store";
 import type { db } from "./db";
-import { createFileRequestStore } from "./file-request-store";
+import { createFileRequestStore, FileRequestRecords } from "./file-request-store";
 import { createFileVersionStore } from "./file-version-store";
 import {
   appPasswords,
@@ -76,6 +76,8 @@ const detachedAccessSchema = z.object({
       xml: z.string(),
     }),
   ),
+  // Trash rows written before file requests existed have no such key.
+  fileRequests: FileRequestRecords.schema.default(FileRequestRecords.empty),
 });
 type DetachedAccess = z.infer<typeof detachedAccessSchema>;
 
@@ -99,9 +101,10 @@ function atOrUnder(column: SQLiteColumn, path: string): SQL {
   ) ?? sql`0`;
 }
 
-/** Delete and return every link, grant, bookmark, and dead property at or under a path. */
+/** Delete and return every link, file request, grant, bookmark, and dead property at or under a path. */
 async function detach(tx: Transaction, path: string): Promise<DetachedAccess> {
   const detached = {
+    fileRequests: await FileRequestRecords.detach(tx, path),
     grants: await tx.select().from(grants).where(atOrUnder(grants.path, path)),
     shares: await tx.select().from(shares).where(atOrUnder(shares.path, path)),
     bookmarks: await tx
@@ -328,6 +331,7 @@ export function createDriveStore(database: typeof db): DriveStore {
           await tx.insert(bookmarks).values(restoredBookmarks);
         if (parsed.data.properties.length)
           await tx.insert(davProperties).values(parsed.data.properties);
+        await FileRequestRecords.reattach(tx, parsed.data.fileRequests, userIds);
         await tx.delete(trash).where(eq(trash.id, id));
       });
     },
@@ -386,6 +390,7 @@ export function createDriveStore(database: typeof db): DriveStore {
             .update(table)
             .set({ path: relocated(table.path, from, to) })
             .where(atOrUnder(table.path, from));
+        await FileRequestRecords.relocate(tx, from, to);
       });
     },
     async homeOf(userId) {
