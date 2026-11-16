@@ -77,7 +77,7 @@ const search = defineTool({
   name: "search_files",
   title: "Search files",
   description:
-    "Find files and folders whose names contain the query (case-insensitive) under a folder you can read. Scans at most 10,000 items and 500 matches; truncated is true when the scan stopped early, so narrow the folder or query.",
+    "Find files and folders whose names contain the query (case-insensitive) under a folder you can read, using Nimbus's filename index. Returns at most 200 matches; truncated is true when more matched, so narrow the folder or query. complete is false while the index is still being built after the server started, so some matches may be missing.",
   scope: McpScope.read,
   annotations: readOnly,
   input: z.object({
@@ -85,11 +85,16 @@ const search = defineTool({
     path: pathInput.default("").describe("Folder to search under. Defaults to the whole drive."),
     ...pageInput(50, 200),
   }),
-  output: z.object({ entries: z.array(entryOutput), truncated: z.boolean(), ...pageOutput }),
+  output: z.object({ entries: z.array(entryOutput), truncated: z.boolean(), complete: z.boolean(), ...pageOutput }),
   async run({ caller }, input) {
-    const result = await caller.catalog.search({ query: input.query, path: input.path });
+    const result = await caller.catalog.search({ query: input.query, path: input.path, limit: 200 });
     const page = paginate(result.entries, input);
-    return { entries: page.items.map(toEntry), truncated: result.truncated, nextCursor: page.nextCursor };
+    return {
+      entries: page.items.map(toEntry),
+      truncated: result.truncated,
+      complete: result.complete,
+      nextCursor: page.nextCursor,
+    };
   },
 });
 
@@ -272,7 +277,7 @@ const rename = defineTool({
   name: "rename_item",
   title: "Rename item",
   description:
-    "Rename a file or folder in place. Renaming removes its public links, direct sharing, and stars, including on items inside a folder.",
+    "Rename a file or folder in place. Its public links, file requests, direct sharing, and stars stay with it, including those on items inside a folder.",
   scope: McpScope.write,
   annotations: destructive,
   input: z.object({ path: pathInput, newName: z.string().max(255) }),
@@ -286,7 +291,7 @@ const move = defineTool({
   name: "move_item",
   title: "Move item",
   description:
-    "Move a file or folder into another folder, keeping its name. Moving a folder needs admin permission on it. Moving removes its public links, direct sharing, and stars; the destination's sharing applies afterwards.",
+    "Move a file or folder into another folder, keeping its name. Moving a folder needs admin permission on it. Its public links, file requests, direct sharing, and stars move with it, but access inherited from its old parent folders is replaced by the destination folder's.",
   scope: McpScope.write,
   annotations: destructive,
   input: z.object({ path: pathInput, destinationFolder: pathInput }),
@@ -298,21 +303,83 @@ const move = defineTool({
   },
 });
 
+const copy = defineTool({
+  name: "copy_item",
+  title: "Copy item",
+  description:
+    "Copy a file or folder into another folder. A taken name gets a number added, such as \"report (1).txt\". Copying a folder needs admin permission on it. The copy has the destination folder's permissions, without the original's public links, file requests, direct sharing, or stars.",
+  scope: McpScope.write,
+  annotations: additive,
+  input: z.object({ path: pathInput, destinationFolder: pathInput }),
+  output: z.object({ path: z.string() }),
+  async run({ caller }, input) {
+    return {
+      path: (await caller.files.copy({ sourcePath: input.path, destinationPath: input.destinationFolder })).path,
+    };
+  },
+});
+
+const listVersions = defineTool({
+  name: "list_versions",
+  title: "List file versions",
+  description:
+    "List earlier versions of a file, newest first. Nimbus keeps the previous content whenever a file is replaced, for up to 30 days and 25 versions per file.",
+  scope: McpScope.read,
+  annotations: readOnly,
+  input: z.object({ path: pathInput }),
+  output: z.object({
+    versions: z.array(
+      z.object({
+        versionId: z.string(),
+        size: z.number(),
+        modifiedAt: z.string(),
+        archivedAt: z.string(),
+        archivedBy: z.string().nullable(),
+      }),
+    ),
+  }),
+  async run({ caller }, input) {
+    const versions = await caller.versions.list({ path: input.path });
+    return {
+      versions: versions.map((version) => ({
+        versionId: version.id,
+        size: version.size,
+        modifiedAt: isoTime(version.modifiedAt),
+        archivedAt: isoTime(version.archivedAt),
+        archivedBy: version.archivedBy,
+      })),
+    };
+  },
+});
+
+const restoreVersion = defineTool({
+  name: "restore_version",
+  title: "Restore a file version",
+  description:
+    "Replace a file's content with one of its earlier versions from list_versions. The current content is kept as a new version, so this can be undone.",
+  scope: McpScope.write,
+  annotations: destructive,
+  input: z.object({ path: pathInput, versionId: z.string().uuid() }),
+  output: z.object({ path: z.string() }),
+  async run({ caller }, input) {
+    const target = await safePath(input.path);
+    await caller.versions.restore({ path: target.relative, id: input.versionId });
+    return { path: target.relative };
+  },
+});
+
 const trash = defineTool({
   name: "move_to_trash",
   title: "Move to trash",
   description:
-    "Move a file or folder to trash. It can be restored for 30 days with restore_from_trash. Its public links, direct sharing, and stars are removed and are not restored.",
+    "Move a file or folder to trash. It can be restored for 30 days with restore_from_trash. While it is in trash its public links, file requests, direct sharing, and stars stop working; restoring it brings them back.",
   scope: McpScope.write,
   annotations: destructive,
   input: z.object({ path: pathInput }),
-  output: z.object({ trashId: z.string().nullable(), originalPath: z.string() }),
+  output: z.object({ trashId: z.string(), originalPath: z.string() }),
   async run({ caller }, input) {
-    const { path } = await caller.files.delete({ path: input.path });
-    const item = (await caller.trash.list())
-      .filter((entry) => entry.path === path)
-      .sort((a, b) => b.deletedAt - a.deletedAt)[0];
-    return { trashId: item?.id ?? null, originalPath: path };
+    const { path, trashId } = await caller.files.delete({ path: input.path });
+    return { trashId, originalPath: path };
   },
 });
 
@@ -357,7 +424,10 @@ export const fileTools = [
   createFolder,
   rename,
   move,
+  copy,
   trash,
   restore,
   star,
+  listVersions,
+  restoreVersion,
 ];

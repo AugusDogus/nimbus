@@ -288,8 +288,8 @@ The client discovers Nimbus's OAuth server, registers itself, and opens Nimbus i
 
 | Permission | Tools |
 | --- | --- |
-| View your files | `list_folder`, `get_item`, `search_files`, `read_text`, `get_download_link`, `list_shared_with_me`, `list_trash` |
-| Change your files | `write_text`, `create_folder`, `rename_item`, `move_item`, `move_to_trash`, `restore_from_trash`, `set_starred` |
+| View your files | `list_folder`, `get_item`, `search_files`, `read_text`, `get_download_link`, `list_shared_with_me`, `list_trash`, `list_versions` |
+| Change your files | `write_text`, `create_folder`, `rename_item`, `move_item`, `copy_item`, `move_to_trash`, `restore_from_trash`, `restore_version`, `set_starred` |
 | Manage sharing | `list_public_links`, `create_public_link`, `revoke_public_link`, `list_permissions`, `grant_permission`, `revoke_permission` |
 
 These permissions only narrow what a client may attempt. Every tool runs the same checks as the browser: your file permissions, WebDAV locks, and path rules apply, and `.nimbus` and symbolic links stay hidden. `read_text` returns UTF-8 text in ranges of up to 256 KiB. `write_text` refuses to replace an existing file unless the client passes its current version tag or asks to overwrite. `get_download_link` returns a link that works for five minutes and only while the connection and your access remain.

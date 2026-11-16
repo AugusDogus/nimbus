@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { z } from "zod";
 import { resetDirListCacheForTest } from "./dir-list-cache";
 import { lockFile } from "./file-mutations";
 import { resetListCacheForTest } from "./list-cache";
 import { McpScope } from "./mcp-scope";
 import type { McpToolContext } from "./mcp-tool";
 import { mcpTools } from "./mcp-tools";
-import { createTestDriveStore } from "./testing";
+import { provideSearchService } from "./search-service";
+import { crawlingSearchService, createTestDriveStore } from "./testing";
 
 describe("MCP tools", () => {
   let root: string;
@@ -49,6 +51,7 @@ describe("MCP tools", () => {
     process.env.NIMBUS_DATA_ROOT = root;
     memory = createTestDriveStore();
     links = [];
+    provideSearchService(crawlingSearchService(root));
     resetListCacheForTest();
     resetDirListCacheForTest();
     await mkdir(path.join(root, "docs"));
@@ -123,6 +126,30 @@ describe("MCP tools", () => {
     expect(await value("write_text", { path: "docs/notes.md", content: "changed", expectedEtag: etag })).toMatchObject({ outcome: "replaced" });
     expect(await readFile(path.join(root, "docs", "notes.md"), "utf8")).toBe("changed");
     expect(await failure("write_text", { path: "missing/notes.md", content: "x" })).toContain("create_folder");
+  });
+
+  it("copies items, keeping both names on a clash", async () => {
+    await mkdir(path.join(root, "archive"));
+    expect(await value("copy_item", { path: "docs/report.txt", destinationFolder: "archive" })).toEqual({ path: "archive/report.txt" });
+    expect(await value("copy_item", { path: "docs/report.txt", destinationFolder: "archive" })).toEqual({ path: "archive/report (1).txt" });
+    expect(await readFile(path.join(root, "archive", "report (1).txt"), "utf8")).toBe("quarterly report");
+  });
+
+  it("lists earlier versions of a replaced file and restores one", async () => {
+    await value("write_text", { path: "docs/report.txt", content: "revised", overwrite: true });
+    const listed = z
+      .object({ versions: z.array(z.object({ versionId: z.string(), size: z.number() })) })
+      .parse(await value("list_versions", { path: "docs/report.txt" }));
+    expect(listed.versions).toMatchObject([{ size: "quarterly report".length }]);
+    const [version] = listed.versions;
+    if (!version) throw new Error("Expected a version");
+    await value("restore_version", { path: "docs/report.txt", versionId: version.versionId });
+    expect(await readFile(path.join(root, "docs", "report.txt"), "utf8")).toBe("quarterly report");
+    expect(await failure("restore_version", { path: "docs/report.txt", versionId: version.versionId }, context("user-1", [McpScope.read]))).toContain("scope");
+  });
+
+  it("searches names through the filename index", async () => {
+    expect(await value("search_files", { query: "report" })).toMatchObject({ entries: [{ path: "docs/report.txt" }], truncated: false, complete: true });
   });
 
   it("respects WebDAV locks", async () => {
