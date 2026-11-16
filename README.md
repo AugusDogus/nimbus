@@ -154,13 +154,13 @@ Password sign-in can be followed by a second factor. In **Settings â†’ Account â
 
 Passkeys sign in with your device's fingerprint, face, or PIN and count as both factors, so they skip the code. Add them under **Passkeys**, then use **Sign in with a passkey** or pick one from the email field's autofill. Nimbus requires user verification. Passkeys are bound to the host name in `BETTER_AUTH_URL`; changing it makes existing passkeys stop working.
 
-If someone loses every factor, an administrator selects **Reset sign-in methods** in that account's action menu. It removes two-factor authentication, recovery codes, passkeys, and trusted browsers, and signs the account out everywhere. The person then signs in with their password and sets them up again.
+If someone loses every factor, an administrator selects **Reset sign-in methods** in that account's action menu. It removes two-factor authentication, recovery codes, passkeys, trusted browsers, and WebDAV app passwords, and signs the account out everywhere, so connected WebDAV devices are disconnected too. The person then signs in with their password, sets up their sign-in methods again, and creates new app passwords for their devices.
 
 **Sessions** lists browsers signed in to your account with their last activity and address. Sign out any one, or every other session at once.
 
 ### WebDAV app passwords and two-factor authentication
 
-WebDAV clients cannot show a code prompt, so app passwords bypass two-factor authentication by design. They are random 256-bit tokens, created only from a signed-in browser session (which already passed two-factor authentication), shown once, stored as hashes, scoped to file access with your permissions, and individually revocable. They cannot sign in to the web interface or change account settings. Revoke an app password as soon as a device is lost. Resetting sign-in methods or changing your password does not revoke app passwords; disabling the account blocks them.
+WebDAV clients cannot show a code prompt, so app passwords bypass two-factor authentication by design. They are random 256-bit tokens, created only from a signed-in browser session (which already passed two-factor authentication), shown once, stored as hashes, scoped to file access with your permissions, and individually revocable. They cannot sign in to the web interface or change account settings. Revoke an app password as soon as a device is lost. Changing your password does not revoke app passwords. An administrator resetting your sign-in methods revokes them all, and disabling the account blocks them.
 
 ### Password reset
 

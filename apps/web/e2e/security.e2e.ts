@@ -137,6 +137,7 @@ test("sessions can be reviewed and signed out, and administrators can reset sign
   browser,
   page,
   isMobile,
+  request,
 }) => {
   const { email } = await createMember(page);
   const first = await memberPage(browser, page);
@@ -166,6 +167,33 @@ test("sessions can be reviewed and signed out, and administrators can reset sign
     await second.page.reload();
     await expect(second.page).toHaveURL(/\/login$/);
 
+    await first.page.goto("/settings/webdav");
+    await first.page
+      .getByRole("button", { name: "Create password", exact: true })
+      .click();
+    await first.page.getByLabel("Device name").fill("Laptop");
+    await first.page
+      .getByRole("dialog", { name: "Create app password", exact: true })
+      .getByRole("button", { name: "Create password", exact: true })
+      .click();
+    const token = first.page.getByRole("textbox", {
+      name: "App password",
+      exact: true,
+    });
+    const davHeaders = {
+      Authorization: `Basic ${Buffer.from(`${email}:${await token.inputValue()}`).toString("base64")}`,
+      Depth: "0",
+    };
+    await first.page.getByRole("button", { name: "I’ve saved it" }).click();
+    const davStatus = async () =>
+      (
+        await request.fetch("/dav/", {
+          method: "PROPFIND",
+          headers: davHeaders,
+        })
+      ).status();
+    expect(await davStatus()).toBe(207);
+
     await page.goto("/settings/admin");
     await page
       .getByRole("button", { name: `Actions for ${email}`, exact: true })
@@ -183,6 +211,7 @@ test("sessions can be reviewed and signed out, and administrators can reset sign
     await expect(page.getByRole("alertdialog")).toBeHidden();
     await first.page.reload();
     await expect(first.page).toHaveURL(/\/login$/);
+    expect(await davStatus()).toBe(401);
 
     await page.goto("/settings/admin/audit");
     const events = page.getByRole("list", { name: "Audit events" });
@@ -193,6 +222,7 @@ test("sessions can be reviewed and signed out, and administrators can reset sign
         timeout: 1_000,
       });
     }).toPass();
+    await expect(events).toContainText("1 app password revoked");
     await expect(events).toContainText("Signed out other sessions");
     await page.getByRole("combobox", { name: "Event" }).click();
     await page

@@ -8,6 +8,7 @@ import {
 import encodeQR from "qr";
 import { z } from "zod";
 import { auditUser, recordAudit } from "@nimbus/api/audit";
+import type { DriveStore } from "@nimbus/api/drive-store";
 
 const includesAdmin = (role: string | null | undefined) =>
   (role ?? "").split(",").includes("admin");
@@ -32,9 +33,13 @@ const enableResult = z
 /**
  * Nimbus account-security endpoints that Better Auth does not provide:
  * revoking one of your sessions by ID (so session tokens never reach the browser),
- * and an administrator reset of every second factor for an account.
+ * and an administrator reset of every second factor and WebDAV app password for an account.
  */
-export const nimbusSecurity = () =>
+export const nimbusSecurity = ({
+  appPasswords,
+}: {
+  appPasswords: Pick<DriveStore, "listAppPasswords" | "removeAppPassword">;
+}) =>
   ({
     id: "nimbus-security",
     endpoints: {
@@ -133,10 +138,15 @@ export const nimbusSecurity = () =>
             twoFactorEnabled: false,
           });
           await ctx.context.internalAdapter.deleteUserSessions(userId);
+          // App passwords are created only from a session, so none can appear once sessions are gone.
+          const revoked = await appPasswords.listAppPasswords(userId);
+          for (const password of revoked)
+            await appPasswords.removeAppPassword(password.id, userId);
           recordAudit({
             action: "account.second_factors_reset",
             actor: auditUser(actor),
             target: { type: "user", id: userId, label: target.email },
+            details: { appPasswordsRevoked: revoked.length },
           });
           return ctx.json({ reset: true });
         },

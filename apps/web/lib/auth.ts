@@ -345,7 +345,7 @@ export const auth = betterAuth({
       },
     }),
     ...oidcPlugins,
-    nimbusSecurity(),
+    nimbusSecurity({ appPasswords: createDriveStore(db) }),
     // Append new plugins above this line. Audit observes final results; nextCookies must be last.
     nimbusAudit(),
     nextCookies(),

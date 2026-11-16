@@ -35,6 +35,10 @@ function describeDetails(
     parts.push(`${details.permission} permission`);
   if (typeof details.role === "string") parts.push(`role ${details.role}`);
   if (typeof details.service === "string") parts.push(details.service);
+  if (typeof details.appPasswordsRevoked === "number")
+    parts.push(
+      `${details.appPasswordsRevoked} app password${details.appPasswordsRevoked === 1 ? "" : "s"} revoked`,
+    );
   return parts.length ? parts.join(" · ") : null;
 }
 

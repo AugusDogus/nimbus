@@ -106,7 +106,7 @@ export function UserList({
                   onSelect={() =>
                     onConfirm({
                       title: "Reset sign-in methods?",
-                      description: `${user.email} will lose two-factor authentication, recovery codes, passkeys and trusted browsers, and will be signed out everywhere. They can then sign in with their password and set these up again. WebDAV app passwords and files are not affected.`,
+                      description: `${user.email} will lose two-factor authentication, recovery codes, passkeys and trusted browsers, and will be signed out everywhere. Their WebDAV app passwords will be revoked, which disconnects every WebDAV device until they create new passwords. They can then sign in with their password and set these up again. Files are not affected.`,
                       action: async () => {
                         const result =
                           await securityClient.nimbus.admin.resetSecondFactors({
@@ -128,7 +128,7 @@ export function UserList({
                   onSelect={() =>
                     onConfirm({
                       title: "Sign out everywhere?",
-                      description: `Every browser signed in as ${user.email} will need to sign in again. WebDAV app passwords keep working; revoking them requires the account owner or disabling the account.`,
+                      description: `Every browser signed in as ${user.email} will need to sign in again. WebDAV app passwords keep working; the account owner can revoke them, or you can reset sign-in methods or disable the account.`,
                       action: async () => {
                         const result =
                           await authClient.admin.revokeUserSessions({
