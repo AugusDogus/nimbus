@@ -8,7 +8,6 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toast";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { sessionQuery } from "@/lib/session-query";
 import { queryClient } from "@/lib/trpc";
 import { trpcErrorCode } from "@/lib/trpc-error";
@@ -44,9 +43,7 @@ void router.load().then(() =>
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <TooltipProvider>
-            <RouterProvider router={router} />
-          </TooltipProvider>
+          <RouterProvider router={router} />
         </ThemeProvider>
         <Toaster />
       </QueryClientProvider>
