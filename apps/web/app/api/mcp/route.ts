@@ -10,6 +10,11 @@ import { authenticateBearer } from "@/server/mcp/oauth/tokens";
 import { allowedOrigins, guardTransport, throttleAnonymous, throttleConnection, type GuardDecision } from "@/server/mcp/request-guard";
 import { withMcp } from "@/server/mcp/runtime";
 import { createNimbusMcpServer } from "@/server/mcp/server";
+import { ensureFileWatcher } from "@/server/file-watcher";
+
+// MCP clients may be the first to reach a freshly started server; search_files
+// needs the filename index that the watcher starts.
+ensureFileWatcher();
 
 /** The verified connection, carried from authentication to the per-request server factory. */
 const connectionSchema = z.object({ userId: z.string().min(1), grantId: z.string().min(1) });
