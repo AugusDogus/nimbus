@@ -15,7 +15,7 @@ test("sign-in shows its real card's size, with its fields hidden and inert", () 
   });
   expect(
     html.startsWith(
-      '<div inert="" class="[&amp;_[data-slot=card]&gt;*]:invisible">',
+      '<style>[data-skeleton] [data-slot=card]>*{visibility:hidden}</style><div inert="" aria-hidden="true" data-skeleton="">',
     ),
   ).toBe(true);
   expect(html).toContain("Welcome back");
@@ -52,6 +52,10 @@ test("signed-in pages follow the folder view, and other pages have no skeleton",
       },
     });
   expect(folder("grid")).not.toBe(folder("list"));
+  for (const html of [folder("list"), folder("grid")])
+    expect(
+      html.startsWith('<div inert="" aria-hidden="true" data-skeleton="">'),
+    ).toBe(true);
   expect(
     PageSkeleton.markup("public", at("/s/token"), { folder: false, data: {} }),
   ).toBe("");

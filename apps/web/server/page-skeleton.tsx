@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   createMemoryHistory,
@@ -11,12 +12,23 @@ import { LoginForm } from "@/components/login-form";
 import { FilesSkeleton, SettingsSkeleton } from "@/app/page-skeletons";
 import type { PageKind } from "./route-preloads";
 
+/**
+ * A placeholder that only looks like the page: hidden from assistive technology and inert, so
+ * its landmarks, labels and links neither speak nor take input before the app replaces it.
+ */
+const placeholder = (page: ReactNode) =>
+  renderToStaticMarkup(
+    <div inert aria-hidden="true" data-skeleton="">
+      {page}
+    </div>,
+  );
+
 // Rendered once; they never vary by request.
 const markup = {
-  filesList: renderToStaticMarkup(<FilesSkeleton view="list" />),
-  filesGrid: renderToStaticMarkup(<FilesSkeleton view="grid" />),
-  filesPage: renderToStaticMarkup(<FilesSkeleton view={null} />),
-  settings: renderToStaticMarkup(<SettingsSkeleton />),
+  filesList: placeholder(<FilesSkeleton view="list" />),
+  filesGrid: placeholder(<FilesSkeleton view="grid" />),
+  filesPage: placeholder(<FilesSkeleton view={null} />),
+  settings: placeholder(<SettingsSkeleton />),
 };
 
 type SignInOptions = NonNullable<Bootstrap["signInOptions"]>;
@@ -29,28 +41,32 @@ const router = createRouter({
 
 const signInCards = new Map<string, string>();
 
-/** Hides everything inside the card while keeping the space it takes. */
-const cardContentHidden = "[&_[data-slot=card]>*]:invisible";
+/**
+ * Hides everything inside the card while keeping the space it takes. It is inline so it holds
+ * before the app's stylesheet arrives, which in development comes with the app's code.
+ */
+const cardContentHidden =
+  "<style>[data-skeleton] [data-slot=card]>*{visibility:hidden}</style>";
 
 /**
  * The sign-in page laid out as the app first renders it, from the same components, so nothing
  * moves when the app replaces it. Only the logo and an empty card of the right size show: its
- * fields stay hidden and inert, so neither people, autofill nor scripts can type into fields
- * that are about to be replaced.
+ * fields stay hidden, so neither people, autofill nor scripts can type into fields that are
+ * about to be replaced.
  */
 function signIn(options: SignInOptions) {
   const key = JSON.stringify(options);
   const cached = signInCards.get(key);
   if (cached !== undefined) return cached;
-  const html = renderToStaticMarkup(
-    <div inert className={cardContentHidden}>
+  const html =
+    cardContentHidden +
+    placeholder(
       <RouterContextProvider router={router}>
         <AuthPage>
           <LoginForm {...options} />
         </AuthPage>
-      </RouterContextProvider>
-    </div>,
-  );
+      </RouterContextProvider>,
+    );
   signInCards.set(key, html);
   return html;
 }

@@ -290,9 +290,7 @@ test("the sign-in page offers no fields before the app can keep what is typed", 
     // Hold back the app's code, so the page shows only what the server sent.
     await visitor.page.route(/\.(js|tsx?)(\?|$)/, (route) => route.abort());
     await visitor.page.goto("/login");
-    await expect(
-      visitor.page.getByRole("link").filter({ hasText: "Nimbus" }),
-    ).toBeVisible();
+    await expect(visitor.page.locator('[data-slot="card"]')).toBeVisible();
     await expect(
       visitor.page.getByLabel("Email", { exact: true }),
     ).toBeHidden();
