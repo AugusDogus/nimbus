@@ -59,6 +59,53 @@ docker compose logs -f nimbus
 
 Open [http://localhost:3000/signup](http://localhost:3000/signup) to create the administrator. Compose binds port 3000 to the host's loopback interface. For remote access, put an HTTPS reverse proxy in front of it and set `BETTER_AUTH_URL` to the public origin, for example `https://files.example.com`. The proxy must preserve the request host and forwarded protocol, allow WebDAV methods, and permit your intended upload sizes and transfer durations. Disable buffering for the live event stream. Serve Nimbus at the origin root, not under a URL prefix.
 
+### HTTPS reverse proxy
+
+Nimbus speaks HTTP/1.1. Browsers open at most six HTTP/1.1 connections to a server, and the file browser's first visit loads about 30 scripts, so on slow networks requests wait for a free connection. A proxy that speaks HTTP/2 to the browser removes that wait: in a measured cold load of a comparable app, first paint came 41% sooner on a fast mobile connection and 13% sooner on a slow one. Use HTTPS with HTTP/2 (HTTP/3 is optional) towards browsers and plain HTTP/1.1 to Nimbus. Nimbus already compresses its files, so leave compression off in the proxy, and do not buffer uploads or the live event stream.
+
+[Caddy](https://caddyserver.com) does all of this by default:
+
+```caddyfile
+files.example.com {
+	reverse_proxy 127.0.0.1:3000 {
+		transport http {
+			versions 1.1
+		}
+	}
+}
+```
+
+nginx needs the buffering and size limits lifted:
+
+```nginx
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name files.example.com;
+    ssl_certificate /path/fullchain.pem;
+    ssl_certificate_key /path/privkey.pem;
+
+    client_max_body_size 0;
+    client_body_timeout 1h;
+    gzip off;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+}
+```
+
+Set `NIMBUS_TRUSTED_PROXIES` to the proxy's address so rate limits and the audit log see each visitor's address; see [Reverse proxies and client addresses](#reverse-proxies-and-client-addresses).
+
 The server runs as an unprivileged user, by default UID and GID 1000. Set `PUID` and `PGID` to the numeric owner of your host directories, and Nimbus creates files as that user. `UMASK` (default `022`) sets the permissions of new files; `002` makes them group-writable. The container starts as root only to apply these settings, then drops privileges before the server starts. At startup it takes ownership of the config root and the reserved `/data/.nimbus` folder, which contain only Nimbus state, and of the `/data` directory itself; it never changes the ownership of your files. If you start the container with `--user` instead, these variables are ignored and the mounts must already be writable by that user. Persist both `/data` (managed files, trash, upload staging) and `/config` (database and thumbnail cache). Use one Nimbus process per data root, on a local filesystem. Locks, live events, and mutation coordination are maintained within that process.
 
 ### Published image
