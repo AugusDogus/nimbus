@@ -8,7 +8,7 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "lint": "turbo lint",
+    "lint": "oxlint --deny-warnings",
     "test": "bun test",
     "test:e2e": "bun playwright test",
     "setup": "bun scripts/setup.ts",
@@ -18,6 +18,8 @@
   "devDependencies": {
     "@modelcontextprotocol/client": "2.4.0",
     "@playwright/test": "^1.58.2",
+    "oxlint": "1.93.0",
+    "oxlint-tsgolint": "7.0.2007",
     "shadcn": "^3.8.2",
     "turbo": "^2.8.1"
   }
