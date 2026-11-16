@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Progress as ProgressPrimitive } from "radix-ui";
+import { Progress as ProgressPrimitive } from "@base-ui/react/progress";
 
 import { cn } from "@/lib/utils";
 
@@ -20,10 +20,14 @@ function Progress({
       )}
       {...props}
     >
+      {/* Full width and translated, not resized, so progress animates on the compositor. */}
       <ProgressPrimitive.Indicator
         data-slot="progress-indicator"
-        className="bg-primary h-full w-full flex-1 transition-all"
-        style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
+        className="bg-primary h-full flex-1 transition-all"
+        style={{
+          width: "100%",
+          transform: `translateX(-${100 - (value ?? 0)}%)`,
+        }}
       />
     </ProgressPrimitive.Root>
   );

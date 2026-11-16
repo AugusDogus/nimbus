@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Tabs } from "radix-ui";
+import { Tabs } from "@base-ui/react/tabs";
 import { LibraryPage } from "../library-page";
 import { PublicLinks } from "./public-links";
 import { FileRequests } from "./file-requests";
@@ -31,27 +31,28 @@ export function SharedTabs({ tab }: { tab: SharedTab }) {
     >
       <Tabs.List
         aria-label="Shared files"
+        activateOnFocus
         className="inline-flex gap-1 rounded-lg bg-muted p-1"
       >
         {tabs.map(({ value, label }) => (
-          <Tabs.Trigger
+          <Tabs.Tab
             key={value}
             value={value}
-            className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+            className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring data-active:bg-background data-active:text-foreground data-active:shadow-sm"
           >
             {label}
-          </Tabs.Trigger>
+          </Tabs.Tab>
         ))}
       </Tabs.List>
-      <Tabs.Content value="with-me">
+      <Tabs.Panel value="with-me">
         <LibraryPage kind="shared" />
-      </Tabs.Content>
-      <Tabs.Content value="links">
+      </Tabs.Panel>
+      <Tabs.Panel value="links">
         <PublicLinks />
-      </Tabs.Content>
-      <Tabs.Content value="requests">
+      </Tabs.Panel>
+      <Tabs.Panel value="requests">
         <FileRequests />
-      </Tabs.Content>
+      </Tabs.Panel>
     </Tabs.Root>
   );
 }
