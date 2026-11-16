@@ -124,6 +124,15 @@ export default defineConfig({
     emptyOutDir: true,
     manifest: true,
   },
+  optimizeDeps: {
+    // Scan every client module up front, including ones loaded only when a preview or dialog
+    // opens, so the dev server never finds a new dependency mid-session and reloads the page.
+    entries: [
+      "index.html",
+      "{app,client,components,hooks,lib,routes}/**/*.{ts,tsx}",
+      "!**/*.test.{ts,tsx}",
+    ],
+  },
   server: {
     host: "localhost",
     port: Number(process.env.NIMBUS_VITE_PORT ?? "5173"),
