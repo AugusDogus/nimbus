@@ -1,4 +1,5 @@
 import { FileListing } from "@nimbus/api/file-listing";
+import { fileListInput } from "./file-list-request";
 import { trpcClient } from "./trpc";
 
 /**
@@ -7,7 +8,7 @@ import { trpcClient } from "./trpc";
  */
 export async function fetchFileList(path: string, includeStats: boolean) {
   const listing: unknown = await trpcClient.files.list.query(
-    path ? { path, includeStats } : { includeStats },
+    fileListInput(path, includeStats),
   );
   const decoded = FileListing.decode(listing);
   // React Query shows a failed fetch as an error state with this message.

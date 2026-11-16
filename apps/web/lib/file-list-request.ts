@@ -4,9 +4,8 @@
  * listing query then reuses the response. If the two ever differ, the preload goes unused and
  * the listing loads as before.
  *
- * Joining point: the listing `queryFn` in `app/drive/files/use-file-list.ts` sends
- * `fileListInput(path, includeStats)` through tRPC's batch link, alone in its batch. Change
- * the input here and there together.
+ * `fetchFileList` sends `fileListInput` through tRPC's batch link, and the file browser's first
+ * listing goes alone in its batch, so the preloaded URL is the one it requests.
  */
 export const fileListInput = (path: string, includeStats: boolean) =>
   path ? { path, includeStats } : { includeStats };
