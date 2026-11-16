@@ -6,8 +6,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { lazyComponent } from "@/components/lazy-component";
 import { ThemeProvider } from "@/components/theme-provider";
-import { Toaster } from "@/components/ui/toast";
 import { sessionQuery } from "@/lib/session-query";
 import { queryClient } from "@/lib/trpc";
 import { trpcErrorCode } from "@/lib/trpc-error";
@@ -28,6 +28,11 @@ queryClient.getQueryCache().subscribe((event) => {
 });
 
 Bootstrap.seed(queryClient);
+
+// Pages that show toasts load the toast code with their own; sign-in and public pages never do.
+const Toaster = lazyComponent(async () => ({
+  default: (await import("@/components/ui/toast")).Toaster,
+}));
 
 const container = document.getElementById("root");
 if (!container)
