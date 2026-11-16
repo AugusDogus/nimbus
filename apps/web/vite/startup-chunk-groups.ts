@@ -37,6 +37,23 @@ const hash = (files: Set<string>) =>
     .digest("hex")
     .slice(0, 8);
 
+/** Whether following imports from some group leads back to it. */
+function hasCycle(dependencies: Map<string, Set<string>>) {
+  const done = new Set<string>();
+  const active = new Set<string>();
+  const visit = (group: string): boolean => {
+    if (done.has(group)) return false;
+    if (active.has(group)) return true;
+    active.add(group);
+    for (const dependency of dependencies.get(group) ?? [])
+      if (visit(dependency)) return true;
+    active.delete(group);
+    done.add(group);
+    return false;
+  };
+  return [...dependencies.keys()].some(visit);
+}
+
 function planGroups(
   chunks: Chunk[],
   root: string,
@@ -140,6 +157,8 @@ function planGroups(
         }
       dependencies.set(group, deps);
     }
+    // Groups that import each other in a cycle can run a module before the one it needs.
+    if (hasCycle(dependencies)) return null;
     const initial = new Map<string, Set<string>>();
     let extra = 0;
     for (const [page, files] of pages) {
@@ -183,7 +202,7 @@ function planGroups(
     const current = simulate(groups);
     if (!current)
       throw new Error(
-        "Initial page groups unexpectedly add modules to a protected route.",
+        "Initial page groups add modules to a protected route or import each other in a cycle. Check the chunk probe output.",
       );
     const initial = current.initial.get("/browse/$") ?? new Set<string>();
     const eligible = [...initial]
