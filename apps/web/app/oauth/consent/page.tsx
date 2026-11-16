@@ -13,7 +13,13 @@ import { loadConsent, optionalScopeFields } from "@/server/mcp/oauth/authorizati
 import { mcpRuntime } from "@/server/mcp/runtime";
 import { getSession } from "@/server/files-data";
 
-export const metadata: Metadata = { title: "Connect an app · Nimbus", robots: { index: false } };
+export const metadata: Metadata = {
+  title: "Connect an app · Nimbus",
+  robots: { index: false },
+  // Nimbus sends Referrer-Policy: no-referrer, which makes browsers send "Origin: null" with
+  // form posts. The decision endpoint checks the Origin, so this page sends it to its own origin.
+  referrer: "same-origin",
+};
 
 type SearchParams = Record<string, string | string[] | undefined>;
 

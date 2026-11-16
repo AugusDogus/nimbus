@@ -50,7 +50,8 @@ test("the folder view offers page tools to in-browser agents that act through th
   ]);
 
   expect(await callTool(page, "nimbus.list_folder", {})).toMatchObject({ ok: true, folder: "", entries: expect.arrayContaining([expect.objectContaining({ name: "alpha.txt", type: "file" })]) });
-  expect(await callTool(page, "nimbus.search", { query: "readme" })).toMatchObject({ ok: true, entries: [{ path: "docs/readme.md" }] });
+  // Other specs share the server's drive and may add their own matches.
+  expect(await callTool(page, "nimbus.search", { query: "readme" })).toMatchObject({ ok: true, entries: expect.arrayContaining([expect.objectContaining({ path: "docs/readme.md" })]) });
 
   await callTool(page, "nimbus.open_preview", { path: "alpha.txt" });
   await expect(page.getByRole("dialog", { name: "alpha.txt" })).toBeVisible();
