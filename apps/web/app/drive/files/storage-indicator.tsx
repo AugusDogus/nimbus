@@ -25,7 +25,7 @@ export function StorageIndicator({ storage }: { storage: StorageSummary }) {
             <Progress
               aria-label="Disk storage used"
               value={capacity.usedPercent}
-              className="h-1.5 bg-foreground/10 [&_[data-slot=progress-indicator]]:bg-foreground/80"
+              className="*:data-[slot=progress-track]:h-1.5 *:data-[slot=progress-track]:bg-foreground/10 [&_[data-slot=progress-indicator]]:bg-foreground/80"
             />
             <p className="text-xs tabular-nums text-muted-foreground">
               {capacity.availableLabel} free of {capacity.totalLabel}

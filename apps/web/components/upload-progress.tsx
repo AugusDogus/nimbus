@@ -77,7 +77,7 @@ function UploadRow({
         {item.status.kind === "uploading" && (
           <Progress
             aria-label={`Upload progress for ${name}`}
-            className="h-1"
+            className="*:data-[slot=progress-track]:h-1"
             value={percent(item.status.sent, item.request.file.size)}
           />
         )}
