@@ -17,6 +17,8 @@ import { mailConfig } from "./mail";
 import { SecurityHeaders } from "./security-headers";
 import { HttpRoutes } from "./http-routes";
 import { AppShell } from "./app-shell";
+import { PageBootstrap } from "./page-bootstrap";
+import { PageSkeleton } from "./page-skeleton";
 import { backups, backupsToKeep } from "./backup";
 
 const port = Number(process.env.PORT ?? "3000");
@@ -141,10 +143,22 @@ async function route(request: Request): Promise<Response> {
     if (file) return file;
     if (!page) return textResponse(404, `Nothing is served at ${pathname}.`);
   }
+  const kind = shell.route(pathname)?.kind ?? null;
+  const bootstrap = await PageBootstrap.load(request, kind);
+  if (bootstrap.kind === "redirect")
+    return Response.redirect(new URL(bootstrap.location, request.url), 307);
   const nonce = SecurityHeaders.nonce();
   return AppShell.htmlResponse(
     request,
-    await shell.html(nonce, pathname),
+    await shell.html(nonce, pathname, {
+      data: bootstrap.data,
+      skeleton: PageSkeleton.markup(
+        kind,
+        bootstrap.folder,
+        bootstrap.data.prefs,
+      ),
+      requests: bootstrap.requests,
+    }),
     new Headers(SecurityHeaders.document(nonce, securityMode)),
   );
 }

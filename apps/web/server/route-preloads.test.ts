@@ -18,16 +18,23 @@ const preloads = RoutePreloads.fromManifest({
   ...split("s/$token.tsx", "assets/share.js"),
 });
 
-const hrefs = (pathname: string) =>
-  [...preloads.links(pathname).matchAll(/href="([^"]+)"/g)].map(
+const hrefs = (pathname: string, requests: string[] = []) =>
+  [...preloads.links(pathname, requests).matchAll(/href="([^"]+)"/g)].map(
     (match) => match[1],
   );
 
 describe("RoutePreloads", () => {
+  test("names the kind of page an address is", () => {
+    expect(preloads.match("/browse/x")?.kind).toBe("files");
+    expect(preloads.match("/")?.kind).toBe("files");
+    expect(preloads.match("/login")?.kind).toBe("auth");
+    expect(preloads.match("/s/abc")?.kind).toBe("share");
+    expect(preloads.match("/nowhere/at/all")).toBeNull();
+  });
+
   test("lists a page's route chunks and their imports, but not the entry's", () => {
-    expect(hrefs("/browse/a/b%20c")).toEqual([
-      "/api/auth/get-session",
-      "/api/trpc/prefs.get?batch=1&input=%7B%7D",
+    expect(hrefs("/browse/a/b%20c", ["/api/trpc/files.list?x"])).toEqual([
+      "/api/trpc/files.list?x",
       "/assets/authed.js",
       "/assets/files-layout.js",
       "/assets/ui.js",
@@ -46,7 +53,7 @@ describe("RoutePreloads", () => {
   });
 
   test("names nothing for addresses outside the app", () => {
-    expect(preloads.links("/nowhere/at/all")).toBe("");
-    expect(preloads.links('/s/a"b<c')).not.toContain('"b<');
+    expect(preloads.links("/nowhere/at/all", [])).toBe("");
+    expect(preloads.links('/s/a"b<c', [])).not.toContain('"b<');
   });
 });

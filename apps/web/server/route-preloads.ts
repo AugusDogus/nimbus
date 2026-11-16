@@ -11,21 +11,44 @@ type Segment =
   | { kind: "param" }
   | { kind: "splat" };
 
-type RoutePreload = {
-  segments: Segment[];
-  /** Whether the route is a signed-in page, which first checks the session. */
-  authed: boolean;
-  /** Whether the route is a file browser page, which also loads the browsing preferences. */
-  files: boolean;
-  /** Whether the route is the public share page, which first loads the share. */
-  share: boolean;
-  chunks: string[];
-};
+/**
+ * What a page needs first: `files` and `settings` pages are signed-in and check the session,
+ * file browser pages also read the browsing preferences, `auth` pages read the sign-in options,
+ * and the public `share` page loads its share.
+ */
+export type PageKind =
+  | "files"
+  | "settings"
+  | "signed-in"
+  | "auth"
+  | "share"
+  | "public";
+
+/** The page an address names, with the code-split chunks it loads beyond the entry. */
+export type PageRoute = { kind: PageKind; chunks: string[] };
+
+type RoutePreload = PageRoute & { segments: Segment[] };
 
 export type RoutePreloads = {
-  /** `<link>` tags for the page at `pathname`, or "" when nothing is known about it. */
-  links(pathname: string): string;
+  /** The page at `pathname`, or null when no route matches it. */
+  match(pathname: string): PageRoute | null;
+  /**
+   * `<link>` tags for the page at `pathname`, or "" when nothing is known about it. `data` are
+   * requests the page will make first, such as its folder listing.
+   */
+  links(pathname: string, data: readonly string[]): string;
 };
+
+const authPages = new Set(["login", "signup", "reset-password"]);
+
+function kindOf(file: string): PageKind {
+  const name = file.slice(routePrefix.length, -".tsx".length);
+  if (name.startsWith("_authed/_files/")) return "files";
+  if (name.startsWith("_authed/settings")) return "settings";
+  if (name.startsWith("_authed/")) return "signed-in";
+  if (name === "s/$token") return "share";
+  return authPages.has(name) ? "auth" : "public";
+}
 
 const routePrefix = "routes/";
 const splitSuffix = "?tsr-split=component";
@@ -67,12 +90,6 @@ function matches(segments: Segment[], parts: string[]) {
   return parts.length === segments.length;
 }
 
-/**
- * The file browser layout's first tRPC request, which asks for the preferences alone. If the
- * client ever batches it with other queries, this hint goes unused and nothing else changes.
- */
-const prefsRequest = `/api/trpc/prefs.get?batch=1&input=${encodeURIComponent("{}")}`;
-
 /** The token as the share page encodes it, which also makes it safe inside an attribute. */
 function shareToken(part: string) {
   try {
@@ -83,6 +100,15 @@ function shareToken(part: string) {
 }
 
 export const RoutePreloads = {
+  /** Routes from the route files themselves, without chunks; development has no build. */
+  fromRouteFiles(files: string[]): RoutePreloads {
+    return RoutePreloads.fromManifest(
+      Object.fromEntries(
+        files.map((file) => [`${routePrefix}${file}${splitSuffix}`, {}]),
+      ),
+    );
+  },
+
   /** Reads route chunks from `manifest`, leaving out files the page already loads. */
   fromManifest(value: unknown): RoutePreloads {
     if (!isRecord(value))
@@ -128,9 +154,7 @@ export const RoutePreloads = {
         }
         return {
           segments: parse(file),
-          authed: file.startsWith(`${routePrefix}_authed/`),
-          files: file.startsWith(`${routePrefix}_authed/_files/`),
-          share: file === `${routePrefix}s/$token.tsx`,
+          kind: kindOf(file),
           chunks: [...files].filter((name) => !entry.has(name)),
         };
       })
@@ -142,18 +166,25 @@ export const RoutePreloads = {
         }
         return 0;
       });
+    const match = (pathname: string) => {
+      const parts = pathname.split("/").filter(Boolean);
+      return (
+        routes.find((candidate) => matches(candidate.segments, parts)) ?? null
+      );
+    };
     return {
-      links(pathname) {
-        const parts = pathname.split("/").filter(Boolean);
-        const route = routes.find((candidate) =>
-          matches(candidate.segments, parts),
-        );
+      match: (pathname) => {
+        const route = match(pathname);
+        return route && { kind: route.kind, chunks: route.chunks };
+      },
+      links(pathname, requests) {
+        const route = match(pathname);
         if (!route) return "";
-        const data = route.authed
-          ? ["/api/auth/get-session", ...(route.files ? [prefsRequest] : [])]
-          : route.share && parts[1]
-            ? [`/api/share/${shareToken(parts[1])}?path=`]
-            : [];
+        const parts = pathname.split("/").filter(Boolean);
+        const data =
+          route.kind === "share" && parts[1]
+            ? [`/api/share/${shareToken(parts[1])}?path=`, ...requests]
+            : requests;
         return [
           ...data.map(
             (href) =>

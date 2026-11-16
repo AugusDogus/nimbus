@@ -155,3 +155,6 @@ const webOnlyRouter = router({
 
 export const webRouter = t.mergeRouters(appRouter, webOnlyRouter);
 export type WebRouter = typeof webRouter;
+
+/** Calls the web router in-process, for data a page is sent with. */
+export const createWebCaller = t.createCallerFactory(webRouter);

@@ -1,8 +1,9 @@
-import { access } from "node:fs/promises";
+import { access, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants } from "node:zlib";
+import { Bootstrap, bootstrapElementId } from "@/client/bootstrap";
 import { htmlNonce } from "@/client/html-nonce";
-import { RoutePreloads } from "./route-preloads";
+import { RoutePreloads, type PageRoute } from "./route-preloads";
 import { StaticFiles } from "./static-files";
 
 /**
@@ -10,9 +11,21 @@ import { StaticFiles } from "./static-files";
  * the built client files. In development the page and modules come from the Vite dev server,
  * so edits reload instantly; the server still sets every header itself.
  */
+/**
+ * What a page carries: its first data, the skeleton it shows until the app renders, and the
+ * requests the app will make first, which the browser can start at once.
+ */
+export type PageContent = {
+  data: Bootstrap;
+  skeleton: string;
+  requests: readonly string[];
+};
+
 export type AppShell = {
+  /** The page an address names, or null when no route matches it. */
+  route(pathname: string): PageRoute | null;
   /** The page HTML for `pathname` with `nonce` in every script tag. */
-  html(nonce: string, pathname: string): Promise<string>;
+  html(nonce: string, pathname: string, page: PageContent): Promise<string>;
   /** The `<link rel="stylesheet">` tags of the app, for pages the server renders itself. */
   stylesheets(nonce: string): Promise<string>;
   /** A client file such as a script or icon, or null when there is none at that path. */
@@ -23,6 +36,23 @@ const dist = fileURLToPath(new URL("../dist/", import.meta.url));
 
 const fill = (template: string, nonce: string) =>
   template.replaceAll(htmlNonce, nonce);
+
+/** The page's own data, ahead of the app entry that reads it. */
+const bootstrapTag = (nonce: string, data: Bootstrap) =>
+  Object.keys(data).length === 0
+    ? ""
+    : `<script type="application/json" id="${bootstrapElementId}" nonce="${nonce}">${Bootstrap.serialize(data)}</script>`;
+
+const root = '<div id="root"></div>';
+
+/** Places the skeleton inside the app's root element, which the app later replaces. */
+function withSkeleton(html: string, skeleton: string) {
+  if (!html.includes(root))
+    throw new Error(
+      "The page has no empty #root element, so the app cannot start. Check index.html, then rebuild Nimbus.",
+    );
+  return html.replace(root, `<div id="root">${skeleton}</div>`);
+}
 
 const stylesheetTags = (html: string) =>
   html.match(/<link rel="stylesheet"[^>]*>/g)?.join("") ?? "";
@@ -45,10 +75,14 @@ async function production(): Promise<AppShell> {
   ]);
   const styles = stylesheetTags(template);
   return {
-    html: async (nonce, pathname) =>
-      fill(template, nonce).replace(
-        "</head>",
-        `${preloads.links(pathname)}</head>`,
+    route: (pathname) => preloads.match(pathname),
+    html: async (nonce, pathname, page) =>
+      withSkeleton(
+        fill(template, nonce).replace(
+          "</head>",
+          `${bootstrapTag(nonce, page.data)}${preloads.links(pathname, page.requests)}</head>`,
+        ),
+        page.skeleton,
       ),
     stylesheets: async (nonce) => fill(styles, nonce),
     file: async (request, pathname) => {
@@ -65,7 +99,13 @@ async function production(): Promise<AppShell> {
   };
 }
 
-function development(vite: string): AppShell {
+async function development(vite: string): Promise<AppShell> {
+  const routesDirectory = fileURLToPath(new URL("../routes/", import.meta.url));
+  const routes = RoutePreloads.fromRouteFiles(
+    (await readdir(routesDirectory, { recursive: true })).filter(
+      (file) => file.endsWith(".tsx") && !file.endsWith("__root.tsx"),
+    ),
+  );
   const page = async () => {
     const response = await fetch(`${vite}/`, {
       headers: { Accept: "text/html" },
@@ -77,7 +117,15 @@ function development(vite: string): AppShell {
     return response.text();
   };
   return {
-    html: async (nonce) => fill(await page(), nonce),
+    route: (pathname) => routes.match(pathname),
+    html: async (nonce, _pathname, content) =>
+      withSkeleton(
+        fill(await page(), nonce).replace(
+          "</head>",
+          `${bootstrapTag(nonce, content.data)}</head>`,
+        ),
+        content.skeleton,
+      ),
     // Vite serves each stylesheet as a module; `?direct` asks for plain CSS.
     stylesheets: async (nonce) =>
       ["/app/globals.css", "/app/fonts.css"]
