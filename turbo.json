@@ -34,11 +34,16 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**"]
     },
-    "lint": {},
     "test": {},
     "dev": {
       "cache": false
     },
-    "typecheck": {}
+    "typecheck": {
+      "outputs": []
+    },
+    "//#typecheck:root": {
+      "inputs": ["tsconfig.json", "scripts/**", "playwright.config.ts"],
+      "outputs": []
+    }
   }
 }
