@@ -41,7 +41,10 @@ export default async function RootLayout({
   const nonce = (await headers()).get(nonceHeader) ?? undefined;
   return (
     <html lang="en" suppressHydrationWarning>
-      <head><ThemeBoot nonce={nonce} /><ThemeColor nonce={nonce} /></head>
+      <head>
+        <ThemeBoot nonce={nonce} />
+        <ThemeColor nonce={nonce} />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

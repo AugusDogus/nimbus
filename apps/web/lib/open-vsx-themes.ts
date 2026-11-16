@@ -8,15 +8,17 @@ const extensionSchema = z.object({
   description: z.optional(z.string().check(z.maxLength(2000))),
   downloadCount: z.optional(z.number().check(z.nonnegative())),
   files: z.object({
-    download: z.url().check(z.refine((value) => {
-      const url = new URL(value);
-      return (
-        url.origin === "https://open-vsx.org" &&
-        url.pathname.startsWith("/api/") &&
-        !url.username &&
-        !url.password
-      );
-    })),
+    download: z.url().check(
+      z.refine((value) => {
+        const url = new URL(value);
+        return (
+          url.origin === "https://open-vsx.org" &&
+          url.pathname.startsWith("/api/") &&
+          !url.username &&
+          !url.password
+        );
+      }),
+    ),
   }),
 });
 export type OpenVsxExtension = z.infer<typeof extensionSchema>;
@@ -113,7 +115,8 @@ async function install(
         "This extension has an invalid download address. Search again and retry.",
     };
   try {
-    const { ThemeExtension, maxExtensionBytes } = await import("./theme-extension");
+    const { ThemeExtension, maxExtensionBytes } =
+      await import("./theme-extension");
     const response = await request(
       validated.data.files.download,
       maxExtensionBytes,
@@ -124,7 +127,8 @@ async function install(
   } catch {
     return {
       ok: false,
-      error: "The theme importer could not load. Check your connection and reload Nimbus. Your saved themes are unchanged.",
+      error:
+        "The theme importer could not load. Check your connection and reload Nimbus. Your saved themes are unchanged.",
     };
   }
 }

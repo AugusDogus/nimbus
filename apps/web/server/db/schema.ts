@@ -1,5 +1,10 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTableCreator, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTableCreator,
+  text,
+} from "drizzle-orm/sqlite-core";
 
 import { user } from "./auth-schema";
 
@@ -35,7 +40,6 @@ export const userPreferences = createTable("user_preferences", {
 });
 
 export * from "./auth-schema";
-
 
 export * from "./drive-schema";
 

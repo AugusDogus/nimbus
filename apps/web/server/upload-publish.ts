@@ -118,7 +118,10 @@ export async function publishUpload({
       await replaceWithUpload(store, uploadId, destination.absolute, conflict);
       return { kind: "published", path: destination.relative, replaced: true };
     }
-    if (existing && !(await store.isPublishedAt(uploadId, destination.absolute)))
+    if (
+      existing &&
+      !(await store.isPublishedAt(uploadId, destination.absolute))
+    )
       continue;
     try {
       await store.publish(uploadId, destination.absolute);
@@ -163,7 +166,9 @@ export function createUploadFinisher(store: UploadStore) {
     async recover(
       request: Request,
       id: string,
-      publish: (metadata: Record<string, string | null> | undefined) => Promise<void>,
+      publish: (
+        metadata: Record<string, string | null> | undefined,
+      ) => Promise<void>,
     ) {
       if (request.method !== "HEAD" || (await store.isFinished(id))) return;
       const staged = await store.getUpload(id);

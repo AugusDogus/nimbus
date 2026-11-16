@@ -1,12 +1,12 @@
-import * as React from "react"
+import * as React from "react";
 
-const MOBILE_BREAKPOINT = 768
+const MOBILE_BREAKPOINT = 768;
 
 // React compares snapshots, so only a resize across the breakpoint re-renders.
 const subscribe = (onChange: () => void) => {
-  window.addEventListener("resize", onChange)
-  return () => window.removeEventListener("resize", onChange)
-}
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+};
 
 /**
  * Whether the viewport is narrower than the `md` breakpoint. Components that mount on the client
@@ -14,5 +14,9 @@ const subscribe = (onChange: () => void) => {
  * false, because the server cannot know the viewport, and re-renders once if it differs.
  */
 export function useIsMobile() {
-  return React.useSyncExternalStore(subscribe, () => window.innerWidth < MOBILE_BREAKPOINT, () => false)
+  return React.useSyncExternalStore(
+    subscribe,
+    () => window.innerWidth < MOBILE_BREAKPOINT,
+    () => false,
+  );
 }

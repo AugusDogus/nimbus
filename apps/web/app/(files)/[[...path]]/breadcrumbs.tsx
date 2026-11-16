@@ -82,7 +82,11 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
                 <DropdownMenuContent align="start">
                   <DropdownMenuGroup>
                     {middleCrumbs.map((crumb) => (
-                      <DropdownMenuItem key={crumb.href} asChild className={crumb === parent ? "md:hidden" : undefined}>
+                      <DropdownMenuItem
+                        key={crumb.href}
+                        asChild
+                        className={crumb === parent ? "md:hidden" : undefined}
+                      >
                         <Link href={crumb.href}>{crumb.label}</Link>
                       </DropdownMenuItem>
                     ))}

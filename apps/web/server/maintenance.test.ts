@@ -19,7 +19,10 @@ const day = 24 * 60 * 60 * 1000;
 const now = Date.now();
 let root: string;
 let trash: TrashItem[];
-const store: Pick<DriveStore, "listTrash" | "removeTrash" | "fileRequests" | "versions"> = {
+const store: Pick<
+  DriveStore,
+  "listTrash" | "removeTrash" | "fileRequests" | "versions"
+> = {
   fileRequests: createTestFileRequestStore(),
   versions: createTestFileVersionStore(),
   async listTrash() {

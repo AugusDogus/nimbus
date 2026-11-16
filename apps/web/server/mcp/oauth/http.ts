@@ -8,7 +8,9 @@ export type ProtocolError = {
   headers?: Record<string, string>;
 };
 
-export type Parsed<T> = { ok: true; value: T } | { ok: false; error: ProtocolError };
+export type Parsed<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: ProtocolError };
 
 export const protocolError = (
   status: number,
@@ -20,7 +22,8 @@ export const protocolError = (
 /** Public OAuth endpoints are called cross-origin by browser-based clients, without credentials. */
 export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Expose-Headers": "WWW-Authenticate, Retry-After, Mcp-Session-Id",
+  "Access-Control-Expose-Headers":
+    "WWW-Authenticate, Retry-After, Mcp-Session-Id",
 };
 
 export function json(
@@ -34,7 +37,10 @@ export function json(
 }
 
 export const errorResponse = (error: ProtocolError) =>
-  json({ error: error.error, error_description: error.description }, { status: error.status, headers: error.headers });
+  json(
+    { error: error.error, error_description: error.description },
+    { status: error.status, headers: error.headers },
+  );
 
 export const preflight = (methods: string) =>
   new Response(null, {
@@ -42,61 +48,130 @@ export const preflight = (methods: string) =>
     headers: {
       ...corsHeaders,
       "Access-Control-Allow-Methods": `${methods}, OPTIONS`,
-      "Access-Control-Allow-Headers": "Authorization, Content-Type, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID",
+      "Access-Control-Allow-Headers":
+        "Authorization, Content-Type, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID",
       "Access-Control-Max-Age": "86400",
     },
   });
 
 async function readBody(request: Request): Promise<Parsed<string>> {
   if (Number(request.headers.get("content-length") ?? "0") > MAX_BODY_BYTES)
-    return { ok: false, error: protocolError(413, "invalid_request", "The request body is too large.") };
+    return {
+      ok: false,
+      error: protocolError(
+        413,
+        "invalid_request",
+        "The request body is too large.",
+      ),
+    };
   let text: string;
   try {
     text = await request.text();
   } catch {
-    return { ok: false, error: protocolError(400, "invalid_request", "The request body could not be read.") };
+    return {
+      ok: false,
+      error: protocolError(
+        400,
+        "invalid_request",
+        "The request body could not be read.",
+      ),
+    };
   }
   if (Buffer.byteLength(text) > MAX_BODY_BYTES)
-    return { ok: false, error: protocolError(413, "invalid_request", "The request body is too large.") };
+    return {
+      ok: false,
+      error: protocolError(
+        413,
+        "invalid_request",
+        "The request body is too large.",
+      ),
+    };
   return { ok: true, value: text };
 }
 
 const mediaType = (request: Request) =>
-  (request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  (request.headers.get("content-type") ?? "")
+    .split(";")[0]
+    ?.trim()
+    .toLowerCase() ?? "";
 
 /** application/x-www-form-urlencoded with no repeated parameters (RFC 6749 section 3.1). */
-export async function readForm(request: Request): Promise<Parsed<ReadonlyMap<string, string>>> {
+export async function readForm(
+  request: Request,
+): Promise<Parsed<ReadonlyMap<string, string>>> {
   if (mediaType(request) !== "application/x-www-form-urlencoded")
-    return { ok: false, error: protocolError(400, "invalid_request", "Send the request as application/x-www-form-urlencoded.") };
+    return {
+      ok: false,
+      error: protocolError(
+        400,
+        "invalid_request",
+        "Send the request as application/x-www-form-urlencoded.",
+      ),
+    };
   const body = await readBody(request);
   if (!body.ok) return body;
   const form = new Map<string, string>();
   for (const [key, value] of new URLSearchParams(body.value)) {
     if (form.has(key))
-      return { ok: false, error: protocolError(400, "invalid_request", `The "${key}" parameter must not be repeated.`) };
+      return {
+        ok: false,
+        error: protocolError(
+          400,
+          "invalid_request",
+          `The "${key}" parameter must not be repeated.`,
+        ),
+      };
     if (value !== "") form.set(key, value);
   }
   return { ok: true, value: form };
 }
 
-export async function readJsonObject(request: Request): Promise<Parsed<Record<string, unknown>>> {
+export async function readJsonObject(
+  request: Request,
+): Promise<Parsed<Record<string, unknown>>> {
   if (mediaType(request) !== "application/json")
-    return { ok: false, error: protocolError(400, "invalid_client_metadata", "Send the registration as application/json.") };
+    return {
+      ok: false,
+      error: protocolError(
+        400,
+        "invalid_client_metadata",
+        "Send the registration as application/json.",
+      ),
+    };
   const body = await readBody(request);
   if (!body.ok) return body;
   let value: unknown;
   try {
     value = JSON.parse(body.value);
   } catch {
-    return { ok: false, error: protocolError(400, "invalid_client_metadata", "The request body is not valid JSON.") };
+    return {
+      ok: false,
+      error: protocolError(
+        400,
+        "invalid_client_metadata",
+        "The request body is not valid JSON.",
+      ),
+    };
   }
   if (typeof value !== "object" || value === null || Array.isArray(value))
-    return { ok: false, error: protocolError(400, "invalid_client_metadata", "The request body must be a JSON object.") };
+    return {
+      ok: false,
+      error: protocolError(
+        400,
+        "invalid_client_metadata",
+        "The request body must be a JSON object.",
+      ),
+    };
   return { ok: true, value: Object.fromEntries(Object.entries(value)) };
 }
 
 const escapeHtml = (value: string) =>
-  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
 /**
  * A standalone page for authorization errors that must not redirect to an
@@ -116,11 +191,15 @@ h1{font-size:1.25rem;font-weight:600;margin:0 0 .5rem;text-wrap:balance}p{margin
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",
-        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+        "Content-Security-Policy":
+          "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
         "X-Content-Type-Options": "nosniff",
       },
     },
   );
 
 export const seeOther = (location: string) =>
-  new Response(null, { status: 303, headers: { Location: location, "Cache-Control": "no-store" } });
+  new Response(null, {
+    status: 303,
+    headers: { Location: location, "Cache-Control": "no-store" },
+  });

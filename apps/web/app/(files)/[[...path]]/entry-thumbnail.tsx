@@ -42,7 +42,9 @@ export function EntryThumbnail({
   return (
     <span
       // Thumbnails mount while scrolling large grids; these classes never conflict, so join them directly.
-      className={["flex shrink-0 items-center justify-center", className].filter(Boolean).join(" ")}
+      className={["flex shrink-0 items-center justify-center", className]
+        .filter(Boolean)
+        .join(" ")}
     >
       {!hasThumbnail(entry) || failed === src ? (
         fallback

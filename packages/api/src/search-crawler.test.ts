@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { accessFor } from "./access";
@@ -10,7 +17,10 @@ import { provideSearchService, searchEntries } from "./search-service";
 let root: string;
 let previousRoot: string | undefined;
 const names = (index: ReturnType<typeof createSearchIndex>, query: string) =>
-  index.search({ query, root: "", limit: 100, scope: { type: "all" } }).hits.map((hit) => hit.path).sort();
+  index
+    .search({ query, root: "", limit: 100, scope: { type: "all" } })
+    .hits.map((hit) => hit.path)
+    .sort();
 
 beforeEach(async () => {
   previousRoot = process.env.NIMBUS_DATA_ROOT;
@@ -23,7 +33,10 @@ beforeEach(async () => {
   await writeFile(path.join(root, ".nimbus/trash/notes-old.txt"), "");
   await mkdir(path.join(root, "docs/.NIMBUS"));
   await writeFile(path.join(root, "docs/.NIMBUS/notes-hidden.txt"), "");
-  await symlink(path.join(root, "docs/report.txt"), path.join(root, "notes-link.txt"));
+  await symlink(
+    path.join(root, "docs/report.txt"),
+    path.join(root, "notes-link.txt"),
+  );
 });
 afterEach(async () => {
   if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
@@ -54,12 +67,18 @@ describe("search crawler", () => {
     await rename(path.join(outside, "album"), path.join(root, "album"));
     await rm(outside, { recursive: true });
     await applyChange(index, root, path.join(root, "album"));
-    expect(names(index, "notes")).toEqual(["album/2026/notes-trip.txt", "docs/notes-2.txt"]);
+    expect(names(index, "notes")).toEqual([
+      "album/2026/notes-trip.txt",
+      "docs/notes-2.txt",
+    ]);
 
     await rename(path.join(root, "album"), path.join(root, "photos"));
     await applyChange(index, root, path.join(root, "album"));
     await applyChange(index, root, path.join(root, "photos"));
-    expect(names(index, "notes")).toEqual(["docs/notes-2.txt", "photos/2026/notes-trip.txt"]);
+    expect(names(index, "notes")).toEqual([
+      "docs/notes-2.txt",
+      "photos/2026/notes-trip.txt",
+    ]);
   });
 
   it("ignores private and outside paths", async () => {
@@ -72,9 +91,23 @@ describe("search crawler", () => {
 });
 
 describe("searchEntries", () => {
-  const reader = accessFor({ id: "reader", name: "Reader", email: "r@example.test", role: "user", banned: false }, [
-    { id: "g", path: "docs/deep", permission: "read", subject: { type: "user", id: "reader" } },
-  ]);
+  const reader = accessFor(
+    {
+      id: "reader",
+      name: "Reader",
+      email: "r@example.test",
+      role: "user",
+      banned: false,
+    },
+    [
+      {
+        id: "g",
+        path: "docs/deep",
+        permission: "read",
+        subject: { type: "user", id: "reader" },
+      },
+    ],
+  );
 
   it("re-checks permissions and drops hits that no longer exist", async () => {
     // A stale or faulty index must not leak paths outside the caller's grants.
@@ -90,7 +123,9 @@ describe("searchEntries", () => {
       }),
     });
     const result = await searchEntries(reader, "", "notes", 50);
-    expect(result.entries.map((entry) => entry.path)).toEqual(["docs/deep/notes.txt"]);
+    expect(result.entries.map((entry) => entry.path)).toEqual([
+      "docs/deep/notes.txt",
+    ]);
     expect(result.entries[0]).toMatchObject({ type: "file", size: 0 });
   });
 

@@ -4,7 +4,7 @@ export function LoadingSkeleton({ view }: { view: "list" | "grid" }) {
   if (view === "grid") {
     return (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-        {Array.from({ length: 12 }).map((_, i) => (
+        {Array.from({ length: 12 }).map((_, i) =>
           i % 2 === 0 ? (
             <div
               key={i}
@@ -25,8 +25,8 @@ export function LoadingSkeleton({ view }: { view: "list" | "grid" }) {
               <Skeleton className="size-10 rounded-full sm:size-12" />
               <Skeleton className="h-3 w-full sm:h-4" />
             </div>
-          )
-        ))}
+          ),
+        )}
       </div>
     );
   }

@@ -50,7 +50,10 @@ async function cleanFiles(
 }
 
 export async function cleanExpiredData(
-  store: Pick<DriveStore, "listTrash" | "removeTrash" | "fileRequests" | "versions">,
+  store: Pick<
+    DriveStore,
+    "listTrash" | "removeTrash" | "fileRequests" | "versions"
+  >,
   dataRoot: string,
   now = Date.now(),
   configRoot = getConfigRoot(dataRoot),

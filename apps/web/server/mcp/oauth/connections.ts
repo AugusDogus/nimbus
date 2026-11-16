@@ -16,7 +16,10 @@ export type McpConnection = {
   lastUsedAt: number | null;
 };
 
-export async function listConnections(db: Database, userId: string): Promise<McpConnection[]> {
+export async function listConnections(
+  db: Database,
+  userId: string,
+): Promise<McpConnection[]> {
   const rows = await db
     .select({
       id: mcpGrants.id,
@@ -29,15 +32,29 @@ export async function listConnections(db: Database, userId: string): Promise<Mcp
     .innerJoin(mcpClients, eq(mcpClients.clientId, mcpGrants.clientId))
     .where(and(eq(mcpGrants.userId, userId), isNull(mcpGrants.revokedAt)))
     .orderBy(desc(mcpGrants.createdAt));
-  return rows.map(({ scope, ...row }) => ({ ...row, scopes: McpScope.parse(scope).scopes }));
+  return rows.map(({ scope, ...row }) => ({
+    ...row,
+    scopes: McpScope.parse(scope).scopes,
+  }));
 }
 
 /** Revoke one of `userId`'s own connections. False when it does not exist or belongs to someone else. */
-export async function revokeConnection(db: Database, userId: string, grantId: string, now: number) {
+export async function revokeConnection(
+  db: Database,
+  userId: string,
+  grantId: string,
+  now: number,
+) {
   const [grant] = await db
     .select({ id: mcpGrants.id, clientId: mcpGrants.clientId })
     .from(mcpGrants)
-    .where(and(eq(mcpGrants.id, grantId), eq(mcpGrants.userId, userId), isNull(mcpGrants.revokedAt)))
+    .where(
+      and(
+        eq(mcpGrants.id, grantId),
+        eq(mcpGrants.userId, userId),
+        isNull(mcpGrants.revokedAt),
+      ),
+    )
     .limit(1);
   if (!grant) return false;
   await revokeGrant(db, grantId, now);
@@ -53,7 +70,11 @@ export async function revokeConnection(db: Database, userId: string, grantId: st
 /** The account behind a connection that is still approved and whose account is enabled, or null. */
 export async function liveConnectionUser(db: Database, grantId: string) {
   const [row] = await db
-    .select({ userId: mcpGrants.userId, revokedAt: mcpGrants.revokedAt, banned: user.banned })
+    .select({
+      userId: mcpGrants.userId,
+      revokedAt: mcpGrants.revokedAt,
+      banned: user.banned,
+    })
     .from(mcpGrants)
     .innerJoin(user, eq(user.id, mcpGrants.userId))
     .where(eq(mcpGrants.id, grantId))

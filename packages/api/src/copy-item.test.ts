@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { getAccess } from "./access";
@@ -13,14 +21,29 @@ describe("copying files and folders", () => {
   let root: string;
   let previousRoot: string | undefined;
   let memory: ReturnType<typeof createTestDriveStore>;
-  const copy = async (sourcePath: string, targetPath: string, options: CopyOptions = {}, userId = "user-1", store: DriveStore = memory.store) =>
-    copyItem(store, await getAccess(memory.store, userId), sourcePath, targetPath, options);
+  const copy = async (
+    sourcePath: string,
+    targetPath: string,
+    options: CopyOptions = {},
+    userId = "user-1",
+    store: DriveStore = memory.store,
+  ) =>
+    copyItem(
+      store,
+      await getAccess(memory.store, userId),
+      sourcePath,
+      targetPath,
+      options,
+    );
   const caller = (id = "user-1") =>
     appRouter.createCaller({
       headers: new Headers(),
       session: { user: { id } },
       drive: memory.store,
-      preferences: { getUserPreferences: async () => null, setUserPreferences: async (_id, value) => value },
+      preferences: {
+        getUserPreferences: async () => null,
+        setUserPreferences: async (_id, value) => value,
+      },
     });
 
   beforeEach(async () => {
@@ -41,9 +64,16 @@ describe("copying files and folders", () => {
   });
 
   it("copies a folder tree and leaves no staging files behind", async () => {
-    expect(await copy("docs", "archive/docs")).toEqual({ path: "archive/docs", replaced: false });
-    expect(await readFile(path.join(root, "archive/docs/nested/deep.txt"), "utf8")).toBe("deep");
-    expect(await readFile(path.join(root, "docs/first.txt"), "utf8")).toBe("first");
+    expect(await copy("docs", "archive/docs")).toEqual({
+      path: "archive/docs",
+      replaced: false,
+    });
+    expect(
+      await readFile(path.join(root, "archive/docs/nested/deep.txt"), "utf8"),
+    ).toBe("deep");
+    expect(await readFile(path.join(root, "docs/first.txt"), "utf8")).toBe(
+      "first",
+    );
     expect(await readdir(path.join(root, ".nimbus/uploads"))).toEqual([]);
   });
 
@@ -54,16 +84,36 @@ describe("copying files and folders", () => {
 
   it("refuses an existing destination and leaves it untouched", async () => {
     await writeFile(path.join(root, "archive/first.txt"), "existing");
-    await expect(copy("docs/first.txt", "archive/first.txt")).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(await readFile(path.join(root, "archive/first.txt"), "utf8")).toBe("existing");
+    await expect(
+      copy("docs/first.txt", "archive/first.txt"),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await readFile(path.join(root, "archive/first.txt"), "utf8")).toBe(
+      "existing",
+    );
   });
 
   it("requires read on the source and write on the destination", async () => {
-    await expect(copy("docs/first.txt", "archive/first.txt", {}, "reader")).rejects.toMatchObject({ code: "FORBIDDEN" });
-    memory.grants.set("read-docs", { id: "read-docs", subject: { type: "user", id: "reader" }, path: "docs", permission: "read" });
-    memory.grants.set("write-archive", { id: "write-archive", subject: { type: "user", id: "reader" }, path: "archive", permission: "write" });
-    expect(await copy("docs/first.txt", "archive/first.txt", {}, "reader")).toMatchObject({ path: "archive/first.txt" });
-    await expect(copy("archive/first.txt", "docs/first copy.txt", {}, "reader")).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      copy("docs/first.txt", "archive/first.txt", {}, "reader"),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    memory.grants.set("read-docs", {
+      id: "read-docs",
+      subject: { type: "user", id: "reader" },
+      path: "docs",
+      permission: "read",
+    });
+    memory.grants.set("write-archive", {
+      id: "write-archive",
+      subject: { type: "user", id: "reader" },
+      path: "archive",
+      permission: "write",
+    });
+    expect(
+      await copy("docs/first.txt", "archive/first.txt", {}, "reader"),
+    ).toMatchObject({ path: "archive/first.txt" });
+    await expect(
+      copy("archive/first.txt", "docs/first copy.txt", {}, "reader"),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("reloads access before publishing a staged copy", async () => {
@@ -75,44 +125,113 @@ describe("copying files and folders", () => {
         return user && { ...user, role: "user" };
       },
     };
-    await expect(copy("docs", "archive/docs", {}, "user-1", revoking)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      copy("docs", "archive/docs", {}, "user-1", revoking),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(await readdir(path.join(root, "archive"))).toEqual([]);
   });
 
   it("respects WebDAV locks on the destination and accepts the lock owner's token", async () => {
     const lock = lockFile("archive", { userId: "user-1" });
-    await expect(copy("docs/first.txt", "archive/first.txt")).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(await copy("docs/first.txt", "archive/first.txt", { lockTokens: [lock.token] })).toMatchObject({ path: "archive/first.txt" });
+    await expect(
+      copy("docs/first.txt", "archive/first.txt"),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(
+      await copy("docs/first.txt", "archive/first.txt", {
+        lockTokens: [lock.token],
+      }),
+    ).toMatchObject({ path: "archive/first.txt" });
   });
 
   it("rejects copying into itself, the drive root, or internal storage, and skips symbolic links", async () => {
-    await expect(copy("docs", "docs/nested/docs")).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await expect(copy("docs", "")).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await expect(copy("docs/first.txt", ".nimbus/first.txt")).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await symlink(path.join(root, "docs/first.txt"), path.join(root, "docs/link.txt"));
+    await expect(copy("docs", "docs/nested/docs")).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await expect(copy("docs", "")).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await expect(
+      copy("docs/first.txt", ".nimbus/first.txt"),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await symlink(
+      path.join(root, "docs/first.txt"),
+      path.join(root, "docs/link.txt"),
+    );
     await copy("docs", "archive/docs");
-    expect((await readdir(path.join(root, "archive/docs"))).sort()).toEqual(["first.txt", "nested"]);
+    expect((await readdir(path.join(root, "archive/docs"))).sort()).toEqual([
+      "first.txt",
+      "nested",
+    ]);
   });
 
   it("copies into a folder through the API, keeping both on clashes and duplicating in place", async () => {
-    expect(await caller().files.copy({ sourcePath: "docs/first.txt", destinationPath: "archive" })).toEqual({ name: "first.txt", path: "archive/first.txt" });
-    expect(await caller().files.copy({ sourcePath: "docs/first.txt", destinationPath: "archive" })).toEqual({ name: "first (1).txt", path: "archive/first (1).txt" });
-    expect(await caller().files.copy({ sourcePath: "docs/first.txt", destinationPath: "docs" })).toEqual({ name: "first (1).txt", path: "docs/first (1).txt" });
-    expect(await caller().files.copy({ sourcePath: "docs", destinationPath: "" })).toEqual({ name: "docs (1)", path: "docs (1)" });
-    expect(await readFile(path.join(root, "docs (1)/nested/deep.txt"), "utf8")).toBe("deep");
-    await expect(caller().files.copy({ sourcePath: "docs", destinationPath: "docs/nested" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await expect(caller().files.copy({ sourcePath: "docs/missing.txt", destinationPath: "archive" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(
+      await caller().files.copy({
+        sourcePath: "docs/first.txt",
+        destinationPath: "archive",
+      }),
+    ).toEqual({ name: "first.txt", path: "archive/first.txt" });
+    expect(
+      await caller().files.copy({
+        sourcePath: "docs/first.txt",
+        destinationPath: "archive",
+      }),
+    ).toEqual({ name: "first (1).txt", path: "archive/first (1).txt" });
+    expect(
+      await caller().files.copy({
+        sourcePath: "docs/first.txt",
+        destinationPath: "docs",
+      }),
+    ).toEqual({ name: "first (1).txt", path: "docs/first (1).txt" });
+    expect(
+      await caller().files.copy({ sourcePath: "docs", destinationPath: "" }),
+    ).toEqual({ name: "docs (1)", path: "docs (1)" });
+    expect(
+      await readFile(path.join(root, "docs (1)/nested/deep.txt"), "utf8"),
+    ).toBe("deep");
+    await expect(
+      caller().files.copy({
+        sourcePath: "docs",
+        destinationPath: "docs/nested",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      caller().files.copy({
+        sourcePath: "docs/missing.txt",
+        destinationPath: "archive",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("requires folder admin to copy a folder through the API", async () => {
-    memory.grants.set("write-root", { id: "write-root", subject: { type: "user", id: "reader" }, path: "", permission: "write" });
-    await expect(caller("reader").files.copy({ sourcePath: "docs", destinationPath: "archive" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(await caller("reader").files.copy({ sourcePath: "docs/first.txt", destinationPath: "archive" })).toMatchObject({ path: "archive/first.txt" });
+    memory.grants.set("write-root", {
+      id: "write-root",
+      subject: { type: "user", id: "reader" },
+      path: "",
+      permission: "write",
+    });
+    await expect(
+      caller("reader").files.copy({
+        sourcePath: "docs",
+        destinationPath: "archive",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(
+      await caller("reader").files.copy({
+        sourcePath: "docs/first.txt",
+        destinationPath: "archive",
+      }),
+    ).toMatchObject({ path: "archive/first.txt" });
   });
 
   it("does not retry other names when a WebDAV lock blocks the destination", async () => {
     lockFile("archive", { userId: "user-1" });
-    await expect(caller().files.copy({ sourcePath: "docs/first.txt", destinationPath: "archive" })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      caller().files.copy({
+        sourcePath: "docs/first.txt",
+        destinationPath: "archive",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
     expect(await readdir(path.join(root, "archive"))).toEqual([]);
   });
 });

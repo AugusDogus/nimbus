@@ -11,7 +11,9 @@ export const createCallerFactory = t.createCallerFactory;
 export const router = t.router;
 export const publicProcedure = t.procedure;
 export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
-  const session = z.object({ user: z.object({ id: z.string().min(1) }) }).safeParse(ctx.session);
+  const session = z
+    .object({ user: z.object({ id: z.string().min(1) }) })
+    .safeParse(ctx.session);
   if (!session.success) {
     throw new TRPCError({
       code: "UNAUTHORIZED",

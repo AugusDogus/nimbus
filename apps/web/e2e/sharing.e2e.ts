@@ -3,7 +3,12 @@ import { expect } from "@playwright/test";
 import { test } from "./helpers";
 import { action, client, createFolder, downloadText, upload } from "./helpers";
 
-test("public folder links require passwords, confine downloads and honor revocation and expiry", async ({ page, context, browser, isMobile }, testInfo) => {
+test("public folder links require passwords, confine downloads and honor revocation and expiry", async ({
+  page,
+  context,
+  browser,
+  isMobile,
+}, testInfo) => {
   const folder = `shared-${randomUUID()}`;
   const body = "A file shared with someone outside Nimbus.";
   const rpc = await client(context);
@@ -11,56 +16,103 @@ test("public folder links require passwords, confine downloads and honor revocat
   await createFolder(page, folder, isMobile);
   await page.getByRole("link", { name: folder, exact: true }).click();
   await expect(page).toHaveURL(`/browse/${folder}`);
-  await expect(page.getByRole("heading", { name: "This folder is empty" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "This folder is empty" }),
+  ).toBeVisible();
   await upload(page, "shared-note.txt", body);
   await page.goto("/");
   await action(page, folder, "Share", isMobile);
-  const sharing = page.getByRole("dialog", { name: `Share ${folder}`, exact: true });
+  const sharing = page.getByRole("dialog", {
+    name: `Share ${folder}`,
+    exact: true,
+  });
   await sharing.getByLabel("Password (optional)").fill("share-password-42");
-  await sharing.getByRole("button", { name: "Create link", exact: true }).click();
-  const link = sharing.getByRole("textbox", { name: "Share link", exact: true });
+  await sharing
+    .getByRole("button", { name: "Create link", exact: true })
+    .click();
+  const link = sharing.getByRole("textbox", {
+    name: "Share link",
+    exact: true,
+  });
   await expect(link).toBeVisible();
   await link.scrollIntoViewIfNeeded();
-  await expect(sharing.getByRole("heading", { name: `Share ${folder}`, exact: true })).toBeInViewport();
-  await expect(sharing.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
+  await expect(
+    sharing.getByRole("heading", { name: `Share ${folder}`, exact: true }),
+  ).toBeInViewport();
+  await expect(
+    sharing.getByRole("button", { name: "Close", exact: true }),
+  ).toBeInViewport();
   const publicURL = await link.inputValue();
   const publicPath = new URL(publicURL).pathname;
   const token = publicPath.split("/").pop();
   if (!token) throw new Error("The share UI did not provide a token.");
   await page.evaluate(async () => {
     window.scrollTo(0, 0);
-    document.querySelectorAll('[role="dialog"]').forEach((dialog) => dialog.scrollTo(0, 0));
+    document
+      .querySelectorAll('[role="dialog"]')
+      .forEach((dialog) => dialog.scrollTo(0, 0));
     await new Promise(requestAnimationFrame);
     await new Promise(requestAnimationFrame);
   });
-  await page.screenshot({ path: testInfo.outputPath("sharing.png"), fullPage: true });
-  const anonymous = await browser.newContext({ storageState: { cookies: [], origins: [] }, viewport: page.viewportSize() });
+  await page.screenshot({
+    path: testInfo.outputPath("sharing.png"),
+    fullPage: true,
+  });
+  const anonymous = await browser.newContext({
+    storageState: { cookies: [], origins: [] },
+    viewport: page.viewportSize(),
+  });
   try {
     const visitor = await anonymous.newPage();
-    expect((await anonymous.request.get(`/api/share/${token}?download=1`)).status()).toBe(401);
+    expect(
+      (await anonymous.request.get(`/api/share/${token}?download=1`)).status(),
+    ).toBe(401);
     await visitor.goto(publicURL);
-    await expect(visitor.getByRole("heading", { name: "Protected share" })).toBeVisible();
-    await visitor.getByLabel("Password", { exact: true }).fill("incorrect-password");
+    await expect(
+      visitor.getByRole("heading", { name: "Protected share" }),
+    ).toBeVisible();
+    await visitor
+      .getByLabel("Password", { exact: true })
+      .fill("incorrect-password");
     await visitor.getByRole("button", { name: "Unlock", exact: true }).click();
-    await expect(visitor.getByRole("alert").filter({ hasText: "incorrect" })).toBeVisible();
-    await visitor.getByLabel("Password", { exact: true }).fill("share-password-42");
+    await expect(
+      visitor.getByRole("alert").filter({ hasText: "incorrect" }),
+    ).toBeVisible();
+    await visitor
+      .getByLabel("Password", { exact: true })
+      .fill("share-password-42");
     await visitor.getByRole("button", { name: "Unlock", exact: true }).click();
-    await visitor.getByRole("button", { name: "shared-note.txt", exact: true }).click();
+    await visitor
+      .getByRole("button", { name: "shared-note.txt", exact: true })
+      .click();
     await expect(visitor.locator("pre")).toHaveText(body);
     const download = visitor.waitForEvent("download");
     await visitor.getByRole("link", { name: "Download", exact: true }).click();
     expect(await downloadText(await download)).toBe(body);
-    const escaped = await anonymous.request.get(`/api/share/${token}?path=${encodeURIComponent("../alpha.txt")}&download=1`);
+    const escaped = await anonymous.request.get(
+      `/api/share/${token}?path=${encodeURIComponent("../alpha.txt")}&download=1`,
+    );
     expect(escaped.status()).toBe(403);
     await visitor.getByRole("button", { name: "Parent folder" }).click();
     const zip = await anonymous.request.get(`/api/share/${token}?download=1`);
     expect(zip.status()).toBe(200);
     expect((await zip.body()).subarray(0, 2).toString()).toBe("PK");
-    await visitor.screenshot({ path: testInfo.outputPath("public-share.png"), fullPage: true });
+    await visitor.screenshot({
+      path: testInfo.outputPath("public-share.png"),
+      fullPage: true,
+    });
     await page.goto("/shared");
-    await expect(page.getByRole("heading", { name: "Shared", exact: true })).toBeVisible();
-    const received = page.getByRole("tab", { name: "Shared with me", exact: true });
-    const publicLinks = page.getByRole("tab", { name: "Public links", exact: true });
+    await expect(
+      page.getByRole("heading", { name: "Shared", exact: true }),
+    ).toBeVisible();
+    const received = page.getByRole("tab", {
+      name: "Shared with me",
+      exact: true,
+    });
+    const publicLinks = page.getByRole("tab", {
+      name: "Public links",
+      exact: true,
+    });
     await expect(received).toHaveAttribute("aria-selected", "true");
     await received.focus();
     await received.press("ArrowRight");
@@ -73,15 +125,39 @@ test("public folder links require passwords, confine downloads and honor revocat
     await page.goto("/shares");
     await expect(page).toHaveURL("/shared?tab=links");
     await expect(publicLinks).toHaveAttribute("aria-selected", "true");
-    const record = page.getByRole("listitem").filter({ has: page.getByRole("link", { name: folder, exact: true }) });
+    const record = page
+      .getByRole("listitem")
+      .filter({ has: page.getByRole("link", { name: folder, exact: true }) });
     await record.getByRole("button", { name: "Revoke", exact: true }).click();
-    await page.getByRole("alertdialog", { name: "Revoke this link?" }).getByRole("button", { name: "Revoke link" }).click();
+    await page
+      .getByRole("alertdialog", { name: "Revoke this link?" })
+      .getByRole("button", { name: "Revoke link" })
+      .click();
     await expect(record).toHaveCount(0);
     await visitor.reload();
-    await expect(visitor.getByRole("heading", { name: "Share unavailable" })).toBeVisible();
-    expect((await anonymous.request.get(`/api/share/${token}?download=1`)).status()).toBe(404);
-    const expiring = await rpc.shares.create.mutate({ path: folder, expiresAt: Date.now() + 2000 });
-    expect((await anonymous.request.get(`/api/share/${expiring.token}`)).status()).toBe(200);
-    await expect.poll(async () => (await anonymous.request.get(`/api/share/${expiring.token}`)).status(), { timeout: 5000 }).toBe(404);
-  } finally { await anonymous.close(); }
+    await expect(
+      visitor.getByRole("heading", { name: "Share unavailable" }),
+    ).toBeVisible();
+    expect(
+      (await anonymous.request.get(`/api/share/${token}?download=1`)).status(),
+    ).toBe(404);
+    const expiring = await rpc.shares.create.mutate({
+      path: folder,
+      expiresAt: Date.now() + 2000,
+    });
+    expect(
+      (await anonymous.request.get(`/api/share/${expiring.token}`)).status(),
+    ).toBe(200);
+    await expect
+      .poll(
+        async () =>
+          (
+            await anonymous.request.get(`/api/share/${expiring.token}`)
+          ).status(),
+        { timeout: 5000 },
+      )
+      .toBe(404);
+  } finally {
+    await anonymous.close();
+  }
 });

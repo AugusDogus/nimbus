@@ -30,8 +30,11 @@ export function AuditFilters({
   const [pending, startTransition] = useTransition();
   const apply = (next: Filters) => {
     const params = new URLSearchParams();
-    for (const [key, entry] of Object.entries(next)) if (entry) params.set(key, entry);
-    startTransition(() => router.replace(params.size ? `${pathname}?${params}` : pathname));
+    for (const [key, entry] of Object.entries(next))
+      if (entry) params.set(key, entry);
+    startTransition(() =>
+      router.replace(params.size ? `${pathname}?${params}` : pathname),
+    );
   };
   const filtered = Object.values(value).some(Boolean);
   return (
@@ -43,34 +46,72 @@ export function AuditFilters({
     >
       <div className="space-y-2">
         <Label htmlFor="audit-action">Event</Label>
-        <Select value={value.action || any} onValueChange={(action) => apply({ ...value, action: action === any ? "" : action })}>
-          <SelectTrigger id="audit-action" className="w-full"><SelectValue /></SelectTrigger>
+        <Select
+          value={value.action || any}
+          onValueChange={(action) =>
+            apply({ ...value, action: action === any ? "" : action })
+          }
+        >
+          <SelectTrigger id="audit-action" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value={any}>All events</SelectItem>
-            {actions.map((action) => <SelectItem key={action.value} value={action.value}>{action.label}</SelectItem>)}
+            {actions.map((action) => (
+              <SelectItem key={action.value} value={action.value}>
+                {action.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
       <div className="space-y-2">
         <Label htmlFor="audit-actor">Account</Label>
-        <Select value={value.actor || any} onValueChange={(actor) => apply({ ...value, actor: actor === any ? "" : actor })}>
-          <SelectTrigger id="audit-actor" className="w-full"><SelectValue /></SelectTrigger>
+        <Select
+          value={value.actor || any}
+          onValueChange={(actor) =>
+            apply({ ...value, actor: actor === any ? "" : actor })
+          }
+        >
+          <SelectTrigger id="audit-actor" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value={any}>Everyone</SelectItem>
-            {accounts.map((account) => <SelectItem key={account.id} value={account.id}>{account.email}</SelectItem>)}
+            {accounts.map((account) => (
+              <SelectItem key={account.id} value={account.id}>
+                {account.email}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
       <div className="space-y-2">
         <Label htmlFor="audit-from">From (UTC)</Label>
-        <Input id="audit-from" type="date" value={value.from} onChange={(event) => apply({ ...value, from: event.target.value })} className="bg-background" />
+        <Input
+          id="audit-from"
+          type="date"
+          value={value.from}
+          onChange={(event) => apply({ ...value, from: event.target.value })}
+          className="bg-background"
+        />
       </div>
       <div className="space-y-2">
         <Label htmlFor="audit-to">To (UTC)</Label>
         <div className="flex gap-2">
-          <Input id="audit-to" type="date" value={value.to} onChange={(event) => apply({ ...value, to: event.target.value })} className="min-w-0 bg-background" />
+          <Input
+            id="audit-to"
+            type="date"
+            value={value.to}
+            onChange={(event) => apply({ ...value, to: event.target.value })}
+            className="min-w-0 bg-background"
+          />
           {filtered && (
-            <Button type="button" variant="ghost" onClick={() => apply({ action: "", actor: "", from: "", to: "" })}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => apply({ action: "", actor: "", from: "", to: "" })}
+            >
               Clear
             </Button>
           )}

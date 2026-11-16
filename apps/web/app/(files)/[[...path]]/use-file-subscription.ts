@@ -13,7 +13,10 @@ export function useFileSubscription({ enabled }: Options) {
     coalesce(() => {
       const options = { cancelRefetch: false } as const;
       void queryClient.invalidateQueries({ queryKey: ["files.list"] }, options);
-      void queryClient.invalidateQueries({ queryKey: ["files.storage"] }, options);
+      void queryClient.invalidateQueries(
+        { queryKey: ["files.storage"] },
+        options,
+      );
       void queryClient.invalidateQueries({ queryKey: ["catalog"] }, options);
     }, refreshIntervalMs),
   );

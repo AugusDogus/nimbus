@@ -15,28 +15,31 @@ const schema = z
     light: z.nullable(z.string()),
     dark: z.nullable(z.string()),
   })
-  .check(z.superRefine((value, context) => {
-    if (
-      new Set([...BuiltInThemes.all, ...value.themes].map((theme) => theme.id))
-        .size !==
-      value.themes.length + BuiltInThemes.all.length
-    ) {
-      context.addIssue({ code: "custom", message: "Duplicate theme IDs" });
-    }
-    for (const mode of ["light", "dark"] as const) {
+  .check(
+    z.superRefine((value, context) => {
       if (
-        value[mode] !== null &&
-        ![...BuiltInThemes.all, ...value.themes].some(
-          (theme) => theme.id === value[mode] && theme.appearance === mode,
-        )
+        new Set(
+          [...BuiltInThemes.all, ...value.themes].map((theme) => theme.id),
+        ).size !==
+        value.themes.length + BuiltInThemes.all.length
       ) {
-        context.addIssue({
-          code: "custom",
-          message: "Selected theme is missing or has the wrong appearance",
-        });
+        context.addIssue({ code: "custom", message: "Duplicate theme IDs" });
       }
-    }
-  }));
+      for (const mode of ["light", "dark"] as const) {
+        if (
+          value[mode] !== null &&
+          ![...BuiltInThemes.all, ...value.themes].some(
+            (theme) => theme.id === value[mode] && theme.appearance === mode,
+          )
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: "Selected theme is missing or has the wrong appearance",
+          });
+        }
+      }
+    }),
+  );
 
 export type ThemePreferences = z.infer<typeof schema>;
 const empty: ThemePreferences = {

@@ -55,7 +55,8 @@ const finish = (redirectTo: string) => {
 };
 
 const isAbort = (error: unknown) =>
-  error instanceof DOMException && (error.name === "AbortError" || error.name === "NotAllowedError");
+  error instanceof DOMException &&
+  (error.name === "AbortError" || error.name === "NotAllowedError");
 
 export function LoginForm({
   setupAvailable = false,
@@ -88,12 +89,15 @@ export function LoginForm({
     // Offer saved passkeys in the email field's autofill. The WebAuthn helpers load
     // only when the browser supports it, after the page is interactive.
     let active = true;
-    const supported = window.PublicKeyCredential?.isConditionalMediationAvailable?.();
+    const supported =
+      window.PublicKeyCredential?.isConditionalMediationAvailable?.();
     void supported?.then(async (available) => {
       if (!available || !active) return;
       const { passkeyAuthClient } = await import("@/lib/passkey-client");
       if (!active) return;
-      const result = await passkeyAuthClient.signIn.passkey({ autoFill: true }).catch(() => null);
+      const result = await passkeyAuthClient.signIn
+        .passkey({ autoFill: true })
+        .catch(() => null);
       if (active && result && !result.error) finish(redirectTo);
     });
     return () => {
@@ -144,15 +148,22 @@ export function LoginForm({
       const { securityClient } = await import("@/lib/security-client");
       const result =
         method === "totp"
-          ? await securityClient.twoFactor.verifyTotp({ code: code.trim(), trustDevice })
-          : await securityClient.twoFactor.verifyBackupCode({ code: code.trim(), trustDevice });
+          ? await securityClient.twoFactor.verifyTotp({
+              code: code.trim(),
+              trustDevice,
+            })
+          : await securityClient.twoFactor.verifyBackupCode({
+              code: code.trim(),
+              trustDevice,
+            });
       if (result.error) {
         setError(
           result.error.code === "INVALID_TWO_FACTOR_COOKIE"
             ? "This sign-in attempt expired. Enter your email and password again."
             : getErrorMessage(result.error),
         );
-        if (result.error.code === "INVALID_TWO_FACTOR_COOKIE") setStep({ kind: "credentials" });
+        if (result.error.code === "INVALID_TWO_FACTOR_COOKIE")
+          setStep({ kind: "credentials" });
         return;
       }
       setSuccess("Signed in successfully.");
@@ -194,7 +205,11 @@ export function LoginForm({
         <Card>
           <CardHeader className="text-center">
             <CardTitle className="text-balance text-xl">
-              <h1>{step.method === "totp" ? "Enter your code" : "Use a recovery code"}</h1>
+              <h1>
+                {step.method === "totp"
+                  ? "Enter your code"
+                  : "Use a recovery code"}
+              </h1>
             </CardTitle>
             <CardDescription className="text-pretty">
               {step.method === "totp"
@@ -207,7 +222,9 @@ export function LoginForm({
               <FieldGroup>
                 <Field>
                   <FieldLabel htmlFor="second-factor-code">
-                    {step.method === "totp" ? "Authentication code" : "Recovery code"}
+                    {step.method === "totp"
+                      ? "Authentication code"
+                      : "Recovery code"}
                   </FieldLabel>
                   <Input
                     id="second-factor-code"
@@ -238,12 +255,18 @@ export function LoginForm({
                     {isSubmitting ? "Verifying…" : "Verify"}
                   </Button>
                   {error ? (
-                    <FieldDescription role="alert" className="text-pretty text-center text-red-600 dark:text-red-400">
+                    <FieldDescription
+                      role="alert"
+                      className="text-pretty text-center text-red-600 dark:text-red-400"
+                    >
                       {error}
                     </FieldDescription>
                   ) : null}
                   {success ? (
-                    <FieldDescription role="status" className="text-pretty text-center text-emerald-600 dark:text-emerald-400">
+                    <FieldDescription
+                      role="status"
+                      className="text-pretty text-center text-emerald-600 dark:text-emerald-400"
+                    >
                       {success}
                     </FieldDescription>
                   ) : null}
@@ -259,9 +282,16 @@ export function LoginForm({
                       });
                     }}
                   >
-                    {step.method === "totp" ? "Use a recovery code instead" : "Use your authenticator app instead"}
+                    {step.method === "totp"
+                      ? "Use a recovery code instead"
+                      : "Use your authenticator app instead"}
                   </Button>
-                  <Button type="button" variant="ghost" disabled={isSubmitting} onClick={() => void signInWithPasskey()}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={isSubmitting}
+                    onClick={() => void signInWithPasskey()}
+                  >
                     Use a passkey instead
                   </Button>
                 </Field>
@@ -337,12 +367,18 @@ export function LoginForm({
                   Sign in
                 </Button>
                 {error ? (
-                  <FieldDescription role="alert" className="text-pretty text-center text-red-600 dark:text-red-400">
+                  <FieldDescription
+                    role="alert"
+                    className="text-pretty text-center text-red-600 dark:text-red-400"
+                  >
                     {error}
                   </FieldDescription>
                 ) : null}
                 {success ? (
-                  <FieldDescription role="status" className="text-pretty text-center text-emerald-600 dark:text-emerald-400">
+                  <FieldDescription
+                    role="status"
+                    className="text-pretty text-center text-emerald-600 dark:text-emerald-400"
+                  >
                     {success}
                   </FieldDescription>
                 ) : null}

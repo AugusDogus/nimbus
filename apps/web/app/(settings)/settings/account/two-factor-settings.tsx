@@ -31,10 +31,16 @@ type Flow =
   | { kind: "scan"; qrCode: string; secret: string; backupCodes: string[] }
   | { kind: "codes"; backupCodes: string[] };
 
-const secretFrom = (uri: string) => new URL(uri).searchParams.get("secret") ?? "";
+const secretFrom = (uri: string) =>
+  new URL(uri).searchParams.get("secret") ?? "";
 
-const failure = (error: { message?: string | undefined; code?: string | undefined }, fallback: string) =>
-  error.code === "INVALID_PASSWORD" ? "That password is incorrect. Nothing was changed." : (error.message ?? fallback);
+const failure = (
+  error: { message?: string | undefined; code?: string | undefined },
+  fallback: string,
+) =>
+  error.code === "INVALID_PASSWORD"
+    ? "That password is incorrect. Nothing was changed."
+    : (error.message ?? fallback);
 
 export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
   const router = useRouter();
@@ -54,7 +60,9 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
     try {
       await action();
     } catch {
-      setError("The server could not be reached. Nothing was changed. Try again.");
+      setError(
+        "The server could not be reached. Nothing was changed. Try again.",
+      );
     } finally {
       setBusy(false);
     }
@@ -71,7 +79,10 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
     >
       <div className="flex flex-col items-start justify-between gap-4 px-4 py-5 sm:flex-row sm:items-center sm:px-5">
         <div className="flex items-start gap-3">
-          <ShieldCheck className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <ShieldCheck
+            className="mt-0.5 size-5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
           <div className="space-y-1">
             <p className="text-sm font-medium">{enabled ? "On" : "Off"}</p>
             <p className="max-w-prose text-pretty text-sm text-muted-foreground">
@@ -84,15 +95,22 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
         <div className="flex shrink-0 flex-wrap gap-2">
           {enabled ? (
             <>
-              <Button variant="outline" onClick={() => open("codes")}>New recovery codes</Button>
-              <Button variant="outline" onClick={() => open("disable")}>Turn off</Button>
+              <Button variant="outline" onClick={() => open("codes")}>
+                New recovery codes
+              </Button>
+              <Button variant="outline" onClick={() => open("disable")}>
+                Turn off
+              </Button>
             </>
           ) : (
             <Button onClick={() => open("enable")}>Set up</Button>
           )}
         </div>
       </div>
-      <Dialog open={flow.kind !== "closed"} onOpenChange={(value) => !value && close()}>
+      <Dialog
+        open={flow.kind !== "closed"}
+        onOpenChange={(value) => !value && close()}
+      >
         <DialogContent
           className="max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl [&>*]:min-w-0"
           showCloseButton={!busy && flow.kind !== "codes"}
@@ -102,26 +120,63 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
               className="space-y-5"
               onSubmit={(event) => {
                 event.preventDefault();
-                const password = new FormData(event.currentTarget).get("password");
+                const password = new FormData(event.currentTarget).get(
+                  "password",
+                );
                 if (typeof password !== "string") return;
                 const purpose = flow.purpose;
                 void run(async () => {
                   if (purpose === "enable") {
-                    const result = await securityClient.twoFactor.enable({ password });
-                    if (result.error) return setError(failure(result.error, "Two-factor authentication could not be set up."));
+                    const result = await securityClient.twoFactor.enable({
+                      password,
+                    });
+                    if (result.error)
+                      return setError(
+                        failure(
+                          result.error,
+                          "Two-factor authentication could not be set up.",
+                        ),
+                      );
                     const data = enrollment.safeParse(result.data);
                     if (!data.success)
-                      return setError("The server returned an unexpected enrollment response. Two-factor authentication is still off. Try again.");
-                    setFlow({ kind: "scan", qrCode: data.data.qrCode, secret: secretFrom(data.data.totpURI), backupCodes: data.data.backupCodes });
+                      return setError(
+                        "The server returned an unexpected enrollment response. Two-factor authentication is still off. Try again.",
+                      );
+                    setFlow({
+                      kind: "scan",
+                      qrCode: data.data.qrCode,
+                      secret: secretFrom(data.data.totpURI),
+                      backupCodes: data.data.backupCodes,
+                    });
                   } else if (purpose === "disable") {
-                    const result = await securityClient.twoFactor.disable({ password });
-                    if (result.error) return setError(failure(result.error, "Two-factor authentication could not be turned off."));
+                    const result = await securityClient.twoFactor.disable({
+                      password,
+                    });
+                    if (result.error)
+                      return setError(
+                        failure(
+                          result.error,
+                          "Two-factor authentication could not be turned off.",
+                        ),
+                      );
                     setFlow({ kind: "closed" });
                     router.refresh();
                   } else {
-                    const result = await securityClient.twoFactor.generateBackupCodes({ password });
-                    if (result.error) return setError(failure(result.error, "New recovery codes could not be created."));
-                    setFlow({ kind: "codes", backupCodes: result.data.backupCodes });
+                    const result =
+                      await securityClient.twoFactor.generateBackupCodes({
+                        password,
+                      });
+                    if (result.error)
+                      return setError(
+                        failure(
+                          result.error,
+                          "New recovery codes could not be created.",
+                        ),
+                      );
+                    setFlow({
+                      kind: "codes",
+                      backupCodes: result.data.backupCodes,
+                    });
                   }
                 });
               }}
@@ -144,13 +199,44 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
               </DialogHeader>
               <div className="space-y-2">
                 <Label htmlFor="two-factor-password">Password</Label>
-                <Input id="two-factor-password" name="password" type="password" autoComplete="current-password" required autoFocus disabled={busy} />
+                <Input
+                  id="two-factor-password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  autoFocus
+                  disabled={busy}
+                />
               </div>
-              {error && <p role="alert" className="text-pretty text-sm text-destructive">{error}</p>}
+              {error && (
+                <p
+                  role="alert"
+                  className="text-pretty text-sm text-destructive"
+                >
+                  {error}
+                </p>
+              )}
               <DialogFooter>
-                <Button type="button" variant="outline" disabled={busy} onClick={close}>Cancel</Button>
-                <Button disabled={busy} variant={flow.purpose === "disable" ? "destructive" : "default"}>
-                  {busy ? "Checking…" : flow.purpose === "disable" ? "Turn off" : "Continue"}
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={close}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={busy}
+                  variant={
+                    flow.purpose === "disable" ? "destructive" : "default"
+                  }
+                >
+                  {busy
+                    ? "Checking…"
+                    : flow.purpose === "disable"
+                      ? "Turn off"
+                      : "Continue"}
                 </Button>
               </DialogFooter>
             </form>
@@ -164,21 +250,27 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
                 if (typeof code !== "string") return;
                 const backupCodes = flow.backupCodes;
                 void run(async () => {
-                  const result = await securityClient.twoFactor.verifyTotp({ code: code.replace(/\s/g, "") });
+                  const result = await securityClient.twoFactor.verifyTotp({
+                    code: code.replace(/\s/g, ""),
+                  });
                   if (result.error)
                     return setError(
                       result.error.code === "INVALID_CODE"
                         ? "That code did not match. Check the time on your device and enter the newest code."
-                        : (result.error.message ?? "The code could not be checked. Try again."),
+                        : (result.error.message ??
+                            "The code could not be checked. Try again."),
                     );
                   setFlow({ kind: "codes", backupCodes });
                 });
               }}
             >
               <DialogHeader className="text-left">
-                <DialogTitle className="text-balance">Scan with your authenticator app</DialogTitle>
+                <DialogTitle className="text-balance">
+                  Scan with your authenticator app
+                </DialogTitle>
                 <DialogDescription className="text-pretty">
-                  Scan the code, or enter the setup key by hand. Then enter the 6-digit code the app shows.
+                  Scan the code, or enter the setup key by hand. Then enter the
+                  6-digit code the app shows.
                 </DialogDescription>
               </DialogHeader>
               {/* A data URL keeps the secret out of request logs and caches. */}
@@ -208,25 +300,53 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
                   className="font-mono tracking-widest"
                 />
               </div>
-              {error && <p role="alert" className="text-pretty text-sm text-destructive">{error}</p>}
+              {error && (
+                <p
+                  role="alert"
+                  className="text-pretty text-sm text-destructive"
+                >
+                  {error}
+                </p>
+              )}
               <DialogFooter>
-                <Button type="button" variant="outline" disabled={busy} onClick={close}>Cancel</Button>
-                <Button disabled={busy}>{busy ? "Verifying…" : "Turn on"}</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={close}
+                >
+                  Cancel
+                </Button>
+                <Button disabled={busy}>
+                  {busy ? "Verifying…" : "Turn on"}
+                </Button>
               </DialogFooter>
             </form>
           )}
           {flow.kind === "codes" && (
             <>
               <DialogHeader className="text-left">
-                <DialogTitle className="text-balance">Save your recovery codes</DialogTitle>
+                <DialogTitle className="text-balance">
+                  Save your recovery codes
+                </DialogTitle>
                 <DialogDescription className="text-pretty">
-                  Two-factor authentication is on. If you lose your authenticator, each code signs you in once. Store them somewhere safe; you won’t see them again.
+                  Two-factor authentication is on. If you lose your
+                  authenticator, each code signs you in once. Store them
+                  somewhere safe; you won’t see them again.
                 </DialogDescription>
               </DialogHeader>
-              <ul aria-label="Recovery codes" className="grid grid-cols-2 gap-2 rounded-xl border border-border/60 bg-background p-4 font-mono text-sm tabular-nums">
-                {flow.backupCodes.map((code) => <li key={code}>{code}</li>)}
+              <ul
+                aria-label="Recovery codes"
+                className="grid grid-cols-2 gap-2 rounded-xl border border-border/60 bg-background p-4 font-mono text-sm tabular-nums"
+              >
+                {flow.backupCodes.map((code) => (
+                  <li key={code}>{code}</li>
+                ))}
               </ul>
-              <CopyField label="Recovery codes" value={flow.backupCodes.join(" ")} />
+              <CopyField
+                label="Recovery codes"
+                value={flow.backupCodes.join(" ")}
+              />
               <DialogFooter>
                 <Button onClick={close}>I’ve saved them</Button>
               </DialogFooter>

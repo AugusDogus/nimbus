@@ -34,7 +34,9 @@ export function createFileVersionStore(database: typeof db): FileVersionStore {
       return ids.length ? removeWhere(inArray(fileVersions.id, [...ids])) : [];
     },
     async removeFileKeys(keys) {
-      return keys.length ? removeWhere(inArray(fileVersions.fileKey, [...keys])) : [];
+      return keys.length
+        ? removeWhere(inArray(fileVersions.fileKey, [...keys]))
+        : [];
     },
     async archivedBefore(cutoff) {
       return database

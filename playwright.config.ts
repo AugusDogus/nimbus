@@ -9,11 +9,40 @@ export default defineConfig({
   timeout: 120_000,
   expect: { timeout: 15_000 },
   workers: 1,
-  use: { baseURL: origin, trace: "retain-on-failure", screenshot: "only-on-failure" },
+  use: {
+    baseURL: origin,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+  },
   projects: [
-    { name: "setup", testMatch: "auth.setup.ts", use: { ...devices["Desktop Chrome"] } },
-    { name: "desktop", dependencies: ["setup"], use: { ...devices["Desktop Chrome"], storageState: "test-results/.auth/admin.json" } },
-    { name: "mobile", dependencies: ["setup"], use: { ...devices["iPhone 13"], defaultBrowserType: "chromium", storageState: "test-results/.auth/admin.json" } },
+    {
+      name: "setup",
+      testMatch: "auth.setup.ts",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "desktop",
+      dependencies: ["setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "test-results/.auth/admin.json",
+      },
+    },
+    {
+      name: "mobile",
+      dependencies: ["setup"],
+      use: {
+        ...devices["iPhone 13"],
+        defaultBrowserType: "chromium",
+        storageState: "test-results/.auth/admin.json",
+      },
+    },
   ],
-  webServer: { command: "bun scripts/e2e-server.ts", url: `${origin}/api/health`, timeout: 120_000, reuseExistingServer: false, gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 } },
+  webServer: {
+    command: "bun scripts/e2e-server.ts",
+    url: `${origin}/api/health`,
+    timeout: 120_000,
+    reuseExistingServer: false,
+    gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
+  },
 });

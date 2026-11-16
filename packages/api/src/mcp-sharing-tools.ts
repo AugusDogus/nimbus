@@ -19,7 +19,9 @@ import {
 const linkOutput = z.object({
   id: z.string().describe("Pass to revoke_public_link"),
   path: z.string(),
-  url: z.string().describe("Anyone with this URL can view and download the item"),
+  url: z
+    .string()
+    .describe("Anyone with this URL can view and download the item"),
   createdAt: z.string(),
   expiresAt: z.string().nullable(),
   passwordProtected: z.boolean(),
@@ -54,9 +56,14 @@ const listLinks = defineTool({
   input: z.object(pageInput(100, 500)),
   output: z.object({ links: z.array(linkOutput), ...pageOutput }),
   async run({ caller, context }, input) {
-    const links = [...(await caller.shares.list())].sort((a, b) => b.createdAt - a.createdAt);
+    const links = [...(await caller.shares.list())].sort(
+      (a, b) => b.createdAt - a.createdAt,
+    );
     const page = paginate(links, input);
-    return { links: page.items.map((link) => toLink(context.origin, link)), nextCursor: page.nextCursor };
+    return {
+      links: page.items.map((link) => toLink(context.origin, link)),
+      nextCursor: page.nextCursor,
+    };
   },
 });
 
@@ -69,18 +76,35 @@ const createLink = defineTool({
   annotations: additive,
   input: z.object({
     path: pathInput,
-    expiresAt: z.iso.datetime({ offset: true }).optional().describe("ISO 8601 time when the link stops working. Omit for no expiry."),
-    password: z.string().min(8).max(128).optional().describe("Optional password visitors must enter"),
+    expiresAt: z.iso
+      .datetime({ offset: true })
+      .optional()
+      .describe(
+        "ISO 8601 time when the link stops working. Omit for no expiry.",
+      ),
+    password: z
+      .string()
+      .min(8)
+      .max(128)
+      .optional()
+      .describe("Optional password visitors must enter"),
   }),
   output: linkOutput,
   async run({ caller, context }, input) {
     const { token } = await caller.shares.create({
       path: input.path,
-      expiresAt: input.expiresAt === undefined ? null : Date.parse(input.expiresAt),
+      expiresAt:
+        input.expiresAt === undefined ? null : Date.parse(input.expiresAt),
       password: input.password,
     });
-    const link = (await caller.shares.list()).find((entry) => entry.token === token);
-    if (!link) throw toolFailure("NOT_FOUND", "The link was created but was removed before it could be returned, possibly by a concurrent move. List public links to check.");
+    const link = (await caller.shares.list()).find(
+      (entry) => entry.token === token,
+    );
+    if (!link)
+      throw toolFailure(
+        "NOT_FOUND",
+        "The link was created but was removed before it could be returned, possibly by a concurrent move. List public links to check.",
+      );
     return toLink(context.origin, link);
   },
 });
@@ -88,14 +112,18 @@ const createLink = defineTool({
 const revokeLink = defineTool({
   name: "revoke_public_link",
   title: "Revoke public link",
-  description: "Permanently disable one of your public links. People who already downloaded the content keep their copies.",
+  description:
+    "Permanently disable one of your public links. People who already downloaded the content keep their copies.",
   scope: McpScope.share,
   annotations: { ...destructive, idempotentHint: true },
   input: z.object({ linkId: z.uuid() }),
   output: z.object({ revoked: z.boolean() }),
   async run({ caller }, input) {
     if (!(await caller.shares.list()).some((link) => link.id === input.linkId))
-      throw toolFailure("NOT_FOUND", "None of your public links has this id. Nothing was revoked. Use list_public_links to find it.");
+      throw toolFailure(
+        "NOT_FOUND",
+        "None of your public links has this id. Nothing was revoked. Use list_public_links to find it.",
+      );
     await caller.shares.revoke({ id: input.linkId });
     return { revoked: true };
   },
@@ -122,7 +150,10 @@ const listPermissions = defineTool({
   async run({ caller }, input) {
     const target = await safePath(input.path);
     const grants = await caller.access.permissions({ path: target.relative });
-    const [people, groups] = await Promise.all([caller.access.people({ path: target.relative }), caller.access.groups()]);
+    const [people, groups] = await Promise.all([
+      caller.access.people({ path: target.relative }),
+      caller.access.groups(),
+    ]);
     return {
       path: target.relative,
       grants: grants.map((grant) => {
@@ -131,14 +162,22 @@ const listPermissions = defineTool({
           const person = people.find((entry) => entry.id === id);
           return {
             grantId: grant.id,
-            subject: { type: "user" as const, name: person?.name ?? "Disabled account", email: person?.email ?? "" },
+            subject: {
+              type: "user" as const,
+              name: person?.name ?? "Disabled account",
+              email: person?.email ?? "",
+            },
             permission: grant.permission,
           };
         }
         const id = grant.subject.id;
         return {
           grantId: grant.id,
-          subject: { type: "group" as const, name: groups.find((group) => group.id === id)?.name ?? "Removed group" },
+          subject: {
+            type: "group" as const,
+            name:
+              groups.find((group) => group.id === id)?.name ?? "Removed group",
+          },
           permission: grant.permission,
         };
       }),
@@ -167,14 +206,25 @@ const grantPermission = defineTool({
     let id: string | undefined;
     if (input.subject.type === "user") {
       const email = input.subject.email.toLowerCase();
-      id = (await caller.access.people({ path: target.relative })).find((person) => person.email.toLowerCase() === email)?.id;
+      id = (await caller.access.people({ path: target.relative })).find(
+        (person) => person.email.toLowerCase() === email,
+      )?.id;
     } else {
       const name = input.subject.name;
-      id = (await caller.access.groups()).find((group) => group.name === name)?.id;
+      id = (await caller.access.groups()).find(
+        (group) => group.name === name,
+      )?.id;
     }
     if (id === undefined)
-      throw toolFailure("NOT_FOUND", `No active Nimbus ${input.subject.type} matches that ${input.subject.type === "user" ? "email" : "name"}. Nothing was shared. Ask an administrator to create it first.`);
-    await caller.access.grant({ path: target.relative, subject: { type: input.subject.type, id }, permission: input.permission });
+      throw toolFailure(
+        "NOT_FOUND",
+        `No active Nimbus ${input.subject.type} matches that ${input.subject.type === "user" ? "email" : "name"}. Nothing was shared. Ask an administrator to create it first.`,
+      );
+    await caller.access.grant({
+      path: target.relative,
+      subject: { type: input.subject.type, id },
+      permission: input.permission,
+    });
     return { path: target.relative, permission: input.permission };
   },
 });
@@ -182,7 +232,8 @@ const grantPermission = defineTool({
 const revokePermission = defineTool({
   name: "revoke_permission",
   title: "Revoke permission",
-  description: "Remove a direct grant from a file or folder you administer. Access the subject inherits from parent folders or groups remains.",
+  description:
+    "Remove a direct grant from a file or folder you administer. Access the subject inherits from parent folders or groups remains.",
   scope: McpScope.share,
   annotations: { ...destructive, idempotentHint: true },
   input: z.object({ path: pathInput, grantId: z.string().min(1) }),
@@ -193,4 +244,11 @@ const revokePermission = defineTool({
   },
 });
 
-export const sharingTools = [listLinks, createLink, revokeLink, listPermissions, grantPermission, revokePermission];
+export const sharingTools = [
+  listLinks,
+  createLink,
+  revokeLink,
+  listPermissions,
+  grantPermission,
+  revokePermission,
+];

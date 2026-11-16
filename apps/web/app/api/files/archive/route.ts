@@ -3,7 +3,11 @@ import { createReadStream, type ReadStream } from "node:fs";
 import { PassThrough } from "node:stream";
 import { ZipFile } from "yazl";
 import { httpError, requestAccess, streamBody } from "@/server/http-files";
-import { archiveEntries, archiveName, resolveArchiveRoots } from "./archive-entries";
+import {
+  archiveEntries,
+  archiveName,
+  resolveArchiveRoots,
+} from "./archive-entries";
 
 /**
  * Stream one ZIP of several files and folders. A form POST carries the paths, so selections of
@@ -14,16 +18,23 @@ export async function POST(request: Request) {
   try {
     // Session cookies are SameSite=Lax, which already blocks cross-site POSTs. Refuse them explicitly too.
     if (request.headers.get("sec-fetch-site") === "cross-site")
-      throw new TRPCError({ code: "FORBIDDEN", message: "Start downloads from Nimbus itself." });
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Start downloads from Nimbus itself.",
+      });
     const form = await request.formData();
-    const paths = form.getAll("path").filter((value): value is string => typeof value === "string");
+    const paths = form
+      .getAll("path")
+      .filter((value): value is string => typeof value === "string");
     const access = await requestAccess(request);
     const roots = await resolveArchiveRoots(paths, access);
 
     const zip = new ZipFile();
     // yazl's stream is a Node PassThrough; the declared type is the wider readable interface.
-    const output = zip.outputStream instanceof PassThrough ? zip.outputStream : null;
-    if (!output) throw new Error("yazl did not provide a Node PassThrough output stream.");
+    const output =
+      zip.outputStream instanceof PassThrough ? zip.outputStream : null;
+    if (!output)
+      throw new Error("yazl did not provide a Node PassThrough output stream.");
     let stopped = false;
     let active: ReadStream | null = null;
     // Client disconnects and cancelled downloads close the output. Stop walking and reading then.
@@ -31,7 +42,9 @@ export async function POST(request: Request) {
       stopped = true;
       active?.destroy();
     });
-    request.signal.addEventListener("abort", () => output.destroy(), { once: true });
+    request.signal.addEventListener("abort", () => output.destroy(), {
+      once: true,
+    });
 
     void (async () => {
       for await (const entry of archiveEntries(roots, access)) {
@@ -40,19 +53,28 @@ export async function POST(request: Request) {
           zip.addEmptyDirectory(entry.name, { mtime: entry.mtime });
           continue;
         }
-        zip.addReadStreamLazy(entry.name, { size: entry.size, mtime: entry.mtime, compress: false }, (callback) => {
-          const stream = createReadStream(entry.absolute);
-          active = stream;
-          stream.once("close", () => {
-            if (active === stream) active = null;
-          });
-          callback(null, stream);
-        });
+        zip.addReadStreamLazy(
+          entry.name,
+          { size: entry.size, mtime: entry.mtime, compress: false },
+          (callback) => {
+            const stream = createReadStream(entry.absolute);
+            active = stream;
+            stream.once("close", () => {
+              if (active === stream) active = null;
+            });
+            callback(null, stream);
+          },
+        );
       }
       zip.end();
     })().catch((error: unknown) => {
-      console.error(`ZIP download of ${roots.length} items failed while reading the drive.`, error);
-      output.destroy(error instanceof Error ? error : new Error("ZIP generation failed."));
+      console.error(
+        `ZIP download of ${roots.length} items failed while reading the drive.`,
+        error,
+      );
+      output.destroy(
+        error instanceof Error ? error : new Error("ZIP generation failed."),
+      );
     });
 
     return new Response(streamBody(output), {

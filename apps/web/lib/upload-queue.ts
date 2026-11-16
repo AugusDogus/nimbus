@@ -36,7 +36,10 @@ export type UploadSummary = {
   totalBytes: number;
 };
 
-export type UploadSnapshot = { items: readonly UploadItem[]; summary: UploadSummary };
+export type UploadSnapshot = {
+  items: readonly UploadItem[];
+  summary: UploadSummary;
+};
 
 type TransportEvents = {
   progress(sent: number): void;
@@ -44,7 +47,10 @@ type TransportEvents = {
   failure(message: string): void;
 };
 /** Starts one upload. `abort` stops it and discards what the server received. */
-export type UploadTransport = (request: UploadRequest, events: TransportEvents) => { abort(): Promise<void> };
+export type UploadTransport = (
+  request: UploadRequest,
+  events: TransportEvents,
+) => { abort(): Promise<void> };
 
 type Options = {
   transport: UploadTransport;
@@ -57,7 +63,16 @@ type Options = {
   onIdle?: (summary: UploadSummary) => void;
 };
 
-const emptySummary: UploadSummary = { total: 0, queued: 0, active: 0, done: 0, failed: 0, cancelled: 0, sentBytes: 0, totalBytes: 0 };
+const emptySummary: UploadSummary = {
+  total: 0,
+  queued: 0,
+  active: 0,
+  done: 0,
+  failed: 0,
+  cancelled: 0,
+  sentBytes: 0,
+  totalBytes: 0,
+};
 
 function summarize(items: readonly UploadItem[]): UploadSummary {
   const summary = { ...emptySummary, total: items.length };
@@ -80,7 +95,13 @@ function summarize(items: readonly UploadItem[]): UploadSummary {
  * A queue of independent uploads with bounded concurrency, per-item cancel and retry, and throttled
  * snapshots for `useSyncExternalStore`. It lives outside React so uploads survive navigation.
  */
-export function createUploadQueue({ transport, concurrency = 3, publishIntervalMs = 100, onUploaded, onIdle }: Options) {
+export function createUploadQueue({
+  transport,
+  concurrency = 3,
+  publishIntervalMs = 100,
+  onUploaded,
+  onIdle,
+}: Options) {
   let items: UploadItem[] = [];
   const index = new Map<number, number>();
   const running = new Map<number, { abort(): Promise<void> }>();
@@ -136,7 +157,10 @@ export function createUploadQueue({ transport, concurrency = 3, publishIntervalM
       const handle = transport(request, {
         progress(sent) {
           if (settled) return;
-          update(id, { kind: "uploading", sent: Math.min(sent, request.file.size) });
+          update(id, {
+            kind: "uploading",
+            sent: Math.min(sent, request.file.size),
+          });
           schedule();
         },
         success() {
@@ -164,7 +188,11 @@ export function createUploadQueue({ transport, concurrency = 3, publishIntervalM
   const cancel = async (id: number) => {
     const position = index.get(id);
     const item = position === undefined ? undefined : items[position];
-    if (!item || (item.status.kind !== "queued" && item.status.kind !== "uploading")) return;
+    if (
+      !item ||
+      (item.status.kind !== "queued" && item.status.kind !== "uploading")
+    )
+      return;
     const handle = running.get(id);
     finish(id, { kind: "cancelled" });
     await handle?.abort();
@@ -187,7 +215,9 @@ export function createUploadQueue({ transport, concurrency = 3, publishIntervalM
     cancel,
     async cancelAll() {
       // Cancel queued items first, so finishing a running upload cannot start one of them.
-      for (const item of items) if (item.status.kind === "queued") update(item.id, { kind: "cancelled" });
+      for (const item of items)
+        if (item.status.kind === "queued")
+          update(item.id, { kind: "cancelled" });
       const active = items.filter((item) => item.status.kind === "uploading");
       if (active.length === 0) schedule(true);
       await Promise.all(active.map((item) => cancel(item.id)));
@@ -196,17 +226,25 @@ export function createUploadQueue({ transport, concurrency = 3, publishIntervalM
     retry(id: number) {
       const position = index.get(id);
       const item = position === undefined ? undefined : items[position];
-      if (!item || (item.status.kind !== "failed" && item.status.kind !== "cancelled")) return;
+      if (
+        !item ||
+        (item.status.kind !== "failed" && item.status.kind !== "cancelled")
+      )
+        return;
       update(id, { kind: "queued" });
       wake();
     },
     retryFailed() {
-      for (const item of items) if (item.status.kind === "failed") update(item.id, { kind: "queued" });
+      for (const item of items)
+        if (item.status.kind === "failed") update(item.id, { kind: "queued" });
       wake();
     },
     /** Forget finished, failed, and cancelled items. Running and queued uploads stay. */
     clearFinished() {
-      items = items.filter((item) => item.status.kind === "queued" || item.status.kind === "uploading");
+      items = items.filter(
+        (item) =>
+          item.status.kind === "queued" || item.status.kind === "uploading",
+      );
       index.clear();
       items.forEach((item, position) => index.set(item.id, position));
       schedule(true);

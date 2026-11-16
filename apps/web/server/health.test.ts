@@ -15,7 +15,9 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const options = (overrides: Partial<ReadinessOptions> = {}): ReadinessOptions => ({
+const options = (
+  overrides: Partial<ReadinessOptions> = {},
+): ReadinessOptions => ({
   query: async () => undefined,
   dataRoot: path.join(root, "data"),
   configRoot: path.join(root, "config"),
@@ -52,7 +54,9 @@ test("readiness fails when a root is read-only", async () => {
   const readOnly = path.join(root, "config");
   await chmod(readOnly, 0o500);
   const result = await Readiness.check(options());
-  expect(result.failures.map((failure) => failure.check)).toEqual(["configRoot"]);
+  expect(result.failures.map((failure) => failure.check)).toEqual([
+    "configRoot",
+  ]);
   await chmod(readOnly, 0o700);
 });
 

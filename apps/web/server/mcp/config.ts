@@ -8,7 +8,9 @@ export type McpConfig =
   | { kind: "disabled" }
   | { kind: "misconfigured"; message: string };
 
-export function readMcpConfig(env: Record<string, string | undefined> = process.env): McpConfig {
+export function readMcpConfig(
+  env: Record<string, string | undefined> = process.env,
+): McpConfig {
   const enabled = env.NIMBUS_MCP_ENABLED;
   if (enabled === "false") return { kind: "disabled" };
   if (enabled !== undefined && enabled !== "true")
@@ -18,8 +20,14 @@ export function readMcpConfig(env: Record<string, string | undefined> = process.
     };
   const secret = env.BETTER_AUTH_SECRET;
   if (!secret || secret.length < 32)
-    return { kind: "misconfigured", message: "BETTER_AUTH_SECRET must be set to at least 32 characters for MCP authorization." };
-  const origin = new URL(env.BETTER_AUTH_URL ?? `http://localhost:${env.PORT ?? "3000"}`).origin;
+    return {
+      kind: "misconfigured",
+      message:
+        "BETTER_AUTH_SECRET must be set to at least 32 characters for MCP authorization.",
+    };
+  const origin = new URL(
+    env.BETTER_AUTH_URL ?? `http://localhost:${env.PORT ?? "3000"}`,
+  ).origin;
   return { kind: "enabled", origin, secret };
 }
 

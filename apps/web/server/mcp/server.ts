@@ -1,4 +1,8 @@
-import { McpServer, requireScopes, type CallToolResult } from "@modelcontextprotocol/server";
+import {
+  McpServer,
+  requireScopes,
+  type CallToolResult,
+} from "@modelcontextprotocol/server";
 import type { McpToolContext } from "@nimbus/api/mcp-tool";
 import { mcpTools } from "@nimbus/api/mcp-tools";
 
@@ -11,7 +15,10 @@ const instructions = [
 
 /** A fresh MCP server whose tools act as one verified connection. */
 export function createNimbusMcpServer(context: McpToolContext) {
-  const server = new McpServer({ name: "nimbus", title: "Nimbus", version: "1.0.0" }, { instructions });
+  const server = new McpServer(
+    { name: "nimbus", title: "Nimbus", version: "1.0.0" },
+    { instructions },
+  );
   for (const tool of mcpTools)
     server.registerTool(
       tool.name,
@@ -27,8 +34,14 @@ export function createNimbusMcpServer(context: McpToolContext) {
       async (input): Promise<CallToolResult> => {
         const result = await tool.call(context, input);
         return result.ok
-          ? { content: [{ type: "text", text: JSON.stringify(result.value) }], structuredContent: result.value }
-          : { isError: true, content: [{ type: "text", text: result.message }] };
+          ? {
+              content: [{ type: "text", text: JSON.stringify(result.value) }],
+              structuredContent: result.value,
+            }
+          : {
+              isError: true,
+              content: [{ type: "text", text: result.message }],
+            };
       },
     );
   return server;

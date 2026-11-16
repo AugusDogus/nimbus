@@ -4,7 +4,8 @@ import * as z from "zod/mini";
 import { ThemeColor } from "./theme-color";
 
 export type ThemeResult<T> =
-  { ok: true; value: T } | { ok: false; error: string };
+  | { ok: true; value: T }
+  | { ok: false; error: string };
 
 export const themeColorKeys = [
   "background",
@@ -41,7 +42,10 @@ export const importedThemeSchema = z.object({
   id: z.string().check(z.minLength(1), z.maxLength(200)),
   name: z.string().check(z.trim(), z.minLength(1), z.maxLength(80)),
   appearance: z.enum(["light", "dark"]),
-  colors: z.record(z.enum(themeColorKeys), z.string().check(z.regex(/^#[\da-f]{6}$/i))),
+  colors: z.record(
+    z.enum(themeColorKeys),
+    z.string().check(z.regex(/^#[\da-f]{6}$/i)),
+  ),
 });
 export type VsCodeTheme = z.infer<typeof importedThemeSchema>;
 

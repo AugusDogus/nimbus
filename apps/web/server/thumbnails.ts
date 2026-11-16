@@ -17,7 +17,8 @@ export type ThumbnailSource = {
 };
 
 export type ThumbnailResult =
-  { type: "ready"; body: Uint8Array } | { type: "unavailable" };
+  | { type: "ready"; body: Uint8Array }
+  | { type: "unavailable" };
 
 /** Produces a WebP thumbnail. Abort means every requester left: stop work. */
 export type ThumbnailRenderer = (

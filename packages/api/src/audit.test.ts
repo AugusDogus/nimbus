@@ -19,7 +19,10 @@ it("keeps events recorded before a sink is installed and writes them in order", 
   const written: RecordedAuditEvent[] = [];
   setAuditSink(async (events) => void written.push(...events));
   await flushAudit();
-  expect(written.map((entry) => entry.action)).toEqual(["share.created", "share.revoked"]);
+  expect(written.map((entry) => entry.action)).toEqual([
+    "share.created",
+    "share.revoked",
+  ]);
   expect(written[0]?.at).toBeNumber();
 });
 
@@ -56,10 +59,13 @@ it("requeues a failed batch instead of losing it", async () => {
 it("attaches the client address of the surrounding request", async () => {
   const written: RecordedAuditEvent[] = [];
   setAuditSink(async (events) => void written.push(...events));
-  await runWithAuditRequest({ ip: "198.51.100.7", userAgent: "Test" }, async () => {
-    await Promise.resolve();
-    recordAudit(event);
-  });
+  await runWithAuditRequest(
+    { ip: "198.51.100.7", userAgent: "Test" },
+    async () => {
+      await Promise.resolve();
+      recordAudit(event);
+    },
+  );
   recordAudit(event);
   await flushAudit();
   expect(written.map((entry) => entry.ip)).toEqual(["198.51.100.7", undefined]);

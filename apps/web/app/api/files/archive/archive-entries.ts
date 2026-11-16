@@ -12,9 +12,15 @@ export type ArchiveEntry =
   | { type: "file"; name: string; absolute: string; size: number; mtime: Date };
 
 /** Validate the requested items up front so permission errors fail the request, not the stream. */
-export async function resolveArchiveRoots(paths: readonly string[], access: Access) {
+export async function resolveArchiveRoots(
+  paths: readonly string[],
+  access: Access,
+) {
   if (paths.length === 0)
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Choose at least one file or folder to download." });
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Choose at least one file or folder to download.",
+    });
   const used = new Set<string>();
   const roots: { relative: string; name: string; isDirectory: boolean }[] = [];
   for (const requested of new Set(paths)) {
@@ -25,7 +31,8 @@ export async function resolveArchiveRoots(paths: readonly string[], access: Acce
     const base = path.posix.basename(target.relative) || "My Drive";
     // Items from different folders can share a name. Number them like the browser would.
     let name = base;
-    for (let index = 1; used.has(name.toLowerCase()); index++) name = numberedName(base, index, !isDirectory);
+    for (let index = 1; used.has(name.toLowerCase()); index++)
+      name = numberedName(base, index, !isDirectory);
     used.add(name.toLowerCase());
     roots.push({ relative: target.relative, name, isDirectory });
   }
@@ -40,12 +47,22 @@ export async function* archiveEntries(
   for (const root of roots) {
     const top = await requireExisting(root.relative);
     if (!root.isDirectory) {
-      yield { type: "file", name: root.name, absolute: top.absolute, size: top.stats.size, mtime: top.stats.mtime };
+      yield {
+        type: "file",
+        name: root.name,
+        absolute: top.absolute,
+        size: top.stats.size,
+        mtime: top.stats.mtime,
+      };
       continue;
     }
     yield { type: "dir", name: `${root.name}/`, mtime: top.stats.mtime };
     const pending = [root.relative];
-    for (let directory = pending.shift(); directory !== undefined; directory = pending.shift()) {
+    for (
+      let directory = pending.shift();
+      directory !== undefined;
+      directory = pending.shift()
+    ) {
       for (const entry of await readDirectory(directory, access)) {
         if (!access.can(entry.path, "read")) continue;
         const name = `${root.name}/${root.relative ? entry.path.slice(root.relative.length + 1) : entry.path}`;
@@ -56,7 +73,13 @@ export async function* archiveEntries(
         }
         try {
           const file = await requireExisting(entry.path);
-          yield { type: "file", name, absolute: file.absolute, size: file.stats.size, mtime: file.stats.mtime };
+          yield {
+            type: "file",
+            name,
+            absolute: file.absolute,
+            size: file.stats.size,
+            mtime: file.stats.mtime,
+          };
         } catch (error) {
           if (!isApiError(error, "NOT_FOUND")) throw error;
         }
@@ -66,10 +89,16 @@ export async function* archiveEntries(
 }
 
 /** `photos.zip` for one item, otherwise the shared parent folder's name, or `Nimbus download.zip`. */
-export function archiveName(roots: readonly { relative: string; name: string }[]) {
+export function archiveName(
+  roots: readonly { relative: string; name: string }[],
+) {
   const [first, ...rest] = roots;
   if (first && rest.length === 0) return `${first.name}.zip`;
-  const parents = new Set(roots.map((root) => path.posix.dirname(root.relative)));
+  const parents = new Set(
+    roots.map((root) => path.posix.dirname(root.relative)),
+  );
   const [parent] = parents;
-  return parents.size === 1 && parent && parent !== "." ? `${path.posix.basename(parent)}.zip` : "Nimbus download.zip";
+  return parents.size === 1 && parent && parent !== "."
+    ? `${path.posix.basename(parent)}.zip`
+    : "Nimbus download.zip";
 }

@@ -24,15 +24,16 @@ const globalForStorage = globalThis as typeof globalThis & {
   __nimbusStorageCache?: StorageCacheState;
 };
 
-const storageCache: StorageCacheState = globalForStorage.__nimbusStorageCache ?? {
-  usedBytes: null,
-  fileSizes: new Map<string, number>(),
-  lastComputedAt: 0,
-  lastFullScanAt: 0,
-  pendingTimeout: null,
-  inFlight: null,
-  dirty: false,
-};
+const storageCache: StorageCacheState =
+  globalForStorage.__nimbusStorageCache ?? {
+    usedBytes: null,
+    fileSizes: new Map<string, number>(),
+    lastComputedAt: 0,
+    lastFullScanAt: 0,
+    pendingTimeout: null,
+    inFlight: null,
+    dirty: false,
+  };
 
 if (!globalForStorage.__nimbusStorageCache) {
   globalForStorage.__nimbusStorageCache = storageCache;
@@ -124,10 +125,7 @@ const applyDelta = async (event: { path: string; event: string }) => {
       scheduleRecompute();
       return;
     }
-    storageCache.usedBytes = Math.max(
-      0,
-      storageCache.usedBytes - previous,
-    );
+    storageCache.usedBytes = Math.max(0, storageCache.usedBytes - previous);
     storageCache.fileSizes.delete(absolute);
     return;
   }
@@ -151,10 +149,7 @@ const applyDelta = async (event: { path: string; event: string }) => {
     if (isFsError(error, "ENOENT")) {
       const previous = storageCache.fileSizes.get(absolute);
       if (previous !== undefined) {
-        storageCache.usedBytes = Math.max(
-          0,
-          storageCache.usedBytes - previous,
-        );
+        storageCache.usedBytes = Math.max(0, storageCache.usedBytes - previous);
         storageCache.fileSizes.delete(absolute);
         return;
       }

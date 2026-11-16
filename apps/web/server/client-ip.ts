@@ -33,8 +33,7 @@ export const TrustedProxies = {
       if (
         family === 0 ||
         extra !== undefined ||
-        (bits !== undefined &&
-          (!/^\d{1,3}$/.test(prefix ?? "") || bits > max))
+        (bits !== undefined && (!/^\d{1,3}$/.test(prefix ?? "") || bits > max))
       )
         throw new Error(
           `NIMBUS_TRUSTED_PROXIES contains "${entry}", which is not an IP address or CIDR range. Use values like 127.0.0.1 or 10.0.0.0/8, separated by commas, or leave it unset when Nimbus is not behind a proxy.`,
@@ -67,7 +66,11 @@ export const ClientIp = {
     let current = unmap(peer ?? "");
     if (proxies.empty || !TrustedProxies.includes(proxies, current))
       return current || "unknown";
-    const hops = (Array.isArray(forwardedFor) ? forwardedFor.join(",") : (forwardedFor ?? ""))
+    const hops = (
+      Array.isArray(forwardedFor)
+        ? forwardedFor.join(",")
+        : (forwardedFor ?? "")
+    )
       .split(",")
       .map((hop) => unmap(hop.trim()));
     for (let index = hops.length - 1; index >= 0; index--) {
@@ -85,7 +88,11 @@ export const ClientIp = {
     const left = head ? head.split(":") : [];
     const right = tail ? tail.split(":") : [];
     const groups = address.includes("::")
-      ? [...left, ...Array<string>(8 - left.length - right.length).fill("0"), ...right]
+      ? [
+          ...left,
+          ...Array<string>(8 - left.length - right.length).fill("0"),
+          ...right,
+        ]
       : left;
     return `${groups
       .slice(0, 4)

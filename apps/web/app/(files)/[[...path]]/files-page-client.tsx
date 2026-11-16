@@ -65,7 +65,10 @@ export function FilesPageClient({
   });
   const actions = useFileActions({ currentPath, includeStats });
   const { recordVisit } = actions;
-  const { selection: dialog, select: onDialog } = useEntryDialog(currentPath, recordVisit);
+  const { selection: dialog, select: onDialog } = useEntryDialog(
+    currentPath,
+    recordVisit,
+  );
   const router = useRouter();
   useEffect(() => {
     if (isAuthed && currentPath) void recordVisit(currentPath);
@@ -105,8 +108,14 @@ export function FilesPageClient({
     () =>
       prefs.groupByType
         ? [
-            { title: "Folders", entries: sortedEntries.filter((e) => e.type === "dir") },
-            { title: "Files", entries: sortedEntries.filter((e) => e.type !== "dir") },
+            {
+              title: "Folders",
+              entries: sortedEntries.filter((e) => e.type === "dir"),
+            },
+            {
+              title: "Files",
+              entries: sortedEntries.filter((e) => e.type !== "dir"),
+            },
           ]
         : [{ title: "", entries: sortedEntries }],
     [prefs.groupByType, sortedEntries],
@@ -117,7 +126,9 @@ export function FilesPageClient({
   if (!listQuery.isPlaceholderData && shownPath !== currentPath)
     setShownPath(currentPath);
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const [selectionSlot, setSelectionSlot] = useState<HTMLDivElement | null>(null);
+  const [selectionSlot, setSelectionSlot] = useState<HTMLDivElement | null>(
+    null,
+  );
 
   return (
     <>
@@ -126,7 +137,8 @@ export function FilesPageClient({
           toolbarRef.current = element;
           setSelectionSlot(element);
         }}
-        className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-background px-4 py-3 md:-mx-6 md:flex md:justify-between md:px-6 lg:-mx-8 lg:-mt-8 lg:px-8">
+        className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-background px-4 py-3 md:-mx-6 md:flex md:justify-between md:px-6 lg:-mx-8 lg:-mt-8 lg:px-8"
+      >
         <div className="min-w-0 overflow-hidden">
           <FileBreadcrumbs pathSegments={effectiveSegments} />
         </div>

@@ -62,31 +62,33 @@ export function GroupDialog({
         </DialogHeader>
         <form
           className="space-y-5"
-          onSubmit={(event) => void (async () => {
-            event.preventDefault();
-            setBusy(true);
-            setError(null);
-            try {
-              await trpcClient.access.saveGroup.mutate({
-                id: editor.kind === "edit" ? editor.group.id : undefined,
-                name,
-                memberIds: members,
-              });
-              await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["groups"] }),
-                queryClient.invalidateQueries({ queryKey: ["people"] }),
-              ]);
-              onClose();
-            } catch (error) {
-              setError(
-                error instanceof Error
-                  ? error.message
-                  : "The group could not be saved. Try again.",
-              );
-            } finally {
-              setBusy(false);
-            }
-          })()}
+          onSubmit={(event) =>
+            void (async () => {
+              event.preventDefault();
+              setBusy(true);
+              setError(null);
+              try {
+                await trpcClient.access.saveGroup.mutate({
+                  id: editor.kind === "edit" ? editor.group.id : undefined,
+                  name,
+                  memberIds: members,
+                });
+                await Promise.all([
+                  queryClient.invalidateQueries({ queryKey: ["groups"] }),
+                  queryClient.invalidateQueries({ queryKey: ["people"] }),
+                ]);
+                onClose();
+              } catch (error) {
+                setError(
+                  error instanceof Error
+                    ? error.message
+                    : "The group could not be saved. Try again.",
+                );
+              } finally {
+                setBusy(false);
+              }
+            })()
+          }
         >
           <div className="space-y-2">
             <Label htmlFor="group-name">Group name</Label>

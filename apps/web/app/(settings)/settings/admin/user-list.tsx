@@ -130,9 +130,10 @@ export function UserList({
                       title: "Sign out everywhere?",
                       description: `Every browser signed in as ${user.email} will need to sign in again. WebDAV app passwords keep working; revoking them requires the account owner or disabling the account.`,
                       action: async () => {
-                        const result = await authClient.admin.revokeUserSessions({
-                          userId: user.id,
-                        });
+                        const result =
+                          await authClient.admin.revokeUserSessions({
+                            userId: user.id,
+                          });
                         if (result.error)
                           throw new Error(
                             result.error.message ??

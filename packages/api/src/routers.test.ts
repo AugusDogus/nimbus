@@ -35,9 +35,9 @@ describe("files.list", () => {
 
   it("rejects path traversal", async () => {
     const caller = createCaller();
-    await expect(caller.files.list({ path: "../secret" })).rejects.toMatchObject(
-      { code: "BAD_REQUEST" },
-    );
+    await expect(
+      caller.files.list({ path: "../secret" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("returns NOT_FOUND for missing paths", async () => {

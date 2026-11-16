@@ -56,10 +56,25 @@ type SortOption = {
 };
 
 const sortOptions: SortOption[] = [
-  { field: "name", direction: "asc", label: "Name (A to Z)", icon: ArrowDownAZ },
+  {
+    field: "name",
+    direction: "asc",
+    label: "Name (A to Z)",
+    icon: ArrowDownAZ,
+  },
   { field: "name", direction: "desc", label: "Name (Z to A)", icon: ArrowUpAZ },
-  { field: "modified", direction: "desc", label: "Modified (Newest)", icon: Calendar },
-  { field: "modified", direction: "asc", label: "Modified (Oldest)", icon: Calendar },
+  {
+    field: "modified",
+    direction: "desc",
+    label: "Modified (Newest)",
+    icon: Calendar,
+  },
+  {
+    field: "modified",
+    direction: "asc",
+    label: "Modified (Oldest)",
+    icon: Calendar,
+  },
   { field: "size", direction: "desc", label: "Size (Largest)", icon: Weight },
   { field: "size", direction: "asc", label: "Size (Smallest)", icon: Weight },
   { field: "type", direction: "asc", label: "Type (A to Z)", icon: FileText },

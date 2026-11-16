@@ -46,7 +46,9 @@ function updateRenameInCache(
 
 function downloadFrame() {
   const name = "nimbus-download-frame";
-  const existing = document.querySelector<HTMLIFrameElement>(`iframe[name="${name}"]`);
+  const existing = document.querySelector<HTMLIFrameElement>(
+    `iframe[name="${name}"]`,
+  );
   if (existing) return existing;
   const frame = document.createElement("iframe");
   frame.name = name;
@@ -54,10 +56,16 @@ function downloadFrame() {
   frame.addEventListener("load", () => {
     const text = frame.contentDocument?.body?.textContent ?? "";
     if (!text) return;
-    let message = "The ZIP download could not start. Refresh the folder and try again.";
+    let message =
+      "The ZIP download could not start. Refresh the folder and try again.";
     try {
       const body: unknown = JSON.parse(text);
-      if (typeof body === "object" && body !== null && "error" in body && typeof body.error === "string")
+      if (
+        typeof body === "object" &&
+        body !== null &&
+        "error" in body &&
+        typeof body.error === "string"
+      )
         message = `The ZIP download could not start. ${body.error}`;
     } catch {
       // A non-JSON error page keeps the generic message.
@@ -181,7 +189,10 @@ export function useFileActions({
     async (entries: readonly FileEntry[], destinationPath: string) =>
       reportBulk(
         await BulkResult.run(entries, (entry) =>
-          trpcClient.files.move.mutate({ sourcePath: entry.path, destinationPath }),
+          trpcClient.files.move.mutate({
+            sourcePath: entry.path,
+            destinationPath,
+          }),
         ),
         "Moved",
       ),
@@ -192,7 +203,10 @@ export function useFileActions({
     async (entries: readonly FileEntry[], destinationPath: string) =>
       reportBulk(
         await BulkResult.run(entries, (entry) =>
-          trpcClient.files.copy.mutate({ sourcePath: entry.path, destinationPath }),
+          trpcClient.files.copy.mutate({
+            sourcePath: entry.path,
+            destinationPath,
+          }),
         ),
         "Copied",
       ),
@@ -214,13 +228,18 @@ export function useFileActions({
   /** Star every entry, or unstar them all when every entry is already starred. */
   const starEntries = useCallback(async (entries: readonly FileEntry[]) => {
     const existing = await trpcClient.catalog.bookmarks.query().catch(() => []);
-    const starredPaths = new Set(existing.filter((entry) => entry.starred).map((entry) => entry.path));
+    const starredPaths = new Set(
+      existing.filter((entry) => entry.starred).map((entry) => entry.path),
+    );
     const starred = !entries.every((entry) => starredPaths.has(entry.path));
     const result = await BulkResult.run(entries, (entry) =>
       trpcClient.catalog.bookmark.mutate({ path: entry.path, starred }),
     );
     void queryClient.invalidateQueries({ queryKey: ["catalog"] });
-    const summary = BulkResult.describe(result, starred ? "Starred" : "Unstarred");
+    const summary = BulkResult.describe(
+      result,
+      starred ? "Starred" : "Unstarred",
+    );
     if (summary.ok) toast.success(summary.message);
     else toast.error(summary.message);
     return result;

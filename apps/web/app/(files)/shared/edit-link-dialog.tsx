@@ -108,7 +108,10 @@ export default function EditLinkDialog({
                     setChoice(value);
                 }}
               >
-                <SelectTrigger id="edit-link-password-choice" className="w-full">
+                <SelectTrigger
+                  id="edit-link-password-choice"
+                  className="w-full"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -122,7 +125,9 @@ export default function EditLinkDialog({
           {passwordInput && (
             <>
               <Label htmlFor="edit-link-password">
-                {link.passwordProtected ? "New password" : "Password (optional)"}
+                {link.passwordProtected
+                  ? "New password"
+                  : "Password (optional)"}
               </Label>
               <Input
                 id="edit-link-password"
@@ -141,14 +146,23 @@ export default function EditLinkDialog({
               )}
             </>
           )}
-          <LinkSettingsFields id="edit-link" value={settings} onChange={setSettings} />
+          <LinkSettingsFields
+            id="edit-link"
+            value={settings}
+            onChange={setSettings}
+          />
           {error && (
             <p role="alert" className="text-pretty text-sm text-destructive">
               {error}
             </p>
           )}
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={onClose}
+            >
               Cancel
             </Button>
             <Button disabled={busy}>Save changes</Button>

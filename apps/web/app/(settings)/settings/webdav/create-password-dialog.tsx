@@ -64,34 +64,36 @@ export function CreatePasswordDialog({ onClose }: { onClose: () => void }) {
         ) : (
           <form
             className="space-y-5"
-            onSubmit={(event) => void (async () => {
-              event.preventDefault();
-              const name = new FormData(event.currentTarget).get("name");
-              if (typeof name !== "string") return;
-              setBusy(true);
-              setError(null);
-              try {
-                const result = await trpcClient.appPasswords.create.mutate({
-                  name,
-                });
-                setStep({
-                  kind: "created",
-                  name: name.trim(),
-                  token: result.token,
-                });
-                await queryClient.invalidateQueries({
-                  queryKey: ["appPasswords"],
-                });
-              } catch (error) {
-                setError(
-                  error instanceof Error
-                    ? error.message
-                    : "The app password could not be created. Try again.",
-                );
-              } finally {
-                setBusy(false);
-              }
-            })()}
+            onSubmit={(event) =>
+              void (async () => {
+                event.preventDefault();
+                const name = new FormData(event.currentTarget).get("name");
+                if (typeof name !== "string") return;
+                setBusy(true);
+                setError(null);
+                try {
+                  const result = await trpcClient.appPasswords.create.mutate({
+                    name,
+                  });
+                  setStep({
+                    kind: "created",
+                    name: name.trim(),
+                    token: result.token,
+                  });
+                  await queryClient.invalidateQueries({
+                    queryKey: ["appPasswords"],
+                  });
+                } catch (error) {
+                  setError(
+                    error instanceof Error
+                      ? error.message
+                      : "The app password could not be created. Try again.",
+                  );
+                } finally {
+                  setBusy(false);
+                }
+              })()
+            }
           >
             <div className="space-y-2">
               <Label htmlFor="device-name">Device name</Label>

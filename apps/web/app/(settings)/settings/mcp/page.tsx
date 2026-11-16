@@ -13,7 +13,11 @@ export default async function McpPage() {
     <McpSettings
       state={
         config.kind === "enabled"
-          ? { kind: "enabled", serverUrl: mcpResource(config.origin), connections: await listConnections(db, session.user.id) }
+          ? {
+              kind: "enabled",
+              serverUrl: mcpResource(config.origin),
+              connections: await listConnections(db, session.user.id),
+            }
           : { kind: "unavailable" }
       }
     />

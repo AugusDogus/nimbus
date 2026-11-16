@@ -35,7 +35,9 @@ export default function VersionsDialog({
     try {
       await trpcClient.versions.restore.mutate({ path: entry.path, id });
       setConfirming(null);
-      await queryClient.invalidateQueries({ queryKey: ["versions", entry.path] });
+      await queryClient.invalidateQueries({
+        queryKey: ["versions", entry.path],
+      });
     } catch (error) {
       setError(
         error instanceof Error
@@ -59,7 +61,8 @@ export default function VersionsDialog({
             Versions of {entry.name}
           </DialogTitle>
           <DialogDescription className="text-pretty">
-            Earlier content is kept when the file is replaced, for up to 30 days.
+            Earlier content is kept when the file is replaced, for up to 30
+            days.
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 space-y-3 overflow-y-auto px-6 pb-6">
@@ -77,14 +80,19 @@ export default function VersionsDialog({
           ) : (
             <ul className="divide-y rounded-lg border">
               {versions.data?.map((version) => (
-                <li key={version.id} className="flex flex-wrap items-center gap-2 p-3">
+                <li
+                  key={version.id}
+                  className="flex flex-wrap items-center gap-2 p-3"
+                >
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium tabular-nums">
                       {new Date(version.modifiedAt).toLocaleString()}
                     </p>
                     <p className="text-xs tabular-nums text-muted-foreground">
                       {ByteSize.format(version.size)}
-                      {version.archivedBy ? ` · Replaced by ${version.archivedBy}` : ""}
+                      {version.archivedBy
+                        ? ` · Replaced by ${version.archivedBy}`
+                        : ""}
                     </p>
                   </div>
                   <Button size="sm" variant="outline" asChild>
@@ -97,11 +105,20 @@ export default function VersionsDialog({
                   </Button>
                   {canRestore &&
                     (confirming === version.id ? (
-                      <Button size="sm" disabled={busy} onClick={() => void restore(version.id)}>
+                      <Button
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => void restore(version.id)}
+                      >
                         Confirm restore
                       </Button>
                     ) : (
-                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirming(version.id)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => setConfirming(version.id)}
+                      >
                         Restore
                       </Button>
                     ))}
@@ -111,7 +128,8 @@ export default function VersionsDialog({
           )}
           {canRestore && (
             <p className="text-pretty text-xs text-muted-foreground">
-              Restoring keeps the current content as a version, so it can be undone.
+              Restoring keeps the current content as a version, so it can be
+              undone.
             </p>
           )}
         </div>

@@ -47,11 +47,20 @@ export function FileRequestUpload({ token }: { token: string }) {
     queryFn: async () => {
       const response = await fetch(endpoint);
       const data: unknown = await response.json();
-      if (response.status === 401 && typeof data === "object" && data && "passwordRequired" in data)
+      if (
+        response.status === 401 &&
+        typeof data === "object" &&
+        data &&
+        "passwordRequired" in data
+      )
         return { kind: "locked" } as const;
       if (!response.ok) {
         const error = errorSchema.safeParse(data);
-        throw new Error(error.success ? error.data.error : "This upload link could not be loaded.");
+        throw new Error(
+          error.success
+            ? error.data.error
+            : "This upload link could not be loaded.",
+        );
       }
       return { kind: "open", ...detailsSchema.parse(data) } as const;
     },
@@ -68,7 +77,9 @@ export function FileRequestUpload({ token }: { token: string }) {
   const queue = useRef<Item[]>([]);
 
   const update = useCallback((id: number, status: ItemStatus) => {
-    setItems((current) => current.map((item) => (item.id === id ? { ...item, status } : item)));
+    setItems((current) =>
+      current.map((item) => (item.id === id ? { ...item, status } : item)),
+    );
   }, []);
 
   const run = useCallback(async () => {
@@ -83,10 +94,19 @@ export function FileRequestUpload({ token }: { token: string }) {
           retryDelays: [0, 1000, 3000, 5000],
           removeFingerprintOnSuccess: true,
           fingerprint: async () =>
-            JSON.stringify(["file-request", token, file.name, file.size, file.lastModified]),
+            JSON.stringify([
+              "file-request",
+              token,
+              file.name,
+              file.size,
+              file.lastModified,
+            ]),
           metadata: { filename: file.name, request: token },
           onProgress(sent, total) {
-            update(id, { kind: "uploading", percent: total === 0 ? 100 : Math.round((sent / total) * 100) });
+            update(id, {
+              kind: "uploading",
+              percent: total === 0 ? 100 : Math.round((sent / total) * 100),
+            });
           },
           onSuccess() {
             update(id, { kind: "done" });
@@ -125,13 +145,19 @@ export function FileRequestUpload({ token }: { token: string }) {
 
   const add = (files: FileList | null) => {
     if (!files?.length) return;
-    const added = [...files].map((file) => ({ id: nextId.current++, file, status: { kind: "queued" } as const }));
+    const added = [...files].map((file) => ({
+      id: nextId.current++,
+      file,
+      status: { kind: "queued" } as const,
+    }));
     queue.current.push(...added);
     setItems((current) => [...current, ...added]);
     void run();
   };
 
-  const uploading = items.some((item) => item.status.kind === "uploading" || item.status.kind === "queued");
+  const uploading = items.some(
+    (item) => item.status.kind === "uploading" || item.status.kind === "queued",
+  );
 
   return (
     <div className="mx-auto min-h-dvh max-w-3xl px-4 pb-12">
@@ -146,7 +172,9 @@ export function FileRequestUpload({ token }: { token: string }) {
         <p>Loading upload link…</p>
       ) : details.isError ? (
         <div className="space-y-3 rounded-lg border p-6">
-          <h1 className="text-balance text-xl font-semibold">Upload link unavailable</h1>
+          <h1 className="text-balance text-xl font-semibold">
+            Upload link unavailable
+          </h1>
           <p role="alert" className="text-pretty text-muted-foreground">
             {details.error.message}
           </p>
@@ -154,30 +182,42 @@ export function FileRequestUpload({ token }: { token: string }) {
       ) : details.data.kind === "locked" ? (
         <form
           className="mx-auto max-w-sm space-y-4 rounded-lg border p-6"
-          onSubmit={(event) => void (async () => {
-            event.preventDefault();
-            setBusy(true);
-            setUnlockError(null);
-            try {
-              const response = await fetch(endpoint, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password }),
-              });
-              if (!response.ok) {
-                const body = errorSchema.safeParse(await response.json());
-                throw new Error(body.success ? body.data.error : "Could not unlock this link.");
+          onSubmit={(event) =>
+            void (async () => {
+              event.preventDefault();
+              setBusy(true);
+              setUnlockError(null);
+              try {
+                const response = await fetch(endpoint, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ password }),
+                });
+                if (!response.ok) {
+                  const body = errorSchema.safeParse(await response.json());
+                  throw new Error(
+                    body.success
+                      ? body.data.error
+                      : "Could not unlock this link.",
+                  );
+                }
+                setPassword("");
+                await details.refetch();
+              } catch (error) {
+                setUnlockError(
+                  error instanceof Error
+                    ? error.message
+                    : "Could not unlock this link.",
+                );
+              } finally {
+                setBusy(false);
               }
-              setPassword("");
-              await details.refetch();
-            } catch (error) {
-              setUnlockError(error instanceof Error ? error.message : "Could not unlock this link.");
-            } finally {
-              setBusy(false);
-            }
-          })()}
+            })()
+          }
         >
-          <h1 className="text-balance text-xl font-semibold">Protected upload link</h1>
+          <h1 className="text-balance text-xl font-semibold">
+            Protected upload link
+          </h1>
           <p className="text-pretty text-sm text-muted-foreground">
             Enter the password provided with the link.
           </p>
@@ -260,14 +300,24 @@ export function FileRequestUpload({ token }: { token: string }) {
               {items.map((item) => (
                 <li key={item.id} className="space-y-2 p-4">
                   <div className="flex items-center gap-3">
-                    <span className="min-w-0 flex-1 truncate text-sm">{item.file.name}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {item.file.name}
+                    </span>
                     <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                       {ByteSize.format(item.file.size)}
                     </span>
                     {item.status.kind === "done" ? (
-                      <Check role="img" aria-label="Uploaded" className="size-4 shrink-0 text-primary" />
+                      <Check
+                        role="img"
+                        aria-label="Uploaded"
+                        className="size-4 shrink-0 text-primary"
+                      />
                     ) : item.status.kind === "failed" ? (
-                      <CircleAlert role="img" aria-label="Failed" className="size-4 shrink-0 text-destructive" />
+                      <CircleAlert
+                        role="img"
+                        aria-label="Failed"
+                        className="size-4 shrink-0 text-destructive"
+                      />
                     ) : null}
                   </div>
                   {item.status.kind === "uploading" && (
@@ -279,7 +329,10 @@ export function FileRequestUpload({ token }: { token: string }) {
                     />
                   )}
                   {item.status.kind === "failed" && (
-                    <p role="alert" className="text-pretty text-xs text-destructive">
+                    <p
+                      role="alert"
+                      className="text-pretty text-xs text-destructive"
+                    >
                       {item.status.message}
                     </p>
                   )}

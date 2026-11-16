@@ -16,7 +16,10 @@ function Keys({ keys }: { keys: readonly string[] }) {
   return (
     <span className="flex flex-wrap justify-end gap-1">
       {keys.map((key) => (
-        <kbd key={key} className="rounded border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+        <kbd
+          key={key}
+          className="rounded border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground"
+        >
           {key}
         </kbd>
       ))}
@@ -63,11 +66,16 @@ export function ShortcutHelp({
       >
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
-          <DialogDescription>These work while a file or folder has focus.</DialogDescription>
+          <DialogDescription>
+            These work while a file or folder has focus.
+          </DialogDescription>
         </DialogHeader>
         <dl className="divide-y text-sm">
           {shortcuts.map((shortcut) => (
-            <div key={shortcut.label} className="flex items-center justify-between gap-4 py-2">
+            <div
+              key={shortcut.label}
+              className="flex items-center justify-between gap-4 py-2"
+            >
               <dt className="text-pretty">{shortcut.label}</dt>
               <dd>
                 <Keys keys={shortcut.keys} />

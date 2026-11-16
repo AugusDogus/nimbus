@@ -6,7 +6,8 @@ import { LoadingSkeleton } from "./loading-skeleton";
 
 export default async function Loading() {
   const cookieStore = await cookies();
-  const view = cookieStore.get("nimbus_view")?.value === "grid" ? "grid" : "list";
+  const view =
+    cookieStore.get("nimbus_view")?.value === "grid" ? "grid" : "list";
 
   return (
     <>

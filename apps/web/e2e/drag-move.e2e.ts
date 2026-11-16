@@ -3,19 +3,34 @@ import { expect } from "@playwright/test";
 import { client, test, upload } from "./helpers";
 
 for (const view of ["list", "grid"] as const) {
-  test(`drags files and folders into folders in ${view} view without overwriting conflicts`, async ({ page, context, isMobile }, testInfo) => {
-    test.skip(isMobile, "Touch users move items through the existing Move menu.");
+  test(`drags files and folders into folders in ${view} view without overwriting conflicts`, async ({
+    page,
+    context,
+    isMobile,
+  }, testInfo) => {
+    test.skip(
+      isMobile,
+      "Touch users move items through the existing Move menu.",
+    );
     const root = `drag-${randomUUID()}`;
     const destination = "Archive notes";
     const folder = "Project notes";
     const filename = "Move me %20.txt";
     const conflict = "Existing notes.txt";
     const rpc = await client(context);
-    await rpc.prefs.set.mutate({ view, sortField: "name", sortDirection: "asc", groupByType: true });
+    await rpc.prefs.set.mutate({
+      view,
+      sortField: "name",
+      sortDirection: "asc",
+      groupByType: true,
+    });
     await rpc.files.createFolder.mutate({ name: root });
     await rpc.files.createFolder.mutate({ path: root, name: destination });
     await rpc.files.createFolder.mutate({ path: root, name: folder });
-    await rpc.files.createFolder.mutate({ path: `${root}/${folder}`, name: "Nested notes" });
+    await rpc.files.createFolder.mutate({
+      path: `${root}/${folder}`,
+      name: "Nested notes",
+    });
     await page.goto(`/browse/${root}/${encodeURIComponent(destination)}`);
     await upload(page, conflict, "Keep the destination contents.");
     await page.goto(`/browse/${root}`);
@@ -26,7 +41,13 @@ for (const view of ["list", "grid"] as const) {
     const source = page.getByRole("button", { name: filename, exact: true });
     await source.dragTo(target);
     await expect(source).toHaveCount(0);
-    await expect.poll(async () => (await rpc.files.list.query({ path: `${root}/${destination}` })).map((entry) => entry.name)).toContain(filename);
+    await expect
+      .poll(async () =>
+        (await rpc.files.list.query({ path: `${root}/${destination}` })).map(
+          (entry) => entry.name,
+        ),
+      )
+      .toContain(filename);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page).toHaveURL(`/browse/${root}`);
 
@@ -36,28 +57,52 @@ for (const view of ["list", "grid"] as const) {
     await target.hover();
     await target.hover();
     await expect(target).toHaveAttribute("data-drop-target", "true");
-    await page.screenshot({ path: testInfo.outputPath(`drag-${view}.png`), animations: "disabled" });
+    await page.screenshot({
+      path: testInfo.outputPath(`drag-${view}.png`),
+      animations: "disabled",
+    });
     await page.mouse.up();
     await expect(sourceFolder).toHaveCount(0);
-    expect((await rpc.files.list.query({ path: `${root}/${destination}/${folder}` })).map((entry) => entry.name)).toContain("Nested notes");
+    expect(
+      (
+        await rpc.files.list.query({ path: `${root}/${destination}/${folder}` })
+      ).map((entry) => entry.name),
+    ).toContain("Nested notes");
 
-    const sourceConflict = page.getByRole("button", { name: conflict, exact: true });
+    const sourceConflict = page.getByRole("button", {
+      name: conflict,
+      exact: true,
+    });
     await sourceConflict.dragTo(target);
-    await expect(page.getByRole("alert").filter({ hasText: "Could not move" })).toContainText("An item with that name already exists");
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Could not move" }),
+    ).toContainText("An item with that name already exists");
     await expect(sourceConflict).toBeVisible();
-    const sourceDownload = await context.request.get(`/api/files/download?path=${encodeURIComponent(`${root}/${conflict}`)}`);
-    const targetDownload = await context.request.get(`/api/files/download?path=${encodeURIComponent(`${root}/${destination}/${conflict}`)}`);
+    const sourceDownload = await context.request.get(
+      `/api/files/download?path=${encodeURIComponent(`${root}/${conflict}`)}`,
+    );
+    const targetDownload = await context.request.get(
+      `/api/files/download?path=${encodeURIComponent(`${root}/${destination}/${conflict}`)}`,
+    );
     expect(await sourceDownload.text()).toBe("Keep the source contents.");
     expect(await targetDownload.text()).toBe("Keep the destination contents.");
 
     const uploadDrop = await page.evaluateHandle(() => {
       const transfer = new DataTransfer();
-      transfer.items.add(new File(["Uploaded from the desktop."], "Dropped notes.txt", { type: "text/plain" }));
+      transfer.items.add(
+        new File(["Uploaded from the desktop."], "Dropped notes.txt", {
+          type: "text/plain",
+        }),
+      );
       return transfer;
     });
     await target.dispatchEvent("drop", { dataTransfer: uploadDrop });
     await uploadDrop.dispose();
-    await expect(page.getByRole("button", { name: "Dropped notes.txt", exact: true })).toBeVisible();
-    expect((await rpc.files.list.query({ path: root })).map((entry) => entry.name)).toContain("Dropped notes.txt");
+    await expect(
+      page.getByRole("button", { name: "Dropped notes.txt", exact: true }),
+    ).toBeVisible();
+    expect(
+      (await rpc.files.list.query({ path: root })).map((entry) => entry.name),
+    ).toContain("Dropped notes.txt");
   });
 }

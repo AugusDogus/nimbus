@@ -6,8 +6,14 @@ import type { EntryDialog } from "./entry-dialogs";
  * It belongs to the view it was opened in, so navigating elsewhere closes it.
  * Opening a preview records the visit under Recent.
  */
-export function useEntryDialog(scope: string, recordVisit: (path: string) => Promise<void>) {
-  const [open, setOpen] = useState<{ scope: string; dialog: EntryDialog } | null>(null);
+export function useEntryDialog(
+  scope: string,
+  recordVisit: (path: string) => Promise<void>,
+) {
+  const [open, setOpen] = useState<{
+    scope: string;
+    dialog: EntryDialog;
+  } | null>(null);
   const select = useCallback(
     (dialog: EntryDialog | null) => {
       setOpen(dialog === null ? null : { scope, dialog });

@@ -40,7 +40,8 @@ const trustedOrigins = parseTrustedOrigins(
   process.env.BETTER_AUTH_TRUSTED_ORIGINS,
 );
 const publicOrigin = new URL(
-  process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? "3000"}`,
+  process.env.BETTER_AUTH_URL ??
+    `http://localhost:${process.env.PORT ?? "3000"}`,
 );
 
 const roleSchema = z.union([z.string(), z.array(z.string())]);
@@ -74,7 +75,10 @@ async function syncProviderGroups(userId: string, email: string) {
   if (!pending || pending.expires < Date.now()) return;
   // The provider is the source of truth for membership in groups it names.
   const matched = pending.groups.length
-    ? await db.select({ id: groups.id }).from(groups).where(inArray(groups.name, pending.groups))
+    ? await db
+        .select({ id: groups.id })
+        .from(groups)
+        .where(inArray(groups.name, pending.groups))
     : [];
   const ids = matched.map((group) => group.id);
   await db.transaction(async (tx) => {
@@ -82,7 +86,10 @@ async function syncProviderGroups(userId: string, email: string) {
       .delete(groupMembers)
       .where(
         ids.length
-          ? and(eq(groupMembers.userId, userId), notInArray(groupMembers.groupId, ids))
+          ? and(
+              eq(groupMembers.userId, userId),
+              notInArray(groupMembers.groupId, ids),
+            )
           : eq(groupMembers.userId, userId),
       );
     if (ids.length)
@@ -116,7 +123,8 @@ const oidcPlugins: BetterAuthPlugin[] =
               disableSignUp: !oidcConfig.autoProvision,
               overrideUserInfo: false,
               mapProfileToUser(profile) {
-                const groupsClaim = oidcConfig.kind === "oidc" ? oidcConfig.groupsClaim : null;
+                const groupsClaim =
+                  oidcConfig.kind === "oidc" ? oidcConfig.groupsClaim : null;
                 if (groupsClaim && typeof profile.email === "string")
                   pendingGroups.set(profile.email.toLowerCase(), {
                     groups: OidcConfig.groups(profile, groupsClaim),
@@ -216,7 +224,11 @@ export const auth = betterAuth({
       const created = z
         .object({ user: z.object({ id: z.string(), email: z.string() }) })
         .safeParse(context.context.newSession);
-      if (created.success && oidcConfig.kind === "oidc" && oidcConfig.groupsClaim)
+      if (
+        created.success &&
+        oidcConfig.kind === "oidc" &&
+        oidcConfig.groupsClaim
+      )
         await syncProviderGroups(created.data.user.id, created.data.user.email);
     }),
   },
@@ -298,13 +310,24 @@ export const auth = betterAuth({
           // The home folder and its files stay for administrators; only access is removed.
           await db
             .delete(grants)
-            .where(and(eq(grants.subjectType, "user"), eq(grants.subjectId, removed.id)));
+            .where(
+              and(
+                eq(grants.subjectType, "user"),
+                eq(grants.subjectId, removed.id),
+              ),
+            );
         },
       },
       update: {
         async after(updated, context) {
-          if (context?.path === "/two-factor/verify-totp" && updated.twoFactorEnabled === true)
-            recordAudit({ action: "auth.two_factor_enabled", actor: auditUser(updated) });
+          if (
+            context?.path === "/two-factor/verify-totp" &&
+            updated.twoFactorEnabled === true
+          )
+            recordAudit({
+              action: "auth.two_factor_enabled",
+              actor: auditUser(updated),
+            });
         },
       },
     },
@@ -316,7 +339,10 @@ export const auth = betterAuth({
       rpName: "Nimbus",
       rpID: publicOrigin.hostname,
       origin: publicOrigin.origin,
-      authenticatorSelection: { residentKey: "preferred", userVerification: "required" },
+      authenticatorSelection: {
+        residentKey: "preferred",
+        userVerification: "required",
+      },
     }),
     ...oidcPlugins,
     nimbusSecurity(),

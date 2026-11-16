@@ -22,7 +22,8 @@ export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** A rotated refresh token replayed within this window is a client retry, not theft. */
 export const REFRESH_REUSE_GRACE_MS = 30 * 1000;
 
-export const hashToken = (secret: string) => createHash("sha256").update(secret, "utf8").digest("base64url");
+export const hashToken = (secret: string) =>
+  createHash("sha256").update(secret, "utf8").digest("base64url");
 
 export function mintSecret(prefix: string) {
   const secret = `${prefix}${randomBytes(32).toString("base64url")}`;

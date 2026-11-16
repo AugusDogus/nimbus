@@ -8,7 +8,10 @@ import {
   type Grant,
 } from "@nimbus/api/drive-store";
 import type { db } from "./db";
-import { createFileRequestStore, FileRequestRecords } from "./file-request-store";
+import {
+  createFileRequestStore,
+  FileRequestRecords,
+} from "./file-request-store";
 import { createFileVersionStore } from "./file-version-store";
 import {
   appPasswords,
@@ -95,10 +98,12 @@ function atOrUnder(column: SQLiteColumn, path: string): SQL {
     throw new Error(
       "Nimbus refused to rewrite sharing records for the drive root. The root cannot be moved or trashed; no records were changed.",
     );
-  return or(
-    eq(column, path),
-    sql`substr(${column}, 1, length(${path}) + 1) = ${path} || '/'`,
-  ) ?? sql`0`;
+  return (
+    or(
+      eq(column, path),
+      sql`substr(${column}, 1, length(${path}) + 1) = ${path} || '/'`,
+    ) ?? sql`0`
+  );
 }
 
 /** Delete and return every link, file request, grant, bookmark, and dead property at or under a path. */
@@ -284,7 +289,10 @@ export function createDriveStore(database: typeof db): DriveStore {
     async getTrash(id) {
       return (
         (
-          await database.select(trashColumns).from(trash).where(eq(trash.id, id))
+          await database
+            .select(trashColumns)
+            .from(trash)
+            .where(eq(trash.id, id))
         )[0] ?? null
       );
     },
@@ -311,7 +319,9 @@ export function createDriveStore(database: typeof db): DriveStore {
           (await tx.select({ id: user.id }).from(user)).map((row) => row.id),
         );
         const groupIds = new Set(
-          (await tx.select({ id: groups.id }).from(groups)).map((row) => row.id),
+          (await tx.select({ id: groups.id }).from(groups)).map(
+            (row) => row.id,
+          ),
         );
         // Accounts and groups removed while the item was in trash lose their records.
         const restoredGrants = parsed.data.grants.filter((row) =>
@@ -331,7 +341,11 @@ export function createDriveStore(database: typeof db): DriveStore {
           await tx.insert(bookmarks).values(restoredBookmarks);
         if (parsed.data.properties.length)
           await tx.insert(davProperties).values(parsed.data.properties);
-        await FileRequestRecords.reattach(tx, parsed.data.fileRequests, userIds);
+        await FileRequestRecords.reattach(
+          tx,
+          parsed.data.fileRequests,
+          userIds,
+        );
         await tx.delete(trash).where(eq(trash.id, id));
       });
     },
@@ -394,16 +408,26 @@ export function createDriveStore(database: typeof db): DriveStore {
       });
     },
     async homeOf(userId) {
-      const [row] = await database.select().from(homes).where(eq(homes.userId, userId));
+      const [row] = await database
+        .select()
+        .from(homes)
+        .where(eq(homes.userId, userId));
       return row?.path ?? null;
     },
     async listHomes() {
       return database.select().from(homes);
     },
     async hasHomeWithin(path) {
-      if (!path) return (await database.select().from(homes).limit(1)).length > 0;
+      if (!path)
+        return (await database.select().from(homes).limit(1)).length > 0;
       return (
-        (await database.select().from(homes).where(atOrUnder(homes.path, path)).limit(1)).length > 0
+        (
+          await database
+            .select()
+            .from(homes)
+            .where(atOrUnder(homes.path, path))
+            .limit(1)
+        ).length > 0
       );
     },
     async createHome(home, grant) {
@@ -425,7 +449,10 @@ export function createDriveStore(database: typeof db): DriveStore {
       });
     },
     async davProperties(paths) {
-      const result = new Map<string, { namespace: string; name: string; xml: string }[]>();
+      const result = new Map<
+        string,
+        { namespace: string; name: string; xml: string }[]
+      >();
       // Stay well below SQLite's bound-parameter limit for large folder listings.
       for (let start = 0; start < paths.length; start += 500) {
         const rows = await database
@@ -454,7 +481,11 @@ export function createDriveStore(database: typeof db): DriveStore {
             .insert(davProperties)
             .values({ path, ...property })
             .onConflictDoUpdate({
-              target: [davProperties.path, davProperties.namespace, davProperties.name],
+              target: [
+                davProperties.path,
+                davProperties.namespace,
+                davProperties.name,
+              ],
               set: { xml: property.xml },
             });
       });
@@ -468,7 +499,10 @@ export function createDriveStore(database: typeof db): DriveStore {
           .where(atOrUnder(davProperties.path, from));
         if (rows.length)
           await tx.insert(davProperties).values(
-            rows.map((row) => ({ ...row, path: to + row.path.slice(from.length) })),
+            rows.map((row) => ({
+              ...row,
+              path: to + row.path.slice(from.length),
+            })),
           );
       });
     },

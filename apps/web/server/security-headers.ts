@@ -11,7 +11,8 @@ export type SecurityMode = { development: boolean; https: boolean };
 /** Request header carrying the document nonce to server components. Set only by the custom server. */
 export const nonceHeader = "x-nimbus-nonce";
 
-const documentExclusions = /^\/(?:api|dav|_next)(?:\/|$)|^\/(?:icon\.svg|favicon\.ico)$/;
+const documentExclusions =
+  /^\/(?:api|dav|_next)(?:\/|$)|^\/(?:icon\.svg|favicon\.ico)$/;
 
 export const SecurityHeaders = {
   isDocument(pathname: string) {

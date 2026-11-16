@@ -16,7 +16,9 @@ export function createFileRequestStore(database: typeof db): FileRequestStore {
         bytes: sql<number>`coalesce(sum(${fileRequestUploads.size}), 0)`,
       })
       .from(fileRequestUploads)
-      .where(and(eq(fileRequestUploads.requestId, requestId), counted(activeSince)));
+      .where(
+        and(eq(fileRequestUploads.requestId, requestId), counted(activeSince)),
+      );
     return { files: Number(row?.files ?? 0), bytes: Number(row?.bytes ?? 0) };
   };
   return {
@@ -71,7 +73,9 @@ export function createFileRequestStore(database: typeof db): FileRequestStore {
     async revoke(id, userId) {
       await database
         .delete(fileRequests)
-        .where(and(eq(fileRequests.id, id), eq(fileRequests.createdBy, userId)));
+        .where(
+          and(eq(fileRequests.id, id), eq(fileRequests.createdBy, userId)),
+        );
     },
     async reserve(upload, { activeSince, maxActive }) {
       const u = fileRequestUploads;
@@ -119,12 +123,22 @@ export function createFileRequestStore(database: typeof db): FileRequestStore {
       await database
         .update(fileRequestUploads)
         .set({ name, finishedAt })
-        .where(and(eq(fileRequestUploads.id, id), isNull(fileRequestUploads.finishedAt)));
+        .where(
+          and(
+            eq(fileRequestUploads.id, id),
+            isNull(fileRequestUploads.finishedAt),
+          ),
+        );
     },
     async releaseUpload(id) {
       await database
         .delete(fileRequestUploads)
-        .where(and(eq(fileRequestUploads.id, id), isNull(fileRequestUploads.finishedAt)));
+        .where(
+          and(
+            eq(fileRequestUploads.id, id),
+            isNull(fileRequestUploads.finishedAt),
+          ),
+        );
     },
     async releaseAbandoned(cutoff) {
       await database

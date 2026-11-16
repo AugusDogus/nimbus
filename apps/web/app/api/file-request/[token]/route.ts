@@ -22,7 +22,10 @@ export async function GET(request: Request, context: Context) {
     const uploader = Uploader.issue(request);
     if (uploader) headers.append("Set-Cookie", uploader);
     if (!isFileRequestUnlocked(fileRequest, request))
-      return Response.json({ passwordRequired: true }, { status: 401, headers });
+      return Response.json(
+        { passwordRequired: true },
+        { status: 401, headers },
+      );
     const used = await httpDriveStore.fileRequests.usage(
       fileRequest.id,
       Date.now() - reservationLifetimeMs,
@@ -56,7 +59,10 @@ export async function POST(request: Request, context: Context) {
     try {
       body = await request.json();
     } catch {
-      return Response.json({ error: "Send the password as JSON." }, { status: 400 });
+      return Response.json(
+        { error: "Send the password as JSON." },
+        { status: 400 },
+      );
     }
     if (
       !body ||
@@ -72,7 +78,10 @@ export async function POST(request: Request, context: Context) {
     if (!(await Bun.password.verify(body.password, passwordHash))) {
       FileRequestPasswordAttempts.fail(fileRequest, request);
       return Response.json(
-        { error: "That password is incorrect. Try again or ask the person who sent the link." },
+        {
+          error:
+            "That password is incorrect. Try again or ask the person who sent the link.",
+        },
         { status: 401 },
       );
     }

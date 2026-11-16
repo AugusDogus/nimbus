@@ -23,15 +23,27 @@ describe("storage boundaries", () => {
   });
 
   it("rejects traversal and internal storage", async () => {
-    for (const requested of ["../secret", "/etc/passwd", ".nimbus/db.sqlite", "folder/../.nimbus/db.sqlite"]) {
-      await expect(Promise.resolve().then(() => resolveSafePath(requested))).rejects.toBeDefined();
+    for (const requested of [
+      "../secret",
+      "/etc/passwd",
+      ".nimbus/db.sqlite",
+      "folder/../.nimbus/db.sqlite",
+    ]) {
+      await expect(
+        Promise.resolve().then(() => resolveSafePath(requested)),
+      ).rejects.toBeDefined();
     }
   });
 
   it("rejects symlinks, including missing destinations under a linked directory", async () => {
     await mkdir(path.join(directory, "outside"));
-    await symlink(path.join(directory, "outside"), path.join(directory, "data", "link"));
-    await expect(Promise.resolve().then(() => resolveSafePath("link/new.txt"))).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await symlink(
+      path.join(directory, "outside"),
+      path.join(directory, "data", "link"),
+    );
+    await expect(
+      Promise.resolve().then(() => resolveSafePath("link/new.txt")),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("preserves literal percent-encoded names and dot-prefixed names", async () => {

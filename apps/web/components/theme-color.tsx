@@ -25,5 +25,11 @@ export const themeColorScript = `(() => {
 
 export function ThemeColor({ nonce }: { nonce: string | undefined }) {
   // Browsers hide nonce attributes after parsing, so hydration sees an empty value.
-  return <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeColorScript }} />;
+  return (
+    <script
+      nonce={nonce}
+      suppressHydrationWarning
+      dangerouslySetInnerHTML={{ __html: themeColorScript }}
+    />
+  );
 }

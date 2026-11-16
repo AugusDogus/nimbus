@@ -7,8 +7,10 @@ export function getConfigRoot(dataRoot = getDataRoot()) {
     process.env.NIMBUS_CONFIG_ROOT ?? path.join(dataRoot, ".nimbus"),
   );
   const relative = path.relative(dataRoot, root);
-  const inside = relative !== ".." &&
-    !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  const inside =
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative);
   if (inside && relative.split(path.sep)[0] !== ".nimbus") {
     throw new Error(
       "Set NIMBUS_CONFIG_ROOT outside the data root or inside its reserved .nimbus directory so application state cannot be browsed or shared.",

@@ -10,26 +10,50 @@ import { client, test } from "./helpers";
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 
 async function dataRoot() {
-  const manifest: unknown = JSON.parse(await readFile(path.join(os.tmpdir(), `nimbus-e2e-${process.env.NIMBUS_E2E_PORT ?? "3100"}.json`), "utf8"));
-  return z.object({ dataRoot: z.string().startsWith(os.tmpdir()) }).parse(manifest).dataRoot;
+  const manifest: unknown = JSON.parse(
+    await readFile(
+      path.join(
+        os.tmpdir(),
+        `nimbus-e2e-${process.env.NIMBUS_E2E_PORT ?? "3100"}.json`,
+      ),
+      "utf8",
+    ),
+  );
+  return z
+    .object({ dataRoot: z.string().startsWith(os.tmpdir()) })
+    .parse(manifest).dataRoot;
 }
 
 async function folderWithFiles(names: string[]) {
   const folder = `manager-${randomUUID()}`;
   const directory = path.join(await dataRoot(), folder);
   await mkdir(directory);
-  for (const name of names) await writeFile(path.join(directory, name), `Contents of ${name}`);
+  for (const name of names)
+    await writeFile(path.join(directory, name), `Contents of ${name}`);
   return { folder, directory };
 }
 
-const entry = (page: Page, name: string) => page.locator(`[data-entry-name="${name}"]`);
-const bar = (page: Page) => page.getByRole("toolbar", { name: "Selected items" });
+const entry = (page: Page, name: string) =>
+  page.locator(`[data-entry-name="${name}"]`);
+const bar = (page: Page) =>
+  page.getByRole("toolbar", { name: "Selected items" });
 
 test.beforeEach(async ({ context }) => {
-  await (await client(context)).prefs.set.mutate({ view: "list", sortField: "name", sortDirection: "asc", groupByType: true });
+  await (
+    await client(context)
+  ).prefs.set.mutate({
+    view: "list",
+    sortField: "name",
+    sortDirection: "asc",
+    groupByType: true,
+  });
 });
 
-test("selects with the mouse and keyboard, then downloads one ZIP and trashes the selection", async ({ page, context, isMobile }) => {
+test("selects with the mouse and keyboard, then downloads one ZIP and trashes the selection", async ({
+  page,
+  context,
+  isMobile,
+}) => {
   test.skip(isMobile, "Touch selection is covered separately.");
   const names = ["a.txt", "b.txt", "c.txt", "d.txt"];
   const { folder } = await folderWithFiles(names);
@@ -49,10 +73,13 @@ test("selects with the mouse and keyboard, then downloads one ZIP and trashes th
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe(`${folder}.zip`);
   const file = await download.path();
-  if (file === null) throw new Error("The browser did not save the ZIP download.");
+  if (file === null)
+    throw new Error("The browser did not save the ZIP download.");
   const archive = unzipSync(new Uint8Array(await readFile(file)));
   expect(Object.keys(archive).sort()).toEqual(names);
-  expect(strFromU8(archive["d.txt"] ?? new Uint8Array())).toBe("Contents of d.txt");
+  expect(strFromU8(archive["d.txt"] ?? new Uint8Array())).toBe(
+    "Contents of d.txt",
+  );
 
   await page.keyboard.press("Escape");
   await expect(bar(page)).toHaveCount(0);
@@ -67,12 +94,24 @@ test("selects with the mouse and keyboard, then downloads one ZIP and trashes th
   await dialog.getByRole("button", { name: "Move to trash" }).click();
   await expect(entry(page, "b.txt")).toHaveCount(0);
   await expect(entry(page, "c.txt")).toHaveCount(0);
-  expect((await (await client(context)).files.list.query({ path: folder })).map((item) => item.name).sort()).toEqual(["a.txt", "d.txt"]);
+  expect(
+    (await (await client(context)).files.list.query({ path: folder }))
+      .map((item) => item.name)
+      .sort(),
+  ).toEqual(["a.txt", "d.txt"]);
 });
 
-test("navigates with arrows, type-ahead, select all, rename, and the shortcut sheet", async ({ page, isMobile }) => {
+test("navigates with arrows, type-ahead, select all, rename, and the shortcut sheet", async ({
+  page,
+  isMobile,
+}) => {
   test.skip(isMobile, "Hardware keyboard shortcuts are a desktop feature.");
-  const { folder } = await folderWithFiles(["alpha.txt", "beta.txt", "bravo.txt", "charlie.txt"]);
+  const { folder } = await folderWithFiles([
+    "alpha.txt",
+    "beta.txt",
+    "bravo.txt",
+    "charlie.txt",
+  ]);
   await page.goto(`/browse/${folder}`);
   const grid = page.getByRole("grid", { name: folder });
   await expect(grid).toHaveAttribute("aria-multiselectable", "true");
@@ -95,7 +134,9 @@ test("navigates with arrows, type-ahead, select all, rename, and the shortcut sh
   await expect(entry(page, "renamed.txt")).toBeVisible();
   await entry(page, "renamed.txt").focus();
   await page.keyboard.press("?");
-  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
   // Closing the sheet returns focus to the entry that opened it.
   await expect(entry(page, "renamed.txt")).toBeFocused();
@@ -103,46 +144,102 @@ test("navigates with arrows, type-ahead, select all, rename, and the shortcut sh
   await expect(page.getByRole("dialog", { name: "renamed.txt" })).toBeVisible();
 });
 
-test("copies a file into another folder and beside itself", async ({ page, context, isMobile }) => {
+test("copies a file into another folder and beside itself", async ({
+  page,
+  context,
+  isMobile,
+}) => {
   const { folder, directory } = await folderWithFiles(["report.txt"]);
   await mkdir(path.join(directory, "archive"));
   await page.goto(`/browse/${folder}`);
-  await page.getByRole("button", { name: "Actions for report.txt", exact: true }).click();
-  await page.getByRole(isMobile ? "button" : "menuitem", { name: "Copy to…", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Actions for report.txt", exact: true })
+    .click();
+  await page
+    .getByRole(isMobile ? "button" : "menuitem", {
+      name: "Copy to…",
+      exact: true,
+    })
+    .click();
   const dialog = page.getByRole("dialog", { name: "Copy" });
   await dialog.getByRole("button", { name: folder, exact: true }).click();
   await dialog.getByRole("button", { name: "Copy here" }).click();
   await expect(dialog).toBeHidden();
-  await page.getByRole("button", { name: "Actions for report.txt", exact: true }).click();
-  await page.getByRole(isMobile ? "button" : "menuitem", { name: "Copy to…", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Actions for report.txt", exact: true })
+    .click();
+  await page
+    .getByRole(isMobile ? "button" : "menuitem", {
+      name: "Copy to…",
+      exact: true,
+    })
+    .click();
   await dialog.getByRole("button", { name: folder, exact: true }).click();
   await dialog.getByRole("button", { name: "archive", exact: true }).click();
   await dialog.getByRole("button", { name: "Copy here" }).click();
   const rpc = await client(context);
-  await expect.poll(async () => (await rpc.files.list.query({ path: folder })).map((item) => item.name).sort()).toEqual(["archive", "report (1).txt", "report.txt"]);
-  await expect.poll(async () => (await rpc.files.list.query({ path: `${folder}/archive` })).map((item) => item.name)).toEqual(["report.txt"]);
+  await expect
+    .poll(async () =>
+      (await rpc.files.list.query({ path: folder }))
+        .map((item) => item.name)
+        .sort(),
+    )
+    .toEqual(["archive", "report (1).txt", "report.txt"]);
+  await expect
+    .poll(async () =>
+      (await rpc.files.list.query({ path: `${folder}/archive` })).map(
+        (item) => item.name,
+      ),
+    )
+    .toEqual(["report.txt"]);
 });
 
-test("asks about name clashes when uploading, replacing or keeping both", async ({ page, context }) => {
+test("asks about name clashes when uploading, replacing or keeping both", async ({
+  page,
+  context,
+}) => {
   const { folder } = await folderWithFiles(["notes.txt"]);
   await page.goto(`/browse/${folder}`);
   const input = page.locator('input[type="file"]');
-  await input.setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Replaced") });
-  const clash = page.getByRole("dialog", { name: "A file named “notes.txt” already exists" });
+  await input.setInputFiles({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Replaced"),
+  });
+  const clash = page.getByRole("dialog", {
+    name: "A file named “notes.txt” already exists",
+  });
   await clash.getByRole("button", { name: "Replace" }).click();
-  const read = async (name: string) => (await context.request.get(`/api/files/download?path=${encodeURIComponent(`${folder}/${name}`)}`)).text();
+  const read = async (name: string) =>
+    (
+      await context.request.get(
+        `/api/files/download?path=${encodeURIComponent(`${folder}/${name}`)}`,
+      )
+    ).text();
   await expect.poll(() => read("notes.txt")).toBe("Replaced");
-  await input.setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Second copy") });
+  await input.setInputFiles({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Second copy"),
+  });
   await clash.getByRole("button", { name: "Keep both" }).click();
   await expect(entry(page, "notes (1).txt")).toBeVisible();
   expect(await read("notes (1).txt")).toBe("Second copy");
-  await input.setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Skipped") });
+  await input.setInputFiles({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Skipped"),
+  });
   await clash.getByRole("button", { name: "Skip" }).click();
   await expect(clash).toBeHidden();
   expect(await read("notes.txt")).toBe("Replaced");
 });
 
-test("uploads a folder from the folder picker, preserving its structure", async ({ page, context, isMobile }) => {
+test("uploads a folder from the folder picker, preserving its structure", async ({
+  page,
+  context,
+  isMobile,
+}) => {
   const { folder } = await folderWithFiles([]);
   const local = await mkdtemp(path.join(os.tmpdir(), "nimbus-folder-upload-"));
   try {
@@ -151,53 +248,107 @@ test("uploads a folder from the folder picker, preserving its structure", async 
     await writeFile(path.join(local, "trip", "day 1", "photo.txt"), "Photo");
     await page.goto(`/browse/${folder}`);
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: isMobile ? "New file or folder" : "New", exact: true }).click();
-    await page.getByRole(isMobile ? "button" : "menuitem", { name: "Upload folder", exact: true }).click();
+    await page
+      .getByRole("button", {
+        name: isMobile ? "New file or folder" : "New",
+        exact: true,
+      })
+      .click();
+    await page
+      .getByRole(isMobile ? "button" : "menuitem", {
+        name: "Upload folder",
+        exact: true,
+      })
+      .click();
     await (await chooser).setFiles(path.join(local, "trip"));
-    await expect(page.getByRole("link", { name: "trip", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "trip", exact: true }),
+    ).toBeVisible();
     const rpc = await client(context);
-    await expect.poll(async () => (await rpc.files.list.query({ path: `${folder}/trip/day 1` })).map((item) => item.name)).toEqual(["photo.txt"]);
-    expect((await rpc.files.list.query({ path: `${folder}/trip` })).map((item) => item.name).sort()).toEqual(["day 1", "plan.txt"]);
+    await expect
+      .poll(async () =>
+        (await rpc.files.list.query({ path: `${folder}/trip/day 1` })).map(
+          (item) => item.name,
+        ),
+      )
+      .toEqual(["photo.txt"]);
+    expect(
+      (await rpc.files.list.query({ path: `${folder}/trip` }))
+        .map((item) => item.name)
+        .sort(),
+    ).toEqual(["day 1", "plan.txt"]);
   } finally {
     await rm(local, { recursive: true, force: true });
   }
 });
 
-test("renders large folders as a window and keeps keyboard focus and scroll position", async ({ page, context, isMobile }) => {
+test("renders large folders as a window and keeps keyboard focus and scroll position", async ({
+  page,
+  context,
+  isMobile,
+}) => {
   // Without grouping, the folder sorts last, below 2,000 files.
-  await (await client(context)).prefs.set.mutate({ view: "list", sortField: "name", sortDirection: "asc", groupByType: false });
-  const names = Array.from({ length: 2000 }, (_, index) => `item ${String(index).padStart(4, "0")}.txt`);
+  await (
+    await client(context)
+  ).prefs.set.mutate({
+    view: "list",
+    sortField: "name",
+    sortDirection: "asc",
+    groupByType: false,
+  });
+  const names = Array.from(
+    { length: 2000 },
+    (_, index) => `item ${String(index).padStart(4, "0")}.txt`,
+  );
   const { folder, directory } = await folderWithFiles(names);
   await mkdir(path.join(directory, "zz child"));
   await page.goto(`/browse/${folder}`);
   await expect(entry(page, "item 0000.txt")).toBeVisible();
   expect(await page.locator("[data-entry-name]").count()).toBeLessThan(150);
-  await expect(page.getByRole("grid", { name: folder })).toHaveAttribute("aria-rowcount", "2001");
+  await expect(page.getByRole("grid", { name: folder })).toHaveAttribute(
+    "aria-rowcount",
+    "2001",
+  );
   const last = entry(page, "zz child");
   const scroller = page.locator('[data-slot="sidebar-inset"]');
-  if (isMobile) await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+  if (isMobile)
+    await scroller.evaluate((element) =>
+      element.scrollTo(0, element.scrollHeight),
+    );
   else {
     await entry(page, "item 0000.txt").focus();
     await page.keyboard.press("End");
     await expect(last).toBeFocused();
   }
   await expect(last).toBeInViewport();
-  await expect(page.getByRole("row").filter({ has: last })).toHaveAttribute("aria-rowindex", "2001");
+  await expect(page.getByRole("row").filter({ has: last })).toHaveAttribute(
+    "aria-rowindex",
+    "2001",
+  );
   await expect(entry(page, "item 0000.txt")).toHaveCount(0);
   const saved = await scroller.evaluate((element) => element.scrollTop);
   expect(saved).toBeGreaterThan(50_000);
   // Opening a folder starts it at the top; returning restores where the list was.
   await last.click();
-  await expect(page).toHaveURL(`/browse/${folder}/${encodeURIComponent("zz child")}`);
-  await expect(page.getByRole("heading", { name: "This folder is empty" })).toBeVisible();
+  await expect(page).toHaveURL(
+    `/browse/${folder}/${encodeURIComponent("zz child")}`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "This folder is empty" }),
+  ).toBeVisible();
   expect(await scroller.evaluate((element) => element.scrollTop)).toBe(0);
   await page.goBack();
   await expect(last).toBeInViewport();
   // Within one row: a position saved at the very bottom is clamped if the header height differs.
-  expect(Math.abs((await scroller.evaluate((element) => element.scrollTop)) - saved)).toBeLessThan(52);
+  expect(
+    Math.abs((await scroller.evaluate((element) => element.scrollTop)) - saved),
+  ).toBeLessThan(52);
 });
 
-test("long-press starts selection mode on touch, and taps then toggle items", async ({ page, isMobile }) => {
+test("long-press starts selection mode on touch, and taps then toggle items", async ({
+  page,
+  isMobile,
+}) => {
   test.skip(!isMobile, "Touch selection applies to touch screens.");
   const { folder } = await folderWithFiles(["one.txt", "two.txt", "three.txt"]);
   await page.goto(`/browse/${folder}`);
@@ -206,7 +357,13 @@ test("long-press starts selection mode on touch, and taps then toggle items", as
   // applies. A press before then never reaches the long-press handler.
   await expect(target).toHaveAttribute("draggable", "false");
   // A stationary press: only the distance between pointer events matters, not where they land.
-  const point = { clientX: 100, clientY: 100, pointerType: "touch", isPrimary: true, button: 0 };
+  const point = {
+    clientX: 100,
+    clientY: 100,
+    pointerType: "touch",
+    isPrimary: true,
+    button: 0,
+  };
   await target.dispatchEvent("pointerdown", point);
   await page.waitForTimeout(600);
   await target.dispatchEvent("pointerup", point);
@@ -219,14 +376,19 @@ test("long-press starts selection mode on touch, and taps then toggle items", as
   await expect(bar(page)).toHaveCount(0);
 });
 
-test("rows keep their elements through hydration and across the breakpoint, so a press on the first one shown selects", async ({ page, isMobile }) => {
+test("rows keep their elements through hydration and across the breakpoint, so a press on the first one shown selects", async ({
+  page,
+  isMobile,
+}) => {
   test.skip(!isMobile, "The touch layout applies after hydration on phones.");
   const { folder } = await folderWithFiles(["one.txt", "two.txt"]);
   // Remember the first element shown for the row, as a finger resting on it would. Streamed
   // content waits in hidden containers until it is revealed.
   await page.addInitScript(() => {
     const observer = new MutationObserver(() => {
-      const row = [...document.querySelectorAll('[data-entry-name="one.txt"]')].find((element) => !element.closest("[hidden]"));
+      const row = [
+        ...document.querySelectorAll('[data-entry-name="one.txt"]'),
+      ].find((element) => !element.closest("[hidden]"));
       if (!row) return;
       Reflect.set(window, "firstRow", row);
       observer.disconnect();
@@ -235,7 +397,8 @@ test("rows keep their elements through hydration and across the breakpoint, so a
   });
   await page.goto(`/browse/${folder}`);
   const target = entry(page, "one.txt");
-  const isFirstRow = () => target.evaluate((element) => element === Reflect.get(window, "firstRow"));
+  const isFirstRow = () =>
+    target.evaluate((element) => element === Reflect.get(window, "firstRow"));
   await expect(target).toHaveAttribute("draggable", "false");
   expect(await isFirstRow()).toBe(true);
   const viewport = page.viewportSize();
@@ -250,9 +413,21 @@ test("rows keep their elements through hydration and across the breakpoint, so a
   const press = (type: "pointerdown" | "pointerup" | "click") =>
     page.evaluate((type) => {
       const row: unknown = Reflect.get(window, "firstRow");
-      if (!(row instanceof HTMLElement)) throw new Error("The row was never shown.");
-      const point = { bubbles: true, cancelable: true, clientX: 100, clientY: 100, pointerType: "touch", isPrimary: true };
-      row.dispatchEvent(type === "click" ? new MouseEvent(type, point) : new PointerEvent(type, point));
+      if (!(row instanceof HTMLElement))
+        throw new Error("The row was never shown.");
+      const point = {
+        bubbles: true,
+        cancelable: true,
+        clientX: 100,
+        clientY: 100,
+        pointerType: "touch",
+        isPrimary: true,
+      };
+      row.dispatchEvent(
+        type === "click"
+          ? new MouseEvent(type, point)
+          : new PointerEvent(type, point),
+      );
     }, type);
   await press("pointerdown");
   await page.waitForTimeout(600);
@@ -262,7 +437,10 @@ test("rows keep their elements through hydration and across the breakpoint, so a
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
-test("empties trash in one step after confirmation", async ({ page, context }) => {
+test("empties trash in one step after confirmation", async ({
+  page,
+  context,
+}) => {
   const rpc = await client(context);
   const { folder } = await folderWithFiles(["gone-1.txt", "gone-2.txt"]);
   await rpc.files.delete.mutate({ path: `${folder}/gone-1.txt` });
@@ -274,5 +452,7 @@ test("empties trash in one step after confirmation", async ({ page, context }) =
   await dialog.getByRole("button", { name: "Empty trash" }).click();
   await expect(page.getByText("Trash is empty.")).toBeVisible();
   expect(await rpc.trash.list.query()).toEqual([]);
-  await expect(page.getByRole("button", { name: "Empty trash", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Empty trash", exact: true }),
+  ).toHaveCount(0);
 });

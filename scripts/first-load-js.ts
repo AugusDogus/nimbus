@@ -70,7 +70,9 @@ async function entryFiles(page: string): Promise<string[]> {
   const manifest = isRecord(manifests) ? manifests[page] : undefined;
   const entries = isRecord(manifest) ? manifest.entryJSFiles : undefined;
   if (!isRecord(entries))
-    fail(`${file} has no entryJSFiles for ${page}; the manifest format changed.`);
+    fail(
+      `${file} has no entryJSFiles for ${page}; the manifest format changed.`,
+    );
   return Object.values(entries).flatMap((value) =>
     isStringArray(value) ? value : [],
   );
@@ -101,7 +103,8 @@ async function measure(): Promise<RouteSize[]> {
   if (!isStringArray(rootMainFiles))
     fail("build-manifest.json has no rootMainFiles array.");
   const routes = await readJson("app-path-routes-manifest.json");
-  if (!isRecord(routes)) fail("app-path-routes-manifest.json is not an object.");
+  if (!isRecord(routes))
+    fail("app-path-routes-manifest.json is not an object.");
 
   const results: RouteSize[] = [];
   for (const [page, route] of Object.entries(routes)) {
@@ -154,7 +157,8 @@ const option = (name: string) => {
 
 const current = await measure();
 const jsonPath = option("--json");
-if (jsonPath) await writeFile(jsonPath, `${JSON.stringify(current, null, 2)}\n`);
+if (jsonPath)
+  await writeFile(jsonPath, `${JSON.stringify(current, null, 2)}\n`);
 
 const comparePath = option("--compare");
 if (comparePath) {

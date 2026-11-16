@@ -6,7 +6,9 @@ import { useUploadQueue } from "@/lib/use-upload-queue";
 
 // Only needed when an upload's name is taken; it loads then, not with every page.
 const UploadConflictDialog = dynamic(() =>
-  import("./upload-conflict-dialog").then((module) => module.UploadConflictDialog),
+  import("./upload-conflict-dialog").then(
+    (module) => module.UploadConflictDialog,
+  ),
 );
 
 const UploadContext = createContext<ReturnType<typeof useUploadQueue> | null>(

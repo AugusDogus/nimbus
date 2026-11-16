@@ -122,7 +122,9 @@ export default function TrashPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="text-balance">
-              {deleting?.kind === "all" ? "Empty trash?" : "Delete permanently?"}
+              {deleting?.kind === "all"
+                ? "Empty trash?"
+                : "Delete permanently?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {deleting?.kind === "all"

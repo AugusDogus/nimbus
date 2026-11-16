@@ -43,47 +43,51 @@ export function CreateAccountDialog({ onClose }: { onClose: () => void }) {
         </DialogHeader>
         <form
           className="space-y-4"
-          onSubmit={(event) => void (async () => {
-            event.preventDefault();
-            const data = new FormData(event.currentTarget);
-            const name = data.get("name");
-            const email = data.get("email");
-            const password = data.get("password");
-            if (
-              typeof name !== "string" ||
-              typeof email !== "string" ||
-              typeof password !== "string"
-            )
-              return;
-            setBusy(true);
-            setError(null);
-            try {
-              const result = await authClient.admin.createUser({
-                name,
-                email,
-                password,
-                role: "user",
-              });
-              if (result.error) {
-                setError(
-                  result.error.message ??
-                    "The account could not be created. Try again.",
-                );
+          onSubmit={(event) =>
+            void (async () => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              const name = data.get("name");
+              const email = data.get("email");
+              const password = data.get("password");
+              if (
+                typeof name !== "string" ||
+                typeof email !== "string" ||
+                typeof password !== "string"
+              )
                 return;
+              setBusy(true);
+              setError(null);
+              try {
+                const result = await authClient.admin.createUser({
+                  name,
+                  email,
+                  password,
+                  role: "user",
+                });
+                if (result.error) {
+                  setError(
+                    result.error.message ??
+                      "The account could not be created. Try again.",
+                  );
+                  return;
+                }
+                await Promise.all([
+                  queryClient.invalidateQueries({
+                    queryKey: ["admin", "users"],
+                  }),
+                  queryClient.invalidateQueries({ queryKey: ["people"] }),
+                ]);
+                onClose();
+              } catch {
+                setError(
+                  "The server could not be reached. Check the user list before trying again.",
+                );
+              } finally {
+                setBusy(false);
               }
-              await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
-                queryClient.invalidateQueries({ queryKey: ["people"] }),
-              ]);
-              onClose();
-            } catch {
-              setError(
-                "The server could not be reached. Check the user list before trying again.",
-              );
-            } finally {
-              setBusy(false);
-            }
-          })()}
+            })()
+          }
         >
           <div className="space-y-2">
             <Label htmlFor="new-user-name">Name</Label>

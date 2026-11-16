@@ -40,9 +40,10 @@ const globalForDirCache = globalThis as typeof globalThis & {
   __nimbusDirListCache?: DirListCacheState;
 };
 
-const dirListCache: DirListCacheState = globalForDirCache.__nimbusDirListCache ?? {
-  entries: new Map<string, DirCacheEntry>(),
-};
+const dirListCache: DirListCacheState =
+  globalForDirCache.__nimbusDirListCache ?? {
+    entries: new Map<string, DirCacheEntry>(),
+  };
 
 if (!globalForDirCache.__nimbusDirListCache) {
   globalForDirCache.__nimbusDirListCache = dirListCache;

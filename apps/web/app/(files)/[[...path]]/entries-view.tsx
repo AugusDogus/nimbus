@@ -57,15 +57,37 @@ type Props = {
 };
 
 const longPressMs = 450;
-const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
+const isMac = () =>
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad/.test(navigator.userAgent);
 
-export function EntriesView({ view, sections, actions, restoreKey, label, toolbarRef, selectionSlot, renderName, dialog, onDialog }: Props) {
+export function EntriesView({
+  view,
+  sections,
+  actions,
+  restoreKey,
+  label,
+  toolbarRef,
+  selectionSlot,
+  renderName,
+  dialog,
+  onDialog,
+}: Props) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const columns = useGridColumns();
-  const layout = useMemo(() => EntryLayout.build(sections, view, view === "grid" ? columns : 1), [sections, view, columns]);
-  const order = useMemo(() => Selection.order(layout.entries.map((entry) => entry.path)), [layout.entries]);
-  const names = useMemo(() => layout.entries.map((entry) => entry.name), [layout.entries]);
+  const layout = useMemo(
+    () => EntryLayout.build(sections, view, view === "grid" ? columns : 1),
+    [sections, view, columns],
+  );
+  const order = useMemo(
+    () => Selection.order(layout.entries.map((entry) => entry.path)),
+    [layout.entries],
+  );
+  const names = useMemo(
+    () => layout.entries.map((entry) => entry.name),
+    [layout.entries],
+  );
 
   const [selection, setSelection] = useState(Selection.empty);
   const [focusPath, setFocusPath] = useState<string | null>(null);
@@ -73,7 +95,8 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   // Preview navigation follows the displayed order. Only computed while a preview is open.
   const previewing = dialog?.action === "preview";
   const previewable = useMemo(
-    () => (previewing ? layout.entries.filter((entry) => entry.type === "file") : []),
+    () =>
+      previewing ? layout.entries.filter((entry) => entry.type === "file") : [],
     [previewing, layout.entries],
   );
   const [menu, setMenu] = useState<EntryMenuTarget | null>(null);
@@ -83,38 +106,71 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   if (retained !== selection) setSelection(retained);
   if (focusPath !== null && !order.index.has(focusPath)) setFocusPath(null);
   if (touchSelecting && selection.paths.size === 0) setTouchSelecting(false);
-  const focusIndex = focusPath === null ? -1 : (order.index.get(focusPath) ?? -1);
+  const focusIndex =
+    focusPath === null ? -1 : (order.index.get(focusPath) ?? -1);
   const tabStop = focusPath ?? order.paths[0] ?? null;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const fallbackToolbar = useRef<HTMLElement>(null);
-  const virtual = useVirtualRows({ layout, containerRef, obstructionRef: toolbarRef ?? fallbackToolbar, restoreKey });
+  const virtual = useVirtualRows({
+    layout,
+    containerRef,
+    obstructionRef: toolbarRef ?? fallbackToolbar,
+    restoreKey,
+  });
   const drag = useFileDrag(actions);
   const pendingFocus = useRef<string | null>(null);
-  const typeahead = useRef<{ text: string; timer: ReturnType<typeof setTimeout> | null }>({ text: "", timer: null });
-  const longPress = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
+  const typeahead = useRef<{
+    text: string;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>({ text: "", timer: null });
+  const longPress = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    x: number;
+    y: number;
+  } | null>(null);
   const suppressClick = useRef(false);
   const previewOnRelease = useRef<FileEntry | null>(null);
 
   const selectedEntries = useMemo(
-    () => (selection.paths.size === 0 ? [] : layout.entries.filter((entry) => selection.paths.has(entry.path))),
+    () =>
+      selection.paths.size === 0
+        ? []
+        : layout.entries.filter((entry) => selection.paths.has(entry.path)),
     [layout.entries, selection.paths],
   );
   /** What an action on `entry` applies to: the selection when it includes `entry`. */
   const targetsFor = useCallback(
-    (entry: FileEntry) => (selection.paths.has(entry.path) && selection.paths.size > 1 ? selectedEntries : [entry]),
+    (entry: FileEntry) =>
+      selection.paths.has(entry.path) && selection.paths.size > 1
+        ? selectedEntries
+        : [entry],
     [selectedEntries, selection.paths],
   );
 
   const open = (next: EntryDialog) => onDialog(next);
 
-  const focusEntry = (index: number, mode: "select" | "extend" | "focus" | "toggle") => {
+  const focusEntry = (
+    index: number,
+    mode: "select" | "extend" | "focus" | "toggle",
+  ) => {
     const path = order.paths[index];
     if (path === undefined) return;
     setFocusPath(path);
     if (mode === "select") setSelection(Selection.only(path));
-    if (mode === "extend") setSelection((current) => Selection.range(current.anchor === null && focusPath ? Selection.only(focusPath) : current, order, path, false));
-    if (mode === "toggle") setSelection((current) => Selection.toggle(current, path));
+    if (mode === "extend")
+      setSelection((current) =>
+        Selection.range(
+          current.anchor === null && focusPath
+            ? Selection.only(focusPath)
+            : current,
+          order,
+          path,
+          false,
+        ),
+      );
+    if (mode === "toggle")
+      setSelection((current) => Selection.toggle(current, path));
     pendingFocus.current = path;
     virtual.revealRow(EntryLayout.rowOf(layout, index));
   };
@@ -123,7 +179,9 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   useLayoutEffect(() => {
     const path = pendingFocus.current;
     if (!path) return;
-    const element = containerRef.current?.querySelector<HTMLElement>(`[data-entry-path="${CSS.escape(path)}"]`);
+    const element = containerRef.current?.querySelector<HTMLElement>(
+      `[data-entry-path="${CSS.escape(path)}"]`,
+    );
     if (!element) return;
     pendingFocus.current = null;
     element.focus({ preventScroll: true });
@@ -141,22 +199,29 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!(event.target instanceof HTMLElement) || !event.target.matches("[data-entry-path]")) return;
-    const command = commandFor({
-      key: event.key,
-      shiftKey: event.shiftKey,
-      ctrlKey: event.ctrlKey,
-      metaKey: event.metaKey,
-      altKey: event.altKey,
-      repeat: event.repeat,
-      isComposing: event.nativeEvent.isComposing,
-    }, {
-      index: focusIndex,
-      count: layout.entries.length,
-      columns: layout.columns,
-      pageSize: virtual.rowsPerPage() * layout.columns,
-      isMac: isMac(),
-    });
+    if (
+      !(event.target instanceof HTMLElement) ||
+      !event.target.matches("[data-entry-path]")
+    )
+      return;
+    const command = commandFor(
+      {
+        key: event.key,
+        shiftKey: event.shiftKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        altKey: event.altKey,
+        repeat: event.repeat,
+        isComposing: event.nativeEvent.isComposing,
+      },
+      {
+        index: focusIndex,
+        count: layout.entries.length,
+        columns: layout.columns,
+        pageSize: virtual.rowsPerPage() * layout.columns,
+        isMac: isMac(),
+      },
+    );
     if (!command) return;
     const focused = focusIndex >= 0 ? layout.entries[focusIndex] : undefined;
     switch (command.type) {
@@ -186,7 +251,9 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
         setSelection(Selection.empty);
         break;
       case "trash": {
-        const targets = commandTargets().filter((entry) => entry.permission !== "read");
+        const targets = commandTargets().filter(
+          (entry) => entry.permission !== "read",
+        );
         if (targets.length === 0) return;
         open({ action: "delete", entries: targets });
         break;
@@ -217,18 +284,26 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
     event.stopPropagation();
   };
 
-  const onEntryClick = (event: MouseEvent<HTMLElement>, entry: FileEntry, index: number) => {
+  const onEntryClick = (
+    event: MouseEvent<HTMLElement>,
+    entry: FileEntry,
+    index: number,
+  ) => {
     if (suppressClick.current) {
       suppressClick.current = false;
       event.preventDefault();
       return;
     }
     const mod = isMac() ? event.metaKey : event.ctrlKey;
-    const checkbox = event.target instanceof Element && event.target.closest("[data-entry-check]") !== null;
+    const checkbox =
+      event.target instanceof Element &&
+      event.target.closest("[data-entry-check]") !== null;
     setFocusPath(entry.path);
     if (event.shiftKey) {
       event.preventDefault();
-      setSelection((current) => Selection.range(current, order, entry.path, mod));
+      setSelection((current) =>
+        Selection.range(current, order, entry.path, mod),
+      );
       return;
     }
     if (mod || checkbox || touchSelecting) {
@@ -245,7 +320,10 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
     if (longPress.current) clearTimeout(longPress.current.timer);
     longPress.current = null;
   };
-  const onEntryPointerDown = (event: PointerEvent<HTMLElement>, index: number) => {
+  const onEntryPointerDown = (
+    event: PointerEvent<HTMLElement>,
+    index: number,
+  ) => {
     if (event.pointerType !== "touch") return;
     cancelLongPress();
     longPress.current = {
@@ -261,18 +339,30 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   };
   const onEntryPointerMove = (event: PointerEvent<HTMLElement>) => {
     const start = longPress.current;
-    if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) cancelLongPress();
+    if (
+      start &&
+      Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10
+    )
+      cancelLongPress();
   };
 
   const onContainerPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     // Pressing empty space between entries clears the selection, as in desktop file managers.
-    if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey) return;
-    if (event.target instanceof Element && event.target.closest("[data-entry-row]")) return;
+    if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey)
+      return;
+    if (
+      event.target instanceof Element &&
+      event.target.closest("[data-entry-row]")
+    )
+      return;
     setSelection(Selection.empty);
   };
 
-  const headerRows = layout.rows.flatMap((row, index) => (row.kind === "header" ? [index] : []));
-  const headersBefore = (rowIndex: number) => headerRows.filter((header) => header < rowIndex).length;
+  const headerRows = layout.rows.flatMap((row, index) =>
+    row.kind === "header" ? [index] : [],
+  );
+  const headersBefore = (rowIndex: number) =>
+    headerRows.filter((header) => header < rowIndex).length;
   const entriesBefore = (rowIndex: number) => {
     for (let index = rowIndex; index < layout.rows.length; index++) {
       const row = layout.rows[index];
@@ -280,10 +370,16 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
     }
     return layout.entries.length;
   };
-  const focusedRow = focusIndex >= 0 ? EntryLayout.rowOf(layout, focusIndex) : -1;
+  const focusedRow =
+    focusIndex >= 0 ? EntryLayout.rowOf(layout, focusIndex) : -1;
   const rendered: number[] = [];
-  for (let index = virtual.range.start; index < virtual.range.end; index++) rendered.push(index);
-  if (focusedRow >= 0 && (focusedRow < virtual.range.start || focusedRow >= virtual.range.end)) rendered.push(focusedRow);
+  for (let index = virtual.range.start; index < virtual.range.end; index++)
+    rendered.push(index);
+  if (
+    focusedRow >= 0 &&
+    (focusedRow < virtual.range.start || focusedRow >= virtual.range.end)
+  )
+    rendered.push(focusedRow);
   const selectionActive = selection.paths.size > 0;
 
   /**
@@ -321,7 +417,8 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   });
   const [handlers] = useState<EntryRowHandlers>(() => {
     const call = () => {
-      if (!latest.current) throw new Error("Entry handlers ran before the file view rendered.");
+      if (!latest.current)
+        throw new Error("Entry handlers ran before the file view rendered.");
       return latest.current;
     };
     return {
@@ -338,7 +435,12 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   const multiSelection = selectedEntries.length > 1 ? selectedEntries : null;
   const dragLocked = drag.state.status === "moving";
 
-  const renderEntry = (entry: FileEntry, index: number, rowIndex: number, position: { top: number; height: number; left?: string; width?: string }) => {
+  const renderEntry = (
+    entry: FileEntry,
+    index: number,
+    rowIndex: number,
+    position: { top: number; height: number; left?: string; width?: string },
+  ) => {
     const selected = selection.paths.has(entry.path);
     return (
       <EntryRow
@@ -379,15 +481,22 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   return (
     <>
       {drag.state.status === "error" && (
-        <p role="alert" className="mb-3 text-pretty text-sm text-destructive">{drag.state.message}</p>
+        <p role="alert" className="mb-3 text-pretty text-sm text-destructive">
+          {drag.state.message}
+        </p>
       )}
       {drag.state.status === "moving" && (
         <p role="status" className="sr-only">
-          Moving {drag.state.sources.length === 1 ? drag.state.sources[0]?.name : `${drag.state.sources.length} items`}…
+          Moving{" "}
+          {drag.state.sources.length === 1
+            ? drag.state.sources[0]?.name
+            : `${drag.state.sources.length} items`}
+          …
         </p>
       )}
       <p id="entries-keyboard-hint" className="sr-only">
-        Use arrow keys to move, Enter to open, and question mark for keyboard shortcuts.
+        Use arrow keys to move, Enter to open, and question mark for keyboard
+        shortcuts.
       </p>
       <EntryMenuHost
         touch={isMobile}
@@ -398,12 +507,20 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
         open={open}
         onClosed={() => {
           // Actions that open a dialog move focus there. Otherwise return it to the entry.
-          if (document.activeElement && document.activeElement !== document.body) return;
+          if (
+            document.activeElement &&
+            document.activeElement !== document.body
+          )
+            return;
           if (focusPath)
-            containerRef.current?.querySelector<HTMLElement>(`[data-entry-path="${CSS.escape(focusPath)}"]`)?.focus();
+            containerRef.current
+              ?.querySelector<HTMLElement>(
+                `[data-entry-path="${CSS.escape(focusPath)}"]`,
+              )
+              ?.focus();
         }}
       >
-      <div
+        <div
           ref={containerRef}
           role="grid"
           aria-label={label}
@@ -426,32 +543,55 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
           {rendered.map((rowIndex) => {
             const row = layout.rows[rowIndex];
             if (!row) return null;
-            const position = { position: "absolute", top: row.top, left: 0, right: 0, height: row.height } as const;
+            const position = {
+              position: "absolute",
+              top: row.top,
+              left: 0,
+              right: 0,
+              height: row.height,
+            } as const;
             if (row.kind === "header")
               return (
-                <div key={`header:${row.title}`} role="row" aria-rowindex={entriesBefore(rowIndex) + headersBefore(rowIndex) + 1} style={position}>
-                  <h2 role="columnheader" className="px-3 text-balance text-xs font-medium text-muted-foreground">
+                <div
+                  key={`header:${row.title}`}
+                  role="row"
+                  aria-rowindex={
+                    entriesBefore(rowIndex) + headersBefore(rowIndex) + 1
+                  }
+                  style={position}
+                >
+                  <h2
+                    role="columnheader"
+                    className="px-3 text-balance text-xs font-medium text-muted-foreground"
+                  >
                     {row.title}
                   </h2>
                 </div>
               );
             if (view === "list") {
               const entry = layout.entries[row.start];
-              return entry ? renderEntry(entry, row.start, rowIndex, { top: row.top, height: row.height }) : null;
+              return entry
+                ? renderEntry(entry, row.start, rowIndex, {
+                    top: row.top,
+                    height: row.height,
+                  })
+                : null;
             }
             // Cards are positioned one by one, without row wrappers, so a change in column count only
             // restyles them. Remounting under a new wrapper would drop focus and in-flight clicks.
             const { gap } = entryGeometry.grid;
             const columns = layout.columns;
             const width = `((100% - ${(columns - 1) * gap}px) / ${columns})`;
-            return layout.entries.slice(row.start, row.start + row.count).map((entry, offset) =>
-              renderEntry(entry, row.start + offset, rowIndex, {
-                top: row.top,
-                height: row.height,
-                width: `calc${width}`,
-                left: `calc(${width} * ${offset} + ${offset * gap}px)`,
-              }),
-            );
+            return layout.entries
+              .slice(row.start, row.start + row.count)
+              .map((entry, offset) =>
+                renderEntry(entry, row.start + offset, rowIndex, {
+                  top: row.top,
+                  height: row.height,
+                  width: `calc${width}`,
+                  left: `calc(${width} * ${offset} + ${offset * gap}px)`,
+                }),
+              );
           })}
         </div>
       </EntryMenuHost>
@@ -461,7 +601,11 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
         onOpenChange={setHelpOpen}
         onClosed={() => {
           if (!focusPath) return;
-          containerRef.current?.querySelector<HTMLElement>(`[data-entry-path="${CSS.escape(focusPath)}"]`)?.focus();
+          containerRef.current
+            ?.querySelector<HTMLElement>(
+              `[data-entry-path="${CSS.escape(focusPath)}"]`,
+            )
+            ?.focus();
         }}
       />
       {dialog?.action === "preview" ? (
@@ -478,7 +622,11 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
       ) : (
         dialog && (
           <EditEntryDialog
-            key={dialog.action === "rename" ? `rename:${dialog.entry.path}` : dialog.action}
+            key={
+              dialog.action === "rename"
+                ? `rename:${dialog.entry.path}`
+                : dialog.action
+            }
             dialog={dialog}
             actions={actions}
             onClose={() => onDialog(null)}

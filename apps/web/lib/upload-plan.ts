@@ -29,7 +29,10 @@ function tops(upload: CollectedUpload) {
   const result = new Map<string, { kind: EntryKind; files: number }>();
   for (const { file, folder } of upload.sources) {
     const name = topOf(folder, file.name);
-    const current = result.get(name) ?? { kind: folder ? "dir" : "file", files: 0 };
+    const current = result.get(name) ?? {
+      kind: folder ? "dir" : "file",
+      files: 0,
+    };
     current.files++;
     result.set(name, current);
   }
@@ -41,17 +44,22 @@ function tops(upload: CollectedUpload) {
 }
 
 /** Top-level names in the upload that already exist in the target, in upload order. */
-function clashes(upload: CollectedUpload, existing: ReadonlyMap<string, EntryKind>): UploadClash[] {
+function clashes(
+  upload: CollectedUpload,
+  existing: ReadonlyMap<string, EntryKind>,
+): UploadClash[] {
   const found: UploadClash[] = [];
   for (const [name, top] of tops(upload)) {
     const kind = existing.get(name);
-    if (kind) found.push({ name, kind: top.kind, existing: kind, files: top.files });
+    if (kind)
+      found.push({ name, kind: top.kind, existing: kind, files: top.files });
   }
   return found;
 }
 
 /** Whether `replace` makes sense: files replace files, folders merge into folders. */
-const canReplace = (clash: Pick<UploadClash, "kind" | "existing">) => clash.kind === clash.existing;
+const canReplace = (clash: Pick<UploadClash, "kind" | "existing">) =>
+  clash.kind === clash.existing;
 
 /**
  * Turn collected files and clash decisions into upload requests and folders to create.
@@ -70,7 +78,8 @@ function plan(
   for (const clash of clashes(upload, existing)) {
     const choice = choices.get(clash.name) ?? "keep-both";
     if (choice === "skip") skipped.add(clash.name);
-    else if (choice === "replace" && canReplace(clash)) replacing.add(clash.name);
+    else if (choice === "replace" && canReplace(clash))
+      replacing.add(clash.name);
     else if (clash.kind === "dir") {
       // Files get numbered names on the server. A folder's new name must be chosen here, for all its files.
       let index = 1;
@@ -98,7 +107,9 @@ function plan(
       userId: target.userId,
     });
   }
-  const folders = upload.emptyFolders.filter((folder) => !skipped.has(topOf(folder, ""))).map(rename);
+  const folders = upload.emptyFolders
+    .filter((folder) => !skipped.has(topOf(folder, "")))
+    .map(rename);
   return { requests, folders };
 }
 

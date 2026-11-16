@@ -67,20 +67,32 @@ export const nimbusAudit = () =>
           matcher: () => true,
           handler: createAuthMiddleware(async (ctx) => {
             const returned: unknown = ctx.context.returned;
-            const failed = returned instanceof APIError && returned.status !== "FOUND";
+            const failed =
+              returned instanceof APIError && returned.status !== "FOUND";
             const input = body.safeParse(ctx.body);
-            const email = input.success ? input.data.email?.toLowerCase() : undefined;
+            const email = input.success
+              ? input.data.email?.toLowerCase()
+              : undefined;
             const caller = sessionShape.safeParse(ctx.context.session);
             const actor: AuditActor = caller.success
               ? auditUser(caller.data.user)
               : { type: "anonymous", ...(email && { label: email }) };
             const path = ctx.path.startsWith("/callback/") ? "oidc" : ctx.path;
             // Confirming a new authenticator also calls verify-totp, from a signed-in session.
-            const method = path === "oidc" ? "oidc" : caller.success ? undefined : signIns[path];
+            const method =
+              path === "oidc"
+                ? "oidc"
+                : caller.success
+                  ? undefined
+                  : signIns[path];
             if (method) {
               const created = sessionShape.safeParse(ctx.context.newSession);
               if (created.success)
-                recordAudit({ action: "auth.sign_in", actor: auditUser(created.data.user), details: { method } });
+                recordAudit({
+                  action: "auth.sign_in",
+                  actor: auditUser(created.data.user),
+                  details: { method },
+                });
               else if (failed)
                 recordAudit({
                   action: "auth.sign_in_failed",
@@ -89,8 +101,15 @@ export const nimbusAudit = () =>
                 });
               else if (path === "oidc") {
                 const location = ctx.context.responseHeaders?.get("location");
-                const reason = location ? new URL(location, "http://local").searchParams.get("error") : null;
-                if (reason) recordAudit({ action: "auth.sign_in_failed", actor, details: { method, reason } });
+                const reason = location
+                  ? new URL(location, "http://local").searchParams.get("error")
+                  : null;
+                if (reason)
+                  recordAudit({
+                    action: "auth.sign_in_failed",
+                    actor,
+                    details: { method, reason },
+                  });
               }
               return;
             }
@@ -104,17 +123,29 @@ export const nimbusAudit = () =>
             if (input.success && input.data.role !== undefined)
               details.role = [input.data.role].flat().join(",");
             const userId = input.success ? input.data.userId : undefined;
-            const createdUser = z.object({ user: userShape }).safeParse(returned);
+            const createdUser = z
+              .object({ user: userShape })
+              .safeParse(returned);
             // Label the account by email so the log stays readable after it is removed.
             const subject =
               userId !== undefined && action !== "account.removed"
-                ? await ctx.context.internalAdapter.findUserById(userId).catch(() => null)
+                ? await ctx.context.internalAdapter
+                    .findUserById(userId)
+                    .catch(() => null)
                 : null;
             const target =
               userId !== undefined
-                ? { type: "user" as const, id: userId, ...(subject && { label: subject.email }) }
+                ? {
+                    type: "user" as const,
+                    id: userId,
+                    ...(subject && { label: subject.email }),
+                  }
                 : action === "account.created" && createdUser.success
-                  ? { type: "user" as const, id: createdUser.data.user.id, label: createdUser.data.user.email }
+                  ? {
+                      type: "user" as const,
+                      id: createdUser.data.user.id,
+                      label: createdUser.data.user.email,
+                    }
                   : undefined;
             recordAudit({
               action,
@@ -128,7 +159,11 @@ export const nimbusAudit = () =>
     },
     onResponse: async (response) => {
       if (response.status === 429)
-        recordAudit({ action: "auth.rate_limited", actor: { type: "anonymous" }, details: { service: "auth" } });
+        recordAudit({
+          action: "auth.rate_limited",
+          actor: { type: "anonymous" },
+          details: { service: "auth" },
+        });
       return { response };
     },
   }) satisfies BetterAuthPlugin;

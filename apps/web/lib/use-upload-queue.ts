@@ -4,21 +4,37 @@ import { toast } from "sonner";
 import { coalesce } from "@/lib/coalesce";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import type { ClashChoice, EntryKind, UploadClash } from "./upload-plan";
-import { createUploadQueue, type UploadSummary, type UploadTransport } from "./upload-queue";
+import {
+  createUploadQueue,
+  type UploadSummary,
+  type UploadTransport,
+} from "./upload-queue";
 import type { CollectedUpload } from "./upload-sources";
 
 /** An existing folder is fine when recreating an upload's folder tree. */
 function isConflict(error: unknown) {
   if (!(error instanceof TRPCClientError)) return false;
   const data: unknown = error.data;
-  return typeof data === "object" && data !== null && "code" in data && data.code === "CONFLICT";
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "code" in data &&
+    data.code === "CONFLICT"
+  );
 }
 
 /** Small files send their bytes with the creation request, halving requests for large batches. */
 const inlineUploadLimit = 16 * 1024 * 1024;
 
-function failureMessage(error: Error, detailed: (error: Error) => string | undefined) {
-  return detailed(error) || error.message || "The upload failed. Check your connection and retry.";
+function failureMessage(
+  error: Error,
+  detailed: (error: Error) => string | undefined,
+) {
+  return (
+    detailed(error) ||
+    error.message ||
+    "The upload failed. Check your connection and retry."
+  );
 }
 
 /** Each upload is an independent tus upload. tus-js-client loads with the first upload, not the page. */
@@ -28,7 +44,10 @@ const tusTransport: UploadTransport = (request, events) => {
   void import("tus-js-client")
     .then(({ Upload, DetailedError }) => {
       if (aborted) return;
-      const detailed = (error: Error) => (error instanceof DetailedError ? error.originalResponse?.getBody() : undefined);
+      const detailed = (error: Error) =>
+        error instanceof DetailedError
+          ? error.originalResponse?.getBody()
+          : undefined;
       const { file } = request;
       const upload = new Upload(file, {
         endpoint: "/api/upload",
@@ -36,7 +55,15 @@ const tusTransport: UploadTransport = (request, events) => {
         removeFingerprintOnSuccess: true,
         uploadDataDuringCreation: file.size <= inlineUploadLimit,
         fingerprint: async () =>
-          JSON.stringify([request.userId, request.targetPath, request.folder, request.filename, request.conflict, file.size, file.lastModified]),
+          JSON.stringify([
+            request.userId,
+            request.targetPath,
+            request.folder,
+            request.filename,
+            request.conflict,
+            file.size,
+            file.lastModified,
+          ]),
         metadata: {
           filename: request.filename,
           targetPath: request.targetPath,
@@ -71,14 +98,16 @@ const tusTransport: UploadTransport = (request, events) => {
   };
 };
 
-const plural = (count: number, noun: string) => `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
+const plural = (count: number, noun: string) =>
+  `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
 
 function announce(summary: UploadSummary) {
   if (summary.failed > 0)
     toast.error(
       `${plural(summary.failed, "upload")} failed. ${summary.done ? `${plural(summary.done, "file")} uploaded. ` : ""}Open the upload panel to see why and retry.`,
     );
-  else if (summary.done > 0) toast.success(`Uploaded ${plural(summary.done, "file")}`);
+  else if (summary.done > 0)
+    toast.success(`Uploaded ${plural(summary.done, "file")}`);
 }
 
 /** A clash waiting for the user's decision. Resolving with `all` applies the choice to every remaining clash. */
@@ -91,23 +120,32 @@ export type ClashPrompt = {
 
 async function existingNames(path: string) {
   const entries = await trpcClient.files.list.query(path ? { path } : {});
-  return new Map<string, EntryKind>(entries.map((entry) => [entry.name, entry.type === "dir" ? "dir" : "file"]));
+  return new Map<string, EntryKind>(
+    entries.map((entry) => [entry.name, entry.type === "dir" ? "dir" : "file"]),
+  );
 }
 
 /** Create empty folders from a folder upload, parents first. Folders that already exist are fine. */
 async function createFolders(target: string, folders: readonly string[]) {
   const created = new Set<string>();
-  for (const folder of [...folders].sort((a, b) => a.split("/").length - b.split("/").length)) {
+  for (const folder of [...folders].sort(
+    (a, b) => a.split("/").length - b.split("/").length,
+  )) {
     const segments = folder.split("/");
     for (let depth = 1; depth <= segments.length; depth++) {
       const relative = segments.slice(0, depth).join("/");
       if (created.has(relative)) continue;
       created.add(relative);
-      const parent = [target, ...segments.slice(0, depth - 1)].filter(Boolean).join("/");
+      const parent = [target, ...segments.slice(0, depth - 1)]
+        .filter(Boolean)
+        .join("/");
       const name = segments[depth - 1];
       if (!name) continue;
       try {
-        await trpcClient.files.createFolder.mutate({ path: parent || undefined, name });
+        await trpcClient.files.createFolder.mutate({
+          path: parent || undefined,
+          name,
+        });
       } catch (error) {
         if (!isConflict(error)) throw error;
       }
@@ -118,8 +156,14 @@ async function createFolders(target: string, folders: readonly string[]) {
 export function useUploadQueue() {
   const [refresh] = useState(() =>
     coalesce(() => {
-      void queryClient.invalidateQueries({ queryKey: ["files.list"] }, { cancelRefetch: false });
-      void queryClient.invalidateQueries({ queryKey: ["files.storage"] }, { cancelRefetch: false });
+      void queryClient.invalidateQueries(
+        { queryKey: ["files.list"] },
+        { cancelRefetch: false },
+      );
+      void queryClient.invalidateQueries(
+        { queryKey: ["files.storage"] },
+        { cancelRefetch: false },
+      );
     }, 750),
   );
   const [queue] = useState(() => {
@@ -143,7 +187,10 @@ export function useUploadQueue() {
     for (let index = 0; index < clashes.length; index++) {
       const clash = clashes[index];
       if (!clash) continue;
-      const answer = await new Promise<{ choice: ClashChoice; all: boolean } | null>((resolve) =>
+      const answer = await new Promise<{
+        choice: ClashChoice;
+        all: boolean;
+      } | null>((resolve) =>
         setPrompt({
           clash,
           remaining: clashes.length - index - 1,
@@ -158,7 +205,12 @@ export function useUploadQueue() {
       choices.set(clash.name, answer.choice);
       if (answer.all)
         for (const rest of clashes.slice(index + 1))
-          choices.set(rest.name, answer.choice === "replace" && rest.kind !== rest.existing ? "keep-both" : answer.choice);
+          choices.set(
+            rest.name,
+            answer.choice === "replace" && rest.kind !== rest.existing
+              ? "keep-both"
+              : answer.choice,
+          );
       if (answer.all) break;
     }
     setPrompt(null);
@@ -166,17 +218,33 @@ export function useUploadQueue() {
   }, []);
 
   const uploadFiles = useCallback(
-    async (upload: CollectedUpload, target: { path: string; userId: string }) => {
-      if (upload.sources.length === 0 && upload.emptyFolders.length === 0) return;
+    async (
+      upload: CollectedUpload,
+      target: { path: string; userId: string },
+    ) => {
+      if (upload.sources.length === 0 && upload.emptyFolders.length === 0)
+        return;
       if (upload.skipped.length > 0)
-        toast.error(`${plural(upload.skipped.length, "item")} could not be read and will not upload, starting with “${upload.skipped[0]}”.`);
+        toast.error(
+          `${plural(upload.skipped.length, "item")} could not be read and will not upload, starting with “${upload.skipped[0]}”.`,
+        );
       try {
         // Planning code loads with the first upload, keeping it out of every page's initial bundle.
-        const [{ UploadPlan }, existing] = await Promise.all([import("./upload-plan"), existingNames(target.path)]);
+        const [{ UploadPlan }, existing] = await Promise.all([
+          import("./upload-plan"),
+          existingNames(target.path),
+        ]);
         const clashes = UploadPlan.clashes(upload, existing);
-        const choices = clashes.length ? await decide(clashes) : new Map<string, ClashChoice>();
+        const choices = clashes.length
+          ? await decide(clashes)
+          : new Map<string, ClashChoice>();
         if (!choices) return;
-        const { requests, folders } = UploadPlan.plan(upload, existing, choices, target);
+        const { requests, folders } = UploadPlan.plan(
+          upload,
+          existing,
+          choices,
+          target,
+        );
         if (folders.length) {
           await createFolders(target.path, folders);
           refresh();
@@ -191,5 +259,8 @@ export function useUploadQueue() {
     [decide, queue, refresh],
   );
 
-  return useMemo(() => ({ queue, uploadFiles, prompt }), [queue, uploadFiles, prompt]);
+  return useMemo(
+    () => ({ queue, uploadFiles, prompt }),
+    [queue, uploadFiles, prompt],
+  );
 }

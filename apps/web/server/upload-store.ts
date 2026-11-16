@@ -1,6 +1,15 @@
 import { FileStore } from "@tus/file-store";
 import { constants } from "node:fs";
-import { copyFile, link, lstat, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  link,
+  lstat,
+  readFile,
+  rename,
+  rm,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { isFsError } from "@nimbus/api/safe-path";
 
@@ -22,7 +31,7 @@ export class UploadStore extends FileStore {
     const upload = await super.getUpload(id);
     // Published files may be edited by other programs. Keep the tus offset fixed
     // at the original length so retries cannot write through the staging link.
-    if (upload.size !== undefined && await this.isFinished(id)) {
+    if (upload.size !== undefined && (await this.isFinished(id))) {
       upload.offset = upload.size;
     }
     return upload;
@@ -33,7 +42,11 @@ export class UploadStore extends FileStore {
       lstat(path.join(this.directory, id)),
       lstat(destination),
     ]);
-    return existing.isFile() && staged.dev === existing.dev && staged.ino === existing.ino;
+    return (
+      existing.isFile() &&
+      staged.dev === existing.dev &&
+      staged.ino === existing.ino
+    );
   }
 
   async publish(id: string, destination: string) {
@@ -47,7 +60,7 @@ export class UploadStore extends FileStore {
     } catch (error) {
       if (isFsError(error, "EEXIST")) {
         // Recover a completion interrupted after linking but before its marker.
-        if (!await this.isPublishedAt(id, destination)) {
+        if (!(await this.isPublishedAt(id, destination))) {
           throw error;
         }
       } else if (crossDevice.some((code) => isFsError(error, code))) {
@@ -68,7 +81,8 @@ export class UploadStore extends FileStore {
   async replace(
     id: string,
     destination: string,
-    commit: (incoming: string) => Promise<unknown> = (incoming) => rename(incoming, destination),
+    commit: (incoming: string) => Promise<unknown> = (incoming) =>
+      rename(incoming, destination),
   ) {
     if (await this.isFinished(id)) return;
     const source = path.join(this.directory, id);
@@ -90,7 +104,11 @@ export class UploadStore extends FileStore {
     await this.markFinished(id, destination, false);
   }
 
-  private async markFinished(id: string, destination: string, removeOnFailure: boolean) {
+  private async markFinished(
+    id: string,
+    destination: string,
+    removeOnFailure: boolean,
+  ) {
     const marker = path.join(this.directory, `${id}.done`);
     const temporaryMarker = `${marker}.tmp`;
     try {

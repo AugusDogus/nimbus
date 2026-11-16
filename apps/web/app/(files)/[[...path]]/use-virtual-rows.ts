@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { EntryLayout } from "./entry-layout";
 
 /** Rows rendered beyond the viewport on each side, in pixels. Covers fast flings between frames. */
@@ -18,11 +25,17 @@ const savedScroll = new Map<string, number>();
 let navigated = false;
 
 function scrollParent(element: HTMLElement): HTMLElement {
-  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+  for (
+    let parent = element.parentElement;
+    parent;
+    parent = parent.parentElement
+  ) {
     const { overflowY } = getComputedStyle(parent);
     if (overflowY === "auto" || overflowY === "scroll") return parent;
   }
-  return document.scrollingElement instanceof HTMLElement ? document.scrollingElement : document.documentElement;
+  return document.scrollingElement instanceof HTMLElement
+    ? document.scrollingElement
+    : document.documentElement;
 }
 
 type Range = { start: number; end: number };
@@ -45,7 +58,10 @@ export function useVirtualRows<T>({
   restoreKey: string;
 }) {
   const renderAll = layout.entries.length <= fullRenderLimit;
-  const [windowed, setRange] = useState<Range>(() => ({ start: 0, end: Math.min(layout.rows.length, initialRows) }));
+  const [windowed, setRange] = useState<Range>(() => ({
+    start: 0,
+    end: Math.min(layout.rows.length, initialRows),
+  }));
   const range = renderAll ? { start: 0, end: layout.rows.length } : windowed;
   const scrollerRef = useRef<HTMLElement | null>(null);
   const layoutRef = useRef(layout);
@@ -57,9 +73,16 @@ export function useVirtualRows<T>({
     const container = containerRef.current;
     const scroller = scrollerRef.current;
     if (!container || !scroller) return null;
-    const offset = container.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    const offset =
+      container.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top +
+      scroller.scrollTop;
     const obstruction = obstructionRef.current
-      ? Math.max(0, obstructionRef.current.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top)
+      ? Math.max(
+          0,
+          obstructionRef.current.getBoundingClientRect().bottom -
+            scroller.getBoundingClientRect().top,
+        )
       : 0;
     return { container, scroller, offset, obstruction };
   }, [containerRef, obstructionRef]);
@@ -68,8 +91,14 @@ export function useVirtualRows<T>({
     const measured = geometry();
     if (!measured) return;
     const top = measured.scroller.scrollTop - measured.offset;
-    const next = EntryLayout.rangeAt(layoutRef.current, top - overscan, top + measured.scroller.clientHeight + overscan);
-    setRange((current) => (current.start === next.start && current.end === next.end ? current : next));
+    const next = EntryLayout.rangeAt(
+      layoutRef.current,
+      top - overscan,
+      top + measured.scroller.clientHeight + overscan,
+    );
+    setRange((current) =>
+      current.start === next.start && current.end === next.end ? current : next,
+    );
   }, [geometry]);
 
   useLayoutEffect(() => {
@@ -114,9 +143,11 @@ export function useVirtualRows<T>({
       const { scroller, offset, obstruction } = measured;
       const top = offset + row.top;
       const bottom = top + row.height;
-      const visibleTop = scroller.scrollTop + Math.min(obstruction, scroller.clientHeight / 2);
+      const visibleTop =
+        scroller.scrollTop + Math.min(obstruction, scroller.clientHeight / 2);
       if (top < visibleTop) scroller.scrollTop -= visibleTop - top + 8;
-      else if (bottom > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = bottom - scroller.clientHeight + 8;
+      else if (bottom > scroller.scrollTop + scroller.clientHeight)
+        scroller.scrollTop = bottom - scroller.clientHeight + 8;
       update();
     },
     [geometry, update],
@@ -125,9 +156,17 @@ export function useVirtualRows<T>({
   /** Rows that fit in the visible area, for PageUp and PageDown. */
   const rowsPerPage = useCallback(() => {
     const measured = geometry();
-    const row = layoutRef.current.rows.find((candidate) => candidate.kind === "entries");
+    const row = layoutRef.current.rows.find(
+      (candidate) => candidate.kind === "entries",
+    );
     if (!measured || !row) return 1;
-    return Math.max(1, Math.floor((measured.scroller.clientHeight - measured.obstruction) / (row.height + 4)));
+    return Math.max(
+      1,
+      Math.floor(
+        (measured.scroller.clientHeight - measured.obstruction) /
+          (row.height + 4),
+      ),
+    );
   }, [geometry]);
 
   /** Layout coordinates of a viewport point, for hit-testing pointer gestures. */
@@ -136,7 +175,11 @@ export function useVirtualRows<T>({
       const container = containerRef.current;
       if (!container) return null;
       const rect = container.getBoundingClientRect();
-      return { x: clientX - rect.left, y: clientY - rect.top, width: rect.width };
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top,
+        width: rect.width,
+      };
     },
     [containerRef],
   );

@@ -48,42 +48,46 @@ export function ResetPasswordDialog({
         </DialogHeader>
         <form
           className="space-y-4"
-          onSubmit={(event) => void (async () => {
-            event.preventDefault();
-            const password = new FormData(event.currentTarget).get("password");
-            if (typeof password !== "string") return;
-            setBusy(true);
-            setError(null);
-            try {
-              const result = await authClient.admin.setUserPassword({
-                userId: user.id,
-                newPassword: password,
-              });
-              if (result.error) {
-                setError(
-                  result.error.message ??
-                    "The password could not be reset. Try again.",
-                );
-                return;
-              }
-              const sessions = await authClient.admin.revokeUserSessions({
-                userId: user.id,
-              });
-              if (sessions.error) {
-                setError(
-                  "The password was changed, but other browser sessions could not be signed out. Disable the account if access must be stopped immediately.",
-                );
-                return;
-              }
-              onClose();
-            } catch {
-              setError(
-                "The server could not be reached. Check the account before trying again.",
+          onSubmit={(event) =>
+            void (async () => {
+              event.preventDefault();
+              const password = new FormData(event.currentTarget).get(
+                "password",
               );
-            } finally {
-              setBusy(false);
-            }
-          })()}
+              if (typeof password !== "string") return;
+              setBusy(true);
+              setError(null);
+              try {
+                const result = await authClient.admin.setUserPassword({
+                  userId: user.id,
+                  newPassword: password,
+                });
+                if (result.error) {
+                  setError(
+                    result.error.message ??
+                      "The password could not be reset. Try again.",
+                  );
+                  return;
+                }
+                const sessions = await authClient.admin.revokeUserSessions({
+                  userId: user.id,
+                });
+                if (sessions.error) {
+                  setError(
+                    "The password was changed, but other browser sessions could not be signed out. Disable the account if access must be stopped immediately.",
+                  );
+                  return;
+                }
+                onClose();
+              } catch {
+                setError(
+                  "The server could not be reached. Check the account before trying again.",
+                );
+              } finally {
+                setBusy(false);
+              }
+            })()
+          }
         >
           <div className="space-y-2">
             <Label htmlFor="reset-password">New password</Label>

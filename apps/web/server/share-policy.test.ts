@@ -17,14 +17,20 @@ const share: Share = {
 
 test("links stay available until they expire or use every download", () => {
   expect(SharePolicy.availability(share, 1000)).toEqual({ kind: "available" });
+  expect(SharePolicy.availability({ ...share, expiresAt: 1000 }, 1000)).toEqual(
+    { kind: "expired" },
+  );
   expect(
-    SharePolicy.availability({ ...share, expiresAt: 1000 }, 1000),
-  ).toEqual({ kind: "expired" });
-  expect(
-    SharePolicy.availability({ ...share, maxDownloads: 2, downloadCount: 1 }, 0),
+    SharePolicy.availability(
+      { ...share, maxDownloads: 2, downloadCount: 1 },
+      0,
+    ),
   ).toEqual({ kind: "available" });
   expect(
-    SharePolicy.availability({ ...share, maxDownloads: 2, downloadCount: 2 }, 0),
+    SharePolicy.availability(
+      { ...share, maxDownloads: 2, downloadCount: 2 },
+      0,
+    ),
   ).toEqual({ kind: "exhausted" });
 });
 
@@ -52,8 +58,12 @@ test("only transfers that include the first byte count as downloads", () => {
 });
 
 test("view-only links serve inline previews and refuse attachments", () => {
-  const inline = response(200, { "Content-Disposition": "inline; filename*=UTF-8''a.png" });
-  const attachment = response(200, { "Content-Disposition": "attachment; filename*=UTF-8''a.zip" });
+  const inline = response(200, {
+    "Content-Disposition": "inline; filename*=UTF-8''a.png",
+  });
+  const attachment = response(200, {
+    "Content-Disposition": "attachment; filename*=UTF-8''a.zip",
+  });
   expect(SharePolicy.permitsResponse("view", inline)).toBe(true);
   expect(SharePolicy.permitsResponse("view", attachment)).toBe(false);
   expect(SharePolicy.permitsResponse("download", attachment)).toBe(true);

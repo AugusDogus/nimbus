@@ -15,7 +15,11 @@ import { UploadPlan } from "@/lib/upload-plan";
 import type { ClashPrompt } from "@/lib/use-upload-queue";
 
 /** Asks what to do with an upload whose name is taken: replace, keep both, or skip. */
-export function UploadConflictDialog({ prompt }: { prompt: ClashPrompt | null }) {
+export function UploadConflictDialog({
+  prompt,
+}: {
+  prompt: ClashPrompt | null;
+}) {
   const [all, setAll] = useState(false);
   const checkboxId = useId();
   if (!prompt) return null;
@@ -50,12 +54,11 @@ export function UploadConflictDialog({ prompt }: { prompt: ClashPrompt | null })
           </DialogDescription>
         </DialogHeader>
         {remaining > 0 && (
-          <label htmlFor={checkboxId} className="flex items-center gap-2 text-sm">
-            <Checkbox
-              id={checkboxId}
-              checked={all}
-              onCheckedChange={setAll}
-            />
+          <label
+            htmlFor={checkboxId}
+            className="flex items-center gap-2 text-sm"
+          >
+            <Checkbox id={checkboxId} checked={all} onCheckedChange={setAll} />
             Apply to all {(remaining + 1).toLocaleString()} name clashes
           </label>
         )}
@@ -66,7 +69,9 @@ export function UploadConflictDialog({ prompt }: { prompt: ClashPrompt | null })
           <Button variant="outline" onClick={() => choose("keep-both")}>
             Keep both
           </Button>
-          {replaceable && <Button onClick={() => choose("replace")}>Replace</Button>}
+          {replaceable && (
+            <Button onClick={() => choose("replace")}>Replace</Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

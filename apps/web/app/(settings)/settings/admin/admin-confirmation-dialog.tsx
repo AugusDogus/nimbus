@@ -53,28 +53,30 @@ export function AdminConfirmationDialog({
           <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             disabled={busy}
-            onClick={(event) => void (async () => {
-              event.preventDefault();
-              setBusy(true);
-              setError(null);
-              try {
-                await confirmation.action();
-                await Promise.all([
-                  queryClient.invalidateQueries({ queryKey: ["admin"] }),
-                  queryClient.invalidateQueries({ queryKey: ["groups"] }),
-                  queryClient.invalidateQueries({ queryKey: ["people"] }),
-                ]);
-                onClose();
-              } catch (error) {
-                setError(
-                  error instanceof Error
-                    ? error.message
-                    : "The administrative change failed. Try again.",
-                );
-              } finally {
-                setBusy(false);
-              }
-            })()}
+            onClick={(event) =>
+              void (async () => {
+                event.preventDefault();
+                setBusy(true);
+                setError(null);
+                try {
+                  await confirmation.action();
+                  await Promise.all([
+                    queryClient.invalidateQueries({ queryKey: ["admin"] }),
+                    queryClient.invalidateQueries({ queryKey: ["groups"] }),
+                    queryClient.invalidateQueries({ queryKey: ["people"] }),
+                  ]);
+                  onClose();
+                } catch (error) {
+                  setError(
+                    error instanceof Error
+                      ? error.message
+                      : "The administrative change failed. Try again.",
+                  );
+                } finally {
+                  setBusy(false);
+                }
+              })()
+            }
           >
             {busy ? "Saving…" : "Confirm"}
           </AlertDialogAction>

@@ -30,15 +30,18 @@ const includesAll = (have: readonly McpScope[], need: readonly McpScope[]) =>
 const descriptions: Record<McpScope, { title: string; detail: string }> = {
   "files:read": {
     title: "View your files",
-    detail: "Browse, search, and read files and folders you can access, and see your trash and items shared with you.",
+    detail:
+      "Browse, search, and read files and folders you can access, and see your trash and items shared with you.",
   },
   "files:write": {
     title: "Change your files",
-    detail: "Create, edit, rename, and move files and folders, star items, and move items to trash or restore them.",
+    detail:
+      "Create, edit, rename, and move files and folders, star items, and move items to trash or restore them.",
   },
   "files:share": {
     title: "Manage sharing",
-    detail: "Create and revoke public links, and change who can access folders you administer.",
+    detail:
+      "Create and revoke public links, and change who can access folders you administer.",
   },
 };
 

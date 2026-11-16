@@ -25,13 +25,19 @@ export const versionsRouter = router({
     .query(async ({ ctx, input }) => {
       const target = await requireFile(input.path);
       ctx.access.require(target.relative, "read");
-      const versions = await FileVersions.history(ctx.drive.versions, target.absolute);
+      const versions = await FileVersions.history(
+        ctx.drive.versions,
+        target.absolute,
+      );
       const authors = new Map<string, string>();
-      for (const id of new Set(versions.flatMap((version) => version.archivedBy ?? [])))
+      for (const id of new Set(
+        versions.flatMap((version) => version.archivedBy ?? []),
+      ))
         authors.set(id, (await ctx.drive.getUser(id))?.name ?? "Former user");
       return versions.map(({ fileKey: _fileKey, archivedBy, ...version }) => ({
         ...version,
-        archivedBy: archivedBy === null ? null : (authors.get(archivedBy) ?? null),
+        archivedBy:
+          archivedBy === null ? null : (authors.get(archivedBy) ?? null),
       }));
     }),
   restore: protectedProcedure
@@ -39,30 +45,39 @@ export const versionsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const target = await safePath(input.path);
       ctx.access.require(target.relative, "write");
-      return mutateFiles([target.relative], { userId: ctx.access.user.id }, async () => {
-        const access = await getAccess(ctx.drive, ctx.access.user.id);
-        access.require(target.relative, "write");
-        await requireFile(target.relative);
-        const result = await FileVersions.restore({
-          store: ctx.drive.versions,
-          dataRoot: getDataRoot(),
-          target: target.absolute,
-          id: input.id,
-          archivedBy: access.user.id,
-        });
-        if (result.kind === "not-found")
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "That version no longer exists. Refresh the version list.",
+      return mutateFiles(
+        [target.relative],
+        { userId: ctx.access.user.id },
+        async () => {
+          const access = await getAccess(ctx.drive, ctx.access.user.id);
+          access.require(target.relative, "write");
+          await requireFile(target.relative);
+          const result = await FileVersions.restore({
+            store: ctx.drive.versions,
+            dataRoot: getDataRoot(),
+            target: target.absolute,
+            id: input.id,
+            archivedBy: access.user.id,
           });
-        publishFileEvent({ path: target.absolute, event: "change", ts: Date.now() });
-        recordAudit({
-          action: "version.restored",
-          actor: auditUser(access.user),
-          target: { type: "path", id: target.relative },
-          details: { versionId: input.id },
-        });
-        return { restored: true };
-      });
+          if (result.kind === "not-found")
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message:
+                "That version no longer exists. Refresh the version list.",
+            });
+          publishFileEvent({
+            path: target.absolute,
+            event: "change",
+            ts: Date.now(),
+          });
+          recordAudit({
+            action: "version.restored",
+            actor: auditUser(access.user),
+            target: { type: "path", id: target.relative },
+            details: { versionId: input.id },
+          });
+          return { restored: true };
+        },
+      );
     }),
 });

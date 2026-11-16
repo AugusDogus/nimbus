@@ -41,9 +41,15 @@ type MenuItem = {
 };
 
 /** The entry a menu was opened for, and what its actions apply to. */
-export type EntryMenuTarget = { entry: FileEntry; targets: readonly FileEntry[] };
+export type EntryMenuTarget = {
+  entry: FileEntry;
+  targets: readonly FileEntry[];
+};
 
-const capabilityCache = new WeakMap<readonly FileEntry[], { move: boolean; trash: boolean }>();
+const capabilityCache = new WeakMap<
+  readonly FileEntry[],
+  { move: boolean; trash: boolean }
+>();
 /**
  * Whether every target can be moved or trashed. Rows share the selection array, so the answer is
  * computed once per selection, not once per row over up to 50,000 entries.
@@ -71,14 +77,39 @@ export function entryMenuItems(
     const count = targets.length.toLocaleString();
     const can = selectionCapabilities(targets);
     return [
-      { label: `Download ${count} items`, icon: Download, select: () => actions.downloadEntries(targets) },
-      { label: "Toggle star", icon: Star, select: () => void actions.starEntries(targets) },
-      { label: "Copy to…", icon: Copy, select: () => open({ action: "copy", entries: targets }) },
+      {
+        label: `Download ${count} items`,
+        icon: Download,
+        select: () => actions.downloadEntries(targets),
+      },
+      {
+        label: "Toggle star",
+        icon: Star,
+        select: () => void actions.starEntries(targets),
+      },
+      {
+        label: "Copy to…",
+        icon: Copy,
+        select: () => open({ action: "copy", entries: targets }),
+      },
       ...(can.move
-        ? [{ label: "Move to…", icon: FolderInput, select: () => open({ action: "move", entries: targets }) }]
+        ? [
+            {
+              label: "Move to…",
+              icon: FolderInput,
+              select: () => open({ action: "move", entries: targets }),
+            },
+          ]
         : []),
       ...(can.trash
-        ? [{ label: "Move to trash", icon: Trash2, destructive: true, select: () => open({ action: "delete", entries: targets }) }]
+        ? [
+            {
+              label: "Move to trash",
+              icon: Trash2,
+              destructive: true,
+              select: () => open({ action: "delete", entries: targets }),
+            },
+          ]
         : []),
     ];
   }
@@ -86,27 +117,64 @@ export function entryMenuItems(
     ...(entry.type === "dir"
       ? []
       : [
-          { label: "Preview", icon: Eye, select: () => open({ action: "preview", entry }) },
-          { label: "Version history", icon: History, select: () => open({ action: "versions", entry }) },
+          {
+            label: "Preview",
+            icon: Eye,
+            select: () => open({ action: "preview", entry }),
+          },
+          {
+            label: "Version history",
+            icon: History,
+            select: () => open({ action: "versions", entry }),
+          },
         ]),
     {
       label: entry.type === "dir" ? "Download ZIP" : "Download",
       icon: Download,
       select: () => actions.downloadFile(entry.path, entry.type === "dir"),
     },
-    { label: "Toggle star", icon: Star, select: () => void actions.toggleStar(entry.path) },
+    {
+      label: "Toggle star",
+      icon: Star,
+      select: () => void actions.toggleStar(entry.path),
+    },
     ...(entry.permission === "admin"
-      ? [{ label: "Share", icon: Share2, select: () => open({ action: "share", entry }) }]
+      ? [
+          {
+            label: "Share",
+            icon: Share2,
+            select: () => open({ action: "share", entry }),
+          },
+        ]
       : []),
-    { label: "Copy to…", icon: Copy, select: () => open({ action: "copy", entries: [entry] }) },
+    {
+      label: "Copy to…",
+      icon: Copy,
+      select: () => open({ action: "copy", entries: [entry] }),
+    },
     ...(FileEntry.canMove(entry)
       ? [
-          { label: "Rename", icon: Pencil, select: () => open({ action: "rename", entry }) },
-          { label: "Move", icon: FolderInput, select: () => open({ action: "move", entries: [entry] }) },
+          {
+            label: "Rename",
+            icon: Pencil,
+            select: () => open({ action: "rename", entry }),
+          },
+          {
+            label: "Move",
+            icon: FolderInput,
+            select: () => open({ action: "move", entries: [entry] }),
+          },
         ]
       : []),
     ...(entry.permission !== "read"
-      ? [{ label: "Move to trash", icon: Trash2, destructive: true, select: () => open({ action: "delete", entries: [entry] }) }]
+      ? [
+          {
+            label: "Move to trash",
+            icon: Trash2,
+            destructive: true,
+            select: () => open({ action: "delete", entries: [entry] }),
+          },
+        ]
       : []),
   ];
 }
@@ -133,7 +201,11 @@ export function EntryActionsButton({
     <Button
       variant="ghost"
       size="icon-sm"
-      aria-label={count > 1 ? `Actions for ${count.toLocaleString()} selected items` : `Actions for ${name}`}
+      aria-label={
+        count > 1
+          ? `Actions for ${count.toLocaleString()} selected items`
+          : `Actions for ${name}`
+      }
       aria-haspopup="menu"
       aria-expanded={open}
       data-state={open ? "open" : "closed"}
@@ -188,7 +260,9 @@ export function EntryMenuHost({
   onClosed: () => void;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
-  const items = menu ? entryMenuItems(menu.entry, menu.targets, actions, open) : [];
+  const items = menu
+    ? entryMenuItems(menu.entry, menu.targets, actions, open)
+    : [];
   // The tree around `children` is the same in both modes. Swapping it when the mode changes, as it
   // does after hydration on phones, would replace every row's element, even under a finger.
   return (
@@ -204,8 +278,14 @@ export function EntryMenuHost({
         disabled={touch}
         onContextMenu={(event) => {
           if (touch) return;
-          const row = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-row-path]") : null;
-          const target = row?.dataset.rowPath === undefined ? null : resolve(row.dataset.rowPath);
+          const row =
+            event.target instanceof Element
+              ? event.target.closest<HTMLElement>("[data-row-path]")
+              : null;
+          const target =
+            row?.dataset.rowPath === undefined
+              ? null
+              : resolve(row.dataset.rowPath);
           // Empty space between entries has no actions.
           if (!target) {
             event.preventDefault();
@@ -235,11 +315,16 @@ export function EntryMenuHost({
       </ContextMenuContent>
       {/* Only touch layouts open the drawer. Both menus stay mounted, so one that is open when the
           viewport crosses the breakpoint, as when a phone rotates, stays as it opened. */}
-      <Drawer open={menu !== null && !contextMenuOpen} onOpenChange={(next) => !next && onMenuChange(null)}>
+      <Drawer
+        open={menu !== null && !contextMenuOpen}
+        onOpenChange={(next) => !next && onMenuChange(null)}
+      >
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle className="break-words text-balance">
-              {menu && menu.targets.length > 1 ? `${menu.targets.length.toLocaleString()} selected items` : menu?.entry.name}
+              {menu && menu.targets.length > 1
+                ? `${menu.targets.length.toLocaleString()} selected items`
+                : menu?.entry.name}
             </DrawerTitle>
             <DrawerDescription>File actions</DrawerDescription>
           </DrawerHeader>

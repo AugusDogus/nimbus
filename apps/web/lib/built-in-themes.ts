@@ -5,14 +5,12 @@ import type { VsCodeTheme } from "./vscode-theme";
 const pairs = palettes.map((palette) => ({
   id: palette.id,
   name: palette.name,
-  themes: (["light", "dark"] as const).map(
-    (appearance): VsCodeTheme => ({
-      id: `builtin:${palette.id}:${appearance}`,
-      name: palette.name,
-      appearance,
-      colors: palette[appearance],
-    }),
-  ),
+  themes: (["light", "dark"] as const).map((appearance): VsCodeTheme => ({
+    id: `builtin:${palette.id}:${appearance}`,
+    name: palette.name,
+    appearance,
+    colors: palette[appearance],
+  })),
 }));
 const all = pairs.flatMap((pair) => pair.themes);
 

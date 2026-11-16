@@ -83,36 +83,38 @@ export function PublicShare({ token }: { token: string }) {
       ) : share.data.kind === "locked" ? (
         <form
           className="mx-auto max-w-sm space-y-4 rounded-lg border p-6"
-          onSubmit={(event) => void (async () => {
-            event.preventDefault();
-            setBusy(true);
-            setError(null);
-            try {
-              const response = await fetch(endpoint, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password }),
-              });
-              if (!response.ok) {
-                const body = errorSchema.safeParse(await response.json());
-                throw new Error(
-                  body.success
-                    ? body.data.error
+          onSubmit={(event) =>
+            void (async () => {
+              event.preventDefault();
+              setBusy(true);
+              setError(null);
+              try {
+                const response = await fetch(endpoint, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ password }),
+                });
+                if (!response.ok) {
+                  const body = errorSchema.safeParse(await response.json());
+                  throw new Error(
+                    body.success
+                      ? body.data.error
+                      : "Could not unlock this share.",
+                  );
+                }
+                setPassword("");
+                await share.refetch();
+              } catch (error) {
+                setError(
+                  error instanceof Error
+                    ? error.message
                     : "Could not unlock this share.",
                 );
+              } finally {
+                setBusy(false);
               }
-              setPassword("");
-              await share.refetch();
-            } catch (error) {
-              setError(
-                error instanceof Error
-                  ? error.message
-                  : "Could not unlock this share.",
-              );
-            } finally {
-              setBusy(false);
-            }
-          })()}
+            })()
+          }
         >
           <h1 className="text-balance text-xl font-semibold">
             Protected share
@@ -144,7 +146,9 @@ export function PublicShare({ token }: { token: string }) {
                 {share.data.entry.name}
               </h1>
               <p className="text-pretty mt-1 text-sm text-muted-foreground">
-                {share.data.mode === "view" ? "Preview only" : "Shared read-only"}
+                {share.data.mode === "view"
+                  ? "Preview only"
+                  : "Shared read-only"}
                 {share.data.expiresAt
                   ? ` · Expires ${new Date(share.data.expiresAt).toLocaleDateString()}`
                   : ""}
@@ -153,7 +157,9 @@ export function PublicShare({ token }: { token: string }) {
             {share.data.mode === "download" && (
               <Button asChild>
                 <a href={`${url}&download=1`} download>
-                  {share.data.entry.type === "dir" ? "Download ZIP" : "Download"}
+                  {share.data.entry.type === "dir"
+                    ? "Download ZIP"
+                    : "Download"}
                 </a>
               </Button>
             )}

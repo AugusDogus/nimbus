@@ -30,4 +30,6 @@ export const protectedResourceMetadata = (origin: string) => ({
 });
 
 export const metadataResponse = (body: unknown) =>
-  Response.json(body, { headers: { ...corsHeaders, "Cache-Control": "public, max-age=300" } });
+  Response.json(body, {
+    headers: { ...corsHeaders, "Cache-Control": "public, max-age=300" },
+  });

@@ -17,7 +17,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  for (const key of ["NIMBUS_DATA_ROOT", "NIMBUS_CONFIG_ROOT", "DATABASE_URL"]) {
+  for (const key of [
+    "NIMBUS_DATA_ROOT",
+    "NIMBUS_CONFIG_ROOT",
+    "DATABASE_URL",
+  ]) {
     if (previous[key] === undefined) delete process.env[key];
     else process.env[key] = previous[key];
   }
@@ -42,15 +46,22 @@ test("switching config roots requires migrating an existing default database", a
   await mkdir(legacy, { recursive: true });
   const original = createClient({ url: getDatabaseUrl() });
   try {
-    await original.execute("CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT)");
-    await original.execute("INSERT INTO user VALUES ('existing', 'Existing administrator')");
+    await original.execute(
+      "CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT)",
+    );
+    await original.execute(
+      "INSERT INTO user VALUES ('existing', 'Existing administrator')",
+    );
   } finally {
     original.close();
   }
   process.env.NIMBUS_CONFIG_ROOT = path.join(root, "config");
   expect(getDatabaseUrl).toThrow("Stop Nimbus");
   await mkdir(getConfigRoot());
-  await copyFile(path.join(legacy, "db.sqlite"), path.join(getConfigRoot(), "db.sqlite"));
+  await copyFile(
+    path.join(legacy, "db.sqlite"),
+    path.join(getConfigRoot(), "db.sqlite"),
+  );
   expect(getDatabaseUrl()).toBe(`file:${root}/config/db.sqlite`);
   const relocated = createClient({ url: getDatabaseUrl() });
   try {

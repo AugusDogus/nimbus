@@ -115,9 +115,11 @@ async function handleRequest(
         // Next.js reads the nonce from the request policy and applies it to its scripts.
         const nonce = SecurityHeaders.nonce();
         const headers = SecurityHeaders.document(nonce, securityMode);
-        incoming.headers["content-security-policy"] = headers["Content-Security-Policy"];
+        incoming.headers["content-security-policy"] =
+          headers["Content-Security-Policy"];
         incoming.headers[nonceHeader] = nonce;
-        for (const [name, value] of Object.entries(headers)) outgoing.setHeader(name, value);
+        for (const [name, value] of Object.entries(headers))
+          outgoing.setHeader(name, value);
       }
       await handleNext(incoming, outgoing);
       return;
@@ -126,7 +128,9 @@ async function handleRequest(
     if (incoming.url?.includes("#")) {
       outgoing
         .writeHead(400, { "Content-Type": "text/plain; charset=utf-8" })
-        .end("WebDAV request URLs cannot contain a fragment (#). Percent-encode # in file names as %23.");
+        .end(
+          "WebDAV request URLs cannot contain a fragment (#). Percent-encode # in file names as %23.",
+        );
       return;
     }
     const headers = new Headers();

@@ -15,7 +15,9 @@ import { FileVersions } from "./file-versions";
 export async function emptyTrash(store: DriveStore, access: Access) {
   return mutateFiles([], { userId: access.user.id }, async () => {
     const current = await getAccess(store, access.user.id);
-    const items = await store.listTrash(current.isAdmin ? null : current.user.id);
+    const items = await store.listTrash(
+      current.isAdmin ? null : current.user.id,
+    );
     const trashDirectory = path.join(getDataRoot(), ".nimbus", "trash");
     let deleted = 0;
     for (const item of items) {

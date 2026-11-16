@@ -34,7 +34,8 @@ function of(access: Access, folder: string): FolderAccess {
     const name = slash < 0 ? rest : rest.slice(0, slash);
     // A grant on the child or below it makes the child browsable.
     nested.add(name);
-    if (slash < 0) exact.set(name, Math.max(exact.get(name) ?? 0, rank[grant.permission]));
+    if (slash < 0)
+      exact.set(name, Math.max(exact.get(name) ?? 0, rank[grant.permission]));
   }
   return {
     permissionOf(name) {

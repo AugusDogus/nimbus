@@ -39,4 +39,3 @@ export const trpc = createTRPCOptionsProxy<AppRouter>({
 });
 
 export { trpcClient };
-

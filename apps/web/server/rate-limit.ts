@@ -23,7 +23,13 @@ const decide = (rule: RateLimitRule, tat: number | undefined, now: number) => {
   const interval = rule.windowMs / rule.limit;
   const next = Math.max(tat ?? now, now) + interval;
   return next - now > rule.windowMs
-    ? ({ allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((next - now - rule.windowMs) / 1000)) } as const)
+    ? ({
+        allowed: false,
+        retryAfterSeconds: Math.max(
+          1,
+          Math.ceil((next - now - rule.windowMs) / 1000),
+        ),
+      } as const)
     : ({ allowed: true, next } as const);
 };
 
@@ -61,7 +67,11 @@ export const RateLimiter = {
   },
   /** One limiter per name per process, shared by the custom server and Next.js bundles. */
   shared(name: string, rule: RateLimitRule): RateLimiter {
-    const registry = ((globalThis as typeof globalThis & { __nimbusRateLimiters?: Map<string, RateLimiter> }).__nimbusRateLimiters ??= new Map<string, RateLimiter>());
+    const registry = ((
+      globalThis as typeof globalThis & {
+        __nimbusRateLimiters?: Map<string, RateLimiter>;
+      }
+    ).__nimbusRateLimiters ??= new Map<string, RateLimiter>());
     const existing = registry.get(name);
     if (existing) return existing;
     const limiter = RateLimiter.create(rule);
@@ -73,11 +83,22 @@ export const RateLimiter = {
     return `${count} ${count === 1 ? "second" : "seconds"}`;
   },
   /** A 429 response with Retry-After and a message saying when to try again. */
-  response(decision: Extract<RateLimitDecision, { allowed: false }>, what: string) {
+  response(
+    decision: Extract<RateLimitDecision, { allowed: false }>,
+    what: string,
+  ) {
     const minutes = Math.ceil(decision.retryAfterSeconds / 60);
     return Response.json(
-      { error: `Too many ${what}. Wait ${minutes === 1 ? "a minute" : `${minutes} minutes`} and try again.` },
-      { status: 429, headers: { "Retry-After": String(decision.retryAfterSeconds), "Cache-Control": "no-store" } },
+      {
+        error: `Too many ${what}. Wait ${minutes === 1 ? "a minute" : `${minutes} minutes`} and try again.`,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(decision.retryAfterSeconds),
+          "Cache-Control": "no-store",
+        },
+      },
     );
   },
 } as const;

@@ -11,7 +11,9 @@ export const auditEvents = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     at: integer("at").notNull(),
     action: text("action").notNull(),
-    actorType: text("actor_type", { enum: ["user", "anonymous", "system"] }).notNull(),
+    actorType: text("actor_type", {
+      enum: ["user", "anonymous", "system"],
+    }).notNull(),
     actorId: text("actor_id"),
     actorLabel: text("actor_label"),
     targetType: text("target_type"),
@@ -19,7 +21,9 @@ export const auditEvents = sqliteTable(
     targetLabel: text("target_label"),
     ip: text("ip"),
     userAgent: text("user_agent"),
-    details: text("details", { mode: "json" }).$type<Record<string, string | number | boolean | null>>(),
+    details: text("details", { mode: "json" }).$type<
+      Record<string, string | number | boolean | null>
+    >(),
   },
   (table) => [
     index("nimbus_audit_event_at_idx").on(table.at),

@@ -11,7 +11,13 @@ export type EntrySection<T> = { title: string; entries: readonly T[] };
 /** A positioned row: a section title, or a run of consecutive entries (one in list view). */
 export type LayoutRow =
   | { kind: "header"; title: string; top: number; height: number }
-  | { kind: "entries"; start: number; count: number; top: number; height: number };
+  | {
+      kind: "entries";
+      start: number;
+      count: number;
+      top: number;
+      height: number;
+    };
 
 export type EntryLayout<T> = {
   rows: readonly LayoutRow[];
@@ -23,7 +29,11 @@ export type EntryLayout<T> = {
   columns: number;
 };
 
-function build<T>(sections: readonly EntrySection<T>[], view: "list" | "grid", columns: number): EntryLayout<T> {
+function build<T>(
+  sections: readonly EntrySection<T>[],
+  view: "list" | "grid",
+  columns: number,
+): EntryLayout<T> {
   const perRow = view === "grid" ? Math.max(1, columns) : 1;
   const item = entryGeometry[view];
   const rows: LayoutRow[] = [];
@@ -33,20 +43,32 @@ function build<T>(sections: readonly EntrySection<T>[], view: "list" | "grid", c
     if (section.entries.length === 0) continue;
     if (rows.length > 0) top += entryGeometry.sectionGap;
     if (section.title) {
-      rows.push({ kind: "header", title: section.title, top, height: entryGeometry.header.height });
+      rows.push({
+        kind: "header",
+        title: section.title,
+        top,
+        height: entryGeometry.header.height,
+      });
       top += entryGeometry.header.height + entryGeometry.header.gap;
     }
     for (let offset = 0; offset < section.entries.length; offset += perRow) {
       if (offset > 0) top += item.gap;
       const count = Math.min(perRow, section.entries.length - offset);
-      rows.push({ kind: "entries", start: entries.length + offset, count, top, height: item.height });
+      rows.push({
+        kind: "entries",
+        start: entries.length + offset,
+        count,
+        top,
+        height: item.height,
+      });
       top += item.height;
     }
     for (const entry of section.entries) entries.push(entry);
   }
   const rowByEntry = new Int32Array(entries.length);
   rows.forEach((row, index) => {
-    if (row.kind === "entries") rowByEntry.fill(index, row.start, row.start + row.count);
+    if (row.kind === "entries")
+      rowByEntry.fill(index, row.start, row.start + row.count);
   });
   return { rows, entries, rowByEntry, height: top, columns: perRow };
 }
@@ -72,7 +94,11 @@ function firstEndingAfter(rows: readonly LayoutRow[], y: number) {
 function rangeAt<T>(layout: EntryLayout<T>, top: number, bottom: number) {
   const start = firstEndingAfter(layout.rows, top);
   let end = start;
-  while (end < layout.rows.length && (layout.rows[end]?.top ?? Infinity) < bottom) end++;
+  while (
+    end < layout.rows.length &&
+    (layout.rows[end]?.top ?? Infinity) < bottom
+  )
+    end++;
   return { start, end };
 }
 

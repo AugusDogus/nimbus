@@ -16,17 +16,26 @@ export function WebMcpFileTools(page: FileToolsPage) {
   });
   useEffect(() => {
     const context = document.modelContext;
-    if (!window.isSecureContext || typeof context?.registerTool !== "function") return;
+    if (!window.isSecureContext || typeof context?.registerTool !== "function")
+      return;
     const lifetime = new AbortController();
     void import("./webmcp-file-tools")
       .then(({ registerFileTools }) => {
-        if (!lifetime.signal.aborted) return registerFileTools(context, () => latest.current, lifetime.signal);
+        if (!lifetime.signal.aborted)
+          return registerFileTools(
+            context,
+            () => latest.current,
+            lifetime.signal,
+          );
       })
       .catch((error: unknown) => {
         if (lifetime.signal.aborted) return;
         // Unregister anything that did register; the page keeps working without agent tools.
         lifetime.abort();
-        console.warn("Nimbus could not offer its page tools to the browser's agent.", error);
+        console.warn(
+          "Nimbus could not offer its page tools to the browser's agent.",
+          error,
+        );
       });
     return () => lifetime.abort();
   }, []);

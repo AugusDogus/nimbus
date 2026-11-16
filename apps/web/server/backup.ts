@@ -1,4 +1,12 @@
-import { chmod, mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  open,
+  readdir,
+  rename,
+  rm,
+  stat,
+} from "node:fs/promises";
 import path from "node:path";
 import { getConfigRoot, getDatabaseUrl } from "./storage-paths";
 
@@ -54,12 +62,21 @@ function databaseFile(databaseUrl: string) {
 }
 
 function stamp(now: number) {
-  return new Date(now).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  return new Date(now)
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
 }
 
 async function snapshot(databaseUrl: string, destination: string) {
   const child = Bun.spawn(
-    [process.execPath, "--eval", snapshotScript, databaseFile(databaseUrl), destination],
+    [
+      process.execPath,
+      "--eval",
+      snapshotScript,
+      databaseFile(databaseUrl),
+      destination,
+    ],
     { stdout: "ignore", stderr: "pipe", env: { ...process.env } },
   );
   const [code, stderr] = await Promise.all([
@@ -77,7 +94,8 @@ async function list(directory: string): Promise<BackupFile[]> {
   try {
     names = await readdir(directory);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return [];
     throw error;
   }
   const backups = await Promise.all(
@@ -91,9 +109,16 @@ async function list(directory: string): Promise<BackupFile[]> {
   return backups.sort((a, b) => (a.name < b.name ? 1 : -1));
 }
 
-async function create({ databaseUrl, directory, keep, now = Date.now() }: BackupOptions) {
+async function create({
+  databaseUrl,
+  directory,
+  keep,
+  now = Date.now(),
+}: BackupOptions) {
   if (!Number.isInteger(keep) || keep < 1)
-    throw new Error(`Backups to keep must be a positive whole number, not ${keep}.`);
+    throw new Error(
+      `Backups to keep must be a positive whole number, not ${keep}.`,
+    );
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
   const name = `nimbus-${stamp(now)}.sqlite`;
@@ -126,7 +151,11 @@ async function create({ databaseUrl, directory, keep, now = Date.now() }: Backup
   for (const old of (await list(directory)).slice(keep))
     await rm(path.join(directory, old.name), { force: true });
   const details = await stat(completed);
-  return { name, size: details.size, createdAt: details.mtimeMs } satisfies BackupFile;
+  return {
+    name,
+    size: details.size,
+    createdAt: details.mtimeMs,
+  } satisfies BackupFile;
 }
 
 /** The absolute path of a completed backup, or null for any other name. */
@@ -138,7 +167,10 @@ function file(directory: string, name: string) {
  * Serialize backups in this process: scheduled and manual requests share one
  * running job instead of competing for disk bandwidth.
  */
-function scheduler(options: () => Omit<BackupOptions, "now">, intervalMs: number) {
+function scheduler(
+  options: () => Omit<BackupOptions, "now">,
+  intervalMs: number,
+) {
   let running: Promise<BackupFile> | undefined;
   const run = () => {
     running ??= create(options()).finally(() => {

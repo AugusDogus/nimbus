@@ -43,8 +43,14 @@ export const additive: McpToolAnnotations = {
   idempotentHint: false,
   openWorldHint: false,
 };
-export const idempotentChange: McpToolAnnotations = { ...additive, idempotentHint: true };
-export const destructive: McpToolAnnotations = { ...additive, destructiveHint: true };
+export const idempotentChange: McpToolAnnotations = {
+  ...additive,
+  idempotentHint: true,
+};
+export const destructive: McpToolAnnotations = {
+  ...additive,
+  destructiveHint: true,
+};
 
 type Shape = z.ZodRawShape;
 
@@ -92,9 +98,12 @@ const scopeDenied = (scope: McpScope, context: McpToolContext) =>
   }. Nothing was done. Disconnect the client in Nimbus under Settings, then reconnect it and approve "${scope}".`;
 
 const bareCodeMessages: Record<string, string> = {
-  NOT_FOUND: "The item or record no longer exists. Nothing was changed. List it again to get current ids.",
-  FORBIDDEN: "You do not have permission for this. Nothing was changed. Ask the item's owner for access.",
-  CONFLICT: "This conflicts with the item's current state. Nothing was changed. Check it and retry.",
+  NOT_FOUND:
+    "The item or record no longer exists. Nothing was changed. List it again to get current ids.",
+  FORBIDDEN:
+    "You do not have permission for this. Nothing was changed. Ask the item's owner for access.",
+  CONFLICT:
+    "This conflicts with the item's current state. Nothing was changed. Check it and retry.",
 };
 
 /** Convert expected failures into messages for the agent; keep unexpected ones generic. */
@@ -109,7 +118,8 @@ function failureMessage(error: unknown, toolName: string): string {
       return "This Nimbus account can no longer be used: it was disabled or removed. Nothing was changed. Ask a Nimbus administrator to restore access.";
     // tRPC uses the code as the message when a procedure gave none.
     return parsed.data.message === parsed.data.code
-      ? (bareCodeMessages[parsed.data.code] ?? `${toolName} was refused (${parsed.data.code}). Nothing was changed.`)
+      ? (bareCodeMessages[parsed.data.code] ??
+          `${toolName} was refused (${parsed.data.code}). Nothing was changed.`)
       : parsed.data.message;
   }
   // Names only: messages of unexpected errors can include filesystem paths or query parameters.
@@ -143,7 +153,11 @@ export function defineTool<I extends Shape, O extends Shape>(
         });
         const value = definition.output.parse(
           await definition.run(
-            { context, caller, access: () => getAccess(context.drive, context.userId) },
+            {
+              context,
+              caller,
+              access: () => getAccess(context.drive, context.userId),
+            },
             input,
           ),
         );
@@ -165,7 +179,9 @@ const cursorSchema = z
   .string()
   .regex(/^\d{1,9}$/, "Pass a cursor exactly as a previous call returned it.")
   .optional()
-  .describe("Opaque cursor from a previous call's nextCursor. Omit for the first page.");
+  .describe(
+    "Opaque cursor from a previous call's nextCursor. Omit for the first page.",
+  );
 
 export const pageInput = (defaultLimit: number, maxLimit: number) => ({
   cursor: cursorSchema,
@@ -182,10 +198,15 @@ export const pageOutput = {
   nextCursor: z
     .string()
     .nullable()
-    .describe("Pass as cursor to get the next page; null when there are no more items."),
+    .describe(
+      "Pass as cursor to get the next page; null when there are no more items.",
+    ),
 };
 
-export function paginate<T>(items: readonly T[], page: { cursor?: string; limit: number }) {
+export function paginate<T>(
+  items: readonly T[],
+  page: { cursor?: string; limit: number },
+) {
   const start = page.cursor === undefined ? 0 : Number(page.cursor);
   const end = start + page.limit;
   return {
@@ -197,7 +218,9 @@ export function paginate<T>(items: readonly T[], page: { cursor?: string; limit:
 export const pathInput = z
   .string()
   .max(4096)
-  .describe('Path inside the drive, relative to its root, using "/" separators. "" is the drive root.');
+  .describe(
+    'Path inside the drive, relative to its root, using "/" separators. "" is the drive root.',
+  );
 
 export const permissionSchema = z.enum(["read", "write", "admin"]);
 
@@ -226,4 +249,5 @@ export const toEntry = (entry: {
   permission: entry.permission,
 });
 
-export const isoTime = (milliseconds: number) => new Date(milliseconds).toISOString();
+export const isoTime = (milliseconds: number) =>
+  new Date(milliseconds).toISOString();

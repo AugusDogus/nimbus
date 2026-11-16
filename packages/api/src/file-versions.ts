@@ -85,7 +85,15 @@ async function identity(absolute: string) {
   }
 }
 
-const unsupported = ["EXDEV", "EPERM", "EMLINK", "ENOTSUP", "EOPNOTSUPP", "EINVAL", "ENOSYS"];
+const unsupported = [
+  "EXDEV",
+  "EPERM",
+  "EMLINK",
+  "ENOTSUP",
+  "EOPNOTSUPP",
+  "EINVAL",
+  "ENOSYS",
+];
 const isUnsupported = (error: unknown) =>
   unsupported.some((code) => isFsError(error, code));
 
@@ -117,7 +125,10 @@ async function preserve(source: string, destination: string, nlink: bigint) {
   return "copy" as const;
 }
 
-async function removePayloads(dataRoot: string, versions: readonly FileVersion[]) {
+async function removePayloads(
+  dataRoot: string,
+  versions: readonly FileVersion[],
+) {
   for (const version of versions)
     await rm(payloadPath(dataRoot, version.id), { force: true });
 }
@@ -210,9 +221,14 @@ async function commitReplacement({
   version.fileKey = current.key;
   await adoptHistory(store, dataRoot, previous.key, current.key);
   await store.add(version);
-  const excess = (await store.list(current.key)).slice(versionRetention.maxCount);
+  const excess = (await store.list(current.key)).slice(
+    versionRetention.maxCount,
+  );
   if (excess.length)
-    await removePayloads(dataRoot, await store.remove(excess.map((entry) => entry.id)));
+    await removePayloads(
+      dataRoot,
+      await store.remove(excess.map((entry) => entry.id)),
+    );
   return { kind: "replaced", version };
 }
 
@@ -224,7 +240,10 @@ async function history(store: FileVersionStore, absolute: string) {
 
 /** A version of the file at `absolute`, or null if it belongs to another file. */
 async function find(store: FileVersionStore, absolute: string, id: string) {
-  const [current, version] = await Promise.all([identity(absolute), store.get(id)]);
+  const [current, version] = await Promise.all([
+    identity(absolute),
+    store.get(id),
+  ]);
   return current && version?.fileKey === current.key
     ? { version, payload: (dataRoot: string) => payloadPath(dataRoot, id) }
     : null;
@@ -260,14 +279,24 @@ async function restore({
       incoming,
       constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
     );
-    return await commitReplacement({ store, dataRoot, target, incoming, archivedBy });
+    return await commitReplacement({
+      store,
+      dataRoot,
+      target,
+      incoming,
+      archivedBy,
+    });
   } finally {
     await rm(incoming, { force: true });
   }
 }
 
 /** Discard the history of every file under `absolute`, before deleting it permanently. */
-async function discardTree(store: FileVersionStore, dataRoot: string, absolute: string) {
+async function discardTree(
+  store: FileVersionStore,
+  dataRoot: string,
+  absolute: string,
+) {
   const keys: string[] = [];
   const pending = [absolute];
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
@@ -280,20 +309,31 @@ async function discardTree(store: FileVersionStore, dataRoot: string, absolute: 
     }
     if (stats.isFile()) keys.push(fileKey(stats));
     else if (stats.isDirectory())
-      for (const child of await readdir(next)) pending.push(path.join(next, child));
+      for (const child of await readdir(next))
+        pending.push(path.join(next, child));
   }
   for (let index = 0; index < keys.length; index += 500)
-    await removePayloads(dataRoot, await store.removeFileKeys(keys.slice(index, index + 500)));
+    await removePayloads(
+      dataRoot,
+      await store.removeFileKeys(keys.slice(index, index + 500)),
+    );
 }
 
 /**
  * Remove versions past the age limit, and payloads left without a record by an
  * interrupted save once they are a day old.
  */
-async function cleanup(store: FileVersionStore, dataRoot: string, now = Date.now()) {
+async function cleanup(
+  store: FileVersionStore,
+  dataRoot: string,
+  now = Date.now(),
+) {
   const expired = await store.archivedBefore(now - versionRetention.maxAgeMs);
   if (expired.length)
-    await removePayloads(dataRoot, await store.remove(expired.map((version) => version.id)));
+    await removePayloads(
+      dataRoot,
+      await store.remove(expired.map((version) => version.id)),
+    );
   let shards;
   try {
     shards = await readdir(versionsDirectory(dataRoot));
@@ -303,7 +343,9 @@ async function cleanup(store: FileVersionStore, dataRoot: string, now = Date.now
   }
   for (const shard of shards) {
     const directory = path.join(versionsDirectory(dataRoot), shard);
-    const ids = (await readdir(directory)).filter((id) => /^[a-f0-9-]{36}$/.test(id));
+    const ids = (await readdir(directory)).filter((id) =>
+      /^[a-f0-9-]{36}$/.test(id),
+    );
     const known = await store.existing(ids);
     for (const id of ids) {
       if (known.has(id)) continue;

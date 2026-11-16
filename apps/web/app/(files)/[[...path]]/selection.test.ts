@@ -28,7 +28,9 @@ describe("selection", () => {
   });
 
   it("treats a range without an anchor as a single selection", () => {
-    expect(paths(Selection.range(Selection.empty, order, "c", false))).toEqual(["c"]);
+    expect(paths(Selection.range(Selection.empty, order, "c", false))).toEqual([
+      "c",
+    ]);
   });
 
   it("selects all and drops items that disappear from the folder", () => {
@@ -38,13 +40,22 @@ describe("selection", () => {
     expect(paths(next)).toEqual(["a", "c"]);
     expect(Selection.retain(next, Selection.order(["a", "c"]))).toBe(next);
     expect(Selection.retain(Selection.only("b"), order).anchor).toBe("b");
-    expect(Selection.retain(Selection.only("b"), Selection.order(["a"])).anchor).toBeNull();
+    expect(
+      Selection.retain(Selection.only("b"), Selection.order(["a"])).anchor,
+    ).toBeNull();
   });
 
   it("handles 50,000 entries quickly", () => {
-    const large = Selection.order(Array.from({ length: 50_000 }, (_, index) => `item ${index}`));
+    const large = Selection.order(
+      Array.from({ length: 50_000 }, (_, index) => `item ${index}`),
+    );
     const started = performance.now();
-    const selection = Selection.range(Selection.only("item 10"), large, "item 49990", false);
+    const selection = Selection.range(
+      Selection.only("item 10"),
+      large,
+      "item 49990",
+      false,
+    );
     Selection.retain(selection, large);
     expect(selection.paths.size).toBe(49_981);
     expect(performance.now() - started).toBeLessThan(100);

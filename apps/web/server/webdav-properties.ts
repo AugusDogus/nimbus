@@ -24,7 +24,6 @@ import {
 export const davHref = (path: string, type: FileEntry["type"]) =>
   `/dav/${path.split("/").map(encodeURIComponent).join("/")}${type === "dir" && path ? "/" : ""}`;
 
-
 /** Live properties returned for allprop, in response order. */
 const allpropNames = [
   "displayname",
@@ -40,7 +39,10 @@ const allpropNames = [
 /** RFC 4331 quota properties are returned only when requested by name. */
 const quotaNames = ["quota-available-bytes", "quota-used-bytes"] as const;
 type LiveName = (typeof allpropNames)[number] | (typeof quotaNames)[number];
-const liveNames: ReadonlySet<string> = new Set([...allpropNames, ...quotaNames]);
+const liveNames: ReadonlySet<string> = new Set([
+  ...allpropNames,
+  ...quotaNames,
+]);
 const isLive = (name: XmlName): name is XmlName & { local: LiveName } =>
   name.namespace === DAV && liveNames.has(name.local);
 
@@ -65,7 +67,10 @@ export type PropfindContext = {
 };
 
 function activeLock(lock: FileLock, rootType: FileEntry["type"]) {
-  const remaining = Math.max(0, Math.ceil((lock.expiresAt - Date.now()) / 1000));
+  const remaining = Math.max(
+    0,
+    Math.ceil((lock.expiresAt - Date.now()) / 1000),
+  );
   return `<d:activelock><d:locktype><d:write/></d:locktype><d:lockscope><d:${lock.scope}/></d:lockscope><d:depth>${lock.depth}</d:depth>${lock.owner ? `<d:owner>${lock.owner}</d:owner>` : ""}<d:timeout>Second-${remaining}</d:timeout><d:locktoken><d:href>${escapeXml(lock.token)}</d:href></d:locktoken><d:lockroot><d:href>${escapeXml(davHref(lock.path, rootType))}</d:href></d:lockroot></d:activelock>`;
 }
 
@@ -116,7 +121,9 @@ async function liveValue(
     case "quota-used-bytes": {
       // The drive shares its filesystem, so usage is reported for the filesystem as a whole.
       const capacity = await context.capacity();
-      return capacity ? String(capacity.totalBytes - capacity.availableBytes) : null;
+      return capacity
+        ? String(capacity.totalBytes - capacity.availableBytes)
+        : null;
     }
   }
 }
@@ -132,10 +139,18 @@ export function parsePropfind(
 ): { ok: true; value: PropfindRequest } | { ok: false; message: string } {
   if (!body) return { ok: true, value: { kind: "allprop", include: [] } };
   if (!is(body, DAV, "propfind"))
-    return { ok: false, message: "A PROPFIND body must be a DAV:propfind element." };
+    return {
+      ok: false,
+      message: "A PROPFIND body must be a DAV:propfind element.",
+    };
   const children = childElements(body);
   const names = (element: XmlElement | undefined) =>
-    element ? childElements(element).map(({ namespace, local }) => ({ namespace, local })) : [];
+    element
+      ? childElements(element).map(({ namespace, local }) => ({
+          namespace,
+          local,
+        }))
+      : [];
   if (children.some((element) => is(element, DAV, "propname")))
     return { ok: true, value: { kind: "propname" } };
   if (children.some((element) => is(element, DAV, "allprop")))
@@ -147,7 +162,11 @@ export function parsePropfind(
       },
     };
   const prop = children.find((element) => is(element, DAV, "prop"));
-  if (!prop) return { ok: false, message: "A DAV:propfind body needs prop, allprop, or propname." };
+  if (!prop)
+    return {
+      ok: false,
+      message: "A DAV:propfind body needs prop, allprop, or propname.",
+    };
   return { ok: true, value: { kind: "prop", names: names(prop) } };
 }
 
@@ -169,19 +188,28 @@ export async function propfindResponse(
     return value === null ? null : `<d:${local}>${value}</d:${local}>`;
   };
   const deadXml = (name: XmlName) =>
-    dead.find((property) => sameName({ namespace: property.namespace, local: property.name }, name))?.xml;
+    dead.find((property) =>
+      sameName({ namespace: property.namespace, local: property.name }, name),
+    )?.xml;
   if (request.kind === "propname") {
     for (const local of allpropNames)
-      if ((await liveValue(entry, local, context)) !== null) add(200, `<d:${local}/>`);
+      if ((await liveValue(entry, local, context)) !== null)
+        add(200, `<d:${local}/>`);
     for (const property of dead)
-      add(200, emptyElement({ namespace: property.namespace, local: property.name }));
+      add(
+        200,
+        emptyElement({ namespace: property.namespace, local: property.name }),
+      );
   } else {
     const requested: XmlName[] =
       request.kind === "prop"
         ? request.names
         : [
             ...allpropNames.map((local) => ({ namespace: DAV, local })),
-            ...dead.map((property) => ({ namespace: property.namespace, local: property.name })),
+            ...dead.map((property) => ({
+              namespace: property.namespace,
+              local: property.name,
+            })),
             ...request.include,
           ];
     const seen: XmlName[] = [];
@@ -191,7 +219,8 @@ export async function propfindResponse(
       const xml = isLive(name) ? await live(name.local) : deadXml(name);
       if (xml !== undefined && xml !== null) add(200, xml);
       // allprop omits live properties that do not apply, rather than reporting them missing.
-      else if (request.kind === "prop" || !isLive(name)) add(404, emptyElement(name));
+      else if (request.kind === "prop" || !isLive(name))
+        add(404, emptyElement(name));
     }
   }
   const propstats = [...byStatus]
@@ -212,22 +241,44 @@ export function parsePropertyUpdate(
   body: XmlElement | null,
 ): { ok: true; value: PropertyUpdate[] } | { ok: false; message: string } {
   if (!body || !is(body, DAV, "propertyupdate"))
-    return { ok: false, message: "A PROPPATCH body must be a DAV:propertyupdate element." };
+    return {
+      ok: false,
+      message: "A PROPPATCH body must be a DAV:propertyupdate element.",
+    };
   const updates: PropertyUpdate[] = [];
   for (const instruction of childElements(body)) {
-    const kind = is(instruction, DAV, "set") ? "set" : is(instruction, DAV, "remove") ? "remove" : null;
+    const kind = is(instruction, DAV, "set")
+      ? "set"
+      : is(instruction, DAV, "remove")
+        ? "remove"
+        : null;
     if (!kind) continue;
-    for (const prop of childElements(instruction).filter((element) => is(element, DAV, "prop")))
+    for (const prop of childElements(instruction).filter((element) =>
+      is(element, DAV, "prop"),
+    ))
       for (const element of childElements(prop)) {
         const name = { namespace: element.namespace, local: element.local };
         updates.push(
           kind === "set"
-            ? { kind, name, text: textOf(element), property: { namespace: name.namespace, name: name.local, xml: serializeXml(element) } }
+            ? {
+                kind,
+                name,
+                text: textOf(element),
+                property: {
+                  namespace: name.namespace,
+                  name: name.local,
+                  xml: serializeXml(element),
+                },
+              }
             : { kind, name },
         );
       }
   }
-  if (!updates.length) return { ok: false, message: "The DAV:propertyupdate body names no properties." };
+  if (!updates.length)
+    return {
+      ok: false,
+      message: "The DAV:propertyupdate body names no properties.",
+    };
   return { ok: true, value: updates };
 }
 
@@ -235,45 +286,66 @@ export function parsePropertyUpdate(
 const maxPropertyBytes = 64 * 1024;
 
 export type PropertyPlan =
-  | { kind: "apply"; set: DavProperty[]; remove: DavPropertyName[]; names: XmlName[] }
+  | {
+      kind: "apply";
+      set: DavProperty[];
+      remove: DavPropertyName[];
+      names: XmlName[];
+    }
   | { kind: "reject"; statuses: { name: XmlName; status: number }[] };
 
 /**
  * Decide a PROPPATCH atomically: live properties are protected, and when any instruction
  * fails every other one fails with 424 (RFC 4918, section 9.2).
  */
-export function planPropertyUpdate(updates: readonly PropertyUpdate[]): PropertyPlan {
+export function planPropertyUpdate(
+  updates: readonly PropertyUpdate[],
+): PropertyPlan {
   const failures = updates.map((update) =>
     isLive(update.name)
       ? 403
-      : update.kind === "set" && Buffer.byteLength(update.property.xml) > maxPropertyBytes
+      : update.kind === "set" &&
+          Buffer.byteLength(update.property.xml) > maxPropertyBytes
         ? 507
         : null,
   );
   const names: XmlName[] = [];
   for (const update of updates)
-    if (!names.some((name) => sameName(name, update.name))) names.push(update.name);
+    if (!names.some((name) => sameName(name, update.name)))
+      names.push(update.name);
   if (failures.some((status) => status !== null))
     return {
       kind: "reject",
       statuses: names.map((name) => ({
         name,
         status:
-          failures.find((status, index) => status !== null && sameName(updates[index]?.name ?? name, name)) ?? 424,
+          failures.find(
+            (status, index) =>
+              status !== null && sameName(updates[index]?.name ?? name, name),
+          ) ?? 424,
       })),
     };
   // Instructions apply in document order, so the last one for each name wins.
   const final = new Map<string, PropertyUpdate>();
-  for (const update of updates) final.set(`${update.name.namespace}\n${update.name.local}`, update);
+  for (const update of updates)
+    final.set(`${update.name.namespace}\n${update.name.local}`, update);
   const set: DavProperty[] = [];
   const remove: DavPropertyName[] = [];
   for (const update of final.values())
     if (update.kind === "set") set.push(update.property);
-    else remove.push({ namespace: update.name.namespace, name: update.name.local });
+    else
+      remove.push({
+        namespace: update.name.namespace,
+        name: update.name.local,
+      });
   return { kind: "apply", set, remove, names };
 }
 
-export function proppatchResponse(path: string, type: FileEntry["type"], statuses: readonly { name: XmlName; status: number }[]) {
+export function proppatchResponse(
+  path: string,
+  type: FileEntry["type"],
+  statuses: readonly { name: XmlName; status: number }[],
+) {
   const byStatus = new Map<number, string[]>();
   for (const { name, status } of statuses)
     byStatus.set(status, [...(byStatus.get(status) ?? []), emptyElement(name)]);

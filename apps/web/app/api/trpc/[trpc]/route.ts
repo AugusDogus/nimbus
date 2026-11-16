@@ -30,7 +30,11 @@ async function compress(request: NextRequest, response: Response) {
   const headers = new Headers(response.headers);
   headers.append("vary", "accept-encoding");
   if (body.byteLength < minimumCompressedBytes)
-    return new Response(body, { status: response.status, statusText: response.statusText, headers });
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   const compressed = gzipSync(body, { level: 3 });
   headers.set("content-encoding", "gzip");
   headers.set("content-length", String(compressed.byteLength));
@@ -51,7 +55,7 @@ const handler = async (req: NextRequest) => {
         auth,
         headers: req.headers,
         preferences: preferencesStore,
-      drive: driveStore,
+        drive: driveStore,
       }),
     onError({ error, path }) {
       console.error(`>>> tRPC Error on '${path ?? "unknown"}'`, error);
@@ -61,4 +65,3 @@ const handler = async (req: NextRequest) => {
 };
 
 export { handler as GET, handler as POST };
-

@@ -52,9 +52,17 @@ export function EditEntryDialog({
   onClose: () => void;
 }) {
   if (dialog.action === "rename")
-    return <RenameDialog entry={dialog.entry} actions={actions} onClose={onClose} />;
+    return (
+      <RenameDialog entry={dialog.entry} actions={actions} onClose={onClose} />
+    );
   if (dialog.action === "delete")
-    return <TrashDialog entries={dialog.entries} actions={actions} onClose={onClose} />;
+    return (
+      <TrashDialog
+        entries={dialog.entries}
+        actions={actions}
+        onClose={onClose}
+      />
+    );
   return (
     <DestinationDialog
       action={dialog.action}
@@ -111,7 +119,8 @@ function TrashDialog({
           <AlertDialogDescription>
             {subject(entries)} will stay in trash for 30 days.{" "}
             {entries.length === 1 ? "Its" : "Their"} share links and direct
-            permissions stop working until {entries.length === 1 ? "it is" : "they are"} restored.
+            permissions stop working until{" "}
+            {entries.length === 1 ? "it is" : "they are"} restored.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error && (
@@ -178,8 +187,8 @@ function RenameDialog({
           <DialogHeader>
             <DialogTitle className="text-balance">Rename</DialogTitle>
             <DialogDescription>
-              {entry.name}. Share links, direct permissions, and stars stay
-              with it.
+              {entry.name}. Share links, direct permissions, and stars stay with
+              it.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4">
@@ -275,7 +284,8 @@ function DestinationDialog({
                 return true;
               }
               // The summary toast reports partial failures.
-              if (action === "move") await actions.moveEntries(entries, destination);
+              if (action === "move")
+                await actions.moveEntries(entries, destination);
               else await actions.copyEntries(entries, destination);
               return true;
             });

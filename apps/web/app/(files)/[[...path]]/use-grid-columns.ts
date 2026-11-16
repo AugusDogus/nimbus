@@ -9,11 +9,17 @@ const breakpoints = [
 ] as const;
 
 function columns() {
-  return breakpoints.find((breakpoint) => window.matchMedia(breakpoint.query).matches)?.columns ?? 2;
+  return (
+    breakpoints.find(
+      (breakpoint) => window.matchMedia(breakpoint.query).matches,
+    )?.columns ?? 2
+  );
 }
 
 function subscribe(onChange: () => void) {
-  const lists = breakpoints.map((breakpoint) => window.matchMedia(breakpoint.query));
+  const lists = breakpoints.map((breakpoint) =>
+    window.matchMedia(breakpoint.query),
+  );
   for (const list of lists) list.addEventListener("change", onChange);
   return () => {
     for (const list of lists) list.removeEventListener("change", onChange);

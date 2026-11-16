@@ -48,7 +48,10 @@ declare global {
   var nimbusFileMutations: Map<string, MutationState> | undefined;
 }
 function state() {
-  const states = (globalThis.nimbusFileMutations ??= new Map<string, MutationState>());
+  const states = (globalThis.nimbusFileMutations ??= new Map<
+    string,
+    MutationState
+  >());
   const root = getDataRoot();
   let current = states.get(root);
   if (!current) {
@@ -91,7 +94,9 @@ export function requireUnlocked(
     const protecting = locks.filter((lock) => lockProtects(lock, path));
     const shared = protecting.filter((lock) => lock.scope === "shared");
     if (
-      protecting.some((lock) => lock.scope === "exclusive" && !submitted(lock)) ||
+      protecting.some(
+        (lock) => lock.scope === "exclusive" && !submitted(lock),
+      ) ||
       (shared.length > 0 && !shared.some(submitted))
     )
       throw new FileLockedError();
@@ -130,7 +135,12 @@ export type LockRequest = {
 export function lockFile(
   path: string,
   credentials: MutationCredentials,
-  request: LockRequest = { scope: "exclusive", depth: "infinity", owner: "", timeoutSeconds: maxLockSeconds },
+  request: LockRequest = {
+    scope: "exclusive",
+    depth: "infinity",
+    owner: "",
+    timeoutSeconds: maxLockSeconds,
+  },
 ) {
   const current = state();
   for (const lock of current.locks.values())
@@ -181,7 +191,12 @@ export function refreshLock(
 export function unlockFile(path: string, userId: string, token: string) {
   const current = state();
   const lock = current.locks.get(token.replace(/^<|>$/g, ""));
-  if (lock && lock.userId === userId && token === `<${lock.token}>` && lockCovers(lock, path)) {
+  if (
+    lock &&
+    lock.userId === userId &&
+    token === `<${lock.token}>` &&
+    lockCovers(lock, path)
+  ) {
     current.locks.delete(lock.token);
     return;
   }

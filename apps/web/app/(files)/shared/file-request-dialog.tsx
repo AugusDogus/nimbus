@@ -48,7 +48,13 @@ type Draft = {
 
 const draftFor = (mode: FileRequestDialogMode): Draft =>
   mode.kind === "create"
-    ? { expiry: "", note: "", maxFileMegabytes: "", maxFiles: "", maxTotalMegabytes: "" }
+    ? {
+        expiry: "",
+        note: "",
+        maxFileMegabytes: "",
+        maxFiles: "",
+        maxTotalMegabytes: "",
+      }
     : {
         expiry:
           mode.request.expiresAt === null
@@ -56,8 +62,11 @@ const draftFor = (mode: FileRequestDialogMode): Draft =>
             : localDateTimeInput(mode.request.expiresAt),
         note: mode.request.note ?? "",
         maxFileMegabytes: ByteSize.toMegabytesInput(mode.request.maxFileBytes),
-        maxFiles: mode.request.maxFiles === null ? "" : String(mode.request.maxFiles),
-        maxTotalMegabytes: ByteSize.toMegabytesInput(mode.request.maxTotalBytes),
+        maxFiles:
+          mode.request.maxFiles === null ? "" : String(mode.request.maxFiles),
+        maxTotalMegabytes: ByteSize.toMegabytesInput(
+          mode.request.maxTotalBytes,
+        ),
       };
 
 const settingsFor = (draft: Draft) => ({
@@ -77,9 +86,12 @@ export default function FileRequestDialog({
   mode: FileRequestDialogMode;
   onClose: () => void;
 }) {
-  const protectedRequest = mode.kind === "edit" && mode.request.passwordProtected;
+  const protectedRequest =
+    mode.kind === "edit" && mode.request.passwordProtected;
   const [draft, setDraft] = useState(() => draftFor(mode));
-  const [choice, setChoice] = useState<PasswordChoice>(protectedRequest ? "keep" : "set");
+  const [choice, setChoice] = useState<PasswordChoice>(
+    protectedRequest ? "keep" : "set",
+  );
   const [password, setPassword] = useState("");
   const [link, setLink] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -136,10 +148,12 @@ export default function FileRequestDialog({
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="min-w-0 break-words pr-6 text-balance">
-            {mode.kind === "create" ? "Request files for" : "Edit request for"} {name}
+            {mode.kind === "create" ? "Request files for" : "Edit request for"}{" "}
+            {name}
           </DialogTitle>
           <DialogDescription className="text-pretty">
-            Anyone with the link can upload into this folder. They cannot see, open, replace, or delete its files.
+            Anyone with the link can upload into this folder. They cannot see,
+            open, replace, or delete its files.
           </DialogDescription>
         </DialogHeader>
         {link ? (
@@ -156,9 +170,13 @@ export default function FileRequestDialog({
                 type="button"
                 variant="outline"
                 onClick={() => {
-                  navigator.clipboard.writeText(link).catch(() =>
-                    setError("Copy failed. Select the link and copy it manually."),
-                  );
+                  navigator.clipboard
+                    .writeText(link)
+                    .catch(() =>
+                      setError(
+                        "Copy failed. Select the link and copy it manually.",
+                      ),
+                    );
                 }}
               >
                 Copy
@@ -183,7 +201,9 @@ export default function FileRequestDialog({
               void save();
             }}
           >
-            <Label htmlFor="file-request-note">Note for uploaders (optional)</Label>
+            <Label htmlFor="file-request-note">
+              Note for uploaders (optional)
+            </Label>
             <textarea
               id="file-request-note"
               maxLength={1000}
@@ -197,11 +217,18 @@ export default function FileRequestDialog({
                 <Select
                   value={choice}
                   onValueChange={(value) => {
-                    if (value === "keep" || value === "set" || value === "remove")
+                    if (
+                      value === "keep" ||
+                      value === "set" ||
+                      value === "remove"
+                    )
                       setChoice(value);
                   }}
                 >
-                  <SelectTrigger id="file-request-password-choice" className="w-full">
+                  <SelectTrigger
+                    id="file-request-password-choice"
+                    className="w-full"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -230,21 +257,48 @@ export default function FileRequestDialog({
               </>
             )}
             <Label htmlFor="file-request-expiry">Expires (optional)</Label>
-            <Input id="file-request-expiry" type="datetime-local" {...field("expiry")} />
+            <Input
+              id="file-request-expiry"
+              type="datetime-local"
+              {...field("expiry")}
+            />
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="file-request-max-file">Largest file (MB)</Label>
-                <Input id="file-request-max-file" type="number" inputMode="decimal" min={0.01} step="any" {...field("maxFileMegabytes")} />
+                <Input
+                  id="file-request-max-file"
+                  type="number"
+                  inputMode="decimal"
+                  min={0.01}
+                  step="any"
+                  {...field("maxFileMegabytes")}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="file-request-max-files">Number of files</Label>
-                <Input id="file-request-max-files" type="number" inputMode="numeric" min={1} max={100000} step={1} {...field("maxFiles")} />
+                <Input
+                  id="file-request-max-files"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={100000}
+                  step={1}
+                  {...field("maxFiles")}
+                />
               </div>
             </div>
             <Label htmlFor="file-request-max-total">Total size (MB)</Label>
-            <Input id="file-request-max-total" type="number" inputMode="decimal" min={0.01} step="any" {...field("maxTotalMegabytes")} />
+            <Input
+              id="file-request-max-total"
+              type="number"
+              inputMode="decimal"
+              min={0.01}
+              step="any"
+              {...field("maxTotalMegabytes")}
+            />
             <p className="text-pretty text-xs text-muted-foreground">
-              Leave limits empty for none. Uploads never replace existing files; matching names get a number added.
+              Leave limits empty for none. Uploads never replace existing files;
+              matching names get a number added.
             </p>
             {error && (
               <p role="alert" className="text-pretty text-sm text-destructive">
@@ -252,7 +306,12 @@ export default function FileRequestDialog({
               </p>
             )}
             <DialogFooter>
-              <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={onClose}
+              >
                 Cancel
               </Button>
               <Button disabled={busy}>

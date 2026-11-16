@@ -100,7 +100,8 @@ export const sharesRouter = router({
       if (!share)
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "This link was revoked or belongs to someone else. Refresh the list.",
+          message:
+            "This link was revoked or belongs to someone else. Refresh the list.",
         });
       ctx.access.require(share.path, "admin");
       // A new password changes the unlock signature, so earlier unlocks end.
@@ -110,16 +111,21 @@ export const sharesRouter = router({
           : input.password.kind === "set"
             ? await Bun.password.hash(input.password.value)
             : null;
-      const updated = await ctx.drive.updateShare(share.id, ctx.access.user.id, {
-        expiresAt: input.expiresAt,
-        maxDownloads: input.maxDownloads,
-        mode: input.mode,
-        passwordHash,
-      });
+      const updated = await ctx.drive.updateShare(
+        share.id,
+        ctx.access.user.id,
+        {
+          expiresAt: input.expiresAt,
+          maxDownloads: input.maxDownloads,
+          mode: input.mode,
+          passwordHash,
+        },
+      );
       if (!updated)
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "This link was revoked while you edited it. Its settings were not saved.",
+          message:
+            "This link was revoked while you edited it. Its settings were not saved.",
         });
       recordAudit({
         action: "share.updated",

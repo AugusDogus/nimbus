@@ -28,7 +28,8 @@ export type TextRead =
     }
   | { kind: "binary"; path: string; size: number; etag: string };
 
-const isContinuationByte = (byte: number) => (byte & 0b1100_0000) === 0b1000_0000;
+const isContinuationByte = (byte: number) =>
+  (byte & 0b1100_0000) === 0b1000_0000;
 
 /** Length of `bytes` without a trailing, incomplete UTF-8 sequence. */
 function completeUtf8Length(bytes: Uint8Array) {
@@ -43,7 +44,16 @@ function completeUtf8Length(bytes: Uint8Array) {
   }
   const lead = bytes[start];
   if (lead === undefined) return bytes.length;
-  const length = lead < 0x80 ? 1 : lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+  const length =
+    lead < 0x80
+      ? 1
+      : lead >= 0xf0
+        ? 4
+        : lead >= 0xe0
+          ? 3
+          : lead >= 0xc0
+            ? 2
+            : 1;
   return start + length <= bytes.length ? bytes.length : start;
 }
 
@@ -72,7 +82,8 @@ export async function readFileText(
     const buffer = new Uint8Array(Math.min(range.maxBytes, size - offset));
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset);
     const bytes = buffer.subarray(0, bytesRead);
-    if (bytes.includes(0)) return { kind: "binary", path: target.relative, size, etag };
+    if (bytes.includes(0))
+      return { kind: "binary", path: target.relative, size, etag };
     const first = bytes[0];
     if (first !== undefined && isContinuationByte(first))
       throw new TRPCError({
@@ -80,10 +91,13 @@ export async function readFileText(
         message:
           "This offset falls inside a multi-byte character. Start at 0 or at a nextOffset returned by a previous read.",
       });
-    const complete = offset + bytesRead >= size ? bytes.length : completeUtf8Length(bytes);
+    const complete =
+      offset + bytesRead >= size ? bytes.length : completeUtf8Length(bytes);
     let content: string;
     try {
-      content = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, complete));
+      content = new TextDecoder("utf-8", { fatal: true }).decode(
+        bytes.subarray(0, complete),
+      );
     } catch {
       return { kind: "binary", path: target.relative, size, etag };
     }

@@ -27,7 +27,10 @@ export function parseIfHeader(
   let resource: string | null = null;
   const malformed = (message: string) => ({
     ok: false as const,
-    error: { kind: "malformed" as const, message: `Invalid If header: ${message}` },
+    error: {
+      kind: "malformed" as const,
+      message: `Invalid If header: ${message}`,
+    },
   });
   const skipSpace = () => {
     while (index < header.length && /\s/.test(header.charAt(index))) index++;
@@ -76,7 +79,11 @@ export function parseIfHeader(
       index++;
       const value = readUntil(open === "<" ? ">" : "]");
       if (value === null) return malformed("a condition is not closed.");
-      conditions.push({ negated, kind: open === "<" ? "token" : "etag", value });
+      conditions.push({
+        negated,
+        kind: open === "<" ? "token" : "etag",
+        value,
+      });
     }
     if (!conditions.length) return malformed("a list has no conditions.");
     lists.push({ resource: tagged ? resource : null, conditions });

@@ -25,16 +25,18 @@ export function CopyField({ label, value }: { label: string; value: string }) {
           className="shrink-0"
           disabled={!value}
           aria-label={`Copy ${label.toLowerCase()}`}
-          onClick={() => void (async () => {
-            try {
-              await navigator.clipboard.writeText(value);
-              setCopied(true);
-              setError(null);
-            } catch {
-              setCopied(false);
-              setError("Copy failed. Select the text and copy it manually.");
-            }
-          })()}
+          onClick={() =>
+            void (async () => {
+              try {
+                await navigator.clipboard.writeText(value);
+                setCopied(true);
+                setError(null);
+              } catch {
+                setCopied(false);
+                setError("Copy failed. Select the text and copy it manually.");
+              }
+            })()
+          }
         >
           {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
         </Button>

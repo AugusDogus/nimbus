@@ -18,7 +18,8 @@ export async function GET(request: Request, context: Context) {
     if (!file || !(await file.exists()))
       throw new TRPCError({
         code: "NOT_FOUND",
-        message: "That backup no longer exists. Refresh the list; older backups are removed as new ones are made.",
+        message:
+          "That backup no longer exists. Refresh the list; older backups are removed as new ones are made.",
       });
     recordAudit({
       action: "backup.downloaded",

@@ -21,7 +21,13 @@ const folderSchema = z
   .refine(
     (folder) =>
       folder === "" ||
-      folder.split("/").every((segment) => fileNameSchema.safeParse(segment).success && segment === segment.trim()),
+      folder
+        .split("/")
+        .every(
+          (segment) =>
+            fileNameSchema.safeParse(segment).success &&
+            segment === segment.trim(),
+        ),
     "Folder uploads must use relative folder names without empty, reserved, or traversal segments.",
   );
 
@@ -38,7 +44,12 @@ export type UploadMetadata = z.infer<typeof UploadMetadata>;
 
 const join = (...segments: string[]) => segments.filter(Boolean).join("/");
 
-async function ensureFolders(access: Access, base: string, folder: string, userId: string) {
+async function ensureFolders(
+  access: Access,
+  base: string,
+  folder: string,
+  userId: string,
+) {
   let current = base;
   for (const segment of folder ? folder.split("/") : []) {
     current = join(current, segment);
@@ -60,7 +71,11 @@ async function ensureFolders(access: Access, base: string, folder: string, userI
     } catch (error) {
       if (!isFsError(error, "EEXIST")) throw error;
     }
-    publishFileEvent({ path: target.absolute, event: "rename", ts: Date.now() });
+    publishFileEvent({
+      path: target.absolute,
+      event: "rename",
+      ts: Date.now(),
+    });
   }
   return current;
 }
@@ -79,13 +94,24 @@ export async function commitUpload(
   return mutateFiles([], { userId: metadata.owner }, async () => {
     const access = await authorize();
     if (access.user.id !== metadata.owner)
-      throw new TRPCError({ code: "FORBIDDEN", message: "This upload belongs to another user." });
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "This upload belongs to another user.",
+      });
     const target = await safePath(metadata.targetPath);
     access.require(target.relative, "write");
     const parent = await requireExisting(target.relative);
     if (!parent.stats.isDirectory())
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Upload destination must be a folder." });
-    const folder = await ensureFolders(access, target.relative, metadata.folder, access.user.id);
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Upload destination must be a folder.",
+      });
+    const folder = await ensureFolders(
+      access,
+      target.relative,
+      metadata.folder,
+      access.user.id,
+    );
     return publishUpload({
       store,
       uploadId: id,

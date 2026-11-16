@@ -19,7 +19,10 @@ export type HomeProvisioning =
  * characters. It is fixed when the home is created; later email changes do not rename it.
  */
 function folderName(email: string) {
-  const local = email.slice(0, Math.max(0, email.lastIndexOf("@")) || email.length);
+  const local = email.slice(
+    0,
+    Math.max(0, email.lastIndexOf("@")) || email.length,
+  );
   const name = local
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
@@ -81,14 +84,24 @@ function provisionUnlocked(
         };
       await store.createHome(
         { userId: user.id, path: created },
-        { id: randomUUID(), path: created, subject: { type: "user", id: user.id }, permission: "admin" },
+        {
+          id: randomUUID(),
+          path: created,
+          subject: { type: "user", id: user.id },
+          permission: "admin",
+        },
       );
       return { kind: "created", path: created };
     } catch (error) {
       // The new folder is still empty, so removing it leaves the drive as it was.
       if (created)
-        await rmdir((await resolveSafePath(created)).absolute).catch(() => undefined);
-      const reason = error instanceof PathError || error instanceof Error ? error.message : String(error);
+        await rmdir((await resolveSafePath(created)).absolute).catch(
+          () => undefined,
+        );
+      const reason =
+        error instanceof PathError || error instanceof Error
+          ? error.message
+          : String(error);
       return {
         kind: "failed",
         message: `Creating a home folder for ${user.email} failed: ${reason}. The account works without a home; Nimbus retries at its next start.`,
@@ -109,11 +122,19 @@ async function requireNotHome(store: DriveStore, path: string) {
 
 /** Give every account without a home its own, for installations created before homes existed. */
 async function backfill(store: DriveStore) {
-  const withHome = new Set((await store.listHomes()).map((home) => home.userId));
+  const withHome = new Set(
+    (await store.listHomes()).map((home) => home.userId),
+  );
   const results: HomeProvisioning[] = [];
   for (const user of await store.listUsers())
     if (!withHome.has(user.id)) results.push(await provision(store, user));
   return results;
 }
 
-export const Homes = { container, folderName, provision, requireNotHome, backfill } as const;
+export const Homes = {
+  container,
+  folderName,
+  provision,
+  requireNotHome,
+  backfill,
+} as const;

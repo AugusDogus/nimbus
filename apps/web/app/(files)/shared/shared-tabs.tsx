@@ -20,9 +20,12 @@ export function SharedTabs({ tab }: { tab: SharedTab }) {
     <Tabs.Root
       value={tab}
       onValueChange={(value) => {
-        router.replace(value === "with-me" ? "/shared" : `/shared?tab=${value}`, {
-          scroll: false,
-        });
+        router.replace(
+          value === "with-me" ? "/shared" : `/shared?tab=${value}`,
+          {
+            scroll: false,
+          },
+        );
       }}
       className="space-y-6"
     >

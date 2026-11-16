@@ -23,26 +23,47 @@ describe("OidcConfig.parse", () => {
       groupsClaim: null,
     });
     if (config.kind === "oidc")
-      expect(OidcConfig.discoveryUrl(config)).toBe("https://id.example.com/realms/main/.well-known/openid-configuration");
+      expect(OidcConfig.discoveryUrl(config)).toBe(
+        "https://id.example.com/realms/main/.well-known/openid-configuration",
+      );
   });
   it.each([
-    [{ NIMBUS_OIDC_ISSUER: base.NIMBUS_OIDC_ISSUER }, "NIMBUS_OIDC_CLIENT_ID, NIMBUS_OIDC_CLIENT_SECRET must be set"],
-    [{ NIMBUS_OIDC_GROUPS_CLAIM: "groups" }, "NIMBUS_OIDC_ISSUER, NIMBUS_OIDC_CLIENT_ID, NIMBUS_OIDC_CLIENT_SECRET must be set"],
-    [{ ...base, NIMBUS_OIDC_ISSUER: "http://id.example.com" }, "must use https"],
+    [
+      { NIMBUS_OIDC_ISSUER: base.NIMBUS_OIDC_ISSUER },
+      "NIMBUS_OIDC_CLIENT_ID, NIMBUS_OIDC_CLIENT_SECRET must be set",
+    ],
+    [
+      { NIMBUS_OIDC_GROUPS_CLAIM: "groups" },
+      "NIMBUS_OIDC_ISSUER, NIMBUS_OIDC_CLIENT_ID, NIMBUS_OIDC_CLIENT_SECRET must be set",
+    ],
+    [
+      { ...base, NIMBUS_OIDC_ISSUER: "http://id.example.com" },
+      "must use https",
+    ],
     [{ ...base, NIMBUS_OIDC_ISSUER: "not a url" }, "is not a URL"],
-    [{ ...base, NIMBUS_OIDC_AUTO_PROVISION: "yes" }, 'NIMBUS_OIDC_AUTO_PROVISION is "yes"'],
+    [
+      { ...base, NIMBUS_OIDC_AUTO_PROVISION: "yes" },
+      'NIMBUS_OIDC_AUTO_PROVISION is "yes"',
+    ],
   ])("fails with a precise message for %p", (env, message) => {
     expect(() => OidcConfig.parse(env)).toThrow(message);
   });
   it("never includes the client secret in errors", () => {
-    expect(() => OidcConfig.parse({ NIMBUS_OIDC_CLIENT_SECRET: "s3cret-value" })).not.toThrow("s3cret");
+    expect(() =>
+      OidcConfig.parse({ NIMBUS_OIDC_CLIENT_SECRET: "s3cret-value" }),
+    ).not.toThrow("s3cret");
   });
 });
 
 describe("OidcConfig.groups", () => {
   it("accepts arrays and space or comma separated strings", () => {
-    expect(OidcConfig.groups({ groups: ["Team", "Ops", 3, "Team"] }, "groups")).toEqual(["Team", "Ops"]);
-    expect(OidcConfig.groups({ roles: "Team, Ops" }, "roles")).toEqual(["Team", "Ops"]);
+    expect(
+      OidcConfig.groups({ groups: ["Team", "Ops", 3, "Team"] }, "groups"),
+    ).toEqual(["Team", "Ops"]);
+    expect(OidcConfig.groups({ roles: "Team, Ops" }, "roles")).toEqual([
+      "Team",
+      "Ops",
+    ]);
     expect(OidcConfig.groups({}, "groups")).toEqual([]);
   });
 });

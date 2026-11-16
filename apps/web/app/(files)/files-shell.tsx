@@ -190,18 +190,20 @@ export function FilesShell({
                   )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => void (async () => {
-                      const result = await signOut();
-                      if (result.error) {
-                        toast.error(
-                          result.error.message ??
-                            "Could not sign out. Try again.",
-                        );
-                        return;
-                      }
-                      queryClient.clear();
-                      window.location.assign("/login");
-                    })()}
+                    onClick={() =>
+                      void (async () => {
+                        const result = await signOut();
+                        if (result.error) {
+                          toast.error(
+                            result.error.message ??
+                              "Could not sign out. Try again.",
+                          );
+                          return;
+                        }
+                        queryClient.clear();
+                        window.location.assign("/login");
+                      })()
+                    }
                     variant="destructive"
                   >
                     Sign out
@@ -227,7 +229,8 @@ export function FilesShell({
             if (!event.dataTransfer.types.includes("Files")) return;
             event.preventDefault();
             // Folder entries must be read during the drop event, before the browser clears them.
-            if (canWrite) void collectDrop(event.dataTransfer).then(uploadFiles);
+            if (canWrite)
+              void collectDrop(event.dataTransfer).then(uploadFiles);
           }}
         >
           {children}

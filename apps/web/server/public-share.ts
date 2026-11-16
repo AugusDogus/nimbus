@@ -54,7 +54,10 @@ export function shareCookie(share: Share & { passwordHash: string }) {
 
 export function isShareUnlocked(share: Share, request: Request) {
   const { passwordHash } = share;
-  return passwordHash === null || UnlockCookie.verify(unlockScope({ ...share, passwordHash }), request);
+  return (
+    passwordHash === null ||
+    UnlockCookie.verify(unlockScope({ ...share, passwordHash }), request)
+  );
 }
 
 export async function sharedTarget(

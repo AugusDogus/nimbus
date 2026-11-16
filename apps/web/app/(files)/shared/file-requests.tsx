@@ -50,7 +50,8 @@ export function FileRequests() {
   return (
     <div className="space-y-6">
       <p className="text-pretty text-sm text-muted-foreground">
-        Upload links let people without an account add files to a folder. Use a folder’s Share action to create one.
+        Upload links let people without an account add files to a folder. Use a
+        folder’s Share action to create one.
       </p>
       {(error || requests.error) && (
         <p role="alert" className="text-sm text-destructive">
@@ -64,7 +65,10 @@ export function FileRequests() {
       ) : (
         <ul className="divide-y rounded-lg border">
           {requests.data?.map((request) => (
-            <li key={request.id} className="flex flex-wrap items-center gap-3 p-4">
+            <li
+              key={request.id}
+              className="flex flex-wrap items-center gap-3 p-4"
+            >
               <div className="min-w-0 flex-1">
                 <a
                   href={`/r/${request.token}`}
@@ -73,14 +77,18 @@ export function FileRequests() {
                   {request.path || "My Drive"}
                 </a>
                 <p className="mt-1 text-xs tabular-nums text-muted-foreground">
-                  {request.passwordProtected ? "Password required" : "Anyone with the link"}{" "}
+                  {request.passwordProtected
+                    ? "Password required"
+                    : "Anyone with the link"}{" "}
                   ·{" "}
                   {request.expiresAt
                     ? `Expires ${new Date(request.expiresAt).toLocaleString()}`
                     : "No expiry"}{" "}
                   · {request.received.files}
-                  {request.maxFiles === null ? "" : ` of ${request.maxFiles}`} files,{" "}
-                  {ByteSize.format(request.received.bytes)}
+                  {request.maxFiles === null
+                    ? ""
+                    : ` of ${request.maxFiles}`}{" "}
+                  files, {ByteSize.format(request.received.bytes)}
                   {request.maxTotalBytes === null
                     ? ""
                     : ` of ${ByteSize.format(request.maxTotalBytes)}`}{" "}
@@ -93,15 +101,27 @@ export function FileRequests() {
                 onClick={() => {
                   navigator.clipboard
                     .writeText(`${window.location.origin}/r/${request.token}`)
-                    .catch(() => setError("Copy failed. Open the link and copy its address."));
+                    .catch(() =>
+                      setError(
+                        "Copy failed. Open the link and copy its address.",
+                      ),
+                    );
                 }}
               >
                 Copy link
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setEditing(request)}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setEditing(request)}
+              >
                 Edit
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setRevoking(request.id)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setRevoking(request.id)}
+              >
                 Revoke
               </Button>
             </li>
@@ -122,9 +142,12 @@ export function FileRequests() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-balance">Revoke this upload link?</AlertDialogTitle>
+            <AlertDialogTitle className="text-balance">
+              Revoke this upload link?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              People can no longer upload with it, and unfinished uploads stop. Files already received stay in the folder.
+              People can no longer upload with it, and unfinished uploads stop.
+              Files already received stay in the folder.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {error && (

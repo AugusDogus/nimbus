@@ -61,7 +61,10 @@ export function LibraryPage({
             (entry) => kind !== "starred" || entry.starred,
           );
   const actions = useFileActions({ currentPath: "", includeStats: true });
-  const { selection: dialog, select: onDialog } = useEntryDialog(kind, actions.recordVisit);
+  const { selection: dialog, select: onDialog } = useEntryDialog(
+    kind,
+    actions.recordVisit,
+  );
   const title =
     kind === "shared"
       ? "Shared with me"

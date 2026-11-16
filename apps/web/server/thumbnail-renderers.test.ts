@@ -40,17 +40,48 @@ afterAll(async () => {
 describe("runBounded", () => {
   test("kills a process at its deadline", async () => {
     const started = performance.now();
-    await expect(runBounded(["sleep", "5"], { timeoutMs: 200, memoryBytes: 2 ** 28, cpuSeconds: 1, maxOutputBytes: 10 }, signal())).rejects.toThrow(/sleep exited/);
+    await expect(
+      runBounded(
+        ["sleep", "5"],
+        {
+          timeoutMs: 200,
+          memoryBytes: 2 ** 28,
+          cpuSeconds: 1,
+          maxOutputBytes: 10,
+        },
+        signal(),
+      ),
+    ).rejects.toThrow(/sleep exited/);
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 
   test("rejects output beyond the cap", async () => {
-    await expect(runBounded(["yes"], { timeoutMs: 2_000, memoryBytes: 2 ** 28, cpuSeconds: 1, maxOutputBytes: 1024 }, signal())).rejects.toThrow(/yes exited/);
+    await expect(
+      runBounded(
+        ["yes"],
+        {
+          timeoutMs: 2_000,
+          memoryBytes: 2 ** 28,
+          cpuSeconds: 1,
+          maxOutputBytes: 1024,
+        },
+        signal(),
+      ),
+    ).rejects.toThrow(/yes exited/);
   });
 
   test("stops when the requester aborts", async () => {
     const controller = new AbortController();
-    const running = runBounded(["sleep", "5"], { timeoutMs: 5_000, memoryBytes: 2 ** 28, cpuSeconds: 1, maxOutputBytes: 10 }, controller.signal);
+    const running = runBounded(
+      ["sleep", "5"],
+      {
+        timeoutMs: 5_000,
+        memoryBytes: 2 ** 28,
+        cpuSeconds: 1,
+        maxOutputBytes: 10,
+      },
+      controller.signal,
+    );
     controller.abort();
     await expect(running).rejects.toBeDefined();
   });
@@ -61,7 +92,11 @@ describe.skipIf(!pdftoppm)("PDF thumbnails (requires pdftoppm)", () => {
     const file = path.join(root, "page.pdf");
     await writeFile(file, pdf());
     const output = await pdfRenderer(pdftoppm ?? "")(file, signal());
-    expect(await sharp(output).metadata()).toMatchObject({ format: "webp", width: 256, height: 128 });
+    expect(await sharp(output).metadata()).toMatchObject({
+      format: "webp",
+      width: 256,
+      height: 128,
+    });
   });
 
   test("fails on input that is not a PDF", async () => {
@@ -72,16 +107,38 @@ describe.skipIf(!pdftoppm)("PDF thumbnails (requires pdftoppm)", () => {
 });
 
 describe.skipIf(!ffmpeg)("video thumbnails (requires ffmpeg)", () => {
-  for (const [name, codec] of [["clip.mp4", "mpeg4"], ["short.webm", "libvpx-vp9"]] as const)
+  for (const [name, codec] of [
+    ["clip.mp4", "mpeg4"],
+    ["short.webm", "libvpx-vp9"],
+  ] as const)
     test(`extracts a frame from ${name}`, async () => {
       const file = path.join(root, name);
       const duration = name.startsWith("short") ? "0.4" : "2";
-      const made = Bun.spawnSync([ffmpeg ?? "", "-v", "error", "-f", "lavfi", "-i", `testsrc=size=640x360:rate=10:duration=${duration}`, "-c:v", codec, "-y", file]);
+      const made = Bun.spawnSync([
+        ffmpeg ?? "",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        `testsrc=size=640x360:rate=10:duration=${duration}`,
+        "-c:v",
+        codec,
+        "-y",
+        file,
+      ]);
       expect(made.exitCode).toBe(0);
       const output = sharp(await videoRenderer(ffmpeg ?? "")(file, signal()));
-      expect(await output.metadata()).toMatchObject({ format: "webp", width: 256, height: 256 });
+      expect(await output.metadata()).toMatchObject({
+        format: "webp",
+        width: 256,
+        height: 256,
+      });
       // Letterboxing is transparent, so a 16:9 frame leaves clear bars.
-      const { data } = await output.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const { data } = await output
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
       expect(data[3]).toBe(0);
       expect(data[(128 * 256 + 128) * 4 + 3]).toBe(255);
     });

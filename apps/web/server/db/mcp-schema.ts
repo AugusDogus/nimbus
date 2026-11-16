@@ -1,7 +1,11 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { user } from "./auth-schema";
 
-export const OAUTH_CLIENT_AUTH_METHODS = ["none", "client_secret_basic", "client_secret_post"] as const;
+export const OAUTH_CLIENT_AUTH_METHODS = [
+  "none",
+  "client_secret_basic",
+  "client_secret_post",
+] as const;
 export type OAuthClientAuthMethod = (typeof OAUTH_CLIENT_AUTH_METHODS)[number];
 
 /** An MCP client from RFC 7591 dynamic registration. Registrations without a grant are pruned after a day. */
@@ -9,7 +13,9 @@ export const mcpClients = sqliteTable("nimbus_mcp_client", {
   clientId: text("client_id").primaryKey(),
   clientName: text("client_name").notNull(),
   redirectUrisJson: text("redirect_uris_json").notNull(),
-  tokenEndpointAuthMethod: text("token_endpoint_auth_method", { enum: OAUTH_CLIENT_AUTH_METHODS }).notNull(),
+  tokenEndpointAuthMethod: text("token_endpoint_auth_method", {
+    enum: OAUTH_CLIENT_AUTH_METHODS,
+  }).notNull(),
   /** SHA-256 of the client secret for confidential clients. */
   clientSecretHash: text("client_secret_hash"),
   scope: text("scope").notNull(),
@@ -36,7 +42,11 @@ export const mcpGrants = sqliteTable(
   (table) => [index("nimbus_mcp_grant_user").on(table.userId)],
 );
 
-export const MCP_TOKEN_KINDS = ["authorization_code", "refresh_token", "access_token"] as const;
+export const MCP_TOKEN_KINDS = [
+  "authorization_code",
+  "refresh_token",
+  "access_token",
+] as const;
 export type McpTokenKind = (typeof MCP_TOKEN_KINDS)[number];
 
 /**
@@ -60,5 +70,8 @@ export const mcpTokens = sqliteTable(
     codeChallenge: text("code_challenge"),
     createdAt: integer("created_at").notNull(),
   },
-  (table) => [index("nimbus_mcp_token_grant").on(table.grantId), index("nimbus_mcp_token_expiry").on(table.expiresAt)],
+  (table) => [
+    index("nimbus_mcp_token_grant").on(table.grantId),
+    index("nimbus_mcp_token_expiry").on(table.expiresAt),
+  ],
 );

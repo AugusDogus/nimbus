@@ -15,14 +15,29 @@ export default async function AccountPage() {
   if (!session) redirect("/login");
   const userId = session.user.id;
   const [account, activeSessions, passkeys] = await Promise.all([
-    db.select({ twoFactorEnabled: user.twoFactorEnabled }).from(user).where(eq(user.id, userId)),
     db
-      .select({ id: sessions.id, userAgent: sessions.userAgent, ipAddress: sessions.ipAddress, updatedAt: sessions.updatedAt })
+      .select({ twoFactorEnabled: user.twoFactorEnabled })
+      .from(user)
+      .where(eq(user.id, userId)),
+    db
+      .select({
+        id: sessions.id,
+        userAgent: sessions.userAgent,
+        ipAddress: sessions.ipAddress,
+        updatedAt: sessions.updatedAt,
+      })
       .from(sessions)
-      .where(and(eq(sessions.userId, userId), gt(sessions.expiresAt, new Date())))
+      .where(
+        and(eq(sessions.userId, userId), gt(sessions.expiresAt, new Date())),
+      )
       .orderBy(desc(sessions.updatedAt)),
     db
-      .select({ id: passkey.id, name: passkey.name, createdAt: passkey.createdAt, deviceType: passkey.deviceType })
+      .select({
+        id: passkey.id,
+        name: passkey.name,
+        createdAt: passkey.createdAt,
+        deviceType: passkey.deviceType,
+      })
       .from(passkey)
       .where(eq(passkey.userId, userId))
       .orderBy(desc(passkey.createdAt)),

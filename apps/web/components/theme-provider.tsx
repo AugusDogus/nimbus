@@ -8,8 +8,10 @@ export function ThemeProvider({
   children,
   ...props
 }: ComponentProps<typeof NextThemesProvider>) {
-  return <NextThemesProvider {...props}>
-    <CustomThemeStyles />
-    {children}
-  </NextThemesProvider>;
+  return (
+    <NextThemesProvider {...props}>
+      <CustomThemeStyles />
+      {children}
+    </NextThemesProvider>
+  );
 }

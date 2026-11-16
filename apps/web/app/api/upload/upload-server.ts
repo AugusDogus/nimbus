@@ -9,7 +9,9 @@ import { commitUpload, UploadMetadata } from "./upload-commit";
 
 /** tus reports a key sent without a value, such as an empty folder, as null. Treat it as absent. */
 const present = (metadata: Record<string, string | null> | undefined) =>
-  Object.fromEntries(Object.entries(metadata ?? {}).filter((entry) => entry[1] !== null));
+  Object.fromEntries(
+    Object.entries(metadata ?? {}).filter((entry) => entry[1] !== null),
+  );
 
 /** The error shape tus hooks throw to answer with a status and message. */
 export type TusFailure = { status_code: number; body: string };
@@ -31,15 +33,22 @@ export function createUploadServer({
   fail: (error: unknown) => TusFailure;
 }) {
   const finisher = createUploadFinisher(store);
-  const finish = (request: Request, id: string, metadata: Record<string, string | null> | undefined) =>
+  const finish = (
+    request: Request,
+    id: string,
+    metadata: Record<string, string | null> | undefined,
+  ) =>
     finisher.finish(id, async () => {
       const parsed = UploadMetadata.safeParse(present(metadata));
       if (!parsed.success)
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "This upload's stored details are invalid. Start a new upload.",
+          message:
+            "This upload's stored details are invalid. Start a new upload.",
         });
-      await commitUpload(store, versions, id, parsed.data, () => access(request));
+      await commitUpload(store, versions, id, parsed.data, () =>
+        access(request),
+      );
     });
 
   return new Server({
@@ -49,7 +58,8 @@ export function createUploadServer({
     async onIncomingRequest(request, id) {
       try {
         const current = await access(request);
-        if (request.method === "POST" || request.method === "OPTIONS" || !id) return;
+        if (request.method === "POST" || request.method === "OPTIONS" || !id)
+          return;
         if (!/^[a-f0-9]{32}$/.test(id))
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -63,7 +73,9 @@ export function createUploadServer({
           });
         const target = await safePath(upload.metadata?.targetPath ?? "");
         current.require(target.relative, "write");
-        await finisher.recover(request, id, (metadata) => finish(request, id, metadata));
+        await finisher.recover(request, id, (metadata) =>
+          finish(request, id, metadata),
+        );
       } catch (error) {
         throw fail(error);
       }
@@ -71,17 +83,24 @@ export function createUploadServer({
     async onUploadCreate(request, upload) {
       try {
         const current = await access(request);
-        const metadata = UploadMetadata.safeParse({ ...present(upload.metadata), owner: current.user.id });
+        const metadata = UploadMetadata.safeParse({
+          ...present(upload.metadata),
+          owner: current.user.id,
+        });
         if (!metadata.success)
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Choose file and folder names without slashes or reserved names, then upload again.",
+            message:
+              "Choose file and folder names without slashes or reserved names, then upload again.",
           });
         const target = await safePath(metadata.data.targetPath);
         current.require(target.relative, "write");
         const parent = await requireExisting(target.relative);
         if (!parent.stats.isDirectory())
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Upload destination must be a folder." });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Upload destination must be a folder.",
+          });
         return {
           metadata: {
             filename: metadata.data.filename,

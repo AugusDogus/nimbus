@@ -110,7 +110,10 @@ async function authenticate(request: Request) {
     failedLogins.consume(clientKey(request));
     recordAudit({
       action: "webdav.auth_failed",
-      actor: { type: "anonymous", ...(email && { label: email.slice(0, 320) }) },
+      actor: {
+        type: "anonymous",
+        ...(email && { label: email.slice(0, 320) }),
+      },
     });
     return new TRPCError({ code: "UNAUTHORIZED" });
   };
@@ -164,12 +167,18 @@ function decodedPath(pathname: string) {
 /** Read an XML body without buffering more than the size limit. An empty body is null. */
 async function readXml(
   request: Request,
-): Promise<{ ok: true; value: XmlElement | null } | { ok: false; response: Response }> {
+): Promise<
+  { ok: true; value: XmlElement | null } | { ok: false; response: Response }
+> {
   const tooLarge = {
     ok: false as const,
-    response: textResponse(413, `WebDAV XML bodies are limited to ${maxXmlBytes} bytes.`),
+    response: textResponse(
+      413,
+      `WebDAV XML bodies are limited to ${maxXmlBytes} bytes.`,
+    ),
   };
-  if (Number(request.headers.get("content-length") ?? 0) > maxXmlBytes) return tooLarge;
+  if (Number(request.headers.get("content-length") ?? 0) > maxXmlBytes)
+    return tooLarge;
   const chunks: Uint8Array[] = [];
   let size = 0;
   const reader = request.body?.getReader();
@@ -249,11 +258,7 @@ async function setMtime(absolute: string, mtime: Date) {
   if (stats.isFile()) await utimes(absolute, stats.atime, mtime);
 }
 
-async function propfind(
-  request: Request,
-  access: Access,
-  target: string,
-) {
+async function propfind(request: Request, access: Access, target: string) {
   const depth = request.headers.get("depth") ?? "infinity";
   if (depth !== "0" && depth !== "1")
     return xmlResponse(
@@ -270,8 +275,12 @@ async function propfind(
     entry.type === "dir" && depth === "1"
       ? [entry, ...(await readDirectory(target, access))]
       : [entry];
-  const dead = await httpDriveStore.davProperties(entries.map((item) => item.path));
-  let capacity: Promise<Awaited<ReturnType<typeof FilesystemCapacity.read>>> | undefined;
+  const dead = await httpDriveStore.davProperties(
+    entries.map((item) => item.path),
+  );
+  let capacity:
+    | Promise<Awaited<ReturnType<typeof FilesystemCapacity.read>>>
+    | undefined;
   const context: PropfindContext = {
     locks: locksCovering,
     capacity: () => (capacity ??= FilesystemCapacity.read(getDataRoot())),
@@ -279,7 +288,12 @@ async function propfind(
   const responses = [];
   for (const item of entries)
     responses.push(
-      await propfindResponse(item, parsed.value, dead.get(item.path) ?? [], context),
+      await propfindResponse(
+        item,
+        parsed.value,
+        dead.get(item.path) ?? [],
+        context,
+      ),
     );
   return xmlResponse(
     `<d:multistatus xmlns:d="DAV:">${responses.join("")}</d:multistatus>`,
@@ -305,14 +319,27 @@ async function proppatch(
     await httpDriveStore.patchDavProperties(target, plan.set, plan.remove);
     // Windows Explorer preserves file times by setting this property after an upload.
     const modified = updates.value.findLast(
-      (update) => update.name.namespace === MICROSOFT && update.name.local === "Win32LastModifiedTime",
+      (update) =>
+        update.name.namespace === MICROSOFT &&
+        update.name.local === "Win32LastModifiedTime",
     );
-    if (modified?.kind === "set" && Number.isFinite(Date.parse(modified.text))) {
+    if (
+      modified?.kind === "set" &&
+      Number.isFinite(Date.parse(modified.text))
+    ) {
       await setMtime(existing.absolute, new Date(Date.parse(modified.text)));
-      publishFileEvent({ path: existing.absolute, event: "change", ts: Date.now() });
+      publishFileEvent({
+        path: existing.absolute,
+        event: "change",
+        ts: Date.now(),
+      });
     }
     return xmlResponse(
-      proppatchResponse(target, type, plan.names.map((name) => ({ name, status: 200 }))),
+      proppatchResponse(
+        target,
+        type,
+        plan.names.map((name) => ({ name, status: 200 })),
+      ),
     );
   });
 }
@@ -329,7 +356,10 @@ async function lock(
     // A LOCK without a body refreshes a lock identified in the If header (RFC 4918, section 9.10.2).
     const refreshed = refreshLock(target, credentials, timeoutSeconds);
     if (!refreshed)
-      return textResponse(412, "Send the lock token to refresh in an If header, for example If: (<opaquelocktoken:…>).");
+      return textResponse(
+        412,
+        "Send the lock token to refresh in an If header, for example If: (<opaquelocktoken:…>).",
+      );
     const entry = await entryAt(target);
     return xmlResponse(
       `<d:prop xmlns:d="DAV:">${lockDiscovery([refreshed], entry)}</d:prop>`,
@@ -340,20 +370,37 @@ async function lock(
   if (info.namespace !== DAV || info.local !== "lockinfo")
     return textResponse(400, "A LOCK body must be a DAV:lockinfo element.");
   const scopeElement = child(info, DAV, "lockscope");
-  const scope = scopeElement && child(scopeElement, DAV, "shared") ? "shared" : scopeElement && child(scopeElement, DAV, "exclusive") ? "exclusive" : null;
+  const scope =
+    scopeElement && child(scopeElement, DAV, "shared")
+      ? "shared"
+      : scopeElement && child(scopeElement, DAV, "exclusive")
+        ? "exclusive"
+        : null;
   if (!scope)
-    return textResponse(400, "A LOCK body needs <D:lockscope> with <D:exclusive/> or <D:shared/>.");
+    return textResponse(
+      400,
+      "A LOCK body needs <D:lockscope> with <D:exclusive/> or <D:shared/>.",
+    );
   const type = child(info, DAV, "locktype");
   if (!type || !child(type, DAV, "write"))
-    return textResponse(400, "Only write locks are supported. Request <D:write/>.");
-  const depthHeader = (request.headers.get("depth") ?? "infinity").toLowerCase();
+    return textResponse(
+      400,
+      "Only write locks are supported. Request <D:write/>.",
+    );
+  const depthHeader = (
+    request.headers.get("depth") ?? "infinity"
+  ).toLowerCase();
   if (depthHeader !== "0" && depthHeader !== "infinity")
     return textResponse(400, "LOCK supports Depth: 0 or infinity.");
   const depth: LockDepth = depthHeader;
   const ownerElement = child(info, DAV, "owner");
   const owner = ownerElement
     ? ownerElement.children
-        .map((node) => (typeof node === "string" ? escapeXml(node) : serializeXml(node, DAV, ownerElement.lang)))
+        .map((node) =>
+          typeof node === "string"
+            ? escapeXml(node)
+            : serializeXml(node, DAV, ownerElement.lang),
+        )
         .join("")
     : "";
   // Lock compatibility is decided by lockFile; only creating a file is a write.
@@ -368,10 +415,19 @@ async function lock(
       requireUnlocked([target], credentials);
       await writeFile(destination.absolute, "", { flag: "wx" });
       created = true;
-      publishFileEvent({ path: destination.absolute, event: "rename", ts: Date.now() });
+      publishFileEvent({
+        path: destination.absolute,
+        event: "rename",
+        ts: Date.now(),
+      });
       entry = await entryAt(target);
     }
-    const granted = lockFile(target, credentials, { scope, depth, owner, timeoutSeconds });
+    const granted = lockFile(target, credentials, {
+      scope,
+      depth,
+      owner,
+      timeoutSeconds,
+    });
     return xmlResponse(
       `<d:prop xmlns:d="DAV:">${lockDiscovery([granted], entry)}</d:prop>`,
       created ? 201 : 200,
@@ -421,9 +477,15 @@ async function putFile(
       case "precondition_failed":
         return new Response(null, { status: 412 });
       case "is_directory":
-        return textResponse(405, "This path is a folder. PUT can only write files.");
+        return textResponse(
+          405,
+          "This path is a folder. PUT can only write files.",
+        );
       case "missing_parent":
-        return textResponse(409, "The parent folder does not exist. Create it first.");
+        return textResponse(
+          409,
+          "The parent folder does not exist. Create it first.",
+        );
     }
   } finally {
     await staged.discard();
@@ -445,7 +507,10 @@ async function transfer(
   try {
     destinationUrl = new URL(destinationHeader, request.url);
   } catch {
-    return textResponse(400, "The Destination header must contain a valid drive URL.");
+    return textResponse(
+      400,
+      "The Destination header must contain a valid drive URL.",
+    );
   }
   if (destinationUrl.origin !== url.origin)
     return textResponse(502, "The destination must be on this drive.");
@@ -453,10 +518,14 @@ async function transfer(
   requireMutable(destination.relative);
   access.require(destination.relative, "write");
   // RFC 4918, section 10.6: Overwrite defaults to T.
-  const overwrite = (request.headers.get("overwrite") ?? "T").trim().toUpperCase();
+  const overwrite = (request.headers.get("overwrite") ?? "T")
+    .trim()
+    .toUpperCase();
   if (overwrite !== "T" && overwrite !== "F")
     return textResponse(400, "Overwrite must be T or F.");
-  const depth = (request.headers.get("depth") ?? "infinity").trim().toLowerCase();
+  const depth = (request.headers.get("depth") ?? "infinity")
+    .trim()
+    .toLowerCase();
   if (depth !== "infinity" && (method === "MOVE" || depth !== "0"))
     return textResponse(
       400,
@@ -474,7 +543,13 @@ async function transfer(
             ...options,
             depth: depth === "0" ? "0" : "infinity",
           })
-        : await moveItem(httpDriveStore, access, target, destination.relative, options));
+        : await moveItem(
+            httpDriveStore,
+            access,
+            target,
+            destination.relative,
+            options,
+          ));
   } catch (error) {
     // An existing destination with Overwrite: F is a failed precondition, not a conflict.
     if (
@@ -520,10 +595,14 @@ export async function handleWebDAV(request: Request): Promise<Response> {
       });
     if (method === "GET" || method === "HEAD") {
       const entry = await entryAt(target);
-      if (entry.type === "file") return await serveFile(request, target, access);
+      if (entry.type === "file")
+        return await serveFile(request, target, access);
       if (!access.canBrowse(target)) throw new TRPCError({ code: "FORBIDDEN" });
       // Clients probe folders with HEAD; browsers get a pointer to the web interface.
-      return textResponse(200, "This is a Nimbus folder. Open it in a WebDAV client or in the Nimbus web interface.");
+      return textResponse(
+        200,
+        "This is a Nimbus folder. Open it in a WebDAV client or in the Nimbus web interface.",
+      );
     }
     if (method === "PROPFIND") return await propfind(request, access, target);
     const conditions = parseIfHeader(request.headers.get("if"));
@@ -533,14 +612,22 @@ export async function handleWebDAV(request: Request): Promise<Response> {
       lockTokens: submittedLockTokens(conditions.value),
     };
     if (method === "UNLOCK") {
-      unlockFile(target, access.user.id, request.headers.get("lock-token") ?? "");
+      unlockFile(
+        target,
+        access.user.id,
+        request.headers.get("lock-token") ?? "",
+      );
       return new Response(null, { status: 204 });
     }
     access.require(target, method === "COPY" ? "read" : "write");
     if (!(await ifHeaderHolds(conditions.value, url, target)))
-      return textResponse(412, "A condition in the If header does not hold. The item was not changed.");
+      return textResponse(
+        412,
+        "A condition in the If header does not hold. The item was not changed.",
+      );
     if (method === "LOCK") return await lock(request, target, credentials);
-    if (method === "PROPPATCH") return await proppatch(request, target, credentials);
+    if (method === "PROPPATCH")
+      return await proppatch(request, target, credentials);
     if (method === "COPY")
       return await transfer(request, method, url, access, target, credentials);
     requireMutable(target);
@@ -562,7 +649,11 @@ export async function handleWebDAV(request: Request): Promise<Response> {
             return textResponse(405, "An item with this name already exists.");
           throw error;
         }
-        publishFileEvent({ path: destination.absolute, event: "rename", ts: Date.now() });
+        publishFileEvent({
+          path: destination.absolute,
+          event: "rename",
+          ts: Date.now(),
+        });
         return new Response(null, { status: 201 });
       });
     }
@@ -579,7 +670,10 @@ export async function handleWebDAV(request: Request): Promise<Response> {
         },
       });
     if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR"))
-      return textResponse(409, "The parent folder does not exist. Create it first.");
+      return textResponse(
+        409,
+        "The parent folder does not exist. Create it first.",
+      );
     return httpError(error);
   }
 }

@@ -55,12 +55,20 @@ describe("list-cache", () => {
       permsHash,
     });
     const memoized = [
-      { name: "cached.txt", path: "cached.txt", type: "file" as const, mtime: null, size: null },
+      {
+        name: "cached.txt",
+        path: "cached.txt",
+        type: "file" as const,
+        mtime: null,
+        size: null,
+      },
     ];
     setListCache(listKey, memoized);
 
     const results = await caller.files.list({});
-    expect(results).toEqual(memoized.map((entry) => ({ ...entry, permission: "admin" })));
+    expect(results).toEqual(
+      memoized.map((entry) => ({ ...entry, permission: "admin" })),
+    );
   });
 
   it("invalidates list cache on file events", async () => {
@@ -73,7 +81,13 @@ describe("list-cache", () => {
       permsHash,
     });
     setListCache(listKey, [
-      { name: "alpha.txt", path: "alpha.txt", type: "file", mtime: null, size: null },
+      {
+        name: "alpha.txt",
+        path: "alpha.txt",
+        type: "file",
+        mtime: null,
+        size: null,
+      },
     ]);
     expect(getListCache(listKey)).not.toBeNull();
 

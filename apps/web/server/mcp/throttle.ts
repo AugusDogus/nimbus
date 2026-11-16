@@ -18,7 +18,10 @@ const rules = {
 export type ThrottleRule = keyof typeof rules;
 
 const limiters = new Map(
-  Object.entries(rules).map(([name, rule]) => [name, RateLimiter.shared(`mcp-${name}`, rule)]),
+  Object.entries(rules).map(([name, rule]) => [
+    name,
+    RateLimiter.shared(`mcp-${name}`, rule),
+  ]),
 );
 
 /** Count one request against every check. Every check must allow; the longest wait wins. */
@@ -29,9 +32,14 @@ export function hit(
   let decision: RateLimitDecision = { allowed: true };
   for (const { key, rule } of checks) {
     const limiter = limiters.get(rule);
-    if (!limiter) throw new Error(`Nimbus has no MCP rate limit named ${rule}.`);
+    if (!limiter)
+      throw new Error(`Nimbus has no MCP rate limit named ${rule}.`);
     const result = limiter.consume(key, now);
-    if (!result.allowed && (decision.allowed || result.retryAfterSeconds > decision.retryAfterSeconds))
+    if (
+      !result.allowed &&
+      (decision.allowed ||
+        result.retryAfterSeconds > decision.retryAfterSeconds)
+    )
       decision = result;
   }
   return decision;

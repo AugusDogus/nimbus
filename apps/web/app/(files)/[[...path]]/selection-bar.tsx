@@ -1,6 +1,14 @@
 "use client";
 
-import { Copy, Download, FolderInput, ListChecks, Star, Trash2, X } from "lucide-react";
+import {
+  Copy,
+  Download,
+  FolderInput,
+  ListChecks,
+  Star,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -9,13 +17,26 @@ import { selectionCapabilities } from "./entry-menu";
 import type { FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
 
-function Action({ label, icon, onClick, destructive }: { label: string; icon: ReactNode; onClick: () => void; destructive?: boolean }) {
+function Action({
+  label,
+  icon,
+  onClick,
+  destructive,
+}: {
+  label: string;
+  icon: ReactNode;
+  onClick: () => void;
+  destructive?: boolean;
+}) {
   return (
     <Button
       variant="ghost"
       size="sm"
       onClick={onClick}
-      className={cn("gap-2", destructive && "text-destructive hover:text-destructive")}
+      className={cn(
+        "gap-2",
+        destructive && "text-destructive hover:text-destructive",
+      )}
     >
       {icon}
       <span className="sr-only md:not-sr-only">{label}</span>
@@ -61,21 +82,49 @@ export function SelectionBar({
           : "absolute inset-0 px-2 md:px-4 lg:px-6",
       )}
     >
-      <Button variant="ghost" size="icon-sm" aria-label="Clear selection" onClick={onClear}>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Clear selection"
+        onClick={onClear}
+      >
         <X className="size-4" />
       </Button>
-      <p aria-live="polite" className="min-w-0 truncate px-1 text-sm font-medium tabular-nums">
+      <p
+        aria-live="polite"
+        className="min-w-0 truncate px-1 text-sm font-medium tabular-nums"
+      >
         {targets.length.toLocaleString()} selected
       </p>
       <div className="ml-auto flex items-center gap-0.5">
         {targets.length < total && (
-          <Action label="Select all" icon={<ListChecks className="size-4" />} onClick={onSelectAll} />
+          <Action
+            label="Select all"
+            icon={<ListChecks className="size-4" />}
+            onClick={onSelectAll}
+          />
         )}
-        <Action label="Download" icon={<Download className="size-4" />} onClick={() => actions.downloadEntries(targets)} />
-        <Action label="Star" icon={<Star className="size-4" />} onClick={() => void actions.starEntries(targets)} />
-        <Action label="Copy" icon={<Copy className="size-4" />} onClick={() => onOpen({ action: "copy", entries: targets })} />
+        <Action
+          label="Download"
+          icon={<Download className="size-4" />}
+          onClick={() => actions.downloadEntries(targets)}
+        />
+        <Action
+          label="Star"
+          icon={<Star className="size-4" />}
+          onClick={() => void actions.starEntries(targets)}
+        />
+        <Action
+          label="Copy"
+          icon={<Copy className="size-4" />}
+          onClick={() => onOpen({ action: "copy", entries: targets })}
+        />
         {canMove && (
-          <Action label="Move" icon={<FolderInput className="size-4" />} onClick={() => onOpen({ action: "move", entries: targets })} />
+          <Action
+            label="Move"
+            icon={<FolderInput className="size-4" />}
+            onClick={() => onOpen({ action: "move", entries: targets })}
+          />
         )}
         {canTrash && (
           <Action

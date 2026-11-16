@@ -31,13 +31,15 @@ export default function TextEditor({
   return (
     <form
       className="space-y-2"
-      onSubmit={(event) => void (async () => {
-        event.preventDefault();
-        setSaving(true);
-        const outcome = await onSave(text);
-        setSaving(false);
-        setProblem(outcome.type === "saved" ? null : outcome.message);
-      })()}
+      onSubmit={(event) =>
+        void (async () => {
+          event.preventDefault();
+          setSaving(true);
+          const outcome = await onSave(text);
+          setSaving(false);
+          setProblem(outcome.type === "saved" ? null : outcome.message);
+        })()
+      }
     >
       <textarea
         aria-label="File contents"

@@ -79,7 +79,10 @@ export const fileRequestsRouter = router({
           action: "file_request.created",
           actor: auditUser(access.user),
           target: { type: "file_request", id: request.id, label: request.path },
-          details: { passwordProtected: passwordHash !== null, expiresAt: request.expiresAt },
+          details: {
+            passwordProtected: passwordHash !== null,
+            expiresAt: request.expiresAt,
+          },
         });
         return { token: request.token };
       });
@@ -124,16 +127,19 @@ export const fileRequestsRouter = router({
         action: "file_request.updated",
         actor: auditUser(ctx.access.user),
         target: { type: "file_request", id: updated.id, label: updated.path },
-        details: { password: input.password.kind, expiresAt: updated.expiresAt },
+        details: {
+          password: input.password.kind,
+          expiresAt: updated.expiresAt,
+        },
       });
       return { id: updated.id };
     }),
   revoke: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const request = (await ctx.drive.fileRequests.list(ctx.access.user.id)).find(
-        (entry) => entry.id === input.id,
-      );
+      const request = (
+        await ctx.drive.fileRequests.list(ctx.access.user.id)
+      ).find((entry) => entry.id === input.id);
       if (!request) return;
       await ctx.drive.fileRequests.revoke(input.id, ctx.access.user.id);
       recordAudit({

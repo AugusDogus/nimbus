@@ -20,56 +20,58 @@ export function PasswordSettings() {
     >
       <form
         className="divide-y divide-border/50"
-        onSubmit={(event) => void (async () => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          const values = new FormData(form);
-          const currentPassword = values.get("currentPassword");
-          const newPassword = values.get("newPassword");
-          const confirmPassword = values.get("confirmPassword");
-          if (
-            typeof currentPassword !== "string" ||
-            typeof newPassword !== "string"
-          )
-            return;
-          if (newPassword !== confirmPassword) {
-            setMessage({
-              kind: "error",
-              text: "The new passwords do not match.",
-            });
-            return;
-          }
-          setBusy(true);
-          setMessage(null);
-          try {
-            const result = await authClient.changePassword({
-              currentPassword,
-              newPassword,
-              revokeOtherSessions: true,
-            });
-            if (result.error) {
+        onSubmit={(event) =>
+          void (async () => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const values = new FormData(form);
+            const currentPassword = values.get("currentPassword");
+            const newPassword = values.get("newPassword");
+            const confirmPassword = values.get("confirmPassword");
+            if (
+              typeof currentPassword !== "string" ||
+              typeof newPassword !== "string"
+            )
+              return;
+            if (newPassword !== confirmPassword) {
               setMessage({
                 kind: "error",
-                text:
-                  result.error.message ??
-                  "Your password could not be changed. Check your current password and try again.",
+                text: "The new passwords do not match.",
               });
               return;
             }
-            form.reset();
-            setMessage({
-              kind: "success",
-              text: "Password changed. Other browser sessions have been signed out. Existing app passwords remain active.",
-            });
-          } catch {
-            setMessage({
-              kind: "error",
-              text: "The server could not be reached. Try again before signing out.",
-            });
-          } finally {
-            setBusy(false);
-          }
-        })()}
+            setBusy(true);
+            setMessage(null);
+            try {
+              const result = await authClient.changePassword({
+                currentPassword,
+                newPassword,
+                revokeOtherSessions: true,
+              });
+              if (result.error) {
+                setMessage({
+                  kind: "error",
+                  text:
+                    result.error.message ??
+                    "Your password could not be changed. Check your current password and try again.",
+                });
+                return;
+              }
+              form.reset();
+              setMessage({
+                kind: "success",
+                text: "Password changed. Other browser sessions have been signed out. Existing app passwords remain active.",
+              });
+            } catch {
+              setMessage({
+                kind: "error",
+                text: "The server could not be reached. Try again before signing out.",
+              });
+            } finally {
+              setBusy(false);
+            }
+          })()
+        }
       >
         <SettingsRow
           label={<Label htmlFor="current-password">Current password</Label>}

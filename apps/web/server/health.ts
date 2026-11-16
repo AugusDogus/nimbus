@@ -47,10 +47,7 @@ async function check(options: ReadinessOptions): Promise<ReadinessResult> {
       () =>
         probeWritable(path.join(options.dataRoot, ".nimbus"), options.dataRoot),
     ],
-    [
-      "configRoot",
-      () => probeWritable(options.configRoot, options.configRoot),
-    ],
+    ["configRoot", () => probeWritable(options.configRoot, options.configRoot)],
   ];
   const settled = await Promise.allSettled(
     checks.map(([, run]) => within(run(), options.timeoutMs)),

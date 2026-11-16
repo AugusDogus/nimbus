@@ -20,7 +20,9 @@ import { ResetPasswordDialog } from "./reset-password-dialog";
 
 // Opens on demand; keep it out of the page's first load.
 const SharingDialog = dynamic(() =>
-  import("@/app/(files)/[[...path]]/sharing-dialog").then((module) => module.SharingDialog),
+  import("@/app/(files)/[[...path]]/sharing-dialog").then(
+    (module) => module.SharingDialog,
+  ),
 );
 
 export function AdminSettings() {

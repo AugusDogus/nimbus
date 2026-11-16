@@ -96,8 +96,10 @@ export type AuditRequest = { ip: string; userAgent?: string };
  * Runs a request handler with its client metadata, so events recorded anywhere below it
  * carry the client address and user agent without threading them through every call.
  */
-export const runWithAuditRequest = <T>(request: AuditRequest, handler: () => T) =>
-  state.requests.run(request, handler);
+export const runWithAuditRequest = <T>(
+  request: AuditRequest,
+  handler: () => T,
+) => state.requests.run(request, handler);
 
 export const auditUser = (user: { id: string; email: string }): AuditActor => ({
   type: "user",

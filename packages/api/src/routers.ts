@@ -300,7 +300,8 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const source = await requireExisting(input.sourcePath);
         // Copying a folder exposes its subtree at the destination, so it requires control of its sharing.
-        if (source.stats.isDirectory()) ctx.access.require(source.relative, "admin");
+        if (source.stats.isDirectory())
+          ctx.access.require(source.relative, "admin");
         const destination = await requireExisting(input.destinationPath);
         if (!destination.stats.isDirectory())
           throw new TRPCError({
@@ -310,12 +311,20 @@ export const appRouter = router({
         const name = path.basename(source.relative);
         // Keep both on a name clash, as uploads do. Copying into the item's own folder duplicates it.
         for (let index = 0; ; index++) {
-          const candidate = [destination.relative, numberedName(name, index, source.stats.isFile())]
+          const candidate = [
+            destination.relative,
+            numberedName(name, index, source.stats.isFile()),
+          ]
             .filter(Boolean)
             .join("/");
           if (candidate === source.relative) continue;
           try {
-            const result = await copyItem(ctx.drive, ctx.access, source.relative, candidate);
+            const result = await copyItem(
+              ctx.drive,
+              ctx.access,
+              source.relative,
+              candidate,
+            );
             return { name: path.basename(result.path), path: result.path };
           } catch (error) {
             const nameTaken =

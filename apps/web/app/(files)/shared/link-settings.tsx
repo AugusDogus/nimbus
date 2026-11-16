@@ -19,15 +19,21 @@ export const localDateTimeInput = (timestamp: number) =>
     .slice(0, 16);
 
 export const LinkSettingsDraft = {
-  empty: { expiry: "", maxDownloads: "", mode: "download" } satisfies LinkSettingsDraft,
+  empty: {
+    expiry: "",
+    maxDownloads: "",
+    mode: "download",
+  } satisfies LinkSettingsDraft,
   from(share: {
     expiresAt: number | null;
     maxDownloads: number | null;
     mode: ShareMode;
   }): LinkSettingsDraft {
     return {
-      expiry: share.expiresAt === null ? "" : localDateTimeInput(share.expiresAt),
-      maxDownloads: share.maxDownloads === null ? "" : String(share.maxDownloads),
+      expiry:
+        share.expiresAt === null ? "" : localDateTimeInput(share.expiresAt),
+      maxDownloads:
+        share.maxDownloads === null ? "" : String(share.maxDownloads),
       mode: share.mode,
     };
   },
@@ -72,8 +78,12 @@ export function LinkSettingsFields({
           onChange({ ...value, maxDownloads: event.target.value })
         }
       />
-      <p id={`${id}-limit-hint`} className="text-pretty text-xs text-muted-foreground">
-        The link stops working after this many downloads. Opening a preview counts as one.
+      <p
+        id={`${id}-limit-hint`}
+        className="text-pretty text-xs text-muted-foreground"
+      >
+        The link stops working after this many downloads. Opening a preview
+        counts as one.
       </p>
       <div className="flex items-start gap-2">
         <Checkbox
@@ -87,8 +97,12 @@ export function LinkSettingsFields({
         />
         <div className="space-y-1">
           <Label htmlFor={`${id}-view-only`}>Preview only</Label>
-          <p id={`${id}-view-only-hint`} className="text-pretty text-xs text-muted-foreground">
-            Hides downloads and ZIPs, and blocks files that cannot be previewed. Visitors can still save anything their browser shows.
+          <p
+            id={`${id}-view-only-hint`}
+            className="text-pretty text-xs text-muted-foreground"
+          >
+            Hides downloads and ZIPs, and blocks files that cannot be previewed.
+            Visitors can still save anything their browser shows.
           </p>
         </div>
       </div>

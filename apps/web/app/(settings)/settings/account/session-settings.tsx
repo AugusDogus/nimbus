@@ -40,7 +40,14 @@ export function SessionSettings({ sessions }: { sessions: SessionSummary[] }) {
       description="Browsers signed in to your account. WebDAV app passwords are managed in Settings, WebDAV."
       action={
         others > 0 ? (
-          <Button size="sm" variant="outline" onClick={() => { setError(null); setPending({ kind: "others" }); }}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setError(null);
+              setPending({ kind: "others" });
+            }}
+          >
             Sign out other sessions
           </Button>
         ) : undefined
@@ -50,23 +57,51 @@ export function SessionSettings({ sessions }: { sessions: SessionSummary[] }) {
         {sessions.map((session) => {
           const Icon = session.mobile ? Smartphone : Monitor;
           return (
-            <li key={session.id} className="flex items-center gap-3 px-4 py-4 sm:px-5">
-              <Icon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <li
+              key={session.id}
+              className="flex items-center gap-3 px-4 py-4 sm:px-5"
+            >
+              <Icon
+                className="size-5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <p className="truncate text-sm font-medium">{session.device}</p>
-                  {session.current && <span className="text-xs text-muted-foreground">This browser</span>}
+                  <p className="truncate text-sm font-medium">
+                    {session.device}
+                  </p>
+                  {session.current && (
+                    <span className="text-xs text-muted-foreground">
+                      This browser
+                    </span>
+                  )}
                 </div>
                 <p className="truncate text-xs text-muted-foreground">
-                  {session.ip && <span className="tabular-nums">{session.ip} · </span>}
+                  {session.ip && (
+                    <span className="tabular-nums">{session.ip} · </span>
+                  )}
                   {"Active "}
-                  <time className="tabular-nums" dateTime={new Date(session.lastActive).toISOString()} suppressHydrationWarning>
-                    {new Date(session.lastActive).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                  <time
+                    className="tabular-nums"
+                    dateTime={new Date(session.lastActive).toISOString()}
+                    suppressHydrationWarning
+                  >
+                    {new Date(session.lastActive).toLocaleString(undefined, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
                   </time>
                 </p>
               </div>
               {!session.current && (
-                <Button variant="ghost" size="sm" onClick={() => { setError(null); setPending({ kind: "one", session }); }}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setError(null);
+                    setPending({ kind: "one", session });
+                  }}
+                >
                   Sign out
                 </Button>
               )}
@@ -74,11 +109,16 @@ export function SessionSettings({ sessions }: { sessions: SessionSummary[] }) {
           );
         })}
       </ul>
-      <AlertDialog open={pending !== null} onOpenChange={(open) => !open && !busy && setPending(null)}>
+      <AlertDialog
+        open={pending !== null}
+        onOpenChange={(open) => !open && !busy && setPending(null)}
+      >
         <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl [&>*]:min-w-0">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-balance">
-              {pending?.kind === "others" ? "Sign out other sessions?" : "Sign out this session?"}
+              {pending?.kind === "others"
+                ? "Sign out other sessions?"
+                : "Sign out this session?"}
             </AlertDialogTitle>
             <AlertDialogDescription className="break-words text-pretty">
               {pending?.kind === "others"
@@ -86,7 +126,11 @@ export function SessionSettings({ sessions }: { sessions: SessionSummary[] }) {
                 : `${pending?.session.device ?? "That browser"} will need to sign in again. Your files are not affected.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {error && <p role="alert" className="text-pretty text-sm text-destructive">{error}</p>}
+          {error && (
+            <p role="alert" className="text-pretty text-sm text-destructive">
+              {error}
+            </p>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
             <AlertDialogAction
@@ -100,17 +144,26 @@ export function SessionSettings({ sessions }: { sessions: SessionSummary[] }) {
                 const request =
                   target.kind === "others"
                     ? securityClient.revokeOtherSessions()
-                    : securityClient.nimbus.revokeSession({ id: target.session.id });
+                    : securityClient.nimbus.revokeSession({
+                        id: target.session.id,
+                      });
                 void request
                   .then((result) => {
                     if (result.error) {
-                      setError(result.error.message ?? "The session could not be signed out. Try again.");
+                      setError(
+                        result.error.message ??
+                          "The session could not be signed out. Try again.",
+                      );
                       return;
                     }
                     setPending(null);
                     router.refresh();
                   })
-                  .catch(() => setError("The server could not be reached. Nothing was changed. Try again."))
+                  .catch(() =>
+                    setError(
+                      "The server could not be reached. Nothing was changed. Try again.",
+                    ),
+                  )
                   .finally(() => setBusy(false));
               }}
             >

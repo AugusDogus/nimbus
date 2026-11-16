@@ -25,7 +25,9 @@ import type { Permission } from "@nimbus/api/drive-store";
 import type { FileEntry } from "./types";
 import { LinkSettingsDraft, LinkSettingsFields } from "../shared/link-settings";
 
-const FileRequestDialog = dynamic(() => import("../shared/file-request-dialog"));
+const FileRequestDialog = dynamic(
+  () => import("../shared/file-request-dialog"),
+);
 
 export function SharingDialog({
   entry,
@@ -49,7 +51,9 @@ export function SharingDialog({
   const [subject, setSubject] = useState("");
   const [permission, setPermission] = useState<Permission>("read");
   const [password, setPassword] = useState("");
-  const [settings, setSettings] = useState<LinkSettingsDraft>(LinkSettingsDraft.empty);
+  const [settings, setSettings] = useState<LinkSettingsDraft>(
+    LinkSettingsDraft.empty,
+  );
   const [link, setLink] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -237,9 +241,14 @@ export function SharingDialog({
             <div className="space-y-2 border-t pt-3">
               <p className="text-sm font-medium">File request</p>
               <p className="text-pretty text-sm text-muted-foreground">
-                Let people without an account upload into this folder without seeing its contents.
+                Let people without an account upload into this folder without
+                seeing its contents.
               </p>
-              <Button type="button" variant="outline" onClick={() => setRequesting(true)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRequesting(true)}
+              >
                 Request files
               </Button>
             </div>

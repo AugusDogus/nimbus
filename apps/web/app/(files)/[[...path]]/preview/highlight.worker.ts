@@ -92,4 +92,7 @@ async function highlight({ id, text, language }: HighlightRequest) {
   }
 }
 
-addEventListener("message", (event: MessageEvent<HighlightRequest>) => void highlight(event.data));
+addEventListener(
+  "message",
+  (event: MessageEvent<HighlightRequest>) => void highlight(event.data),
+);

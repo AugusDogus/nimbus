@@ -45,7 +45,10 @@ export async function GET(request: Request, context: Context) {
     if (download || url.searchParams.get("preview") === "1") {
       if (share.mode === "view" && (download || entry.type === "dir"))
         return Response.json(
-          { error: "This link allows previews only. Ask the owner for a download link." },
+          {
+            error:
+              "This link allows previews only. Ask the owner for a download link.",
+          },
           { status: 403, headers: { "Cache-Control": "no-store" } },
         );
       const response =

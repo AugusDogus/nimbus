@@ -30,7 +30,10 @@ export async function activeFileRequest(
     "token" in lookup
       ? await httpDriveStore.fileRequests.getByToken(lookup.token)
       : await httpDriveStore.fileRequests.getById(lookup.id);
-  if (!request || FileRequest.availability(request, Date.now()).kind !== "available")
+  if (
+    !request ||
+    FileRequest.availability(request, Date.now()).kind !== "available"
+  )
     throw unavailable();
   let owner: Access;
   try {
@@ -126,11 +129,21 @@ const minute = 60 * 1000;
  * client address is derived once per request from the socket and trusted proxies.
  */
 export const FileRequestLimits = {
-  uploadsPerClientAndLink: RateLimiter.shared("file-request-uploads-client-link", { limit: 20, windowMs: minute }),
-  uploadsPerClient: RateLimiter.shared("file-request-uploads-client", { limit: 60, windowMs: minute }),
-  uploadsPerLink: RateLimiter.shared("file-request-uploads-link", { limit: 1000, windowMs: 60 * minute }),
+  uploadsPerClientAndLink: RateLimiter.shared(
+    "file-request-uploads-client-link",
+    { limit: 20, windowMs: minute },
+  ),
+  uploadsPerClient: RateLimiter.shared("file-request-uploads-client", {
+    limit: 60,
+    windowMs: minute,
+  }),
+  uploadsPerLink: RateLimiter.shared("file-request-uploads-link", {
+    limit: 1000,
+    windowMs: 60 * minute,
+  }),
   /** Unfinished uploads one link may hold at once. */
   maxActiveUploads: 20,
   /** Free space each upload must leave: the larger of 1 GiB and 5% of the disk. */
-  minimumFreeBytes: (totalBytes: number) => Math.max(1024 ** 3, totalBytes * 0.05),
+  minimumFreeBytes: (totalBytes: number) =>
+    Math.max(1024 ** 3, totalBytes * 0.05),
 } as const;

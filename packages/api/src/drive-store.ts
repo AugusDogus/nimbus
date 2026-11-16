@@ -78,7 +78,11 @@ export type DriveStore = {
   createShare(share: Share): Promise<void>;
   getShare(token: string): Promise<Share | null>;
   listShares(userId: string): Promise<Share[]>;
-  updateShare(id: string, userId: string, settings: ShareSettings): Promise<Share | null>;
+  updateShare(
+    id: string,
+    userId: string,
+    settings: ShareSettings,
+  ): Promise<Share | null>;
   revokeShare(id: string, userId: string): Promise<void>;
   /** Atomically count one download unless the link has used its limit. */
   claimDownload(id: string): Promise<boolean>;
@@ -91,7 +95,11 @@ export type DriveStore = {
   /** Dead properties of each path. Paths without properties are absent from the map. */
   davProperties(paths: readonly string[]): Promise<Map<string, DavProperty[]>>;
   /** Set and remove dead properties of one path in a single transaction. */
-  patchDavProperties(path: string, set: readonly DavProperty[], remove: readonly DavPropertyName[]): Promise<void>;
+  patchDavProperties(
+    path: string,
+    set: readonly DavProperty[],
+    remove: readonly DavPropertyName[],
+  ): Promise<void>;
   /** Replace the dead properties at or under `to` with copies of those at or under `from`. */
   copyDavProperties(from: string, to: string): Promise<void>;
   /**

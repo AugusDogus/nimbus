@@ -52,28 +52,52 @@ const grant = (id: string, path: string) => ({
 const paths = async () => ({
   grants: (await store.grantsForUser("reader")).map((row) => row.path).sort(),
   shares: (await store.listShares("owner")).map((row) => row.path).sort(),
-  bookmarks: (await store.listBookmarks("reader")).map((row) => row.path).sort(),
+  bookmarks: (await store.listBookmarks("reader"))
+    .map((row) => row.path)
+    .sort(),
 });
 
 test("movePath rewrites records at and under the source, treating SQL wildcards and sibling prefixes literally", async () => {
-  for (const [index, path] of ["a_%", "a_%/child 😀/x", "a_%b", "aX%", "other"].entries()) {
+  for (const [index, path] of [
+    "a_%",
+    "a_%/child 😀/x",
+    "a_%b",
+    "aX%",
+    "other",
+  ].entries()) {
     await store.saveGrant(grant(`g${index}`, path));
     await store.createShare(share(`s${index}`, path));
     await store.saveBookmark("reader", { path, starred: true, accessedAt: 1 });
   }
   await store.movePath("a_%", "moved/😀 b");
-  const expected = ["aX%", "a_%b", "moved/😀 b", "moved/😀 b/child 😀/x", "other"];
-  expect(await paths()).toEqual({ grants: expected, shares: expected, bookmarks: expected });
+  const expected = [
+    "aX%",
+    "a_%b",
+    "moved/😀 b",
+    "moved/😀 b/child 😀/x",
+    "other",
+  ];
+  expect(await paths()).toEqual({
+    grants: expected,
+    shares: expected,
+    bookmarks: expected,
+  });
 });
 
 test("movePath drops records left at the vacant destination instead of attaching them to arriving content", async () => {
   await store.saveGrant(grant("stale", "target"));
   await store.saveGrant(grant("stale-child", "target/old"));
   await store.createShare(share("stale", "target"));
-  await store.saveBookmark("reader", { path: "target", starred: true, accessedAt: 1 });
+  await store.saveBookmark("reader", {
+    path: "target",
+    starred: true,
+    accessedAt: 1,
+  });
   await store.saveGrant(grant("moving", "source"));
   await store.movePath("source", "target");
-  expect((await store.grantsForUser("reader")).map((row) => row.id)).toEqual(["moving"]);
+  expect((await store.grantsForUser("reader")).map((row) => row.id)).toEqual([
+    "moving",
+  ]);
   expect(await store.listShares("owner")).toEqual([]);
   expect(await store.listBookmarks("reader")).toEqual([]);
 });
@@ -81,11 +105,28 @@ test("movePath drops records left at the vacant destination instead of attaching
 test("trash detaches records, hides them from listings, and restores them with the item", async () => {
   await store.saveGrant(grant("inside", "docs/report.txt"));
   await store.saveGrant(grant("outside", "docs-old"));
-  await store.createShare({ ...share("inside", "docs"), passwordHash: "secret-hash" });
-  await store.saveBookmark("reader", { path: "docs", starred: true, accessedAt: 5 });
-  const item = { id: "trash-1", path: "docs", deletedBy: "owner", deletedAt: 1, expiresAt: 2 };
+  await store.createShare({
+    ...share("inside", "docs"),
+    passwordHash: "secret-hash",
+  });
+  await store.saveBookmark("reader", {
+    path: "docs",
+    starred: true,
+    accessedAt: 5,
+  });
+  const item = {
+    id: "trash-1",
+    path: "docs",
+    deletedBy: "owner",
+    deletedAt: 1,
+    expiresAt: 2,
+  };
   await store.addTrash(item);
-  expect(await paths()).toEqual({ grants: ["docs-old"], shares: [], bookmarks: [] });
+  expect(await paths()).toEqual({
+    grants: ["docs-old"],
+    shares: [],
+    bookmarks: [],
+  });
   expect(await store.getShare("token-inside")).toBeNull();
   expect(await store.listTrash(null)).toEqual([item]);
   expect(await store.getTrash("trash-1")).toEqual(item);
@@ -93,19 +134,45 @@ test("trash detaches records, hides them from listings, and restores them with t
   await store.saveGrant({ ...grant("intruder", "docs"), permission: "admin" });
   await store.restoreTrash("trash-1");
   expect(await store.listTrash(null)).toEqual([]);
-  expect(await paths()).toEqual({ grants: ["docs-old", "docs/report.txt"], shares: ["docs"], bookmarks: ["docs"] });
-  expect((await store.getShare("token-inside"))?.passwordHash).toBe("secret-hash");
-  expect(await store.listBookmarks("reader")).toMatchObject([{ path: "docs", starred: true, accessedAt: 5 }]);
+  expect(await paths()).toEqual({
+    grants: ["docs-old", "docs/report.txt"],
+    shares: ["docs"],
+    bookmarks: ["docs"],
+  });
+  expect((await store.getShare("token-inside"))?.passwordHash).toBe(
+    "secret-hash",
+  );
+  expect(await store.listBookmarks("reader")).toMatchObject([
+    { path: "docs", starred: true, accessedAt: 5 },
+  ]);
 });
 
 test("restoring skips records whose account or group was removed while the item was in trash", async () => {
-  await client.execute("INSERT INTO user (id, name, email) VALUES ('gone', 'Gone', 'gone@example.test')");
+  await client.execute(
+    "INSERT INTO user (id, name, email) VALUES ('gone', 'Gone', 'gone@example.test')",
+  );
   await store.saveGroup({ id: "team", name: "Team", memberIds: ["reader"] });
-  await store.saveGrant({ ...grant("group", "docs"), subject: { type: "group", id: "team" } });
-  await store.saveGrant({ ...grant("user", "docs"), subject: { type: "user", id: "gone" } });
+  await store.saveGrant({
+    ...grant("group", "docs"),
+    subject: { type: "group", id: "team" },
+  });
+  await store.saveGrant({
+    ...grant("user", "docs"),
+    subject: { type: "user", id: "gone" },
+  });
   await store.createShare({ ...share("gone", "docs"), createdBy: "gone" });
-  await store.saveBookmark("gone", { path: "docs", starred: true, accessedAt: 1 });
-  await store.addTrash({ id: "trash-2", path: "docs", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  await store.saveBookmark("gone", {
+    path: "docs",
+    starred: true,
+    accessedAt: 1,
+  });
+  await store.addTrash({
+    id: "trash-2",
+    path: "docs",
+    deletedBy: "owner",
+    deletedAt: 1,
+    expiresAt: 2,
+  });
   await client.execute("DELETE FROM user WHERE id = 'gone'");
   await store.removeGroup("team");
   await store.restoreTrash("trash-2");
@@ -115,24 +182,52 @@ test("restoring skips records whose account or group was removed while the item 
 
 test("removing trash discards its detached records", async () => {
   await store.createShare(share("purged", "file.txt"));
-  await store.addTrash({ id: "trash-3", path: "file.txt", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  await store.addTrash({
+    id: "trash-3",
+    path: "file.txt",
+    deletedBy: "owner",
+    deletedAt: 1,
+    expiresAt: 2,
+  });
   await store.removeTrash("trash-3");
   await store.restoreTrash("trash-3");
   expect(await store.getShare("token-purged")).toBeNull();
 });
 
 test("dead properties follow moves, survive trash and restore, and are copied", async () => {
-  const property = (name: string) => ({ namespace: "urn:test", name, xml: `<${name} xmlns="urn:test">1</${name}>` });
+  const property = (name: string) => ({
+    namespace: "urn:test",
+    name,
+    xml: `<${name} xmlns="urn:test">1</${name}>`,
+  });
   await store.patchDavProperties("docs", [property("a")], []);
-  await store.patchDavProperties("docs/file.txt", [property("b"), property("c")], []);
-  await store.patchDavProperties("docs/file.txt", [{ ...property("b"), xml: "<b xmlns=\"urn:test\">2</b>" }], [{ namespace: "urn:test", name: "c" }]);
+  await store.patchDavProperties(
+    "docs/file.txt",
+    [property("b"), property("c")],
+    [],
+  );
+  await store.patchDavProperties(
+    "docs/file.txt",
+    [{ ...property("b"), xml: '<b xmlns="urn:test">2</b>' }],
+    [{ namespace: "urn:test", name: "c" }],
+  );
   await store.movePath("docs", "moved");
   const moved = await store.davProperties(["docs", "moved", "moved/file.txt"]);
   expect([...moved.keys()].sort()).toEqual(["moved", "moved/file.txt"]);
-  expect(moved.get("moved/file.txt")).toEqual([{ namespace: "urn:test", name: "b", xml: "<b xmlns=\"urn:test\">2</b>" }]);
+  expect(moved.get("moved/file.txt")).toEqual([
+    { namespace: "urn:test", name: "b", xml: '<b xmlns="urn:test">2</b>' },
+  ]);
   await store.copyDavProperties("moved", "copy");
-  expect((await store.davProperties(["copy/file.txt"])).get("copy/file.txt")).toHaveLength(1);
-  await store.addTrash({ id: "trash-4", path: "moved", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  expect(
+    (await store.davProperties(["copy/file.txt"])).get("copy/file.txt"),
+  ).toHaveLength(1);
+  await store.addTrash({
+    id: "trash-4",
+    path: "moved",
+    deletedBy: "owner",
+    deletedAt: 1,
+    expiresAt: 2,
+  });
   expect((await store.davProperties(["moved", "moved/file.txt"])).size).toBe(0);
   await store.restoreTrash("trash-4");
   expect((await store.davProperties(["moved", "moved/file.txt"])).size).toBe(2);
@@ -157,16 +252,32 @@ test("only a link's creator can change its settings", async () => {
   };
   expect(await store.updateShare("limited", "reader", settings)).toBeNull();
   expect((await store.getShare("token-limited"))?.mode).toBe("download");
-  expect(await store.updateShare("limited", "owner", settings)).toMatchObject(settings);
+  expect(await store.updateShare("limited", "owner", settings)).toMatchObject(
+    settings,
+  );
   expect(await store.claimDownload("limited")).toBe(true);
 });
 
 test("a link restored from trash keeps its download limit, count and preview-only mode", async () => {
-  await store.createShare({ ...share("limited", "docs"), maxDownloads: 3, mode: "view" });
+  await store.createShare({
+    ...share("limited", "docs"),
+    maxDownloads: 3,
+    mode: "view",
+  });
   expect(await store.claimDownload("limited")).toBe(true);
-  await store.addTrash({ id: "trash-limits", path: "docs", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  await store.addTrash({
+    id: "trash-limits",
+    path: "docs",
+    deletedBy: "owner",
+    deletedAt: 1,
+    expiresAt: 2,
+  });
   await store.restoreTrash("trash-limits");
-  expect(await store.getShare("token-limited")).toMatchObject({ maxDownloads: 3, downloadCount: 1, mode: "view" });
+  expect(await store.getShare("token-limited")).toMatchObject({
+    maxDownloads: 3,
+    downloadCount: 1,
+    mode: "view",
+  });
 });
 
 const fileRequest = (id: string, path: string) => ({
@@ -186,20 +297,39 @@ const fileRequest = (id: string, path: string) => ({
 test("file requests follow their folder through moves, and trash suspends them with their upload ledger", async () => {
   await store.fileRequests.create(fileRequest("inbox", "docs/inbox"));
   await store.fileRequests.reserve(
-    { id: "upload-1", requestId: "inbox", uploaderHash: "browser", size: 10, createdAt: 1 },
+    {
+      id: "upload-1",
+      requestId: "inbox",
+      uploaderHash: "browser",
+      size: 10,
+      createdAt: 1,
+    },
     { activeSince: 0, maxActive: 5 },
   );
   await store.fileRequests.finishUpload("upload-1", "docs/inbox/a.txt", 2);
   await store.movePath("docs", "moved");
-  expect((await store.fileRequests.getByToken("request-inbox"))?.path).toBe("moved/inbox");
-  await store.addTrash({ id: "trash-requests", path: "moved", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  expect((await store.fileRequests.getByToken("request-inbox"))?.path).toBe(
+    "moved/inbox",
+  );
+  await store.addTrash({
+    id: "trash-requests",
+    path: "moved",
+    deletedBy: "owner",
+    deletedAt: 1,
+    expiresAt: 2,
+  });
   expect(await store.fileRequests.getByToken("request-inbox")).toBeNull();
   // A request created at the vacant path while the folder was in trash is not kept on restore.
   await store.fileRequests.create(fileRequest("intruder", "moved/inbox"));
   await store.restoreTrash("trash-requests");
-  expect((await store.fileRequests.getByToken("request-inbox"))?.path).toBe("moved/inbox");
+  expect((await store.fileRequests.getByToken("request-inbox"))?.path).toBe(
+    "moved/inbox",
+  );
   expect(await store.fileRequests.getByToken("request-intruder")).toBeNull();
-  expect(await store.fileRequests.usage("inbox", 0)).toEqual({ files: 1, bytes: 10 });
+  expect(await store.fileRequests.usage("inbox", 0)).toEqual({
+    files: 1,
+    bytes: 10,
+  });
 });
 
 test("file requests are discarded with content merged into another item, and with trash", async () => {
@@ -207,7 +337,13 @@ test("file requests are discarded with content merged into another item, and wit
   await store.discardPath("merged");
   expect(await store.fileRequests.getByToken("request-merged")).toBeNull();
   await store.fileRequests.create(fileRequest("purged", "purged"));
-  await store.addTrash({ id: "trash-purged", path: "purged", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  await store.addTrash({
+    id: "trash-purged",
+    path: "purged",
+    deletedBy: "owner",
+    deletedAt: 1,
+    expiresAt: 2,
+  });
   await store.removeTrash("trash-purged");
   await store.restoreTrash("trash-purged");
   expect(await store.fileRequests.getByToken("request-purged")).toBeNull();
@@ -215,7 +351,13 @@ test("file requests are discarded with content merged into another item, and wit
 
 test("trash rows saved without file requests still restore", async () => {
   await store.createShare(share("legacy", "legacy"));
-  await store.addTrash({ id: "trash-legacy", path: "legacy", deletedBy: "owner", deletedAt: 1, expiresAt: 2 });
+  await store.addTrash({
+    id: "trash-legacy",
+    path: "legacy",
+    deletedBy: "owner",
+    deletedAt: 1,
+    expiresAt: 2,
+  });
   await client.execute(
     `UPDATE nimbus_trash SET detached_access = json_remove(detached_access, '$.fileRequests') WHERE id = 'trash-legacy'`,
   );

@@ -24,7 +24,10 @@ export async function GET(request: Request) {
       });
     const file = Bun.file(found.payload(getDataRoot()));
     const ext = path.extname(found.version.name);
-    const stamp = new Date(found.version.modifiedAt).toISOString().slice(0, 19).replaceAll(":", "-");
+    const stamp = new Date(found.version.modifiedAt)
+      .toISOString()
+      .slice(0, 19)
+      .replaceAll(":", "-");
     const name = `${path.basename(found.version.name, ext)} (${stamp})${ext}`;
     return new Response(file.stream(), {
       headers: {
