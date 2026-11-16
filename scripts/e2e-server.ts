@@ -16,7 +16,7 @@ await writeFile(manifest, JSON.stringify({ dataRoot: data }));
 const child = Bun.spawn(["bun", "server/start.ts"], {
   cwd: app, stdout: "inherit", stderr: "inherit",
   // CI builds first. Exercise that build without compilation delays during tests.
-  env: { ...process.env, NODE_ENV: process.env.CI === "true" ? "production" : "development", PORT: port, BETTER_AUTH_URL: origin, BETTER_AUTH_TRUSTED_ORIGINS: origin, BETTER_AUTH_SECRET: randomBytes(32).toString("base64url"), DATABASE_URL: undefined, NIMBUS_DATA_ROOT: data, NIMBUS_CONFIG_ROOT: config },
+  env: { ...process.env, NODE_ENV: process.env.CI === "true" ? "production" : "development", PORT: port, BETTER_AUTH_URL: origin, BETTER_AUTH_TRUSTED_ORIGINS: origin, BETTER_AUTH_SECRET: randomBytes(32).toString("base64url"), DATABASE_URL: undefined, NIMBUS_DATA_ROOT: data, NIMBUS_CONFIG_ROOT: config, NIMBUS_TRUSTED_PROXIES: "127.0.0.1, ::1" },
 });
 const stop = () => child.kill("SIGTERM");
 process.on("SIGTERM", stop);
