@@ -4,10 +4,10 @@ import { and, eq, isNull, lt } from "drizzle-orm";
 import { mcpGrants, mcpTokens } from "../../db/mcp-schema";
 import { user } from "../../db/auth-schema";
 import { mcpResource } from "../config";
-import { hit, throttleRules } from "../throttle";
+import { clientAddress, hit } from "../throttle";
 import { authenticateClient, constantTimeEqual, presentsCredentials, throttled, type OAuthClient } from "./clients";
 import type { Database, OAuthContext } from "./context";
-import { clientAddress, corsHeaders, errorResponse, json, protocolError, readForm, type ProtocolError } from "./http";
+import { corsHeaders, errorResponse, json, protocolError, readForm, type ProtocolError } from "./http";
 import {
   ACCESS_TOKEN_TTL_MS,
   AUTHORIZATION_CODE_REPLAY_WINDOW_MS,
@@ -154,13 +154,13 @@ async function refresh(ctx: OAuthContext, client: OAuthClient, form: ReadonlyMap
 /** POST /oauth/token: authorization_code with PKCE, and refresh_token with rotation. */
 export async function handleToken(ctx: OAuthContext, request: Request) {
   const address = clientAddress(request);
-  const perAddress = hit([{ key: `token:${address}`, rule: throttleRules.tokenPerAddress }], ctx.now());
+  const perAddress = hit([{ key: `token:${address}`, rule: "tokenPerAddress" }], ctx.now());
   if (!perAddress.allowed) return throttled(perAddress.retryAfterSeconds);
   const form = await readForm(request);
   if (!form.ok) return errorResponse(form.error);
   const client = await authenticateClient(ctx.db, request, form.value);
   if (!client.ok) return errorResponse(client.error);
-  const perClient = hit([{ key: `token:${client.value.clientId}:${address}`, rule: throttleRules.tokenPerClient }], ctx.now());
+  const perClient = hit([{ key: `token:${client.value.clientId}:${address}`, rule: "tokenPerClient" }], ctx.now());
   if (!perClient.allowed) return throttled(perClient.retryAfterSeconds);
   const grantType = form.value.get("grant_type");
   const result: Exchange =

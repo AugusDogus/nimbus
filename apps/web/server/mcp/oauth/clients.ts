@@ -1,3 +1,4 @@
+import { RateLimiter } from "../../rate-limit";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { McpScope } from "@nimbus/api/mcp-scope";
 import { and, eq, lt, notExists } from "drizzle-orm";
@@ -9,9 +10,9 @@ import {
   type OAuthClientAuthMethod,
 } from "../../db/mcp-schema";
 import type { Database, OAuthContext } from "./context";
-import { clientAddress, errorResponse, json, protocolError, readJsonObject, type Parsed, type ProtocolError } from "./http";
+import { errorResponse, json, protocolError, readJsonObject, type Parsed, type ProtocolError } from "./http";
 import { validateRedirectUri, validateWebUri } from "./redirect-uri";
-import { hit, throttleRules } from "../throttle";
+import { clientAddress, hit } from "../throttle";
 
 export const DEFAULT_CLIENT_NAME = "MCP client";
 const MAX_CLIENT_NAME_LENGTH = 200;
@@ -106,7 +107,7 @@ export function parseRegistration(body: Record<string, unknown>): Parsed<Registr
 }
 
 const tooManyRequests = (retryAfterSeconds: number) =>
-  protocolError(429, "slow_down", `Too many requests. Nothing was registered or issued; retry after ${retryAfterSeconds} seconds.`, {
+  protocolError(429, "slow_down", `Too many requests. Nothing was registered or issued; retry after ${RateLimiter.seconds(retryAfterSeconds)}.`, {
     "Retry-After": String(retryAfterSeconds),
   });
 export const throttled = (retryAfterSeconds: number) => errorResponse(tooManyRequests(retryAfterSeconds));
@@ -114,14 +115,14 @@ export const throttled = (retryAfterSeconds: number) => errorResponse(tooManyReq
 /** POST /oauth/register (RFC 7591). Registration is open, so it is bounded per address and globally. */
 export async function registerClient(ctx: OAuthContext, request: Request) {
   const now = ctx.now();
-  const perAddress = hit([{ key: `register:${clientAddress(request)}`, rule: throttleRules.registerPerAddress }], now);
+  const perAddress = hit([{ key: `register:${clientAddress(request)}`, rule: "registerPerAddress" }], now);
   if (!perAddress.allowed) return throttled(perAddress.retryAfterSeconds);
   const body = await readJsonObject(request);
   if (!body.ok) return errorResponse(body.error);
   const parsed = parseRegistration(body.value);
   if (!parsed.ok) return errorResponse(parsed.error);
   // Counted only for valid registrations, the ones that store a row.
-  const global = hit([{ key: "register:global", rule: throttleRules.registerGlobal }], now);
+  const global = hit([{ key: "register:global", rule: "registerGlobal" }], now);
   if (!global.allowed) return throttled(global.retryAfterSeconds);
   const registration = parsed.value;
   const clientId = randomBytes(18).toString("base64url");

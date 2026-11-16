@@ -1,3 +1,4 @@
+import { RateLimiter } from "@/server/rate-limit";
 import { EVENTS, Server } from "@tus/server";
 import { TRPCError } from "@trpc/server";
 import { getDataRoot } from "@nimbus/api/data-root";
@@ -102,7 +103,7 @@ async function getServer() {
           FileRequestLimits.uploadsPerLink.consume(fileRequest.id),
         ])
           if (!decision.allowed)
-            throw fail(429, `Too many uploads right now. Try again in ${decision.retryAfterSeconds} seconds.`);
+            throw fail(429, `Too many uploads right now. Try again in ${RateLimiter.seconds(decision.retryAfterSeconds)}.`);
         const name = fileNameSchema.safeParse(upload.metadata?.filename);
         if (!name.success)
           throw fail(400, "Rename the file without slashes or reserved names, then upload it again.");

@@ -1,5 +1,5 @@
-import { clientAddress } from "./oauth/http";
-import { hit, throttleRules } from "./throttle";
+import { RateLimiter } from "../rate-limit";
+import { clientAddress, hit } from "./throttle";
 
 export type GuardDecision =
   | { allowed: true }
@@ -43,15 +43,15 @@ const limited = (retryAfterSeconds: number): GuardDecision => ({
   allowed: false,
   status: 429,
   retryAfterSeconds,
-  message: `Too many MCP requests. Nothing was done; retry after ${retryAfterSeconds} seconds.`,
+  message: `Too many MCP requests. Nothing was done; retry after ${RateLimiter.seconds(retryAfterSeconds)}.`,
 });
 
 export function throttleAnonymous(request: Request, now = Date.now()): GuardDecision {
-  const decision = hit([{ key: `mcp:${clientAddress(request)}`, rule: throttleRules.mcpPerAddress }], now);
+  const decision = hit([{ key: `mcp:${clientAddress(request)}`, rule: "mcpPerAddress" }], now);
   return decision.allowed ? decision : limited(decision.retryAfterSeconds);
 }
 
 export function throttleConnection(grantId: string, now = Date.now()): GuardDecision {
-  const decision = hit([{ key: `mcp:grant:${grantId}`, rule: throttleRules.mcpPerGrant }], now);
+  const decision = hit([{ key: `mcp:grant:${grantId}`, rule: "mcpPerGrant" }], now);
   return decision.allowed ? decision : limited(decision.retryAfterSeconds);
 }

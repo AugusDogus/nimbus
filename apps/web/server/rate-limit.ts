@@ -1,5 +1,6 @@
 /**
- * In-memory rate limiting for routes outside Better Auth (WebDAV, public link passwords).
+ * In-memory rate limiting for routes outside Better Auth (WebDAV, public link and file request
+ * passwords, file request uploads, MCP and its OAuth endpoints).
  * Uses GCRA: one timestamp per key, smooth refill, and bursts up to `limit` per window.
  * State lives in this process and resets on restart, matching Nimbus's one-process model.
  */
@@ -13,6 +14,8 @@ export type RateLimiter = {
   check(key: string, now?: number): RateLimitDecision;
   /** Counts one event and returns whether it was allowed. */
   consume(key: string, now?: number): RateLimitDecision;
+  /** Forget every key, as a restart would. */
+  clear(): void;
   readonly size: number;
 };
 
@@ -48,6 +51,9 @@ export const RateLimiter = {
         arrivals.set(key, decision.next);
         return { allowed: true };
       },
+      clear() {
+        arrivals.clear();
+      },
       get size() {
         return arrivals.size;
       },
@@ -61,6 +67,10 @@ export const RateLimiter = {
     const limiter = RateLimiter.create(rule);
     registry.set(name, limiter);
     return limiter;
+  },
+  /** A wait for messages, such as "1 second" or "30 seconds". */
+  seconds(count: number) {
+    return `${count} ${count === 1 ? "second" : "seconds"}`;
   },
   /** A 429 response with Retry-After and a message saying when to try again. */
   response(decision: Extract<RateLimitDecision, { allowed: false }>, what: string) {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { allowedOrigins, guardTransport, throttleAnonymous, throttleConnection } from "./request-guard";
+import { clientIpHeader } from "../client-ip";
 import { resetThrottleForTest } from "./throttle";
 
 const origins = allowedOrigins("https://files.example.test", "http://localhost:3000, not a url");
@@ -19,10 +20,12 @@ describe("MCP request guard", () => {
   });
 
   it("rate limits anonymous requests per address and authenticated ones per connection", () => {
-    const anonymous = request({ "x-forwarded-for": "203.0.113.9" });
+    // The server derives the client address once per request and passes it in this header.
+    const anonymous = request({ [clientIpHeader]: "203.0.113.9" });
     for (let index = 0; index < 300; index++) expect(throttleAnonymous(anonymous, 0).allowed).toBe(true);
-    expect(throttleAnonymous(anonymous, 0)).toMatchObject({ allowed: false, status: 429, retryAfterSeconds: 60 });
-    expect(throttleAnonymous(request({ "x-forwarded-for": "203.0.113.10" }), 0).allowed).toBe(true);
+    // The shared limiter refills smoothly: one request every 200 ms at 300 per minute.
+    expect(throttleAnonymous(anonymous, 0)).toMatchObject({ allowed: false, status: 429, retryAfterSeconds: 1 });
+    expect(throttleAnonymous(request({ [clientIpHeader]: "203.0.113.10" }), 0).allowed).toBe(true);
     for (let index = 0; index < 600; index++) throttleConnection("grant-1", 0);
     expect(throttleConnection("grant-1", 0).allowed).toBe(false);
     expect(throttleConnection("grant-1", 60_000).allowed).toBe(true);

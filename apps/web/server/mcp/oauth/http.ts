@@ -95,23 +95,6 @@ export async function readJsonObject(request: Request): Promise<Parsed<Record<st
   return { ok: true, value: Object.fromEntries(Object.entries(value)) };
 }
 
-/**
- * Throttle bucket for the caller's address. Nimbus runs behind a reverse proxy
- * that sets X-Forwarded-For. IPv6 addresses count per /64, since one
- * subscriber controls a whole /64.
- */
-export function clientAddress(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const address = forwarded || request.headers.get("x-real-ip")?.trim() || "unknown";
-  if (!address.includes(":")) return address;
-  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(address);
-  if (mapped?.[1]) return mapped[1];
-  const [head = "", tail] = address.replace(/^\[|\]$/g, "").split("%")[0]?.split("::") ?? [];
-  const groups = head ? head.split(":") : [];
-  if (tail !== undefined && groups.length < 4) groups.push(...Array.from({ length: 4 - groups.length }, () => "0"));
-  return `${groups.slice(0, 4).join(":")}::/64`;
-}
-
 const escapeHtml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
