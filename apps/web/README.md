@@ -90,6 +90,6 @@ bun run bench:files --only=list,save --big=10000      # selected scenarios, smal
 bun run bench:files --compare=before.json,after.json  # Markdown table of two runs
 ```
 
-Scenarios: `list`, `access`, `safepath`, `save`, `rename`, `copy`, `events`, `watch`, `tree` (`--tree`, default 200,000 files) and `http`. `rename` uses `--big` (default 100,000) files, each with a version. The run waits while less than 8 GB of memory is available. For syscall counts, run it under `strace -f -c`. Compare runs on the same machine back to back; the numbers are not portable between machines.
+Scenarios: `list`, `access`, `safepath`, `save`, `rename`, `copy`, `events`, `watch`, `tree` (`--tree`, default 200,000 files), `burst` and `http`. `burst` creates 1,000, 5,000 and then 50,000 files in one folder while the server's watcher pipeline and three live-update subscribers run in a child process capped at 8 GB with `systemd-run --user --scope`; it reports that process's cgroup peak. `rename` uses `--big` (default 100,000) files, each with a version. The run waits while less than 8 GB of memory is available. For syscall counts, run it under `strace -f -c`. Compare runs on the same machine back to back; the numbers are not portable between machines.
 
 The browser tests create and remove their own temporary database and files. Keep port 3100 available, or set `NIMBUS_E2E_PORT` to run on another port. Do not rebuild while browser tests run against the production build in `dist`.

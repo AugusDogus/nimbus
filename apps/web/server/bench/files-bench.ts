@@ -861,6 +861,154 @@ const scenarios: Record<string, () => Promise<void>> = {
     await rm(absolute("tree"), { recursive: true, force: true });
   },
 
+  /**
+   * Many files created in one folder while the server watches the drive, as rsync or a
+   * WebDAV client copying a folder would. The server side runs in its own process under an
+   * 8 GB memory cap, so a runaway is killed alone; its cgroup peak is the number to watch.
+   */
+  async burst() {
+    const subscribers = 3;
+    for (const count of [1_000, 5_000, 50_000]) {
+      await requireMemory();
+      const child = Bun.spawn(
+        [
+          "systemd-run",
+          "--user",
+          "--scope",
+          "--quiet",
+          "-p",
+          "MemoryMax=8G",
+          "-p",
+          "MemorySwapMax=0",
+          "--",
+          "bun",
+          path.join(import.meta.dir, "burst-server.ts"),
+        ],
+        {
+          env: {
+            ...process.env,
+            NIMBUS_BENCH_SUBSCRIBERS: String(subscribers),
+          },
+          stdin: "pipe",
+          stdout: "pipe",
+          stderr: "ignore",
+        },
+      );
+      let delivered = 0;
+      let childRss = 0;
+      let childStall = 0;
+      let ready = () => {};
+      const isReady = new Promise<void>((resolve) => {
+        ready = resolve;
+      });
+      void (async () => {
+        let buffered = "";
+        const reader = child.stdout.getReader();
+        for (
+          let read = await reader.read();
+          !read.done;
+          read = await reader.read()
+        ) {
+          const chunk = read.value;
+          buffered += new TextDecoder().decode(chunk);
+          for (
+            let end = buffered.indexOf("\n");
+            end >= 0;
+            end = buffered.indexOf("\n")
+          ) {
+            const line = buffered.slice(0, end);
+            buffered = buffered.slice(end + 1);
+            let sample: unknown;
+            try {
+              sample = JSON.parse(line);
+            } catch {
+              continue;
+            }
+            if (typeof sample !== "object" || sample === null) continue;
+            const number = (key: string) => {
+              const value: unknown = Reflect.get(sample, key);
+              return typeof value === "number" ? value : 0;
+            };
+            delivered = number("delivered");
+            childRss = Math.max(childRss, number("rss"));
+            childStall = Math.max(childStall, number("stallMax"));
+            if (Reflect.get(sample, "type") === "ready") ready();
+          }
+        }
+      })();
+      await Promise.race([isReady, child.exited]);
+      const cgroup =
+        /^0::(.*)$/m.exec(
+          readFileSync(`/proc/${child.pid}/cgroup`, "utf8"),
+        )?.[1] ?? "";
+      const memoryFile = `/sys/fs/cgroup${cgroup}/memory.current`;
+      let cgroupPeak = 0;
+      const sampler = setInterval(() => {
+        try {
+          cgroupPeak = Math.max(
+            cgroupPeak,
+            Number(readFileSync(memoryFile, "utf8")),
+          );
+        } catch {
+          // The scope ends with its process.
+        }
+      }, 100);
+      const started = performance.now();
+      await writeFiles(`burst-${count}`, count);
+      const written = performance.now();
+      // Settled: every subscriber received an event per file, or 10 s passed without a new
+      // event, or the process died, or 4 minutes passed.
+      let lastDelivered = 0;
+      let lastChange = written;
+      let exited = false;
+      void child.exited.then(() => {
+        exited = true;
+      });
+      while (
+        !exited &&
+        delivered < count * subscribers &&
+        performance.now() - lastChange < 10_000 &&
+        performance.now() - written < 240_000
+      ) {
+        if (delivered !== lastDelivered) {
+          lastDelivered = delivered;
+          lastChange = performance.now();
+        }
+        await Bun.sleep(100);
+      }
+      if (delivered !== lastDelivered) lastChange = performance.now();
+      const settled = lastChange - written;
+      clearInterval(sampler);
+      if (!exited) {
+        void child.stdin.end();
+      }
+      const code = await child.exited;
+      const name = `burst ${count} files in one folder`;
+      record(`${name}: server cgroup peak`, cgroupPeak / 1024 / 1024, "MB");
+      record(`${name}: server peak RSS`, childRss / 1024 / 1024, "MB");
+      record(
+        `${name}: killed by the 8 GB cap`,
+        exited && code !== 0 ? 1 : 0,
+        "runs",
+      );
+      record(
+        `${name}: live events settled after writes`,
+        Math.max(0, settled),
+        "ms",
+      );
+      record(`${name}: server max stall`, childStall, "ms");
+      record(
+        `${name}: live events delivered per subscriber`,
+        delivered / subscribers,
+        "events",
+        "info",
+      );
+      record(`${name}: write time`, written - started, "ms", "info");
+      await rm(absolute(`burst-${count}`), { recursive: true, force: true });
+      if (exited && code !== 0) break;
+    }
+  },
+
   async http() {
     await requireMemory();
     await mkdir(absolute("http"), { recursive: true });
