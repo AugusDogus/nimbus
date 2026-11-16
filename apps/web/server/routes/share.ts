@@ -6,7 +6,7 @@ import {
   SharePasswordAttempts,
   getPublicShare,
   isShareUnlocked,
-  shareCookie,
+  shareCookies,
   sharedTarget,
 } from "@/server/public-share";
 import { SharePolicy } from "@/server/share-policy";
@@ -138,15 +138,10 @@ export async function POST(request: Request, context: Context) {
         { status: 401 },
       );
     }
-    return Response.json(
-      { unlocked: true },
-      {
-        headers: {
-          "Set-Cookie": shareCookie({ ...share, passwordHash }),
-          "Cache-Control": "no-store",
-        },
-      },
-    );
+    const headers = new Headers({ "Cache-Control": "no-store" });
+    for (const cookie of shareCookies({ ...share, passwordHash }))
+      headers.append("Set-Cookie", cookie);
+    return Response.json({ unlocked: true }, { headers });
   } catch (error) {
     return httpError(error);
   }

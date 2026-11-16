@@ -41,15 +41,25 @@ export async function getPublicShare(token: string) {
   return { share, access };
 }
 
-const unlockScope = (share: Share & { passwordHash: string }) => ({
+const unlockScope = (
+  share: Share & { passwordHash: string },
+  path = `/api/share/${share.token}`,
+) => ({
   name: "nimbus-share",
-  path: `/api/share/${share.token}`,
+  path,
   token: share.token,
   passwordHash: share.passwordHash,
 });
 
-export function shareCookie(share: Share & { passwordHash: string }) {
-  return UnlockCookie.issue(unlockScope(share));
+/**
+ * The unlock cookies for a link: one for its endpoint and one for its page, which the server
+ * renders with the same check, so a reload within the hour shows the files, not the form.
+ */
+export function shareCookies(share: Share & { passwordHash: string }) {
+  return [
+    UnlockCookie.issue(unlockScope(share)),
+    UnlockCookie.issue(unlockScope(share, `/s/${share.token}`)),
+  ];
 }
 
 export function isShareUnlocked(share: Share, request: Request) {
