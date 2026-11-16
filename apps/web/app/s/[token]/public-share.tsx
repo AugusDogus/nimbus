@@ -155,12 +155,8 @@ export function PublicShare({ token }: { token: string }) {
               </p>
             </div>
             {share.data.mode === "download" && (
-              <Button asChild>
-                <a href={`${url}&download=1`} download>
-                  {share.data.entry.type === "dir"
-                    ? "Download ZIP"
-                    : "Download"}
-                </a>
+              <Button render={<a href={`${url}&download=1`} download />}>
+                {share.data.entry.type === "dir" ? "Download ZIP" : "Download"}
               </Button>
             )}
           </div>

@@ -106,8 +106,8 @@ export function LibraryPage({
                   ? "Files you preview and folders you visit will appear here."
                   : "No matching files. Try a different filename."}
           </p>
-          <Button asChild variant="outline">
-            <Link href="/">Open My Drive</Link>
+          <Button variant="outline" render={<Link href="/" />}>
+            Open My Drive
           </Button>
         </div>
       )}

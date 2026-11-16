@@ -71,8 +71,8 @@ export function ResetPasswordForm({
               <p role="status" className="text-pretty text-sm">
                 Your password has been changed.
               </p>
-              <Button asChild className="w-full">
-                <Link href="/login">Sign in</Link>
+              <Button className="w-full" render={<Link href="/login" />}>
+                Sign in
               </Button>
             </div>
           ) : (
@@ -176,8 +176,12 @@ export function ResetPasswordForm({
               If an account uses that address, a reset link is on its way. It
               works for one hour. Check your spam folder if it does not arrive.
             </p>
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/login">Back to sign in</Link>
+            <Button
+              variant="outline"
+              className="w-full"
+              render={<Link href="/login" />}
+            >
+              Back to sign in
             </Button>
           </div>
         ) : (

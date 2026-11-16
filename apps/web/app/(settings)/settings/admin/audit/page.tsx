@@ -168,17 +168,25 @@ export default async function AuditPage({
       {(nextHref || query.before !== undefined) && (
         <div className="flex justify-end gap-2">
           {query.before !== undefined && (
-            <Button asChild variant="outline" size="sm">
-              <Link
-                href={`?${new URLSearchParams(Object.entries(params).flatMap(([key, value]) => (typeof value === "string" && key !== "before" ? [[key, value]] : [])))}`}
-              >
-                Newest
-              </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              render={
+                <Link
+                  href={`?${new URLSearchParams(Object.entries(params).flatMap(([key, value]) => (typeof value === "string" && key !== "before" ? [[key, value]] : [])))}`}
+                />
+              }
+            >
+              Newest
             </Button>
           )}
           {nextHref && (
-            <Button asChild variant="outline" size="sm">
-              <Link href={nextHref}>Older</Link>
+            <Button
+              variant="outline"
+              size="sm"
+              render={<Link href={nextHref} />}
+            >
+              Older
             </Button>
           )}
         </div>

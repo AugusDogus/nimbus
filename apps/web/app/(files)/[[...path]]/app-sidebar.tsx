@@ -146,19 +146,19 @@ export function AppSidebar({
               return (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
-                    asChild
                     isActive={active}
                     tooltip={item.label}
                     className="h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto"
+                    render={
+                      <Link
+                        href={item.href}
+                        aria-current={active ? "page" : undefined}
+                        onClick={closeNavigation}
+                      />
+                    }
                   >
-                    <Link
-                      href={item.href}
-                      aria-current={active ? "page" : undefined}
-                      onClick={closeNavigation}
-                    >
-                      <item.icon strokeWidth={1.7} />
-                      <span>{item.label}</span>
-                    </Link>
+                    <item.icon strokeWidth={1.7} />
+                    <span>{item.label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               );
@@ -171,37 +171,37 @@ export function AppSidebar({
         <SidebarMenu className="flex-row items-center justify-between gap-1 group-data-[collapsible=icon]:flex-col">
           <SidebarMenuItem className="min-w-0 flex-1 group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:flex-none">
             <SidebarMenuButton
-              asChild
               tooltip="Trash"
               isActive={pathname === "/trash"}
               className="h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto"
+              render={
+                <Link
+                  href="/trash"
+                  aria-current={pathname === "/trash" ? "page" : undefined}
+                  onClick={closeNavigation}
+                />
+              }
             >
-              <Link
-                href="/trash"
-                aria-current={pathname === "/trash" ? "page" : undefined}
-                onClick={closeNavigation}
-              >
-                <Trash2 strokeWidth={1.7} />
-                <span>Trash</span>
-              </Link>
+              <Trash2 strokeWidth={1.7} />
+              <span>Trash</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem className="shrink-0 group-data-[collapsible=icon]:w-full">
             <SidebarMenuButton
-              asChild
               tooltip="Settings"
               isActive={pathname === "/settings"}
               className="size-10 justify-center rounded-xl p-0 group-data-[collapsible=icon]:mx-auto"
+              render={
+                <Link
+                  href="/settings"
+                  aria-label="Settings"
+                  title="Settings"
+                  aria-current={pathname === "/settings" ? "page" : undefined}
+                  onClick={closeNavigation}
+                />
+              }
             >
-              <Link
-                href="/settings"
-                aria-label="Settings"
-                title="Settings"
-                aria-current={pathname === "/settings" ? "page" : undefined}
-                onClick={closeNavigation}
-              >
-                <Settings strokeWidth={1.7} />
-              </Link>
+              <Settings strokeWidth={1.7} />
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

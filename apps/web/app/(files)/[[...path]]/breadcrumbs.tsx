@@ -59,11 +59,9 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
       <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden text-sm sm:text-base">
         {/* Root: icon on mobile, text on desktop */}
         <BreadcrumbItem>
-          <BreadcrumbLink asChild>
-            <Link href="/" aria-label="My Drive">
-              <Home className="size-4 md:hidden" />
-              <span className="max-md:hidden">My Drive</span>
-            </Link>
+          <BreadcrumbLink render={<Link href="/" aria-label="My Drive" />}>
+            <Home className="size-4 md:hidden" />
+            <span className="max-md:hidden">My Drive</span>
           </BreadcrumbLink>
         </BreadcrumbItem>
 
@@ -83,9 +81,9 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
                   <DropdownMenuGroup>
                     {middleCrumbs.map((crumb) => (
                       <DropdownMenuLinkItem
-                        render={<Link href={crumb.href} />}
                         key={crumb.href}
                         className={crumb === parent ? "md:hidden" : undefined}
+                        render={<Link href={crumb.href} />}
                       >
                         {crumb.label}
                       </DropdownMenuLinkItem>
@@ -96,8 +94,8 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
             </BreadcrumbItem>
             <BreadcrumbSeparator className="max-md:hidden" />
             <BreadcrumbItem className="max-md:hidden">
-              <BreadcrumbLink asChild>
-                <Link href={parent.href}>{parent.label}</Link>
+              <BreadcrumbLink render={<Link href={parent.href} />}>
+                {parent.label}
               </BreadcrumbLink>
             </BreadcrumbItem>
           </>

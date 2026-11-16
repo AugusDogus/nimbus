@@ -1,6 +1,6 @@
-import * as React from "react";
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Slot } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 
@@ -38,27 +38,28 @@ const buttonVariants = cva(
   },
 );
 
+/** A button, or another element (such as a link) given in `render`, styled as one. */
 function Button({
   className,
   variant = "default",
   size = "default",
-  asChild = false,
+  render,
   ...props
-}: React.ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & {
-    asChild?: boolean;
-  }) {
-  const Comp = asChild ? Slot.Root : "button";
-
-  return (
-    <Comp
-      data-slot="button"
-      data-variant={variant}
-      data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
-      {...props}
-    />
-  );
+}: useRender.ComponentProps<"button"> & VariantProps<typeof buttonVariants>) {
+  const defaults = {
+    // Base UI renders a bare <button> as type="button"; keep the native default so a Button in a
+    // form submits it. Components that render a Button as their trigger pass their own type.
+    type: render ? undefined : ("submit" as const),
+    "data-slot": "button",
+    "data-variant": variant ?? undefined,
+    "data-size": size ?? undefined,
+    className: cn(buttonVariants({ variant, size, className })),
+  };
+  return useRender({
+    defaultTagName: "button",
+    render,
+    props: mergeProps<"button">(defaults, props),
+  });
 }
 
-export { Button, buttonVariants };
+export { Button };

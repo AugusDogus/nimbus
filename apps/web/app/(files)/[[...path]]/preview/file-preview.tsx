@@ -110,10 +110,12 @@ export default function FilePreview({
             src={url}
             className="h-[65dvh] w-full rounded-md border bg-muted"
           />
-          <Button asChild variant="link" className="h-auto p-0">
-            <a href={url} target="_blank" rel="noopener">
-              Open in a new tab
-            </a>
+          <Button
+            variant="link"
+            className="h-auto p-0"
+            render={<a href={url} target="_blank" rel="noopener" />}
+          >
+            Open in a new tab
           </Button>
         </div>
       );

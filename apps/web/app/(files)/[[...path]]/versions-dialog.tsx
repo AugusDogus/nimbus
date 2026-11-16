@@ -95,13 +95,17 @@ export default function VersionsDialog({
                         : ""}
                     </p>
                   </div>
-                  <Button size="sm" variant="outline" asChild>
-                    <a
-                      href={`/api/files/version?path=${encodeURIComponent(entry.path)}&id=${version.id}`}
-                      download
-                    >
-                      Download
-                    </a>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    render={
+                      <a
+                        href={`/api/files/version?path=${encodeURIComponent(entry.path)}&id=${version.id}`}
+                        download
+                      />
+                    }
+                  >
+                    Download
                   </Button>
                   {canRestore &&
                     (confirming === version.id ? (

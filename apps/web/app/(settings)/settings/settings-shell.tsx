@@ -48,8 +48,8 @@ export function SettingsShell({
           <Breadcrumb aria-label="Settings breadcrumb">
             <BreadcrumbList>
               <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link href="/settings">Settings</Link>
+                <BreadcrumbLink render={<Link href="/settings" />}>
+                  Settings
                 </BreadcrumbLink>
               </BreadcrumbItem>
               {page?.section === "Administration" && (

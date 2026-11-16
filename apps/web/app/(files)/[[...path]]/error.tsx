@@ -15,8 +15,8 @@ export default function FolderError({ reset }: { reset: () => void }) {
       </p>
       <div className="flex gap-3">
         <Button onClick={reset}>Try again</Button>
-        <Button asChild variant="outline">
-          <Link href="/">Open My Drive</Link>
+        <Button variant="outline" render={<Link href="/" />}>
+          Open My Drive
         </Button>
       </div>
     </div>

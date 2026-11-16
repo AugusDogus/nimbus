@@ -101,21 +101,21 @@ export function SettingsSidebar({ isAdmin }: { isAdmin: boolean }) {
                     .map((page) => (
                       <SidebarMenuItem key={page.href}>
                         <SidebarMenuButton
-                          asChild
                           isActive={pathname === page.href}
                           tooltip={page.label}
                           className="h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto"
+                          render={
+                            <Link
+                              href={page.href}
+                              aria-current={
+                                pathname === page.href ? "page" : undefined
+                              }
+                              onClick={closeNavigation}
+                            />
+                          }
                         >
-                          <Link
-                            href={page.href}
-                            aria-current={
-                              pathname === page.href ? "page" : undefined
-                            }
-                            onClick={closeNavigation}
-                          >
-                            <page.icon strokeWidth={1.7} />
-                            <span>{page.label}</span>
-                          </Link>
+                          <page.icon strokeWidth={1.7} />
+                          <span>{page.label}</span>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     ))}
@@ -129,14 +129,12 @@ export function SettingsSidebar({ isAdmin }: { isAdmin: boolean }) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              asChild
               tooltip="Back to files"
               className="h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto"
+              render={<Link href="/" onClick={closeNavigation} />}
             >
-              <Link href="/" onClick={closeNavigation}>
-                <ArrowLeft strokeWidth={1.7} />
-                <span>Back to files</span>
-              </Link>
+              <ArrowLeft strokeWidth={1.7} />
+              <span>Back to files</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

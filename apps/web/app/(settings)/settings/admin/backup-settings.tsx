@@ -97,13 +97,17 @@ export function BackupSettings() {
                   {ByteSize.format(backup.size)}
                 </p>
               </div>
-              <Button size="sm" variant="ghost" asChild>
-                <a
-                  href={`/api/backups/${encodeURIComponent(backup.name)}`}
-                  download
-                >
-                  Download
-                </a>
+              <Button
+                size="sm"
+                variant="ghost"
+                render={
+                  <a
+                    href={`/api/backups/${encodeURIComponent(backup.name)}`}
+                    download
+                  />
+                }
+              >
+                Download
               </Button>
             </li>
           ))}

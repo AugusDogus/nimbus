@@ -212,8 +212,8 @@ export function FilesShell({
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Button size="sm" asChild>
-                <Link href="/login">Sign in</Link>
+              <Button size="sm" render={<Link href="/login" />}>
+                Sign in
               </Button>
             )}
           </div>
