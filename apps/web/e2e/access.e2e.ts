@@ -80,7 +80,8 @@ test("administrators create groups and members receive only their granted read o
     await expect(sharing.getByText(`${group} · write`, { exact: true })).toBeVisible();
     await member.reload();
     await createFolder(member, "member-created", isMobile);
-    await expect(member.getByRole("button", { name: "team-note.txt", exact: true })).toHaveAttribute("draggable", "true");
+    // Touch screens move items through the Move action; a long press selects instead of dragging.
+    await expect(member.getByRole("button", { name: "team-note.txt", exact: true })).toHaveAttribute("draggable", isMobile ? "false" : "true");
     await expect(member.getByRole("link", { name: "member-created", exact: true })).toHaveAttribute("draggable", "false");
     expect((await rpc.files.list.query({ path: folder })).map((entry) => entry.name)).toContain("member-created");
     await member.getByRole("button", { name: "Actions for member-created", exact: true }).click();

@@ -81,6 +81,7 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   const typeahead = useRef<{ text: string; timer: ReturnType<typeof setTimeout> | null }>({ text: "", timer: null });
   const longPress = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
   const suppressClick = useRef(false);
+  const previewOnRelease = useRef<FileEntry | null>(null);
 
   const selectedEntries = useMemo(
     () => (selection.paths.size === 0 ? [] : layout.entries.filter((entry) => selection.paths.has(entry.path))),
@@ -159,7 +160,9 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
       case "preview":
         if (!focused) return;
         if (focused.type === "dir") focusEntry(focusIndex, "toggle");
-        else open({ action: "preview", entry: focused });
+        // Open on key release: opening now moves focus into the dialog, where the release of the
+        // same Space press would activate its focused button and close it again.
+        else previewOnRelease.current = focused;
         break;
       case "toggle":
         if (focusIndex < 0) return;
@@ -426,6 +429,13 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
         className="relative"
         style={{ height: layout.height }}
         onKeyDown={onKeyDown}
+        onKeyUp={(event) => {
+          const entry = previewOnRelease.current;
+          if (event.key !== " " || !entry) return;
+          previewOnRelease.current = null;
+          event.preventDefault();
+          open({ action: "preview", entry });
+        }}
         onPointerDown={onContainerPointerDown}
       >
         {rendered.map((rowIndex) => {

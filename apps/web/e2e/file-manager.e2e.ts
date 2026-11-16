@@ -191,7 +191,8 @@ test("renders large folders as a window and keeps keyboard focus and scroll posi
   expect(await scroller.evaluate((element) => element.scrollTop)).toBe(0);
   await page.goBack();
   await expect(last).toBeInViewport();
-  expect(Math.abs((await scroller.evaluate((element) => element.scrollTop)) - saved)).toBeLessThan(5);
+  // Within one row: a position saved at the very bottom is clamped if the header height differs.
+  expect(Math.abs((await scroller.evaluate((element) => element.scrollTop)) - saved)).toBeLessThan(52);
 });
 
 test("long-press starts selection mode on touch, and taps then toggle items", async ({ page, isMobile }) => {
@@ -200,9 +201,8 @@ test("long-press starts selection mode on touch, and taps then toggle items", as
   await page.goto(`/browse/${folder}`);
   const target = entry(page, "one.txt");
   await expect(target).toBeVisible();
-  const box = await target.boundingBox();
-  if (!box) throw new Error("The entry has no layout box.");
-  const point = { clientX: box.x + 40, clientY: box.y + box.height / 2, pointerType: "touch", isPrimary: true, button: 0 };
+  // A stationary press: only the distance between pointer events matters, not where they land.
+  const point = { clientX: 100, clientY: 100, pointerType: "touch", isPrimary: true, button: 0 };
   await target.dispatchEvent("pointerdown", point);
   await page.waitForTimeout(600);
   await target.dispatchEvent("pointerup", point);
