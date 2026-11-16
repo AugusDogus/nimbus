@@ -238,6 +238,49 @@ test("sessions can be reviewed and signed out, and administrators can reset sign
   }
 });
 
+test("a signed-out session's cookie sends every signed-in page to sign-in", async ({
+  browser,
+  page,
+}) => {
+  const { email, id } = await createMember(page);
+  const member = await memberPage(browser, page);
+  try {
+    await login(member.page, email);
+    const revoked = await page
+      .context()
+      .request.post("/api/auth/admin/revoke-user-sessions", {
+        headers: { Origin: origin },
+        data: { userId: id },
+      });
+    expect(revoked.ok()).toBe(true);
+    // The member's browser still holds the cookie. Each kind of signed-in page, with its own
+    // skeleton, must answer with sign-in rather than any signed-in page.
+    for (const path of [
+      "/",
+      "/browse/Documents",
+      "/recent",
+      "/settings/account",
+    ]) {
+      const answer = await member.context.request.get(path, {
+        headers: { "Sec-Fetch-Dest": "document" },
+        maxRedirects: 0,
+      });
+      expect(answer.status(), path).toBe(307);
+      expect(answer.headers().location, path).toBe(`${origin}/login`);
+      await member.page.goto(path);
+      await expect(member.page).toHaveURL(/\/login$/);
+      await expect(
+        member.page.getByRole("button", { name: "Sign in", exact: true }),
+      ).toBeVisible();
+      await expect(
+        member.page.getByRole("button", { name: "Account menu" }),
+      ).toHaveCount(0);
+    }
+  } finally {
+    await member.context.close();
+  }
+});
+
 test("passkeys sign in without a password", async ({
   browser,
   page,

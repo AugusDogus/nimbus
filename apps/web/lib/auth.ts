@@ -1,7 +1,6 @@
 import { passkey } from "@better-auth/passkey";
 import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { nextCookies } from "better-auth/next-js";
 import { admin, genericOAuth, twoFactor } from "better-auth/plugins";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { z } from "zod";
@@ -347,8 +346,7 @@ export const auth = betterAuth({
     }),
     ...oidcPlugins,
     nimbusSecurity({ appPasswords: createDriveStore(db) }),
-    // Append new plugins above this line. Audit observes final results; nextCookies must be last.
+    // Append new plugins above this line. Audit observes final results, so it stays last.
     nimbusAudit(),
-    nextCookies(),
   ],
 });
