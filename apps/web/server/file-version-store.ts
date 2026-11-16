@@ -1,26 +1,21 @@
-import { desc, eq, inArray, lt } from "drizzle-orm";
+import { desc, eq, inArray, lt, type SQL } from "drizzle-orm";
 import type { FileVersionStore } from "@nimbus/api/file-versions";
 import type { db } from "./db";
+import { atOrUnder } from "./db/path-prefix";
 import { fileVersions } from "./db/schema";
 
 export function createFileVersionStore(database: typeof db): FileVersionStore {
-  const removeWhere = async (condition: ReturnType<typeof eq>) =>
+  const removeWhere = async (condition: SQL) =>
     database.delete(fileVersions).where(condition).returning();
   return {
     async add(version) {
       await database.insert(fileVersions).values(version);
     },
-    async rekey(from, to) {
-      await database
-        .update(fileVersions)
-        .set({ fileKey: to })
-        .where(eq(fileVersions.fileKey, from));
-    },
-    async list(fileKey) {
+    async list(path) {
       return database
         .select()
         .from(fileVersions)
-        .where(eq(fileVersions.fileKey, fileKey))
+        .where(eq(fileVersions.path, path))
         .orderBy(desc(fileVersions.archivedAt), desc(fileVersions.id));
     },
     async get(id) {
@@ -33,10 +28,8 @@ export function createFileVersionStore(database: typeof db): FileVersionStore {
     async remove(ids) {
       return ids.length ? removeWhere(inArray(fileVersions.id, [...ids])) : [];
     },
-    async removeFileKeys(keys) {
-      return keys.length
-        ? removeWhere(inArray(fileVersions.fileKey, [...keys]))
-        : [];
+    async removeAt(path) {
+      return removeWhere(atOrUnder(fileVersions.path, path));
     },
     async archivedBefore(cutoff) {
       return database

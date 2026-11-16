@@ -30,6 +30,7 @@ import {
   trashItem,
 } from "@nimbus/api/file-operations";
 import { FilesystemCapacity } from "@nimbus/api/filesystem-capacity";
+import { FileVersions } from "@nimbus/api/file-versions";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
 import { recordAudit } from "@nimbus/api/audit";
 import { ClientIp } from "./client-ip";
@@ -414,6 +415,12 @@ async function lock(
       requireMutable(target);
       requireUnlocked([target], credentials);
       await writeFile(destination.absolute, "", { flag: "wx" });
+      // History left by a file removed outside Nimbus never attaches to a new one.
+      await FileVersions.discard(
+        httpDriveStore.versions,
+        getDataRoot(),
+        destination.relative,
+      );
       created = true;
       publishFileEvent({
         path: destination.absolute,

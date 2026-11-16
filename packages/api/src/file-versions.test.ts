@@ -18,27 +18,28 @@ import { createTestFileVersionStore } from "./file-versions-testing";
 let root: string;
 let store: ReturnType<typeof createTestFileVersionStore>;
 let clock = 1_000;
+const at = (relative: string) => path.join(root, relative);
 const staged = async (content: string) => {
   const file = path.join(root, ".nimbus", "uploads", `${clock}.tmp`);
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, content);
   return file;
 };
-const save = async (target: string, content: string) =>
+const save = async (relative: string, content: string) =>
   FileVersions.commitReplacement({
     store,
     dataRoot: root,
-    target,
+    path: relative,
     incoming: await staged(content),
     archivedBy: "editor",
     now: ++clock,
   });
-const contents = async (target: string) =>
+const contents = async (relative: string) =>
   Promise.all(
-    (await FileVersions.history(store, target)).map(async (version) => {
-      const found = await FileVersions.find(store, target, version.id);
+    (await FileVersions.history(store, relative)).map(async (version) => {
+      const found = await FileVersions.find(store, relative, version.id);
       if (!found)
-        throw new Error(`Version ${version.id} is missing for ${target}.`);
+        throw new Error(`Version ${version.id} is missing for ${relative}.`);
       return readFile(found.payload(root), "utf8");
     }),
   );
@@ -52,70 +53,94 @@ afterEach(async () => {
 });
 
 test("replacing a file keeps its previous content as a version without copying it", async () => {
-  const target = path.join(root, "notes.txt");
-  expect(await save(target, "first")).toEqual({ kind: "created" });
-  const original = await stat(target);
-  const result = await save(target, "second");
-  expect(await readFile(target, "utf8")).toBe("second");
+  expect(await save("notes.txt", "first")).toEqual({ kind: "created" });
+  const original = await stat(at("notes.txt"));
+  const result = await save("notes.txt", "second");
+  expect(await readFile(at("notes.txt"), "utf8")).toBe("second");
   if (result.kind !== "replaced" || !result.version)
     throw new Error("Expected a kept version.");
   expect(result.version).toMatchObject({
+    path: "notes.txt",
     name: "notes.txt",
     size: 5,
     archivedBy: "editor",
   });
-  const found = await FileVersions.find(store, target, result.version.id);
+  const found = await FileVersions.find(store, "notes.txt", result.version.id);
   if (!found) throw new Error("The new version is not attached to the file.");
   // The version is the old inode itself, preserved by hardlink.
   expect((await stat(found.payload(root))).ino).toBe(original.ino);
-  await save(target, "third");
-  expect(await contents(target)).toEqual(["second", "first"]);
+  await save("notes.txt", "third");
+  expect(await contents("notes.txt")).toEqual(["second", "first"]);
 });
 
-test("history follows renames and moves, and stays with the file it belongs to", async () => {
-  const target = path.join(root, "draft.txt");
-  await save(target, "one");
-  await save(target, "two");
-  await mkdir(path.join(root, "archive"));
-  const moved = path.join(root, "archive", "final.txt");
-  await rename(target, moved);
-  expect(await contents(moved)).toEqual(["one"]);
-  const other = path.join(root, "other.txt");
-  await save(other, "unrelated");
-  expect(await FileVersions.history(store, other)).toEqual([]);
-  const [version] = await FileVersions.history(store, moved);
+test("history follows Nimbus moves and stays with the file it belongs to", async () => {
+  await save("draft.txt", "one");
+  await save("draft.txt", "two");
+  await mkdir(at("archive"));
+  await rename(at("draft.txt"), at("archive/final.txt"));
+  // The drive store relocates history in the transaction that moves links and grants.
+  store.relocate("draft.txt", "archive/final.txt");
+  expect(await contents("archive/final.txt")).toEqual(["one"]);
+  await save("other.txt", "unrelated");
+  expect(await FileVersions.history(store, "other.txt")).toEqual([]);
+  const [version] = await FileVersions.history(store, "archive/final.txt");
   expect(
-    version && (await FileVersions.find(store, other, version.id)),
+    version && (await FileVersions.find(store, "other.txt", version.id)),
   ).toBeNull();
 });
 
+test("history survives another program replacing the file by renaming over it", async () => {
+  // Editors and sync tools save by writing a temporary file and renaming it over the original.
+  await save("report.txt", "v1");
+  await save("report.txt", "v2");
+  await writeFile(at(".report.txt.tmp"), "v3 from another program");
+  await rename(at(".report.txt.tmp"), at("report.txt"));
+  expect(await contents("report.txt")).toEqual(["v1"]);
+  await save("report.txt", "v4");
+  expect(await contents("report.txt")).toEqual([
+    "v3 from another program",
+    "v1",
+  ]);
+});
+
+test("history left by a file removed outside Nimbus never attaches to a new file there", async () => {
+  await save("plan.txt", "old plan");
+  await save("plan.txt", "old plan, revised");
+  // Renamed by another program: Nimbus cannot see it, so history stays at the old path.
+  await rename(at("plan.txt"), at("plan-moved.txt"));
+  expect(await FileVersions.history(store, "plan-moved.txt")).toEqual([]);
+  expect(await save("plan.txt", "a different plan")).toEqual({
+    kind: "created",
+  });
+  expect(await FileVersions.history(store, "plan.txt")).toEqual([]);
+});
+
 test("restoring a version keeps the current content as a new version", async () => {
-  const target = path.join(root, "report.txt");
-  await save(target, "v1");
-  await save(target, "v2");
-  const [first] = await FileVersions.history(store, target);
+  await save("report.txt", "v1");
+  await save("report.txt", "v2");
+  const [first] = await FileVersions.history(store, "report.txt");
   if (!first) throw new Error("Expected a version.");
   const result = await FileVersions.restore({
     store,
     dataRoot: root,
-    target,
+    path: "report.txt",
     id: first.id,
     archivedBy: "editor",
   });
   expect(result.kind).toBe("replaced");
-  expect(await readFile(target, "utf8")).toBe("v1");
-  expect((await contents(target)).sort()).toEqual(["v1", "v2"]);
+  expect(await readFile(at("report.txt"), "utf8")).toBe("v1");
+  expect((await contents("report.txt")).sort()).toEqual(["v1", "v2"]);
   // The live file never shares an inode with its history.
-  const live = await stat(target);
-  for (const version of await FileVersions.history(store, target)) {
-    const found = await FileVersions.find(store, target, version.id);
+  const live = await stat(at("report.txt"));
+  for (const version of await FileVersions.history(store, "report.txt")) {
+    const found = await FileVersions.find(store, "report.txt", version.id);
     expect(found && (await stat(found.payload(root))).ino).not.toBe(live.ino);
   }
   expect(
     await FileVersions.restore({
       store,
       dataRoot: root,
-      target,
+      path: "report.txt",
       id: "00000000-0000-4000-8000-000000000000",
       archivedBy: null,
     }),
@@ -123,15 +148,14 @@ test("restoring a version keeps the current content as a new version", async () 
 });
 
 test("each file keeps a bounded number of versions", async () => {
-  const target = path.join(root, "busy.txt");
   for (let index = 0; index <= versionRetention.maxCount + 2; index++)
-    await save(target, `save ${index}`);
-  const history = await FileVersions.history(store, target);
+    await save("busy.txt", `save ${index}`);
+  const history = await FileVersions.history(store, "busy.txt");
   expect(history).toHaveLength(versionRetention.maxCount);
   expect(
     await readFile(
       (
-        await FileVersions.find(store, target, history.at(-1)?.id ?? "")
+        await FileVersions.find(store, "busy.txt", history.at(-1)?.id ?? "")
       )?.payload(root) ?? "",
       "utf8",
     ),
@@ -147,15 +171,26 @@ test("each file keeps a bounded number of versions", async () => {
 });
 
 test("permanent deletion and age limits remove history and payloads", async () => {
-  const folder = path.join(root, "project");
-  await mkdir(folder);
-  const kept = path.join(root, "kept.txt");
-  await save(path.join(folder, "a.txt"), "a1");
-  await save(path.join(folder, "a.txt"), "a2");
-  await save(kept, "k1");
-  await save(kept, "k2");
-  await FileVersions.discardTree(store, root, folder);
-  expect(await contents(kept)).toEqual(["k1"]);
+  await mkdir(at("project"));
+  await save("project/a.txt", "a1");
+  await save("project/a.txt", "a2");
+  await save("project-notes.txt", "n1");
+  await save("project-notes.txt", "n2");
+  await save("kept.txt", "k1");
+  await save("kept.txt", "k2");
+  // Trash relocates the folder's history to its trash location; purging discards it there.
+  store.relocate("project", FileVersions.trashLocation("trash-1"));
+  await FileVersions.discard(
+    store,
+    root,
+    FileVersions.trashLocation("trash-1"),
+  );
+  expect(await contents("kept.txt")).toEqual(["k1"]);
+  // A sibling sharing the folder's name as a prefix is unaffected.
+  expect(await contents("project-notes.txt")).toEqual(["n1"]);
+  expect(
+    (await readdir(path.join(root, ".nimbus", "versions"))).length,
+  ).toBeGreaterThan(0);
   // An orphaned payload from an interrupted save is swept once it is old.
   const orphan = path.join(
     root,
@@ -172,7 +207,7 @@ test("permanent deletion and age limits remove history and payloads", async () =
     root,
     clock + versionRetention.maxAgeMs + 1,
   );
-  expect(await FileVersions.history(store, kept)).toEqual([]);
+  expect(await FileVersions.history(store, "kept.txt")).toEqual([]);
   // ctime cannot be set from userspace; a fresh orphan is retained for a day.
   expect(await readdir(path.dirname(orphan))).toEqual([
     "ab000000-0000-4000-8000-000000000000",
@@ -182,37 +217,35 @@ test("permanent deletion and age limits remove history and payloads", async () =
 });
 
 test("replacing an empty file keeps no version but keeps earlier history", async () => {
-  const target = path.join(root, "locked.txt");
   // WebDAV clients often LOCK a new path, creating an empty file, then PUT it.
-  await save(target, "");
-  expect(await save(target, "content")).toEqual({
+  await save("locked.txt", "");
+  expect(await save("locked.txt", "content")).toEqual({
     kind: "replaced",
     version: null,
   });
-  expect(await FileVersions.history(store, target)).toEqual([]);
-  await save(target, "");
-  await save(target, "again");
-  expect(await contents(target)).toEqual(["content"]);
+  expect(await FileVersions.history(store, "locked.txt")).toEqual([]);
+  await save("locked.txt", "");
+  await save("locked.txt", "again");
+  expect(await contents("locked.txt")).toEqual(["content"]);
 });
 
 test("moving a file over another keeps the destination's history and discards the moved file's", async () => {
   // Save-by-replace editors and WebDAV MOVE or COPY with Overwrite commit a live file over the target.
-  const original = path.join(root, "report.txt");
-  const draft = path.join(root, "draft.txt");
-  await save(original, "report v1");
-  await save(original, "report v2");
-  await save(draft, "draft v1");
-  await save(draft, "draft v2");
+  await save("report.txt", "report v1");
+  await save("report.txt", "report v2");
+  await save("draft.txt", "draft v1");
+  await save("draft.txt", "draft v2");
   const result = await FileVersions.commitReplacement({
     store,
     dataRoot: root,
-    target: original,
-    incoming: draft,
+    path: "report.txt",
+    incoming: at("draft.txt"),
     archivedBy: "editor",
   });
+  await FileVersions.discard(store, root, "draft.txt");
   expect(result.kind).toBe("replaced");
-  expect(await readFile(original, "utf8")).toBe("draft v2");
-  expect(await contents(original)).toEqual(["report v2", "report v1"]);
+  expect(await readFile(at("report.txt"), "utf8")).toBe("draft v2");
+  expect(await contents("report.txt")).toEqual(["report v2", "report v1"]);
   expect(
     (await store.archivedBefore(Number.MAX_SAFE_INTEGER))
       .map((version) => version.name)

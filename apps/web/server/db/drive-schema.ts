@@ -1,4 +1,5 @@
 import {
+  index,
   integer,
   primaryKey,
   sqliteTable,
@@ -40,24 +41,30 @@ export const grants = sqliteTable(
       table.subjectId,
       table.path,
     ),
+    // Renames, moves and trash rewrite records under a path prefix.
+    index("nimbus_grant_path").on(table.path),
   ],
 );
-export const shares = sqliteTable("nimbus_share", {
-  id: text("id").primaryKey(),
-  token: text("token").notNull().unique(),
-  path: text("path").notNull(),
-  createdBy: text("created_by")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  createdAt: integer("created_at").notNull(),
-  expiresAt: integer("expires_at"),
-  passwordHash: text("password_hash"),
-  downloadCount: integer("download_count").notNull().default(0),
-  maxDownloads: integer("max_downloads"),
-  mode: text("mode", { enum: ["download", "view"] })
-    .notNull()
-    .default("download"),
-});
+export const shares = sqliteTable(
+  "nimbus_share",
+  {
+    id: text("id").primaryKey(),
+    token: text("token").notNull().unique(),
+    path: text("path").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at"),
+    passwordHash: text("password_hash"),
+    downloadCount: integer("download_count").notNull().default(0),
+    maxDownloads: integer("max_downloads"),
+    mode: text("mode", { enum: ["download", "view"] })
+      .notNull()
+      .default("download"),
+  },
+  (table) => [index("nimbus_share_path").on(table.path)],
+);
 export const trash = sqliteTable("nimbus_trash", {
   id: text("id").primaryKey(),
   path: text("path").notNull(),
@@ -81,7 +88,10 @@ export const bookmarks = sqliteTable(
     starred: integer("starred", { mode: "boolean" }).notNull().default(false),
     accessedAt: integer("accessed_at").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.path] })],
+  (table) => [
+    primaryKey({ columns: [table.userId, table.path] }),
+    index("nimbus_bookmark_path").on(table.path),
+  ],
 );
 export const appPasswords = sqliteTable("nimbus_app_password", {
   id: text("id").primaryKey(),

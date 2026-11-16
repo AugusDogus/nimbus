@@ -27,14 +27,14 @@ export const versionsRouter = router({
       ctx.access.require(target.relative, "read");
       const versions = await FileVersions.history(
         ctx.drive.versions,
-        target.absolute,
+        target.relative,
       );
       const authors = new Map<string, string>();
       for (const id of new Set(
         versions.flatMap((version) => version.archivedBy ?? []),
       ))
         authors.set(id, (await ctx.drive.getUser(id))?.name ?? "Former user");
-      return versions.map(({ fileKey: _fileKey, archivedBy, ...version }) => ({
+      return versions.map(({ path: _path, archivedBy, ...version }) => ({
         ...version,
         archivedBy:
           archivedBy === null ? null : (authors.get(archivedBy) ?? null),
@@ -55,7 +55,7 @@ export const versionsRouter = router({
           const result = await FileVersions.restore({
             store: ctx.drive.versions,
             dataRoot: getDataRoot(),
-            target: target.absolute,
+            path: target.relative,
             id: input.id,
             archivedBy: access.user.id,
           });

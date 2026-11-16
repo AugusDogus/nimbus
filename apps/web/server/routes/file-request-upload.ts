@@ -68,6 +68,7 @@ async function getServer() {
         });
         const result = await publishUpload({
           store,
+          versions: httpDriveStore.versions,
           uploadId: id,
           filename: fileNameSchema.parse(filename),
           folder: current.path,

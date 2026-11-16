@@ -6,7 +6,8 @@ export const fileVersions = sqliteTable(
   "nimbus_file_version",
   {
     id: text("id").primaryKey(),
-    fileKey: text("file_key").notNull(),
+    /** Drive path of the file, or its location in trash; see FileVersion. */
+    path: text("path").notNull(),
     name: text("name").notNull(),
     size: integer("size").notNull(),
     modifiedAt: integer("modified_at").notNull(),
@@ -16,7 +17,7 @@ export const fileVersions = sqliteTable(
     }),
   },
   (table) => [
-    index("nimbus_file_version_file").on(table.fileKey, table.archivedAt),
+    index("nimbus_file_version_path").on(table.path, table.archivedAt),
     index("nimbus_file_version_archived").on(table.archivedAt),
   ],
 );

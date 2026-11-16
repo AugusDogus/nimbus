@@ -65,7 +65,7 @@ test("keeps the previous content as a version", async () => {
   });
   const [version] = await FileVersions.history(
     memory.store.versions,
-    path.join(root, "docs/notes.txt"),
+    "docs/notes.txt",
   );
   expect(version).toMatchObject({
     name: "notes.txt",

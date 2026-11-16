@@ -1,5 +1,4 @@
-import { and, eq, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   permissionSchema,
@@ -7,16 +6,19 @@ import {
   type DriveStore,
   type Grant,
 } from "@nimbus/api/drive-store";
+import { FileVersions } from "@nimbus/api/file-versions";
 import type { db } from "./db";
 import {
   createFileRequestStore,
   FileRequestRecords,
 } from "./file-request-store";
 import { createFileVersionStore } from "./file-version-store";
+import { atOrUnder, relocated } from "./db/path-prefix";
 import {
   appPasswords,
   bookmarks,
   davProperties,
+  fileVersions,
   grants,
   groupMembers,
   groups,
@@ -92,20 +94,6 @@ const trashColumns = {
   expiresAt: trash.expiresAt,
 };
 
-/** Match a path and its descendants. Comparing a prefix keeps SQL wildcard characters literal. */
-function atOrUnder(column: SQLiteColumn, path: string): SQL {
-  if (!path)
-    throw new Error(
-      "Nimbus refused to rewrite sharing records for the drive root. The root cannot be moved or trashed; no records were changed.",
-    );
-  return (
-    or(
-      eq(column, path),
-      sql`substr(${column}, 1, length(${path}) + 1) = ${path} || '/'`,
-    ) ?? sql`0`
-  );
-}
-
 /** Delete and return every link, file request, grant, bookmark, and dead property at or under a path. */
 async function detach(tx: Transaction, path: string): Promise<DetachedAccess> {
   const detached = {
@@ -128,9 +116,18 @@ async function detach(tx: Transaction, path: string): Promise<DetachedAccess> {
   return detached;
 }
 
-/** Rewrite a path column from `from` to `to` for rows at or under `from`. */
-const relocated = (column: SQLiteColumn, from: string, to: string) =>
-  sql`${to} || substr(${column}, length(${from}) + 1)`;
+/**
+ * Move file history at or under `from` to the same relative location under `to`, first
+ * dropping history left at `to` by content removed outside Nimbus. Payloads of dropped
+ * records are swept by version cleanup a day later.
+ */
+async function relocateVersions(tx: Transaction, from: string, to: string) {
+  await tx.delete(fileVersions).where(atOrUnder(fileVersions.path, to));
+  await tx
+    .update(fileVersions)
+    .set({ path: relocated(fileVersions.path, from, to) })
+    .where(atOrUnder(fileVersions.path, from));
+}
 
 export function createDriveStore(database: typeof db): DriveStore {
   return {
@@ -284,6 +281,12 @@ export function createDriveStore(database: typeof db): DriveStore {
         await tx
           .insert(trash)
           .values({ ...item, detachedAccess: JSON.stringify(detached) });
+        // History waits at the item's trash location, where it never matches a live path.
+        await relocateVersions(
+          tx,
+          item.path,
+          FileVersions.trashLocation(item.id),
+        );
       });
     },
     async getTrash(id) {
@@ -315,6 +318,11 @@ export function createDriveStore(database: typeof db): DriveStore {
           );
         // Records now at the vacant path were left by content removed outside Nimbus.
         await detach(tx, item.path);
+        await relocateVersions(
+          tx,
+          FileVersions.trashLocation(item.id),
+          item.path,
+        );
         const userIds = new Set(
           (await tx.select({ id: user.id }).from(user)).map((row) => row.id),
         );
@@ -399,6 +407,7 @@ export function createDriveStore(database: typeof db): DriveStore {
     async movePath(from, to) {
       await database.transaction(async (tx) => {
         await detach(tx, to);
+        await relocateVersions(tx, from, to);
         for (const table of [grants, shares, bookmarks, davProperties])
           await tx
             .update(table)

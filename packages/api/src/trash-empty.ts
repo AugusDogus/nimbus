@@ -23,7 +23,11 @@ export async function emptyTrash(store: DriveStore, access: Access) {
     for (const item of items) {
       try {
         const trashed = path.join(trashDirectory, item.id);
-        await FileVersions.discardTree(store.versions, getDataRoot(), trashed);
+        await FileVersions.discard(
+          store.versions,
+          getDataRoot(),
+          FileVersions.trashLocation(item.id),
+        );
         await rm(trashed, { recursive: true, force: true });
         await store.removeTrash(item.id);
         recordAudit({

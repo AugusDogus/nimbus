@@ -1,8 +1,8 @@
-import { and, eq, inArray, isNull, lt, sql, type SQL } from "drizzle-orm";
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { FileRequestStore } from "@nimbus/api/file-request";
 import type { db } from "./db";
+import { atOrUnder, relocated } from "./db/path-prefix";
 import { fileRequestUploads, fileRequests } from "./db/schema";
 
 const counted = (activeSince: number) =>
@@ -186,15 +186,6 @@ const detachedSchema = z.object({
 /** File requests suspended while their folder is in trash, with their upload ledger. */
 export type DetachedFileRequests = z.infer<typeof detachedSchema>;
 
-/** Match a path and its descendants. Comparing a prefix keeps SQL wildcards literal. */
-function atOrUnder(column: SQLiteColumn, path: string): SQL {
-  if (!path)
-    throw new Error(
-      "Nimbus refused to rewrite file request links for the drive root. The root cannot be moved or trashed; no links were changed.",
-    );
-  return sql`(${column} = ${path} OR substr(${column}, 1, length(${path}) + 1) = ${path} || '/')`;
-}
-
 /**
  * File request links follow their folder by the same rules as public links:
  * rewritten on rename and move, suspended with the trash record, restored with
@@ -249,7 +240,7 @@ export const FileRequestRecords = {
     await tx
       .update(fileRequests)
       .set({
-        path: sql`${to} || substr(${fileRequests.path}, length(${from}) + 1)`,
+        path: relocated(fileRequests.path, from, to),
       })
       .where(atOrUnder(fileRequests.path, from));
   },

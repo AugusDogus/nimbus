@@ -114,12 +114,13 @@ export async function commitUpload(
     );
     return publishUpload({
       store,
+      versions,
       uploadId: id,
       filename: metadata.filename,
       folder,
       conflict:
         metadata.conflict === "replace"
-          ? { kind: "replace", versions, archivedBy: access.user.id }
+          ? { kind: "replace", archivedBy: access.user.id }
           : { kind: "keep-both" },
       credentials: { userId: access.user.id },
       requireWrite: (relative) => access.require(relative, "write"),

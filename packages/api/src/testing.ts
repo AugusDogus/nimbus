@@ -13,6 +13,7 @@ import type {
 import { isWithinPath } from "./safe-path";
 import { createTestFileRequestStore } from "./file-request-testing";
 import { createTestFileVersionStore } from "./file-versions-testing";
+import { FileVersions } from "./file-versions";
 import { crawl } from "./search-crawler";
 import { createSearchIndex } from "./search-index";
 import type { SearchService } from "./search-service";
@@ -55,6 +56,7 @@ export function createTestDriveStore() {
   const detached = new Map<string, Detached>();
   const bookmarks = new Map<string, Bookmark[]>();
   const passwords = new Map<string, AppPassword>();
+  const versions = createTestFileVersionStore();
   const store: DriveStore = {
     async getUser(id) {
       return users.get(id) ?? null;
@@ -127,6 +129,7 @@ export function createTestDriveStore() {
     async addTrash(item) {
       trash.set(item.id, item);
       detached.set(item.id, take(item.path));
+      versions.relocate(item.path, FileVersions.trashLocation(item.id));
     },
     async getTrash(id) {
       return trash.get(id) ?? null;
@@ -143,6 +146,7 @@ export function createTestDriveStore() {
       detached.delete(id);
       if (!item || !records) return;
       take(item.path);
+      versions.relocate(FileVersions.trashLocation(item.id), item.path);
       for (const grant of records.grants) grants.set(grant.id, grant);
       for (const share of records.shares) shares.set(share.token, share);
       for (const [userId, bookmark] of records.bookmarks)
@@ -229,12 +233,13 @@ export function createTestDriveStore() {
       if (passwords.get(id)?.userId === userId) passwords.delete(id);
     },
     fileRequests: createTestFileRequestStore(),
-    versions: createTestFileVersionStore(),
+    versions,
     async discardPath(path) {
       take(path);
     },
     async movePath(from, to) {
       take(to);
+      versions.relocate(from, to);
       const moved = (value: string) =>
         isWithinPath(from, value) ? to + value.slice(from.length) : value;
       for (const grant of grants.values()) grant.path = moved(grant.path);

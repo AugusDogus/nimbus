@@ -172,10 +172,16 @@ async function moveUnlocked(
       await FileVersions.commitReplacement({
         store: store.versions,
         dataRoot: getDataRoot(),
-        target: target.absolute,
+        path: target.relative,
         incoming: source.absolute,
         archivedBy: access.user.id,
       });
+      // The destination keeps its own history; the merged file's ends with it.
+      await FileVersions.discard(
+        store.versions,
+        getDataRoot(),
+        source.relative,
+      );
     } else {
       await rename(source.absolute, target.absolute);
       try {
@@ -297,11 +303,19 @@ export async function copyItem(
             await FileVersions.commitReplacement({
               store: store.versions,
               dataRoot: getDataRoot(),
-              target: target.absolute,
+              path: target.relative,
               incoming: staging,
               archivedBy: current.user.id,
             });
-          else await rename(staging, target.absolute);
+          else {
+            await rename(staging, target.absolute);
+            // History left by content removed outside Nimbus never attaches to the copy.
+            await FileVersions.discard(
+              store.versions,
+              getDataRoot(),
+              target.relative,
+            );
+          }
         } catch (error) {
           await undoReplacement(store, current, replacement);
           throw error;
@@ -412,7 +426,11 @@ async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
 async function purgeUnlocked(store: DriveStore, access: Access, id: string) {
   const item = await getOwnedTrash(store, access, id);
   const trashed = path.join(getDataRoot(), ".nimbus", "trash", item.id);
-  await FileVersions.discardTree(store.versions, getDataRoot(), trashed);
+  await FileVersions.discard(
+    store.versions,
+    getDataRoot(),
+    FileVersions.trashLocation(item.id),
+  );
   await rm(trashed, {
     recursive: true,
     force: true,

@@ -64,7 +64,11 @@ export async function cleanExpiredData(
     for (const item of await store.listTrash(null)) {
       if (item.expiresAt > now) continue;
       const trashed = path.join(internal, "trash", item.id);
-      await FileVersions.discardTree(store.versions, dataRoot, trashed);
+      await FileVersions.discard(
+        store.versions,
+        dataRoot,
+        FileVersions.trashLocation(item.id),
+      );
       await rm(trashed, {
         recursive: true,
         force: true,

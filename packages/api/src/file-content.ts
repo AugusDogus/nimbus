@@ -190,7 +190,7 @@ export async function commitStagedFile(
       await FileVersions.commitReplacement({
         store: credentials.versions,
         dataRoot: getDataRoot(),
-        target: target.absolute,
+        path: target.relative,
         incoming: staged.path,
         archivedBy: access.user.id,
       });

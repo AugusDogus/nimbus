@@ -36,7 +36,7 @@ export async function uploadStaging() {
  */
 export type PublishConflict =
   | { kind: "keep-both" }
-  | { kind: "replace"; versions: FileVersionStore; archivedBy: string };
+  | { kind: "replace"; archivedBy: string };
 
 export type PublishResult =
   | { kind: "published"; path: string; replaced: boolean }
@@ -49,20 +49,25 @@ export type PublishResult =
  */
 async function replaceWithUpload(
   store: UploadStore,
+  versions: FileVersionStore,
   uploadId: string,
-  destination: string,
+  destination: { absolute: string; relative: string },
   conflict: Extract<PublishConflict, { kind: "replace" }>,
 ) {
-  await store.replace(uploadId, destination, (incoming) =>
+  await store.replace(uploadId, destination.absolute, (incoming) =>
     FileVersions.commitReplacement({
-      store: conflict.versions,
+      store: versions,
       dataRoot: getDataRoot(),
-      target: destination,
+      path: destination.relative,
       incoming,
       archivedBy: conflict.archivedBy,
     }),
   );
-  publishFileEvent({ path: destination, event: "change", ts: Date.now() });
+  publishFileEvent({
+    path: destination.absolute,
+    event: "change",
+    ts: Date.now(),
+  });
 }
 
 /**
@@ -73,6 +78,7 @@ async function replaceWithUpload(
  */
 export async function publishUpload({
   store,
+  versions,
   uploadId,
   filename,
   folder,
@@ -81,6 +87,7 @@ export async function publishUpload({
   requireWrite,
 }: {
   store: UploadStore;
+  versions: FileVersionStore;
   uploadId: string;
   filename: string;
   folder: string;
@@ -115,7 +122,7 @@ export async function publishUpload({
           code: "CONFLICT",
           message: `A folder named “${filename}” already exists here. Uploads cannot replace folders; rename the file or keep both.`,
         });
-      await replaceWithUpload(store, uploadId, destination.absolute, conflict);
+      await replaceWithUpload(store, versions, uploadId, destination, conflict);
       return { kind: "published", path: destination.relative, replaced: true };
     }
     if (
@@ -129,6 +136,8 @@ export async function publishUpload({
       if (isFsError(error, "EEXIST")) continue;
       throw error;
     }
+    // History left by a file removed outside Nimbus never attaches to a new one.
+    await FileVersions.discard(versions, getDataRoot(), destination.relative);
     publishFileEvent({
       path: destination.absolute,
       event: "rename",

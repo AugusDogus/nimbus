@@ -139,12 +139,7 @@ describe("moving and copying onto existing destinations", () => {
 
   it("keeps the replaced content as a version when a file is moved or copied over another", async () => {
     const versions = async () =>
-      (
-        await FileVersions.history(
-          memory.store.versions,
-          path.join(root, "docs/report.txt"),
-        )
-      )
+      (await FileVersions.history(memory.store.versions, "docs/report.txt"))
         .map((version) => version.size)
         .sort((a, b) => a - b);
     await moveItem(

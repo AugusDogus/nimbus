@@ -364,3 +364,84 @@ test("trash rows saved without file requests still restore", async () => {
   await store.restoreTrash("trash-legacy");
   expect((await store.getShare("token-legacy"))?.path).toBe("legacy");
 });
+
+const version = (id: string, path: string) => ({
+  id,
+  path,
+  name: path.split("/").at(-1) ?? path,
+  size: 1,
+  modifiedAt: 1,
+  archivedAt: 1,
+  archivedBy: null,
+});
+const historyPaths = async () =>
+  (await store.versions.archivedBefore(Number.MAX_SAFE_INTEGER))
+    .map((row) => row.path)
+    .sort();
+
+test("file history moves with its file on rename, trash and restore, in the same transactions as links", async () => {
+  const ids = [
+    "a1b2c3d4-0000-4000-8000-000000000001",
+    "a1b2c3d4-0000-4000-8000-000000000002",
+    "a1b2c3d4-0000-4000-8000-000000000003",
+    "a1b2c3d4-0000-4000-8000-000000000004",
+  ];
+  await store.versions.add(version(ids[0] ?? "", "a_%/report 😀.txt"));
+  await store.versions.add(version(ids[1] ?? "", "a_%"));
+  await store.versions.add(version(ids[2] ?? "", "a_%b/other.txt"));
+  // Left at the destination by a file removed outside Nimbus.
+  await store.versions.add(version(ids[3] ?? "", "moved/report 😀.txt"));
+  await store.movePath("a_%", "moved");
+  expect(await historyPaths()).toEqual([
+    "a_%b/other.txt",
+    "moved",
+    "moved/report 😀.txt",
+  ]);
+  expect(
+    (await store.versions.list("moved/report 😀.txt")).map((row) => row.id),
+  ).toEqual([ids[0]]);
+  await store.addTrash({
+    id: "trash-v",
+    path: "moved",
+    deletedBy: "owner",
+    deletedAt: 1,
+    expiresAt: 2,
+  });
+  expect(await historyPaths()).toEqual([
+    ".nimbus/trash/trash-v",
+    ".nimbus/trash/trash-v/report 😀.txt",
+    "a_%b/other.txt",
+  ]);
+  // History recorded at the vacant path while the item was in trash does not survive restoration.
+  await store.versions.add(
+    version("b1b2c3d4-0000-4000-8000-000000000005", "moved/report 😀.txt"),
+  );
+  await store.restoreTrash("trash-v");
+  expect(await historyPaths()).toEqual([
+    "a_%b/other.txt",
+    "moved",
+    "moved/report 😀.txt",
+  ]);
+  expect(
+    (await store.versions.removeAt("moved")).map((row) => row.path).sort(),
+  ).toEqual(["moved", "moved/report 😀.txt"]);
+  expect(await historyPaths()).toEqual(["a_%b/other.txt"]);
+});
+
+test("path prefix matches use the path indexes", async () => {
+  for (const [table, index] of [
+    ["nimbus_file_version", "nimbus_file_version_path"],
+    ["nimbus_grant", "nimbus_grant_path"],
+    ["nimbus_share", "nimbus_share_path"],
+    ["nimbus_bookmark", "nimbus_bookmark_path"],
+    ["nimbus_file_request", "nimbus_file_request_path"],
+  ] as const) {
+    const plan = await client.execute({
+      sql: `EXPLAIN QUERY PLAN SELECT * FROM ${table} WHERE path = ? OR (path >= ? AND path < ?)`,
+      args: ["docs", "docs/", "docs0"],
+    });
+    expect(plan.rows.map((row) => String(row.detail)).join("\n")).toContain(
+      index,
+    );
+  }
+});

@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     access.require(target.relative, "read");
     const found = await FileVersions.find(
       httpDriveStore.versions,
-      target.absolute,
+      target.relative,
       url.searchParams.get("id") ?? "",
     );
     if (!found)

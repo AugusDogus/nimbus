@@ -213,7 +213,7 @@ describe("drive workflows", () => {
       await FileVersions.commitReplacement({
         store: memory.store.versions,
         dataRoot: root,
-        target: path.join(root, "docs", "report.txt"),
+        path: "docs/report.txt",
         incoming: path.join(root, "incoming.txt"),
         archivedBy: "user-1",
       });

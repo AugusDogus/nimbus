@@ -20,16 +20,22 @@ import { isFsError } from "./safe-path";
  * possible and by reflink otherwise, so preserving a version never copies the
  * file's bytes on filesystems that support either.
  *
- * History belongs to a file's identity (inode and birth time), not its path.
- * Renames, moves, trash and restore keep the inode, so history follows them,
- * including renames made by other programs, without any hook in those paths.
- * A replacement gives the file a new inode; `commitReplacement` carries the
- * history over to it. Permanent deletion discards history with `discardTree`.
+ * History belongs to a file's path, like its links, grants and stars. Renames,
+ * moves, trash and restore through Nimbus relocate it in the same transaction
+ * that relocates those records (`DriveStore.movePath`, `addTrash`,
+ * `restoreTrash`), so it follows the file, and a file replaced by another
+ * program's save-by-rename keeps it. Paths, unlike inode numbers, are stable
+ * on every supported filesystem, including Unraid user shares, whose inode
+ * numbers change across reboots and when Mover relocates a file. Renames made
+ * outside Nimbus leave history at the old path, as they leave links and grants.
  */
 export type FileVersion = {
   id: string;
-  /** Identity of the live file this version belongs to. */
-  fileKey: string;
+  /**
+   * Where the file lives, relative to the data root: its drive path, or a
+   * location under `trashLocation` while it is in trash.
+   */
+  path: string;
   /** File name when the version was archived, used for downloads. */
   name: string;
   size: number;
@@ -39,16 +45,19 @@ export type FileVersion = {
   archivedBy: string | null;
 };
 
+/**
+ * Version records. Relocation under a path is not here: the drive store does
+ * it inside the transactions that relocate sharing records.
+ */
 export type FileVersionStore = {
   add(version: FileVersion): Promise<void>;
-  /** Carry history from a replaced inode to its successor. */
-  rekey(from: string, to: string): Promise<void>;
   /** Newest first. */
-  list(fileKey: string): Promise<FileVersion[]>;
+  list(path: string): Promise<FileVersion[]>;
   get(id: string): Promise<FileVersion | null>;
   /** Remove records and return the ones that existed. */
   remove(ids: readonly string[]): Promise<FileVersion[]>;
-  removeFileKeys(keys: readonly string[]): Promise<FileVersion[]>;
+  /** Remove and return the records at or under a path. */
+  removeAt(path: string): Promise<FileVersion[]>;
   archivedBefore(cutoff: number): Promise<FileVersion[]>;
   /** Which of these ids still have records. */
   existing(ids: readonly string[]): Promise<Set<string>>;
@@ -61,6 +70,13 @@ export const versionRetention = {
   maxAgeMs: 30 * 24 * 60 * 60 * 1000,
 } as const;
 
+/**
+ * Where the history of a trashed item's files lives until it is restored or
+ * purged: the item's own location on disk. Drive paths can never start with
+ * `.nimbus`, so trashed history never matches a live file.
+ */
+const trashLocation = (trashId: string) => `.nimbus/trash/${trashId}`;
+
 const versionsDirectory = (dataRoot: string) =>
   path.join(dataRoot, ".nimbus", "versions");
 
@@ -70,20 +86,19 @@ function payloadPath(dataRoot: string, id: string) {
   return path.join(versionsDirectory(dataRoot), id.slice(0, 2), id);
 }
 
-function fileKey(stats: BigIntStats) {
-  // Birth time distinguishes a reused inode number. Filesystems without it report 0.
-  return `${stats.ino}:${stats.birthtimeNs}`;
-}
-
-async function identity(absolute: string) {
+async function fileStats(absolute: string) {
   try {
     const stats = await lstat(absolute, { bigint: true });
-    return stats.isFile() ? { stats, key: fileKey(stats) } : null;
+    return stats.isFile() ? stats : null;
   } catch (error) {
     if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR")) return null;
     throw error;
   }
 }
+
+/** Content written in place changes size or modification time. Inode numbers and ctime are not compared: neither is stable everywhere. */
+const sameContent = (a: BigIntStats, b: BigIntStats | null) =>
+  b !== null && a.size === b.size && a.mtimeNs === b.mtimeNs;
 
 const unsupported = [
   "EXDEV",
@@ -133,97 +148,83 @@ async function removePayloads(
     await rm(payloadPath(dataRoot, version.id), { force: true });
 }
 
+/** Remove the history at or under `location`, records and payloads. */
+async function discard(
+  store: FileVersionStore,
+  dataRoot: string,
+  location: string,
+) {
+  await removePayloads(dataRoot, await store.removeAt(location));
+}
+
 export type ReplacementResult =
   | { kind: "created" }
   /** `version` is null when the previous content was empty and not worth keeping. */
   | { kind: "replaced"; version: FileVersion | null };
 
 /**
- * The replaced file keeps its history under its new identity. Like links and
- * grants when content merges into another item, the incoming file's own
- * earlier history is discarded: the result is a new version of `target`.
- */
-async function adoptHistory(
-  store: FileVersionStore,
-  dataRoot: string,
-  previousKey: string,
-  currentKey: string,
-) {
-  await removePayloads(dataRoot, await store.removeFileKeys([currentKey]));
-  await store.rekey(previousKey, currentKey);
-}
-
-/**
  * The single commit point for replacing a file's content. Moves `incoming`
- * over `target` atomically, first preserving the previous content as a
- * version. Readers see either the old or the new file, never neither. Call
- * inside `mutateFiles` so the target cannot change meanwhile.
+ * over the file at `path` (relative to `dataRoot`) atomically, first
+ * preserving the previous content as a version. Readers see either the old or
+ * the new file, never neither. Call inside `mutateFiles` so the target cannot
+ * change meanwhile.
  *
- * `incoming` is any complete regular file on the same filesystem as `target`:
- * a staged upload, WebDAV PUT body, editor save or COPY, or a live file moved
- * over another one. If preserving fails, nothing is replaced and `incoming`
- * is left where it was.
+ * `incoming` is any complete regular file on the same filesystem as the
+ * target: a staged upload, WebDAV PUT body, editor save or COPY, or a live
+ * file moved over another one, whose own history the caller discards. If
+ * preserving fails, nothing is replaced and `incoming` is left where it was.
  */
 async function commitReplacement({
   store,
   dataRoot,
-  target,
+  path: relative,
   incoming,
   archivedBy,
   now = Date.now(),
 }: {
   store: FileVersionStore;
   dataRoot: string;
-  target: string;
+  path: string;
   incoming: string;
   archivedBy: string | null;
   now?: number;
 }): Promise<ReplacementResult> {
-  const previous = await identity(target);
+  const target = path.join(dataRoot, relative);
+  const previous = await fileStats(target);
   if (!previous) {
     await rename(incoming, target);
+    // History left by a file removed outside Nimbus never attaches to a new one.
+    await discard(store, dataRoot, relative);
     return { kind: "created" };
   }
-  if (previous.stats.size === BigInt(0)) {
+  if (previous.size === BigInt(0)) {
     // An empty file, such as one created by a WebDAV LOCK before its PUT, has
-    // nothing to keep; its earlier history still moves to the new content.
+    // nothing to keep; its earlier history stays with the path.
     await rename(incoming, target);
-    const current = await identity(target);
-    if (current) await adoptHistory(store, dataRoot, previous.key, current.key);
     return { kind: "replaced", version: null };
   }
   const version: FileVersion = {
     id: randomUUID(),
-    fileKey: "",
+    path: relative,
     name: path.basename(target),
-    size: Number(previous.stats.size),
-    modifiedAt: Number(previous.stats.mtimeMs),
+    size: Number(previous.size),
+    modifiedAt: Number(previous.mtimeMs),
     archivedAt: now,
     archivedBy,
   };
   const payload = payloadPath(dataRoot, version.id);
   await mkdir(path.dirname(payload), { recursive: true });
-  await preserve(target, payload, previous.stats.nlink);
-  const preserved = await identity(target);
-  if (preserved?.key !== previous.key) {
-    // Another program replaced the file while it was being preserved.
+  await preserve(target, payload, previous.nlink);
+  if (!sameContent(previous, await fileStats(target))) {
+    // Another program changed the file while it was being preserved.
     await rm(payload, { force: true });
     throw new Error(
       `${target} changed while its previous version was being saved. Nothing was replaced and the new content is still staged; try saving again.`,
     );
   }
   await rename(incoming, target);
-  const current = await identity(target);
-  if (!current)
-    throw new Error(
-      `${target} disappeared immediately after it was replaced. Its previous version is kept at ${payload}.`,
-    );
-  version.fileKey = current.key;
-  await adoptHistory(store, dataRoot, previous.key, current.key);
   await store.add(version);
-  const excess = (await store.list(current.key)).slice(
-    versionRetention.maxCount,
-  );
+  const excess = (await store.list(relative)).slice(versionRetention.maxCount);
   if (excess.length)
     await removePayloads(
       dataRoot,
@@ -232,19 +233,15 @@ async function commitReplacement({
   return { kind: "replaced", version };
 }
 
-/** History of the file at `absolute`, newest first; empty for folders. */
-async function history(store: FileVersionStore, absolute: string) {
-  const current = await identity(absolute);
-  return current ? store.list(current.key) : [];
+/** History of the file at a drive path, newest first. */
+function history(store: FileVersionStore, relative: string) {
+  return store.list(relative);
 }
 
-/** A version of the file at `absolute`, or null if it belongs to another file. */
-async function find(store: FileVersionStore, absolute: string, id: string) {
-  const [current, version] = await Promise.all([
-    identity(absolute),
-    store.get(id),
-  ]);
-  return current && version?.fileKey === current.key
+/** A version of the file at a drive path, or null if it belongs to another file. */
+async function find(store: FileVersionStore, relative: string, id: string) {
+  const version = await store.get(id);
+  return version?.path === relative
     ? { version, payload: (dataRoot: string) => payloadPath(dataRoot, id) }
     : null;
 }
@@ -257,17 +254,17 @@ async function find(store: FileVersionStore, absolute: string, id: string) {
 async function restore({
   store,
   dataRoot,
-  target,
+  path: relative,
   id,
   archivedBy,
 }: {
   store: FileVersionStore;
   dataRoot: string;
-  target: string;
+  path: string;
   id: string;
   archivedBy: string | null;
 }) {
-  const found = await find(store, target, id);
+  const found = await find(store, relative, id);
   if (!found) return { kind: "not-found" } as const;
   const staging = path.join(dataRoot, ".nimbus", "uploads");
   await mkdir(staging, { recursive: true });
@@ -282,7 +279,7 @@ async function restore({
     return await commitReplacement({
       store,
       dataRoot,
-      target,
+      path: relative,
       incoming,
       archivedBy,
     });
@@ -291,37 +288,9 @@ async function restore({
   }
 }
 
-/** Discard the history of every file under `absolute`, before deleting it permanently. */
-async function discardTree(
-  store: FileVersionStore,
-  dataRoot: string,
-  absolute: string,
-) {
-  const keys: string[] = [];
-  const pending = [absolute];
-  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-    let stats;
-    try {
-      stats = await lstat(next, { bigint: true });
-    } catch (error) {
-      if (isFsError(error, "ENOENT")) continue;
-      throw error;
-    }
-    if (stats.isFile()) keys.push(fileKey(stats));
-    else if (stats.isDirectory())
-      for (const child of await readdir(next))
-        pending.push(path.join(next, child));
-  }
-  for (let index = 0; index < keys.length; index += 500)
-    await removePayloads(
-      dataRoot,
-      await store.removeFileKeys(keys.slice(index, index + 500)),
-    );
-}
-
 /**
  * Remove versions past the age limit, and payloads left without a record by an
- * interrupted save once they are a day old.
+ * interrupted save or a discarded record once they are a day old.
  */
 async function cleanup(
   store: FileVersionStore,
@@ -358,10 +327,11 @@ async function cleanup(
 }
 
 export const FileVersions = {
+  trashLocation,
   commitReplacement,
   history,
   find,
   restore,
-  discardTree,
+  discard,
   cleanup,
 } as const;

@@ -87,7 +87,7 @@ describe("committing finished uploads", () => {
     await commit("replacement", { filename: "notes.txt", conflict: "replace" });
     const [version] = await FileVersions.history(
       memory.store.versions,
-      path.join(root, "docs/notes.txt"),
+      "docs/notes.txt",
     );
     expect(version).toMatchObject({
       name: "notes.txt",

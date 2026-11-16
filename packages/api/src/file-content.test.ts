@@ -158,7 +158,7 @@ describe("file content", () => {
     await write("docs/notes.txt", "rewritten");
     const [version] = await FileVersions.history(
       memory.store.versions,
-      path.join(root, "docs", "notes.txt"),
+      "docs/notes.txt",
     );
     expect(version).toMatchObject({
       name: "notes.txt",
