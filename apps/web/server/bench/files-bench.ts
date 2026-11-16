@@ -899,8 +899,18 @@ const scenarios: Record<string, () => Promise<void>> = {
           stderr: "inherit",
         },
       );
-      let cgroupPeak = 0;
+      // Memory of the whole process tree: its level when each pass starts, and its peak during it.
+      const windows: { base: number; peak: number }[] = [];
+      let memoryFile = "";
       let sampler: ReturnType<typeof setInterval> | null = null;
+      const current = () => {
+        try {
+          return Number(readFileSync(memoryFile, "utf8"));
+        } catch {
+          // The scope ends with its process.
+          return 0;
+        }
+      };
       let done: Record<string, unknown> | null = null;
       const reader = child.stdout.getReader();
       let buffered = "";
@@ -922,55 +932,62 @@ const scenarios: Record<string, () => Promise<void>> = {
           if (typeof message !== "object" || message === null) continue;
           const type: unknown = Reflect.get(message, "type");
           if (type === "ready") {
-            // Peak memory of the whole process tree while the pass runs.
             const cgroup =
               /^0::(.*)$/m.exec(
                 readFileSync(`/proc/${child.pid}/cgroup`, "utf8"),
               )?.[1] ?? "";
-            const memoryFile = `/sys/fs/cgroup${cgroup}/memory.current`;
+            memoryFile = `/sys/fs/cgroup${cgroup}/memory.current`;
+          } else if (type === "pass-start") {
+            const window = { base: current(), peak: 0 };
+            windows.push(window);
             sampler = setInterval(() => {
-              try {
-                cgroupPeak = Math.max(
-                  cgroupPeak,
-                  Number(readFileSync(memoryFile, "utf8")),
-                );
-              } catch {
-                // The scope ends with its process.
-              }
+              window.peak = Math.max(window.peak, current());
             }, 20);
-          } else if (type === "done") {
+          } else if (type === "pass-end") {
             if (sampler) clearInterval(sampler);
+          } else if (type === "done")
             done = Object.fromEntries(Object.entries(message));
-          }
         }
       }
       if (sampler) clearInterval(sampler);
       const code = await child.exited;
       const name = `reconcile ${size} files`;
-      const number = (key: string) => {
-        const value = done?.[key];
-        return typeof value === "number" ? value : -1;
-      };
-      record(`${name}: pass`, number("passMs"), "ms");
-      record(
-        `${name}: process tree peak during pass`,
-        cgroupPeak / 1024 / 1024,
-        "MB",
-      );
-      record(
-        `${name}: longest stall in the worker`,
-        number("longestStallMs"),
-        "ms",
-        "info",
-      );
-      record(`${name}: query p50 during pass`, number("queryP50Ms"), "ms");
-      record(`${name}: query max during pass`, number("queryMaxMs"), "ms");
-      record(
-        `${name}: queries answered during pass`,
-        number("queries"),
-        "queries",
-        "info",
-      );
+      for (const [index, phase] of (["quiet", "loaded"] as const).entries()) {
+        const result: unknown = done?.[phase];
+        const number = (key: string) => {
+          const value: unknown =
+            typeof result === "object" && result !== null
+              ? Reflect.get(result, key)
+              : undefined;
+          return typeof value === "number" ? value : -1;
+        };
+        const label =
+          phase === "quiet" ? `${name}, no searches` : `${name}, 20 searches/s`;
+        const window = windows[index] ?? { base: 0, peak: 0 };
+        record(`${label}: pass`, number("passMs"), "ms");
+        record(`${label}: process tree peak`, window.peak / 1024 / 1024, "MB");
+        record(
+          `${label}: growth over the pre-pass level`,
+          Math.max(0, window.peak - window.base) / 1024 / 1024,
+          "MB",
+        );
+        record(
+          `${label}: longest hold on the index`,
+          number("longestStallMs"),
+          "ms",
+          "info",
+        );
+        if (phase === "loaded") {
+          record(`${label}: query p50`, number("queryP50Ms"), "ms");
+          record(`${label}: query max`, number("queryMaxMs"), "ms");
+          record(
+            `${label}: queries answered`,
+            number("queries"),
+            "queries",
+            "info",
+          );
+        }
+      }
       record(
         `${name}: matches a fresh crawl`,
         done?.matchesFreshCrawl === true ? 1 : 0,

@@ -31,26 +31,31 @@ ensureSearchIndex();
 await driveUsage();
 
 // About 1% of the tree changes while nothing watches: additions, deletions, resizes, and
-// a folder moved into another one.
+// a folder moved into another one. Each round touches different folders.
 const folders = (
   await Array.fromAsync(
     new Bun.Glob("tree/g*/d*").scan({ cwd: root, onlyFiles: false }),
   )
 ).sort();
-let changed = 0;
-for (const [index, folder] of folders.entries()) {
-  if (index % 100 !== 0) continue;
-  const absolute = path.join(root, folder);
-  await writeFile(path.join(absolute, "added.txt"), "0123456789");
-  await rm(path.join(absolute, "file-0.txt"), { force: true });
-  await writeFile(path.join(absolute, "file-1.txt"), "resized to be longer");
-  changed += 3;
-}
-const [moved, into] = [folders[1], folders[2]];
-if (moved && into) {
-  await rename(path.join(root, moved), path.join(root, into, "moved-in"));
-  await mkdir(path.join(root, moved));
-  changed += 2;
+async function changeTree(round: number) {
+  for (const [index, folder] of folders.entries()) {
+    if (index % 100 !== round * 50) continue;
+    const absolute = path.join(root, folder);
+    await writeFile(path.join(absolute, `added-${round}.txt`), "0123456789");
+    await rm(path.join(absolute, `file-${round * 2}.txt`), { force: true });
+    await writeFile(
+      path.join(absolute, `file-${round * 2 + 1}.txt`),
+      "resized to be longer",
+    );
+  }
+  const [moved, into] = [folders[round * 2 + 1], folders[round * 2 + 2]];
+  if (moved && into) {
+    await rename(
+      path.join(root, moved),
+      path.join(root, into, `moved-in-${round}`),
+    );
+    await mkdir(path.join(root, moved));
+  }
 }
 
 const admin = accessFor(
@@ -63,31 +68,52 @@ const admin = accessFor(
   },
   [],
 );
-console.log(JSON.stringify({ type: "ready", changed }));
-const before = passesReported();
-const started = performance.now();
-requestSearchRescan();
-const latencies: number[] = [];
-while (passesReported() === before && performance.now() - started < 600_000) {
-  const asked = performance.now();
-  await searchEntries(admin, "", "file-7", 20);
-  latencies.push(performance.now() - asked);
-  await Bun.sleep(5);
+
+/** One pass; with `queryEveryMs`, searches at that interval while it runs. */
+async function pass(queryEveryMs: number | null) {
+  console.log(JSON.stringify({ type: "pass-start" }));
+  const before = passesReported();
+  const started = performance.now();
+  requestSearchRescan();
+  const latencies: number[] = [];
+  while (passesReported() === before && performance.now() - started < 600_000) {
+    if (queryEveryMs === null) {
+      await Bun.sleep(10);
+      continue;
+    }
+    const asked = performance.now();
+    await searchEntries(admin, "", "file-7", 20);
+    latencies.push(performance.now() - asked);
+    await Bun.sleep(queryEveryMs);
+  }
+  console.log(JSON.stringify({ type: "pass-end" }));
+  latencies.sort((a, b) => a - b);
+  const reported = reports.at(-1) ?? "";
+  return {
+    passMs: Number(
+      /in (\d+) ms/.exec(reported)?.[1] ?? performance.now() - started,
+    ),
+    longestStallMs: Number(/longest pause (\d+) ms/.exec(reported)?.[1] ?? -1),
+    queries: latencies.length,
+    queryP50Ms: latencies[Math.floor(latencies.length / 2)] ?? 0,
+    queryMaxMs: latencies.at(-1) ?? 0,
+  };
 }
-const elapsed = performance.now() - started;
-latencies.sort((a, b) => a - b);
-const reported = reports.at(-1) ?? "";
+
+console.log(JSON.stringify({ type: "ready" }));
+await changeTree(0);
+const quiet = await pass(null);
+await changeTree(1);
+// About 20 searches a second, a busy server.
+const loaded = await pass(50);
 const fresh = createSearchIndex(1 << 16);
 await crawl(fresh, root);
 const usage = await driveUsage();
 console.log(
   JSON.stringify({
     type: "done",
-    passMs: Number(/in (\d+) ms/.exec(reported)?.[1] ?? elapsed),
-    longestStallMs: Number(/longest pause (\d+) ms/.exec(reported)?.[1] ?? -1),
-    queries: latencies.length,
-    queryP50Ms: latencies[Math.floor(latencies.length / 2)] ?? 0,
-    queryMaxMs: latencies.at(-1) ?? 0,
+    quiet,
+    loaded,
     matchesFreshCrawl: usage === fresh.bytesAt(""),
   }),
 );
