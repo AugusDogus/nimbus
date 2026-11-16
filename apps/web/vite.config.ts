@@ -33,6 +33,47 @@ function themeBootScript(): Plugin {
 }
 
 /**
+ * Preloads the latin Geist font, which sets nearly all text, so the first paint usually uses it.
+ * Geist Mono and the Fredoka wordmark swap in from metric-matched fallbacks; preloading them too
+ * measured slower on slow connections, where they compete with the app's code.
+ */
+function preloadFonts(): Plugin {
+  const fonts = ["geist-latin-wght-normal"];
+  return {
+    name: "nimbus-preload-fonts",
+    apply: "build",
+    transformIndexHtml: {
+      order: "post",
+      handler(_html, context) {
+        const files = Object.values(context.bundle ?? {}).filter(
+          (file) => file.type === "asset" && file.fileName.endsWith(".woff2"),
+        );
+        return fonts.map((font) => {
+          const file = files.find((asset) =>
+            asset.fileName.startsWith(`assets/${font}-`),
+          );
+          if (!file)
+            throw new Error(
+              `The build has no ${font}.woff2 to preload. Check the font imports in app/fonts.css.`,
+            );
+          return {
+            tag: "link",
+            attrs: {
+              rel: "preload",
+              href: `/${file.fileName}`,
+              as: "font",
+              type: "font/woff2",
+              crossorigin: "",
+            },
+            injectTo: "head",
+          };
+        });
+      },
+    },
+  };
+}
+
+/**
  * Writes brotli and gzip variants beside each compressible file, at the highest levels, so the
  * server never compresses them per request. The HTML shell is compressed per response instead,
  * because every response carries its own nonce.
@@ -101,6 +142,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     themeBootScript(),
+    preloadFonts(),
     precompress(),
   ],
 });

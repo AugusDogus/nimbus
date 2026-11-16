@@ -150,7 +150,7 @@ async function route(request: Request): Promise<Response> {
   const nonce = SecurityHeaders.nonce();
   return AppShell.htmlResponse(
     request,
-    await shell.html(nonce),
+    await shell.html(nonce, pathname),
     new Headers(SecurityHeaders.document(nonce, securityMode)),
   );
 }

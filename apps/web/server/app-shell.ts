@@ -2,6 +2,7 @@ import { access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants } from "node:zlib";
 import { htmlNonce } from "@/client/html-nonce";
+import { RoutePreloads } from "./route-preloads";
 import { StaticFiles } from "./static-files";
 
 /**
@@ -10,8 +11,8 @@ import { StaticFiles } from "./static-files";
  * so edits reload instantly; the server still sets every header itself.
  */
 export type AppShell = {
-  /** The page HTML with `nonce` in every script tag. */
-  html(nonce: string): Promise<string>;
+  /** The page HTML for `pathname` with `nonce` in every script tag. */
+  html(nonce: string, pathname: string): Promise<string>;
   /** The `<link rel="stylesheet">` tags of the app, for pages the server renders itself. */
   stylesheets(nonce: string): Promise<string>;
   /** A client file such as a script or icon, or null when there is none at that path. */
@@ -36,13 +37,19 @@ async function production(): Promise<AppShell> {
     );
   }
   const template = await Bun.file(index).text();
+  const manifest: unknown = await Bun.file(`${dist}.vite/manifest.json`).json();
+  const preloads = RoutePreloads.fromManifest(manifest);
   const files = await StaticFiles.load(dist, [
     "index.html",
     ".vite/manifest.json",
   ]);
   const styles = stylesheetTags(template);
   return {
-    html: async (nonce) => fill(template, nonce),
+    html: async (nonce, pathname) =>
+      fill(template, nonce).replace(
+        "</head>",
+        `${preloads.links(pathname)}</head>`,
+      ),
     stylesheets: async (nonce) => fill(styles, nonce),
     file: async (request, pathname) => {
       const file = files.get(pathname);

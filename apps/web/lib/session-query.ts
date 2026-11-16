@@ -26,9 +26,8 @@ function parseSession(value: unknown): SignedIn | null {
 export const sessionQuery = queryOptions({
   queryKey: ["session"],
   queryFn: async (): Promise<SignedIn | null> => {
-    const response = await fetch("/api/auth/get-session", {
-      headers: { Accept: "application/json" },
-    });
+    // The page preloads this exact request, so it must stay a plain GET.
+    const response = await fetch("/api/auth/get-session");
     if (!response.ok)
       throw new Error(
         `Nimbus could not check your sign-in (HTTP ${response.status}). Reload the page to try again.`,
