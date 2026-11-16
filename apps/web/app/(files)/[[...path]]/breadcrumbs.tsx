@@ -2,7 +2,6 @@
 
 import { Home } from "lucide-react";
 import Link from "next/link";
-import { Fragment } from "react";
 
 import {
   Breadcrumb,
@@ -22,24 +21,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { fileHref } from "./types";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 /**
- * Maximum number of middle segments (between root and current page) to keep
- * visible before collapsing the rest into an ellipsis dropdown.
+ * Desktop keeps the parent visible: `My Drive > ... > Parent > Current`
+ * Mobile collapses it too:          `Home > ... > Current`
  *
- * Desktop keeps 1 parent visible: `My Drive > ... > Parent > Current`
- * Mobile keeps 0 to save space:   `Home > ... > Current`
+ * The difference is pure CSS at the `md` breakpoint, so the server renders the right crumbs for
+ * either viewport and nothing changes after hydration.
  */
-const MAX_VISIBLE_MIDDLE_DESKTOP = 1;
-const MAX_VISIBLE_MIDDLE_MOBILE = 0;
-
 export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
-  const isMobile = useIsMobile();
   const isNested = pathSegments.length > 0;
-  const maxVisible = isMobile
-    ? MAX_VISIBLE_MIDDLE_MOBILE
-    : MAX_VISIBLE_MIDDLE_DESKTOP;
 
   const segmentCrumbs = pathSegments.map((segment, i) => ({
     label: segment,
@@ -49,16 +40,11 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
   // The last segment is always rendered as the current (non-link) page.
   const currentPage = isNested ? segmentCrumbs[segmentCrumbs.length - 1] : null;
 
-  // Middle crumbs sit between root and the current page.
+  // Middle crumbs sit between root and the current page. All but the parent always collapse.
   const middleCrumbs = segmentCrumbs.slice(0, -1);
-  const needsCollapse = middleCrumbs.length > maxVisible;
-  const collapsedCrumbs = needsCollapse
-    ? middleCrumbs.slice(0, middleCrumbs.length - maxVisible)
-    : [];
-  const visibleMiddleCrumbs = needsCollapse
-    ? middleCrumbs.slice(middleCrumbs.length - maxVisible)
-    : middleCrumbs;
-  const labelClassName = isMobile ? "max-w-[38vw] truncate" : "";
+  const parent = middleCrumbs.at(-1);
+  // With nothing else to collapse, desktop has no ellipsis.
+  const ellipsisClassName = middleCrumbs.length === 1 ? "md:hidden" : undefined;
 
   if (!isNested) {
     return (
@@ -74,17 +60,18 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
         {/* Root: icon on mobile, text on desktop */}
         <BreadcrumbItem>
           <BreadcrumbLink asChild>
-            <Link href="/" className={labelClassName} aria-label="My Drive">
-              {isMobile ? <Home className="size-4" /> : "My Drive"}
+            <Link href="/" aria-label="My Drive">
+              <Home className="size-4 md:hidden" />
+              <span className="max-md:hidden">My Drive</span>
             </Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
 
-        {/* Ellipsis with collapsed segments */}
-        {needsCollapse && (
+        {/* Ellipsis with collapsed segments, then the parent, which collapses too on mobile */}
+        {parent && (
           <>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
+            <BreadcrumbSeparator className={ellipsisClassName} />
+            <BreadcrumbItem className={ellipsisClassName}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button size="icon-sm" variant="ghost">
@@ -94,8 +81,8 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   <DropdownMenuGroup>
-                    {collapsedCrumbs.map((crumb) => (
-                      <DropdownMenuItem key={crumb.href} asChild>
+                    {middleCrumbs.map((crumb) => (
+                      <DropdownMenuItem key={crumb.href} asChild className={crumb === parent ? "md:hidden" : undefined}>
                         <Link href={crumb.href}>{crumb.label}</Link>
                       </DropdownMenuItem>
                     ))}
@@ -103,29 +90,21 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
                 </DropdownMenuContent>
               </DropdownMenu>
             </BreadcrumbItem>
-          </>
-        )}
-
-        {/* Visible middle segments (links) */}
-        {visibleMiddleCrumbs.map((crumb) => (
-          <Fragment key={crumb.href}>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
+            <BreadcrumbSeparator className="max-md:hidden" />
+            <BreadcrumbItem className="max-md:hidden">
               <BreadcrumbLink asChild>
-                <Link href={crumb.href} className={labelClassName}>
-                  {crumb.label}
-                </Link>
+                <Link href={parent.href}>{parent.label}</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
-          </Fragment>
-        ))}
+          </>
+        )}
 
         {/* Current page */}
         {currentPage && (
           <>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage className={labelClassName}>
+              <BreadcrumbPage className="max-md:max-w-[38vw] max-md:truncate">
                 {currentPage.label}
               </BreadcrumbPage>
             </BreadcrumbItem>
