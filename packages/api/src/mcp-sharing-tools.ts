@@ -122,7 +122,7 @@ const listPermissions = defineTool({
   async run({ caller }, input) {
     const target = await safePath(input.path);
     const grants = await caller.access.permissions({ path: target.relative });
-    const [people, groups] = await Promise.all([caller.access.people(), caller.access.groups()]);
+    const [people, groups] = await Promise.all([caller.access.people({ path: target.relative }), caller.access.groups()]);
     return {
       path: target.relative,
       grants: grants.map((grant) => {
@@ -167,7 +167,7 @@ const grantPermission = defineTool({
     let id: string | undefined;
     if (input.subject.type === "user") {
       const email = input.subject.email.toLowerCase();
-      id = (await caller.access.people()).find((person) => person.email.toLowerCase() === email)?.id;
+      id = (await caller.access.people({ path: target.relative })).find((person) => person.email.toLowerCase() === email)?.id;
     } else {
       const name = input.subject.name;
       id = (await caller.access.groups()).find((group) => group.name === name)?.id;

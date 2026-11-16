@@ -217,7 +217,7 @@ const writeText = defineTool({
     const staged = await stageFile(input.content);
     try {
       const outcome = await commitStagedFile(
-        { userId: context.userId, authorize: access },
+        { userId: context.userId, authorize: access, versions: context.drive.versions },
         target.relative,
         staged,
         (current) =>
