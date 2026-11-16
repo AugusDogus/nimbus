@@ -2,7 +2,7 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { FileText, Folder } from "lucide-react";
-import { useEffect, useId, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PreviewDialog } from "../[[...path]]/preview-dialog";
@@ -26,13 +26,15 @@ function useDebounced<T>(value: T, delayMs: number) {
  * because the input is rendered, and stays mounted, outside this chunk.
  */
 export default function SearchSuggestions({
+  id,
   input,
   navigate,
 }: {
+  /** The listbox id, which the input already names in `aria-controls`. */
+  id: string;
   input: RefObject<HTMLInputElement | null>;
   navigate: (href: string) => void;
 }) {
-  const id = useId();
   const [value, setValue] = useState(() => input.current?.value ?? "");
   const [open, setOpen] = useState(true);
   const query = useDebounced(value.trim(), 80);
@@ -123,7 +125,6 @@ export default function SearchSuggestions({
     const element = input.current;
     if (!element) return;
     element.setAttribute("aria-expanded", String(expanded));
-    element.setAttribute("aria-controls", id);
     if (expanded && active >= 0)
       element.setAttribute("aria-activedescendant", optionId(active));
     else element.removeAttribute("aria-activedescendant");

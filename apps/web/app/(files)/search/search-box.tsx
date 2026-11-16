@@ -2,7 +2,7 @@
 
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useId, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 
 // The header ships a plain search form. Suggestions load on first focus and
@@ -12,6 +12,7 @@ const Suggestions = lazy(() => import("./search-suggestions"));
 export function SearchBox() {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
+  const listbox = useId();
   const [focused, setFocused] = useState(false);
   return (
     <form
@@ -34,6 +35,7 @@ export function SearchBox() {
         role="combobox"
         aria-label="Search files"
         aria-autocomplete="list"
+        aria-controls={listbox}
         // Constant here; the suggestions update it on the element itself.
         aria-expanded="false"
         autoComplete="off"
@@ -45,7 +47,7 @@ export function SearchBox() {
         <Suspense fallback={null}>
           {/* The router comes from here: importing next/navigation in the
               lazy chunk makes the bundler re-split the shared root chunks. */}
-          <Suggestions input={input} navigate={router.push} />
+          <Suggestions id={listbox} input={input} navigate={router.push} />
         </Suspense>
       )}
     </form>
