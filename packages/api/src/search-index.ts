@@ -118,6 +118,8 @@ export function createSearchIndex(initialCapacity = 1024) {
     foldedStarts,
     slotId,
     subtreeEnd,
+    parentSlot: new Int32Array([NONE]),
+    dead: new Uint8Array(1),
     slots,
   };
   // Names for entries added since compaction.
@@ -235,6 +237,8 @@ export function createSearchIndex(initialCapacity = 1024) {
         pending.push(child);
       unhash(current);
       kinds[current] = FREE;
+      // Scans of the layout skip it from now on.
+      if (slotOf[current] !== NONE) layout.dead[slotOf[current]] = 1;
       bytes[current] = 0;
       slotOf[current] = NONE;
       deltaNames.delete(current);
@@ -348,7 +352,20 @@ export function createSearchIndex(initialCapacity = 1024) {
     slotId = order.subarray(0, used);
     subtreeEnd = ends;
     slots = used;
-    layout = { folded, foldedStarts, slotId, subtreeEnd, slots };
+    const parentSlot = new Int32Array(used);
+    for (let slot = 0; slot < used; slot++) {
+      const id = order[slot];
+      parentSlot[slot] = id === ROOT ? NONE : nextSlotOf[parent[id]];
+    }
+    layout = {
+      folded,
+      foldedStarts,
+      slotId,
+      subtreeEnd,
+      parentSlot,
+      dead: new Uint8Array(used),
+      slots,
+    };
     slotOf = nextSlotOf;
     deltaNames.clear();
     // Ids are unchanged, so the table stays valid; only shed tombstones.
@@ -375,7 +392,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     const whole = () => ({
       first: rootSlot + 1,
       end: subtreeEnd[rootSlot],
-      outside: rootId,
+      outside: rootSlot,
     });
     if (granted === null) {
       if (rootSlot !== NONE) ranges.push(whole());
@@ -392,7 +409,11 @@ export function createSearchIndex(initialCapacity = 1024) {
       ranges.push(
         top === rootId
           ? whole()
-          : { first: slot, end: subtreeEnd[slot], outside: parent[top] },
+          : {
+              first: slot,
+              end: subtreeEnd[slot],
+              outside: slotOf[parent[top]],
+            },
       );
     }
     ranges.sort((a, b) => a.first - b.first);
