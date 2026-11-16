@@ -12,8 +12,6 @@ import path from "node:path";
 import { appRouter } from "./routers";
 import { crawlingSearchService, createTestDriveStore } from "./testing";
 import { provideSearchService } from "./search-service";
-import { resetListCacheForTest } from "./list-cache";
-import { resetDirListCacheForTest } from "./dir-list-cache";
 import {
   flushAudit,
   resetAuditForTest,
@@ -45,8 +43,6 @@ describe("drive workflows", () => {
     process.env.NIMBUS_DATA_ROOT = root;
     provideSearchService(crawlingSearchService(root));
     memory = createTestDriveStore();
-    resetListCacheForTest();
-    resetDirListCacheForTest();
     await mkdir(path.join(root, "docs"));
     await writeFile(path.join(root, "docs", "report.txt"), "report");
     await writeFile(path.join(root, "private.txt"), "private");

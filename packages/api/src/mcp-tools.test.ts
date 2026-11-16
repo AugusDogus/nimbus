@@ -10,9 +10,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
-import { resetDirListCacheForTest } from "./dir-list-cache";
 import { lockFile } from "./file-mutations";
-import { resetListCacheForTest } from "./list-cache";
 import { McpScope } from "./mcp-scope";
 import type { McpToolContext } from "./mcp-tool";
 import { mcpTools } from "./mcp-tools";
@@ -68,8 +66,6 @@ describe("MCP tools", () => {
     memory = createTestDriveStore();
     links = [];
     provideSearchService(crawlingSearchService(root));
-    resetListCacheForTest();
-    resetDirListCacheForTest();
     await mkdir(path.join(root, "docs"));
     await mkdir(path.join(root, ".nimbus"));
     await writeFile(path.join(root, "docs", "report.txt"), "quarterly report");

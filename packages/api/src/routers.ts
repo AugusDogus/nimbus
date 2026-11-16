@@ -1,15 +1,12 @@
 import { TRPCError, tracked } from "@trpc/server";
-import type { Dirent } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
+import { readDirectory } from "./file-browser";
 import path from "node:path";
 import { z } from "zod";
 
 import { UserPreferences } from "./context";
 import { getDataRoot } from "./data-root";
-import { getDirEntries, setDirEntries } from "./dir-list-cache";
 import { statPath } from "./fs-utils";
-import { getListCache, getListCacheKey, setListCache } from "./list-cache";
-import { getPermissionsHash } from "./perms-hash";
 import { isApiError, isFsError } from "./safe-path";
 import { getAccess } from "./access";
 import type { DriveStore, Permission } from "./drive-store";
@@ -33,7 +30,6 @@ import { sharesRouter } from "./shares-router";
 import { fileRequestsRouter } from "./file-requests-router";
 import { versionsRouter } from "./versions-router";
 import { catalogRouter } from "./catalog-router";
-import { getForDir, setStats } from "./stats-cache";
 import { getStorageUsage } from "./storage-cache";
 import { FilesystemCapacity } from "./filesystem-capacity";
 
@@ -158,114 +154,40 @@ export const appRouter = router({
           return visible;
         };
 
-        const includeStats = input.includeStats ?? false;
-
-        let dirMtimeMs: number | null = null;
-        try {
-          const dirStats = await statPath(resolved);
-          if (!dirStats.isDirectory)
-            throw new TRPCError({
-              code: "NOT_FOUND",
-              message: "This path is not a folder.",
-            });
-          dirMtimeMs = dirStats.mtimeMs;
-        } catch (error) {
-          if (isFsError(error, "ENOENT")) {
-            throw new TRPCError({
-              code: "NOT_FOUND",
-              message: "Folder not found.",
-            });
-          }
-          throw error;
-        }
-
-        const permsHash = getPermissionsHash(ctx.session);
-        const listCacheKey = getListCacheKey({
-          relativePath: relative,
-          includeStats,
-          dirMtimeMs,
-          permsHash,
-        });
-        const memoized = getListCache(listCacheKey);
-        if (memoized) {
-          return allowed(memoized);
-        }
-
-        let baseEntries = getDirEntries(relative, dirMtimeMs);
-
-        if (!baseEntries) {
-          let entries: Dirent[];
-          try {
-            entries = await readdir(resolved, { withFileTypes: true });
-          } catch (error) {
-            if (isFsError(error, "ENOENT")) {
-              throw new TRPCError({
-                code: "NOT_FOUND",
-                message: "Folder not found.",
-              });
-            }
-            throw error;
-          }
-
-          const filtered = entries.filter(
-            (entry) =>
-              entry.name.toLowerCase() !== ".nimbus" &&
-              (entry.isFile() || entry.isDirectory()),
-          );
-          baseEntries = filtered.map((entry) => {
-            const entryPath = relative
-              ? [relative, entry.name].join("/")
-              : entry.name;
-            return {
-              name: entry.name,
-              path: entryPath,
-              type: entry.isDirectory()
-                ? "dir"
-                : entry.isFile()
-                  ? "file"
-                  : "other",
-            };
+        const directory = await requireExisting(relative);
+        if (!directory.stats.isDirectory())
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "This path is not a folder.",
           });
-          setDirEntries(relative, baseEntries, dirMtimeMs);
-        }
-
-        // Read cached stats only on a listing miss: it scans the whole stats cache.
-        const cachedStats = includeStats ? getForDir(relative) : null;
-        const results = await Promise.all(
-          baseEntries.map(async (entry) => {
-            let mtime: number | null = null;
-            let size: number | null = null;
-
-            if (includeStats) {
-              const cached = cachedStats?.get(entry.name);
-              if (cached) {
-                mtime = cached.mtime;
-                size = cached.size;
-              } else {
-                const fullPath = path.join(resolved, entry.name);
-                try {
-                  const stats = await statPath(fullPath);
-                  mtime = stats.mtimeMs;
-                  size = stats.size;
-                  setStats(entry.path, { size, mtime });
-                } catch {
-                  // Ignore stat errors
-                }
-              }
-            }
-
-            return {
-              name: entry.name,
-              path: entry.path,
-              type: entry.type,
-              mtime,
-              size,
-            };
-          }),
+        // Without stats, names and types come from the directory itself.
+        if (!input.includeStats)
+          return allowed(
+            (await readdir(resolved, { withFileTypes: true }))
+              .filter(
+                (entry) =>
+                  entry.name.toLowerCase() !== ".nimbus" &&
+                  (entry.isFile() || entry.isDirectory()),
+              )
+              .map((entry) => ({
+                name: entry.name,
+                path: relative ? `${relative}/${entry.name}` : entry.name,
+                type: entry.isDirectory()
+                  ? ("dir" as const)
+                  : ("file" as const),
+                mtime: null,
+                size: null,
+              })),
+          );
+        return allowed(
+          (await readDirectory(relative, ctx.access)).map((entry) => ({
+            name: entry.name,
+            path: entry.path,
+            type: entry.type,
+            mtime: entry.mtime,
+            size: entry.size,
+          })),
         );
-
-        setListCache(listCacheKey, results);
-        return allowed(results);
       }),
 
     createFolder: protectedProcedure
