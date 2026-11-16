@@ -418,6 +418,42 @@ export function createSearchIndex(initialCapacity = 1024) {
       return id === NONE ? null : bytes[id];
     },
 
+    /** Whether `id` is a folder still in the index, for walkers that hold ids across awaits. */
+    isFolder(id: number) {
+      return id >= 0 && id < count && kinds[id] === DIR;
+    },
+
+    /** The direct children of a folder, for reconciling it with a listing. */
+    childrenOf(parentId: number) {
+      const children: { id: number; name: string; kind: IndexedKind }[] = [];
+      if (parentId < 0 || parentId >= count || kinds[parentId] !== DIR)
+        return children;
+      for (
+        let child = firstChild[parentId];
+        child !== NONE;
+        child = nextSibling[child]
+      )
+        children.push({
+          id: child,
+          name: nameOf(child),
+          kind: kinds[child] === DIR ? "dir" : "file",
+        });
+      return children;
+    },
+
+    /** Remove an entry by id, with everything beneath it. */
+    removeId(id: number) {
+      if (id > ROOT && id < count) remove(id);
+    },
+
+    /**
+     * Id slots freed since the index was built. Ids are not reused, so sustained
+     * churn grows the arrays until the index is rebuilt.
+     */
+    get freedIds() {
+      return count - 1 - live;
+    },
+
     /** Remove an entry and everything beneath it. Missing paths are ignored. */
     remove(relative: string) {
       const id = find(relative);

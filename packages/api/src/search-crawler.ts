@@ -64,6 +64,118 @@ async function crawlInto(
   }
 }
 
+/** Runs one unit of index work so nothing else mutates the index meanwhile. */
+export type Serialize = <T>(work: () => Promise<T>) => Promise<T>;
+
+export type ReconcileReport = {
+  folders: number;
+  /** Folders that could not be read, so their previous contents were kept. */
+  unreadable: number;
+  /** The longest time one folder held the index, a bound on the pause it caused. */
+  longestSliceMs: number;
+};
+
+/**
+ * Bring a live index in line with the disk in place, folder by folder, as a
+ * fresh crawl would build it: entries that appeared are added, ones that
+ * vanished or became symlinks or special files are removed, files that changed
+ * size update their folders' totals, and a file replaced by a folder (or the
+ * reverse) changes kind. Unchanged entries are never removed, so searches keep
+ * finding them throughout.
+ *
+ * Each folder is one slice: listed, stated and applied inside `serialize`, so a
+ * watcher change can never land between reading a folder and pruning it, and
+ * a change queued meanwhile re-checks its path afterwards. A folder that cannot
+ * be read for a reason other than having vanished keeps its previous contents.
+ */
+export async function reconcile(
+  index: SearchIndex,
+  root: string,
+  serialize: Serialize,
+): Promise<ReconcileReport> {
+  const report: ReconcileReport = {
+    folders: 0,
+    unreadable: 0,
+    longestSliceMs: 0,
+  };
+  const pending: [string, number][] = [[root, 0]];
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const [directory, id] = next;
+    const subfolders = await serialize(async () => {
+      // Removed by a watcher change since it was queued.
+      if (!index.isFolder(id)) return [];
+      let entries: Dirent[];
+      try {
+        entries = await readdir(directory, { withFileTypes: true });
+      } catch (error) {
+        const vanished =
+          error instanceof Error &&
+          "code" in error &&
+          (error.code === "ENOENT" || error.code === "ENOTDIR");
+        if (vanished) index.removeId(id);
+        else report.unreadable++;
+        return [];
+      }
+      const stats = await statFiles(
+        directory,
+        entries
+          .filter((entry) => entry.isFile() && !isPrivate(entry.name))
+          .map((entry) => entry.name),
+      );
+      const started = performance.now();
+      const seen = new Set<string>();
+      const found: [string, number][] = [];
+      for (const entry of entries) {
+        if (isPrivate(entry.name)) continue;
+        if (entry.isDirectory()) {
+          const child = index.addChild(id, entry.name, "dir");
+          if (child < 0) continue;
+          seen.add(entry.name);
+          found.push([path.join(directory, entry.name), child]);
+        } else if (entry.isFile()) {
+          const size = stats.get(entry.name);
+          if (size === undefined) continue;
+          index.addChild(id, entry.name, "file", size);
+          seen.add(entry.name);
+        }
+      }
+      for (const child of index.childrenOf(id))
+        if (!seen.has(child.name)) index.removeId(child.id);
+      index.maybeCompact();
+      report.folders++;
+      report.longestSliceMs = Math.max(
+        report.longestSliceMs,
+        performance.now() - started,
+      );
+      return found;
+    });
+    for (const subfolder of subfolders) pending.push(subfolder);
+  }
+  return report;
+}
+
+/** Sizes of the regular files among `names`, stated with bounded concurrency. Others are absent. */
+async function statFiles(directory: string, names: readonly string[]) {
+  const sizes = new Map<string, number>();
+  let cursor = 0;
+  const statNext = async () => {
+    for (let at = cursor++; at < names.length; at = cursor++) {
+      const name = names[at];
+      if (name === undefined) continue;
+      try {
+        const stats = await lstat(path.join(directory, name));
+        if (stats.isFile()) sizes.set(name, stats.size);
+      } catch {
+        // Removed since the folder was listed.
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(statConcurrency, names.length) }, statNext),
+  );
+  return sizes;
+}
+
 /** Relative "/"-separated path inside `root`, or null when outside or private. */
 export function indexedPath(root: string, absolute: string) {
   const relative = path.relative(root, absolute);
