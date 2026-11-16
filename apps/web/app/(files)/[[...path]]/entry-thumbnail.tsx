@@ -50,7 +50,7 @@ export function EntryThumbnail({
         fallback
       ) : (
         // Already sized by the server; next/image would only add its runtime.
-        // eslint-disable-next-line @next/next/no-img-element
+        // oxlint-disable-next-line nextjs/no-img-element
         <img
           src={src}
           width={256}

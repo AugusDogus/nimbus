@@ -69,7 +69,7 @@ export default function FilePreview({
       return (
         <div className="flex justify-center rounded-md bg-muted">
           {/* The original bytes, as the browser decodes them natively. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* oxlint-disable-next-line nextjs/no-img-element */}
           <img
             src={url}
             alt={name}

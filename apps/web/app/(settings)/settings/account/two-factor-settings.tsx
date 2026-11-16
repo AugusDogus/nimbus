@@ -274,7 +274,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
                 </DialogDescription>
               </DialogHeader>
               {/* A data URL keeps the secret out of request logs and caches. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {/* oxlint-disable-next-line nextjs/no-img-element */}
               <img
                 src={flow.qrCode}
                 alt="QR code for your authenticator app"
