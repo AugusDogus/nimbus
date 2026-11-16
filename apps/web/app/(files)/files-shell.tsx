@@ -259,23 +259,31 @@ export function FilesShell({
                   </DrawerDescription>
                 </DrawerHeader>
                 <div className="flex flex-col gap-1 px-4 pb-6">
-                  <DrawerClose asChild>
-                    <DrawerActionItem onClick={newContent.openFolderDialog}>
-                      <FolderPlus className="size-5 text-muted-foreground" />
-                      New folder
-                    </DrawerActionItem>
+                  <DrawerClose
+                    render={
+                      <DrawerActionItem onClick={newContent.openFolderDialog} />
+                    }
+                  >
+                    <FolderPlus className="size-5 text-muted-foreground" />
+                    New folder
                   </DrawerClose>
-                  <DrawerClose asChild>
-                    <DrawerActionItem onClick={newContent.triggerFileInput}>
-                      <Upload className="size-5 text-muted-foreground" />
-                      Upload file
-                    </DrawerActionItem>
+                  <DrawerClose
+                    render={
+                      <DrawerActionItem onClick={newContent.triggerFileInput} />
+                    }
+                  >
+                    <Upload className="size-5 text-muted-foreground" />
+                    Upload file
                   </DrawerClose>
-                  <DrawerClose asChild>
-                    <DrawerActionItem onClick={newContent.triggerFolderInput}>
-                      <FolderUp className="size-5 text-muted-foreground" />
-                      Upload folder
-                    </DrawerActionItem>
+                  <DrawerClose
+                    render={
+                      <DrawerActionItem
+                        onClick={newContent.triggerFolderInput}
+                      />
+                    }
+                  >
+                    <FolderUp className="size-5 text-muted-foreground" />
+                    Upload folder
                   </DrawerClose>
                 </div>
               </DrawerContent>

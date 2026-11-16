@@ -246,8 +246,7 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeySummary[] }) {
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
+              onClick={() => {
                 const target = removing;
                 if (!target) return;
                 void run(async () => {

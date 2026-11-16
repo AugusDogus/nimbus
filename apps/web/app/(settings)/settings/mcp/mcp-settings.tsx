@@ -254,8 +254,7 @@ export function McpSettings({ state }: { state: McpSettingsState }) {
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
+              onClick={() => {
                 if (revoking) void revoke(revoking);
               }}
             >

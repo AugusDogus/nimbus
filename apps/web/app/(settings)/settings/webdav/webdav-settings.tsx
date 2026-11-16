@@ -181,8 +181,7 @@ export function WebDavSettings({ email }: { email: string }) {
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
+              onClick={() => {
                 if (!revoking) return;
                 setBusy(true);
                 setError(null);

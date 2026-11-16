@@ -269,8 +269,7 @@ export function ThemeSettings() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
+              onClick={() => {
                 confirm();
               }}
             >

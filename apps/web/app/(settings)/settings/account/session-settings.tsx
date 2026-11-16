@@ -135,8 +135,7 @@ export function SessionSettings({ sessions }: { sessions: SessionSummary[] }) {
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
+              onClick={() => {
                 const target = pending;
                 if (!target) return;
                 setBusy(true);

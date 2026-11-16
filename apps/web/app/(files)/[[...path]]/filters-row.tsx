@@ -125,21 +125,24 @@ export function FiltersRow({
               Sort by
             </p>
             {sortOptions.map((option) => (
-              <DrawerClose key={sortValue(option)} asChild>
-                <DrawerActionItem
-                  onClick={() => {
-                    updatePreferences({
-                      sortField: option.field,
-                      sortDirection: option.direction,
-                    });
-                  }}
-                >
-                  <option.icon className="size-5 text-muted-foreground" />
-                  <span className="flex-1 text-left">{option.label}</span>
-                  {sortValue(option) === selectedValue && (
-                    <Check className="size-4 text-primary" />
-                  )}
-                </DrawerActionItem>
+              <DrawerClose
+                key={sortValue(option)}
+                render={
+                  <DrawerActionItem
+                    onClick={() => {
+                      updatePreferences({
+                        sortField: option.field,
+                        sortDirection: option.direction,
+                      });
+                    }}
+                  />
+                }
+              >
+                <option.icon className="size-5 text-muted-foreground" />
+                <span className="flex-1 text-left">{option.label}</span>
+                {sortValue(option) === selectedValue && (
+                  <Check className="size-4 text-primary" />
+                )}
               </DrawerClose>
             ))}
             <div className="my-2 h-px bg-border" />

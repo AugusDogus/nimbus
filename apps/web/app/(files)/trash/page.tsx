@@ -142,8 +142,7 @@ export default function TrashPage() {
             <AlertDialogAction
               variant="destructive"
               disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
+              onClick={() => {
                 if (deleting?.kind === "item")
                   void perform(() =>
                     trpcClient.trash.purge.mutate({ id: deleting.id }),

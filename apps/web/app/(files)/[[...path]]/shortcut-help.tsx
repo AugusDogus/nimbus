@@ -59,9 +59,9 @@ export function ShortcutHelp({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
+        finalFocus={() => {
           onClosed();
+          return false;
         }}
       >
         <DialogHeader>

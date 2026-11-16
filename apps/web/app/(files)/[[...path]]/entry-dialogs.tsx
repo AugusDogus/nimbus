@@ -133,8 +133,7 @@ function TrashDialog({
           <AlertDialogAction
             variant="destructive"
             disabled={busy}
-            onClick={(event) => {
-              event.preventDefault();
+            onClick={() => {
               void submit(async () => {
                 const [entry, ...rest] = entries;
                 if (entry && rest.length === 0) {
