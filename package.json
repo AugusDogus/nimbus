@@ -1,6 +1,7 @@
 {
   "name": "nimbus",
   "private": true,
+  "license": "MIT",
   "packageManager": "bun@1.4.4",
   "workspaces": [
     "apps/*",

@@ -379,3 +379,7 @@ bun run test:e2e
 Unit tests cover path confinement, permissions, file operations, migrations, retention, and caches. Playwright tests use isolated temporary storage and accounts on port 3100, or `NIMBUS_E2E_PORT` when set, with desktop and mobile Chromium projects. Every browser test fails on Content-Security-Policy violations. Local tests use development mode; with `CI=true`, tests use the production build, so run `bun run build` first. Do not run a production build while the development test server is running. CI runs these checks and retains failed browser-test artifacts.
 
 See [the web app README](apps/web/README.md) for the code layout and database development commands.
+
+## License
+
+Nimbus is released under the [MIT License](LICENSE). Bundled third-party assets keep their own licenses, listed under `apps/web/public/licenses`.
