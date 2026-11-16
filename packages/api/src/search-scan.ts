@@ -417,6 +417,12 @@ function names(
 }
 
 /**
+ * Slots a words pass found, reused by every pass on this thread: broad words
+ * find millions, and a fresh array each time would leave as much garbage.
+ */
+let candidates = new Int32Array(1 << 16);
+
+/**
  * Names holding every word, or some with the rest in folders above, where
  * word i matches when any of `patterns[i]` does. Slots flagged with any of
  * `skip` were ranked by an earlier layer and are left out; slots this ranks
@@ -452,7 +458,7 @@ function words(
       carried |= patternBits(slotName(layout, slot), patterns);
       above.set(slot, carried);
     }
-    const candidates: number[] = [];
+    let count = 0;
     for (let term = 0; term < patterns.length; term++) {
       const bit = 1 << term;
       for (const text of patterns[term] ?? []) {
@@ -464,7 +470,14 @@ function words(
           prefixOnly,
           (slot) => {
             const mark = marks[slot] ?? 0;
-            if ((mark & (TERM_BITS | skip)) === 0) candidates.push(slot);
+            if ((mark & (TERM_BITS | skip)) === 0) {
+              if (count === candidates.length) {
+                const grown = new Int32Array(candidates.length * 2);
+                grown.set(candidates);
+                candidates = grown;
+              }
+              candidates[count++] = slot;
+            }
             marks[slot] = mark | bit;
           },
           stopped,
@@ -472,7 +485,8 @@ function words(
         if (!finished) return false;
       }
     }
-    for (const slot of candidates) {
+    for (let at = 0; at < count; at++) {
+      const slot = candidates[at] ?? 0;
       if (dead[slot]) continue;
       const inName = (marks[slot] ?? 0) & all;
       let bits = inName;
