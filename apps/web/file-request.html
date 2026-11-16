@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Defaults before scripts run; the theme script then follows the selected theme. -->
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: light)"
+      content="#f7f8fa"
+    />
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: dark)"
+      content="#222429"
+    />
+    <title>Upload files · Nimbus</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <meta
+      name="description"
+      content="Nimbus is a fast, live-updating file browser for your data."
+    />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Nimbus" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="icon" href="/icon.svg" sizes="any" type="image/svg+xml" />
+    <link
+      rel="apple-touch-icon"
+      href="/apple-icon.png"
+      sizes="180x180"
+      type="image/png"
+    />
+    <style id="nimbus-custom-themes"></style>
+    <!-- nimbus:theme-boot -->
+    <script type="module" src="/client/file-request-main.tsx"></script>
+  </head>
+  <body class="antialiased">
+    <div id="root"></div>
+  </body>
+</html>

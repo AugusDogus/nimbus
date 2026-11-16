@@ -28,7 +28,10 @@ const dist = path.resolve(
 const routePrefix = "routes/";
 const splitSuffix = "?tsr-split=component";
 /** Pages with their own HTML entry instead of the app's router. */
-const htmlEntries: Record<string, string> = { "share.html": "/s/$token" };
+const htmlEntries: Record<string, string> = {
+  "share.html": "/s/$token",
+  "file-request.html": "/r/$token",
+};
 
 type RouteSize = {
   route: string;

@@ -22,16 +22,25 @@ export type PageContent = {
   requests: readonly string[];
 };
 
+/** Pages with an entry and template of their own, named by their HTML file. */
+export type PublicPageName = "share" | "file-request";
+const publicPages: readonly PublicPageName[] = ["share", "file-request"];
+
 export type AppShell = {
   /** The page an address names, or null when no route matches it. */
   route(pathname: string): PageRoute | null;
   /** The page HTML for `pathname` with `nonce` in every script tag. */
   html(nonce: string, pathname: string, page: PageContent): Promise<string>;
   /**
-   * The public share page: its own entry, with `markup` the server rendered in `#root` and
-   * `head` added to the head, such as the data the page hydrates with.
+   * A public page from its own entry, with `markup` the server rendered in `#root` and `head`
+   * added to the head, such as the data the page hydrates with.
    */
-  shareHtml(nonce: string, head: string, markup: string): Promise<string>;
+  publicHtml(
+    name: PublicPageName,
+    nonce: string,
+    head: string,
+    markup: string,
+  ): Promise<string>;
   /** The `<link rel="stylesheet">` tags of the app, for pages the server renders itself. */
   stylesheets(nonce: string): Promise<string>;
   /** A client file such as a script or icon, or null when there is none at that path. */
@@ -63,7 +72,7 @@ function compose(
 ) {
   if (!template.includes(root))
     throw new Error(
-      "The page template has no empty #root element, so the app cannot start. Check index.html and share.html, then rebuild Nimbus.",
+      "The page template has no empty #root element, so the app cannot start. Check index.html, share.html and file-request.html, then rebuild Nimbus.",
     );
   return fill(template, nonce)
     .replace("</head>", () => `${head}</head>`)
@@ -83,12 +92,19 @@ async function production(): Promise<AppShell> {
     );
   }
   const template = await Bun.file(index).text();
-  const shareTemplate = await Bun.file(`${dist}share.html`).text();
+  const publicTemplates = new Map(
+    await Promise.all(
+      publicPages.map(
+        async (name) =>
+          [name, await Bun.file(`${dist}${name}.html`).text()] as const,
+      ),
+    ),
+  );
   const manifest: unknown = await Bun.file(`${dist}.vite/manifest.json`).json();
   const preloads = RoutePreloads.fromManifest(manifest);
   const files = await StaticFiles.load(dist, [
     "index.html",
-    "share.html",
+    ...publicPages.map((name) => `${name}.html`),
     ".vite/manifest.json",
   ]);
   const styles = stylesheetTags(template);
@@ -101,8 +117,8 @@ async function production(): Promise<AppShell> {
         `${bootstrapTag(nonce, page.data)}${preloads.links(pathname, page.requests)}`,
         page.skeleton,
       ),
-    shareHtml: async (nonce, head, markup) =>
-      compose(shareTemplate, nonce, head, markup),
+    publicHtml: async (name, nonce, head, markup) =>
+      compose(publicTemplates.get(name) ?? "", nonce, head, markup),
     stylesheets: async (nonce) => fill(styles, nonce),
     file: async (request, pathname) => {
       const file = files.get(pathname);
@@ -144,8 +160,8 @@ async function development(vite: string): Promise<AppShell> {
         bootstrapTag(nonce, content.data),
         content.skeleton,
       ),
-    shareHtml: async (nonce, head, markup) =>
-      compose(await page("share.html"), nonce, head, markup),
+    publicHtml: async (name, nonce, head, markup) =>
+      compose(await page(`${name}.html`), nonce, head, markup),
     // Vite serves each stylesheet as a module; `?direct` asks for plain CSS.
     stylesheets: async (nonce) =>
       ["/app/globals.css", "/app/fonts.css"]

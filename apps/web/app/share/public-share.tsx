@@ -1,4 +1,5 @@
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
+import { useLocalTime } from "@/lib/use-local-time";
 import { useQuery } from "@tanstack/react-query";
 import * as z from "zod/mini";
 import { FileText, Folder } from "lucide-react";
@@ -17,16 +18,10 @@ import { FilePreview } from "@/app/drive/files/preview-dialog";
 
 const errorSchema = z.object({ error: z.string() });
 
-/** The visitor's local date, written after hydration since the server cannot know the locale. */
-function LocalDate({ time }: { time: number }) {
-  const text = useSyncExternalStore(
-    noSubscription,
-    () => new Date(time).toLocaleDateString(),
-    () => "",
-  );
+function Expiry({ time }: { time: number }) {
+  const text = useLocalTime(time, "date");
   return text ? ` · Expires ${text}` : null;
 }
-const noSubscription = () => () => {};
 
 export function PublicShare({ token }: { token: string }) {
   const [path, setPath] = useState("");
@@ -135,7 +130,7 @@ export function PublicShare({ token }: { token: string }) {
                   ? "Preview only"
                   : "Shared read-only"}
                 {share.data.expiresAt !== null && (
-                  <LocalDate time={share.data.expiresAt} />
+                  <Expiry time={share.data.expiresAt} />
                 )}
               </p>
             </div>

@@ -11,14 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ByteSize } from "@/lib/byte-size";
+import { useLocalTime } from "@/lib/use-local-time";
+import { fileRequestEndpoint, fileRequestQuery } from "./file-request-result";
 
-const detailsSchema = z.object({
-  folder: z.string(),
-  note: z.nullable(z.string()),
-  expiresAt: z.nullable(z.number()),
-  maxFileBytes: z.number(),
-  remainingFiles: z.nullable(z.number()),
-});
 const errorSchema = z.object({ error: z.string() });
 
 type ItemStatus =
@@ -27,6 +22,11 @@ type ItemStatus =
   | { kind: "done" }
   | { kind: "failed"; message: string };
 type Item = { id: number; file: File; status: ItemStatus };
+
+function OpenUntil({ time }: { time: number }) {
+  const text = useLocalTime(time, "datetime");
+  return text ? ` Open until ${text}.` : null;
+}
 
 /** tus reports the server's reply body; that is the message worth showing. */
 function uploadError(error: unknown) {
@@ -38,31 +38,13 @@ function uploadError(error: unknown) {
 }
 
 export function FileRequestUpload({ token }: { token: string }) {
-  const endpoint = `/api/file-request/${encodeURIComponent(token)}`;
-  const details = useQuery({
-    queryKey: ["file-request", token],
-    retry: false,
-    queryFn: async () => {
-      const response = await fetch(endpoint);
-      const data: unknown = await response.json();
-      if (
-        response.status === 401 &&
-        typeof data === "object" &&
-        data &&
-        "passwordRequired" in data
-      )
-        return { kind: "locked" } as const;
-      if (!response.ok) {
-        const error = errorSchema.safeParse(data);
-        throw new Error(
-          error.success
-            ? error.data.error
-            : "This upload link could not be loaded.",
-        );
-      }
-      return { kind: "open", ...detailsSchema.parse(data) } as const;
-    },
-  });
+  const endpoint = fileRequestEndpoint(token);
+  const details = useQuery(fileRequestQuery(token));
+  const unavailable = details.isError
+    ? details.error.message
+    : details.data?.kind === "unavailable"
+      ? details.data.message
+      : null;
   const [items, setItems] = useState<Item[]>([]);
   const [dragging, setDragging] = useState(false);
   const [password, setPassword] = useState("");
@@ -168,13 +150,15 @@ export function FileRequestUpload({ token }: { token: string }) {
       </header>
       {details.isPending ? (
         <p>Loading upload link…</p>
-      ) : details.isError ? (
+      ) : unavailable !== null ||
+        !details.data ||
+        details.data.kind === "unavailable" ? (
         <div className="space-y-3 rounded-lg border p-6">
           <h1 className="text-balance text-xl font-semibold">
             Upload link unavailable
           </h1>
           <p role="alert" className="text-pretty text-muted-foreground">
-            {details.error.message}
+            {unavailable}
           </p>
         </div>
       ) : details.data.kind === "locked" ? (
@@ -245,9 +229,9 @@ export function FileRequestUpload({ token }: { token: string }) {
             </h1>
             <p className="mt-1 text-pretty text-sm text-muted-foreground">
               You can add files but cannot see what is already there.
-              {details.data.expiresAt
-                ? ` Open until ${new Date(details.data.expiresAt).toLocaleString()}.`
-                : ""}
+              {details.data.expiresAt !== null && (
+                <OpenUntil time={details.data.expiresAt} />
+              )}
             </p>
           </div>
           {details.data.note && (

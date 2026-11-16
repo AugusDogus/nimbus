@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { UserPreferences } from "@nimbus/api/context";
 import { sessionQuery, type SignedIn } from "@/lib/session-query";
 import { prefsQueryOptions } from "@/app/drive/files/use-file-preferences";
+import { inlineJson, readInlineJson } from "@/lib/inline-json";
 import { trpc } from "@/lib/trpc";
 
 /**
@@ -71,27 +72,11 @@ function parseSignInOptions(value: unknown): SignInOptions | undefined {
 }
 
 export const Bootstrap = {
-  /**
-   * JSON for an inline `<script type="application/json">`. Escaping `<` keeps the data from
-   * closing the element, and the line separators are escaped for older parsers.
-   */
-  serialize(value: Bootstrap): string {
-    return JSON.stringify(value)
-      .replaceAll("<", "\\u003c")
-      .replaceAll(" ", "\\u2028")
-      .replaceAll(" ", "\\u2029");
-  },
+  serialize: (value: Bootstrap) => inlineJson(value),
 
   /** Seeds the query cache with the page's data, ignoring anything malformed. */
   seed(queryClient: QueryClient) {
-    const element = document.getElementById(bootstrapElementId);
-    if (!element?.textContent) return;
-    let value: unknown;
-    try {
-      value = JSON.parse(element.textContent);
-    } catch {
-      return;
-    }
+    const value = readInlineJson(bootstrapElementId);
     if (!isRecord(value)) return;
     const session = parseSession(value.session);
     if (session) queryClient.setQueryData(sessionQuery.queryKey, session);

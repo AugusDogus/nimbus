@@ -3,7 +3,7 @@ import { FileRequest, reservationLifetimeMs } from "@nimbus/api/file-request";
 import { httpDriveStore, httpError } from "@/server/http-files";
 import {
   activeFileRequest,
-  fileRequestCookie,
+  fileRequestCookies,
   FileRequestPasswordAttempts,
   isFileRequestUnlocked,
   Uploader,
@@ -19,8 +19,8 @@ export async function GET(request: Request, context: Context) {
     const { token } = await context.params;
     const { request: fileRequest } = await activeFileRequest({ token });
     const headers = new Headers(noStore);
-    const uploader = Uploader.issue(request);
-    if (uploader) headers.append("Set-Cookie", uploader);
+    for (const cookie of Uploader.issue(request))
+      headers.append("Set-Cookie", cookie);
     if (!isFileRequestUnlocked(fileRequest, request))
       return Response.json(
         { passwordRequired: true },
@@ -85,15 +85,10 @@ export async function POST(request: Request, context: Context) {
         { status: 401 },
       );
     }
-    return Response.json(
-      { unlocked: true },
-      {
-        headers: {
-          ...noStore,
-          "Set-Cookie": fileRequestCookie({ ...fileRequest, passwordHash }),
-        },
-      },
-    );
+    const headers = new Headers(noStore);
+    for (const cookie of fileRequestCookies({ ...fileRequest, passwordHash }))
+      headers.append("Set-Cookie", cookie);
+    return Response.json({ unlocked: true }, { headers });
   } catch (error) {
     return httpError(error);
   }

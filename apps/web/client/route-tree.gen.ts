@@ -16,7 +16,6 @@ import { Route as SignInRouteImport } from './../routes/sign-in'
 import { Route as SignupRouteImport } from './../routes/signup'
 import { Route as AuthedFilesRouteImport } from './../routes/_authed/_files'
 import { Route as AuthedSettingsRouteImport } from './../routes/_authed/settings'
-import { Route as RTokenRouteImport } from './../routes/r/$token'
 import { Route as AuthedFilesIndexRouteImport } from './../routes/_authed/_files/index'
 import { Route as AuthedFilesAdminRouteImport } from './../routes/_authed/_files/admin'
 import { Route as AuthedFilesHomeRouteImport } from './../routes/_authed/_files/home'
@@ -67,11 +66,6 @@ const AuthedSettingsRoute = AuthedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => AuthedRoute,
-} as any)
-const RTokenRoute = RTokenRouteImport.update({
-  id: '/r/$token',
-  path: '/r/$token',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const AuthedFilesIndexRoute = AuthedFilesIndexRouteImport.update({
   id: '/',
@@ -169,7 +163,6 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/signup': typeof SignupRoute
   '/settings': typeof AuthedSettingsRouteWithChildren
-  '/r/$token': typeof RTokenRoute
   '/admin': typeof AuthedFilesAdminRoute
   '/home': typeof AuthedFilesHomeRoute
   '/recent': typeof AuthedFilesRecentRoute
@@ -193,7 +186,6 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
   '/signup': typeof SignupRoute
-  '/r/$token': typeof RTokenRoute
   '/admin': typeof AuthedFilesAdminRoute
   '/home': typeof AuthedFilesHomeRoute
   '/recent': typeof AuthedFilesRecentRoute
@@ -220,7 +212,6 @@ export interface FileRoutesById {
   '/signup': typeof SignupRoute
   '/_authed/_files': typeof AuthedFilesRouteWithChildren
   '/_authed/settings': typeof AuthedSettingsRouteWithChildren
-  '/r/$token': typeof RTokenRoute
   '/_authed/_files/admin': typeof AuthedFilesAdminRoute
   '/_authed/_files/home': typeof AuthedFilesHomeRoute
   '/_authed/_files/recent': typeof AuthedFilesRecentRoute
@@ -248,7 +239,6 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/signup'
     | '/settings'
-    | '/r/$token'
     | '/admin'
     | '/home'
     | '/recent'
@@ -272,7 +262,6 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/sign-in'
     | '/signup'
-    | '/r/$token'
     | '/admin'
     | '/home'
     | '/recent'
@@ -298,7 +287,6 @@ export interface FileRouteTypes {
     | '/signup'
     | '/_authed/_files'
     | '/_authed/settings'
-    | '/r/$token'
     | '/_authed/_files/admin'
     | '/_authed/_files/home'
     | '/_authed/_files/recent'
@@ -324,7 +312,6 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   SignInRoute: typeof SignInRoute
   SignupRoute: typeof SignupRoute
-  RTokenRoute: typeof RTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -377,13 +364,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings'
       preLoaderRoute: typeof AuthedSettingsRouteImport
       parentRoute: typeof AuthedRoute
-    }
-    '/r/$token': {
-      id: '/r/$token'
-      path: '/r/$token'
-      fullPath: '/r/$token'
-      preLoaderRoute: typeof RTokenRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/_authed/_files/': {
       id: '/_authed/_files/'
@@ -580,7 +560,6 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   SignInRoute: SignInRoute,
   SignupRoute: SignupRoute,
-  RTokenRoute: RTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

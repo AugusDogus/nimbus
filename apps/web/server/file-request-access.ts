@@ -55,18 +55,28 @@ export async function activeFileRequest(
   return { request, owner };
 }
 
-const unlockScope = (request: FileRequest & { passwordHash: string }) => ({
-  name: `nimbus-request-${request.id}`,
+const unlockScope = (
+  request: FileRequest & { passwordHash: string },
   // Sent to the request's details endpoint and to the upload endpoint.
-  path: "/api/file-request",
+  path = "/api/file-request",
+) => ({
+  name: `nimbus-request-${request.id}`,
+  path,
   token: request.token,
   passwordHash: request.passwordHash,
 });
 
-export function fileRequestCookie(
+/**
+ * The unlock cookies for an upload link: one for its endpoints and one for its page, which the
+ * server renders with the same check, so a reload within the hour shows the upload form.
+ */
+export function fileRequestCookies(
   request: FileRequest & { passwordHash: string },
 ) {
-  return UnlockCookie.issue(unlockScope(request));
+  return [
+    UnlockCookie.issue(unlockScope(request)),
+    UnlockCookie.issue(unlockScope(request, `/r/${request.token}`)),
+  ];
 }
 
 export function isFileRequestUnlocked(request: FileRequest, incoming: Request) {
@@ -115,10 +125,18 @@ export const Uploader = {
       ? createHash("sha256").update(value).digest("hex")
       : null;
   },
-  /** A Set-Cookie value for a browser without an identity, or null if it has one. */
-  issue(request: Request) {
-    if (Uploader.hash(request)) return null;
-    return `${uploaderCookieName}=${randomBytes(32).toString("base64url")}; HttpOnly; SameSite=Strict; Path=/api/file-request; Max-Age=${7 * 24 * 60 * 60}${UnlockCookie.secureAttribute}`;
+  /**
+   * Set-Cookie values for a browser without an identity, or none if it has one. The identity
+   * goes to the upload endpoints and to upload pages, which the server renders by asking the
+   * same endpoint, so a page load never replaces it.
+   */
+  issue(request: Request): string[] {
+    if (Uploader.hash(request)) return [];
+    const value = randomBytes(32).toString("base64url");
+    return ["/api/file-request", "/r"].map(
+      (path) =>
+        `${uploaderCookieName}=${value}; HttpOnly; SameSite=Strict; Path=${path}; Max-Age=${7 * 24 * 60 * 60}${UnlockCookie.secureAttribute}`,
+    );
   },
 } as const;
 

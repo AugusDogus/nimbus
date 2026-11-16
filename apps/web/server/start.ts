@@ -19,7 +19,7 @@ import { HttpRoutes } from "./http-routes";
 import { AppShell } from "./app-shell";
 import { PageBootstrap } from "./page-bootstrap";
 import { PageSkeleton } from "./page-skeleton";
-import { renderSharePage, shareToken } from "./share-page";
+import { PublicPages } from "./public-pages";
 import { backups, backupsToKeep } from "./backup";
 
 const port = Number(process.env.PORT ?? "3000");
@@ -144,11 +144,14 @@ async function route(request: Request): Promise<Response> {
     if (file) return file;
     if (!page) return textResponse(404, `Nothing is served at ${pathname}.`);
   }
-  const token = shareToken(pathname);
-  if (token !== null) {
-    const page = await renderSharePage(request, token, shell, securityMode);
-    return AppShell.htmlResponse(request, page.html, page.headers);
-  }
+  const publicPage = await PublicPages.render(
+    request,
+    pathname,
+    shell,
+    securityMode,
+  );
+  if (publicPage)
+    return AppShell.htmlResponse(request, publicPage.html, publicPage.headers);
   const kind = shell.route(pathname)?.kind ?? null;
   const bootstrap = await PageBootstrap.load(request, kind);
   if (bootstrap.kind === "redirect")
