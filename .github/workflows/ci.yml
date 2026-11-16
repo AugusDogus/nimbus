@@ -30,10 +30,7 @@ jobs:
       - run: bun run lint
       - run: bun run typecheck
       - run: bun test
-      - run: |
-          BETTER_AUTH_SECRET="$(bun -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("base64url"))')" \
-          BETTER_AUTH_URL=http://localhost:3000 \
-          bun run build
+      - run: bun run build
       - name: Build Litmus 0.18
         run: |
           pkg-config --exists expat || { sudo apt-get update && sudo apt-get install -y --no-install-recommends libexpat1-dev; }

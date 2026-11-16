@@ -27,9 +27,10 @@ FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb472
 WORKDIR /app
 COPY . .
 RUN bun install --frozen-lockfile
-RUN BETTER_AUTH_SECRET="$(bun -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("base64url"))')" \
-    BETTER_AUTH_URL=http://localhost:3000 \
-    bun run build
+RUN bun run build
+# The server runs from source with Bun; it needs only production dependencies and the built client.
+RUN rm -rf node_modules apps/*/node_modules packages/*/node_modules \
+    && bun install --frozen-lockfile --production
 
 FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d
 # pdftoppm renders PDF thumbnails; Debian ships its security updates.
