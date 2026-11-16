@@ -8,6 +8,7 @@ import { provideSearchService } from "./search-service";
 import { resetListCacheForTest } from "./list-cache";
 import { resetDirListCacheForTest } from "./dir-list-cache";
 import { flushAudit, resetAuditForTest, setAuditSink, type RecordedAuditEvent } from "./audit";
+import { FileVersions } from "./file-versions";
 
 describe("drive workflows", () => {
   let root: string;
@@ -76,6 +77,45 @@ describe("drive workflows", () => {
         { action: "trash.moved", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: "private.txt" },
       ]);
       expect(JSON.stringify(events)).not.toContain("test-password");
+    } finally {
+      resetAuditForTest();
+    }
+  });
+  it("records link edits, file requests, version restores, and emptied trash", async () => {
+    resetAuditForTest();
+    const events: RecordedAuditEvent[] = [];
+    setAuditSink(async (batch) => void events.push(...batch));
+    try {
+      await caller().shares.create({ path: "docs", expiresAt: null });
+      const [share] = await caller().shares.list();
+      if (!share) throw new Error("Expected a share");
+      await caller().shares.update({ id: share.id, expiresAt: null, maxDownloads: 3, mode: "view", password: { kind: "set", value: "link-password" } });
+      await caller().fileRequests.create({ path: "docs", note: null, expiresAt: null, maxFileBytes: null, maxFiles: null, maxTotalBytes: null, password: "request-password" });
+      const [request] = await caller().fileRequests.list();
+      if (!request) throw new Error("Expected a file request");
+      await caller().fileRequests.update({ id: request.id, note: "Forms", expiresAt: null, maxFileBytes: null, maxFiles: 2, maxTotalBytes: null, password: { kind: "keep" } });
+      await caller().fileRequests.revoke({ id: request.id });
+      await writeFile(path.join(root, "incoming.txt"), "second draft");
+      await FileVersions.commitReplacement({ store: memory.store.versions, dataRoot: root, target: path.join(root, "docs", "report.txt"), incoming: path.join(root, "incoming.txt"), archivedBy: "user-1" });
+      const [version] = await caller().versions.list({ path: "docs/report.txt" });
+      if (!version) throw new Error("Expected a version");
+      await caller().versions.restore({ path: "docs/report.txt", id: version.id });
+      await caller().files.delete({ path: "private.txt" });
+      await caller().trash.empty();
+      await flushAudit();
+      expect(events.map(({ action, target }) => ({ action, target: target?.type ?? null }))).toEqual([
+        { action: "share.created", target: "share" },
+        { action: "share.updated", target: "share" },
+        { action: "file_request.created", target: "file_request" },
+        { action: "file_request.updated", target: "file_request" },
+        { action: "file_request.revoked", target: "file_request" },
+        { action: "version.restored", target: "path" },
+        { action: "trash.moved", target: "path" },
+        { action: "trash.purged", target: "path" },
+        { action: "trash.emptied", target: null },
+      ]);
+      expect(JSON.stringify(events)).not.toContain("link-password");
+      expect(JSON.stringify(events)).not.toContain("request-password");
     } finally {
       resetAuditForTest();
     }

@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { getAccess, type Access } from "./access";
+import { auditUser, recordAudit } from "./audit";
 import { getDataRoot } from "./data-root";
 import type { DriveStore } from "./drive-store";
 import { mutateFiles } from "./file-mutations";
@@ -23,6 +24,12 @@ export async function emptyTrash(store: DriveStore, access: Access) {
         await FileVersions.discardTree(store.versions, getDataRoot(), trashed);
         await rm(trashed, { recursive: true, force: true });
         await store.removeTrash(item.id);
+        recordAudit({
+          action: "trash.purged",
+          actor: auditUser(current.user),
+          target: { type: "path", id: item.path },
+          details: { trashId: item.id, emptied: true },
+        });
       } catch (error) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -32,6 +39,11 @@ export async function emptyTrash(store: DriveStore, access: Access) {
       }
       deleted++;
     }
+    recordAudit({
+      action: "trash.emptied",
+      actor: auditUser(current.user),
+      details: { deleted, everyone: current.isAdmin },
+    });
     return { deleted };
   });
 }

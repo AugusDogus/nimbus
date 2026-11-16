@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getAccess } from "./access";
+import { auditUser, recordAudit } from "./audit";
 import { getDataRoot } from "./data-root";
 import { publishFileEvent } from "./file-events";
 import { mutateFiles } from "./file-mutations";
@@ -55,6 +56,12 @@ export const versionsRouter = router({
             message: "That version no longer exists. Refresh the version list.",
           });
         publishFileEvent({ path: target.absolute, event: "change", ts: Date.now() });
+        recordAudit({
+          action: "version.restored",
+          actor: auditUser(access.user),
+          target: { type: "path", id: target.relative },
+          details: { versionId: input.id },
+        });
         return { restored: true };
       });
     }),

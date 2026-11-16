@@ -1,4 +1,6 @@
+import { recordAudit } from "@nimbus/api/audit";
 import { McpScope } from "@nimbus/api/mcp-scope";
+import { accountActor, clientTarget } from "./audit";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { user } from "../../db/auth-schema";
 import { mcpClients, mcpGrants } from "../../db/mcp-schema";
@@ -33,12 +35,18 @@ export async function listConnections(db: Database, userId: string): Promise<Mcp
 /** Revoke one of `userId`'s own connections. False when it does not exist or belongs to someone else. */
 export async function revokeConnection(db: Database, userId: string, grantId: string, now: number) {
   const [grant] = await db
-    .select({ id: mcpGrants.id })
+    .select({ id: mcpGrants.id, clientId: mcpGrants.clientId })
     .from(mcpGrants)
     .where(and(eq(mcpGrants.id, grantId), eq(mcpGrants.userId, userId), isNull(mcpGrants.revokedAt)))
     .limit(1);
   if (!grant) return false;
   await revokeGrant(db, grantId, now);
+  recordAudit({
+    action: "mcp.client_disconnected",
+    actor: await accountActor(db, userId),
+    target: await clientTarget(db, grant.clientId),
+    details: { by: "settings" },
+  });
   return true;
 }
 

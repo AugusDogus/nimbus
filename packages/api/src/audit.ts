@@ -34,13 +34,24 @@ export const auditActions = [
   "grant.added",
   "grant.removed",
   "share.created",
+  "share.updated",
   "share.revoked",
   "share.password_failed",
+  "file_request.created",
+  "file_request.updated",
+  "file_request.revoked",
   "file_request.password_failed",
+  "version.restored",
   "trash.moved",
   "trash.restored",
   "trash.purged",
   "trash.expired",
+  "trash.emptied",
+  "backup.created",
+  "backup.downloaded",
+  "mcp.client_approved",
+  "mcp.client_disconnected",
+  "mcp.token_failed",
   "app_password.created",
   "app_password.revoked",
   "webdav.auth_failed",
@@ -53,7 +64,17 @@ export type AuditActor =
   | { type: "system" };
 
 export type AuditTarget = {
-  type: "user" | "group" | "path" | "share" | "file_request" | "session" | "app_password" | "passkey";
+  type:
+    | "user"
+    | "group"
+    | "path"
+    | "share"
+    | "file_request"
+    | "session"
+    | "app_password"
+    | "passkey"
+    | "backup"
+    | "mcp_client";
   id: string;
   label?: string;
 };

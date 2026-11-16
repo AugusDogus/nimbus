@@ -16,6 +16,7 @@ import { streamBody } from "./http-files";
 import { cleanExpiredData } from "./maintenance";
 import {
   flushAudit,
+  recordAudit,
   runWithAuditRequest,
   setAuditSink,
 } from "@nimbus/api/audit";
@@ -179,7 +180,15 @@ function cleanup() {
       ),
     )
     .then(() => backups().runIfDue())
-    .then(() => undefined)
+    .then((backup) => {
+      if (backup)
+        recordAudit({
+          action: "backup.created",
+          actor: { type: "system" },
+          target: { type: "backup", id: backup.name },
+          details: { size: backup.size, scheduled: true },
+        });
+    })
     .catch((error: unknown) =>
       console.error(
         "Nimbus daily database backup failed. The database and earlier backups are unchanged; it will be retried in one hour.",

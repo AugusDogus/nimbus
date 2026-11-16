@@ -121,6 +121,17 @@ export const sharesRouter = router({
           code: "NOT_FOUND",
           message: "This link was revoked while you edited it. Its settings were not saved.",
         });
+      recordAudit({
+        action: "share.updated",
+        actor: auditUser(ctx.access.user),
+        target: { type: "share", id: updated.id, label: updated.path },
+        details: {
+          password: input.password.kind,
+          expiresAt: updated.expiresAt,
+          maxDownloads: updated.maxDownloads,
+          mode: updated.mode,
+        },
+      });
       return publicShare(updated);
     }),
   revoke: protectedProcedure

@@ -8,6 +8,7 @@ import { createClient, type Client } from "@libsql/client";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
+import { flushAudit, resetAuditForTest, setAuditSink, type RecordedAuditEvent } from "@nimbus/api/audit";
 import * as schema from "../../db/schema";
 import { resetThrottleForTest } from "../throttle";
 import { decideConsent, handleAuthorize, loadConsent } from "./authorization";
@@ -217,6 +218,28 @@ describe("MCP OAuth flow", () => {
     expect((await handleRevoke(ctx, post("/oauth/revoke", { token: second.refresh_token, client_id: second.clientId }))).status).toBe(200);
     expect(await bearer(second.access_token)).toMatchObject({ kind: "rejected" });
     expect(await listConnections(ctx.db, "owner")).toEqual([]);
+  });
+
+  it("records approvals, refused token requests, and disconnections in the audit log", async () => {
+    resetAuditForTest();
+    const events: RecordedAuditEvent[] = [];
+    setAuditSink(async (batch) => void events.push(...batch));
+    try {
+      const first = await connect();
+      expect((await handleToken(ctx, post("/oauth/token", { grant_type: "refresh_token", client_id: first.clientId, refresh_token: "not-a-token" }))).status).toBe(400);
+      const [connection] = await listConnections(ctx.db, "owner");
+      if (!connection) throw new Error("Expected a connection");
+      await revokeConnection(ctx.db, "owner", connection.id, now);
+      await flushAudit();
+      expect(events.map(({ action, actor, target }) => ({ action, actor: actor.type, target: target?.type }))).toEqual([
+        { action: "mcp.client_approved", actor: "user", target: "mcp_client" },
+        { action: "mcp.token_failed", actor: "anonymous", target: "mcp_client" },
+        { action: "mcp.client_disconnected", actor: "user", target: "mcp_client" },
+      ]);
+      expect(JSON.stringify(events)).not.toContain(first.refresh_token);
+    } finally {
+      resetAuditForTest();
+    }
   });
 
   it("refuses consent decisions from other origins or sessions", async () => {

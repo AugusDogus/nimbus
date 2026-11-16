@@ -1,3 +1,4 @@
+import { auditUser, recordAudit } from "@nimbus/api/audit";
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
 import { Backup } from "@/server/backup";
@@ -9,7 +10,8 @@ type Context = { params: Promise<{ name: string }> };
 /** Download a completed backup. Server administrators only. */
 export async function GET(request: Request, context: Context) {
   try {
-    (await requestAccess(request)).requireAdmin();
+    const access = await requestAccess(request);
+    access.requireAdmin();
     const { name } = await context.params;
     const location = Backup.file(path.join(getConfigRoot(), "backups"), name);
     const file = location ? Bun.file(location) : null;
@@ -18,6 +20,11 @@ export async function GET(request: Request, context: Context) {
         code: "NOT_FOUND",
         message: "That backup no longer exists. Refresh the list; older backups are removed as new ones are made.",
       });
+    recordAudit({
+      action: "backup.downloaded",
+      actor: auditUser(access.user),
+      target: { type: "backup", id: name },
+    });
     return new Response(file.stream(), {
       headers: {
         "Content-Type": "application/vnd.sqlite3",

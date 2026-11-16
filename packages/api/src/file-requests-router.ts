@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getAccess } from "./access";
+import { auditUser, recordAudit } from "./audit";
 import {
   fileRequestLimitsSchema,
   type FileRequest,
@@ -74,6 +75,12 @@ export const fileRequestsRouter = router({
           maxTotalBytes: input.maxTotalBytes,
         };
         await ctx.drive.fileRequests.create(request);
+        recordAudit({
+          action: "file_request.created",
+          actor: auditUser(access.user),
+          target: { type: "file_request", id: request.id, label: request.path },
+          details: { passwordProtected: passwordHash !== null, expiresAt: request.expiresAt },
+        });
         return { token: request.token };
       });
     }),
@@ -113,11 +120,26 @@ export const fileRequestsRouter = router({
         },
       );
       if (!updated) throw notFound();
+      recordAudit({
+        action: "file_request.updated",
+        actor: auditUser(ctx.access.user),
+        target: { type: "file_request", id: updated.id, label: updated.path },
+        details: { password: input.password.kind, expiresAt: updated.expiresAt },
+      });
       return { id: updated.id };
     }),
   revoke: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
-    .mutation(({ ctx, input }) =>
-      ctx.drive.fileRequests.revoke(input.id, ctx.access.user.id),
-    ),
+    .mutation(async ({ ctx, input }) => {
+      const request = (await ctx.drive.fileRequests.list(ctx.access.user.id)).find(
+        (entry) => entry.id === input.id,
+      );
+      if (!request) return;
+      await ctx.drive.fileRequests.revoke(input.id, ctx.access.user.id);
+      recordAudit({
+        action: "file_request.revoked",
+        actor: auditUser(ctx.access.user),
+        target: { type: "file_request", id: request.id, label: request.path },
+      });
+    }),
 });

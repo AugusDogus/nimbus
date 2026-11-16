@@ -1,3 +1,5 @@
+import { recordAudit } from "@nimbus/api/audit";
+import { accountActor, clientTarget } from "./audit";
 import { createHmac, hkdfSync, randomUUID, timingSafeEqual } from "node:crypto";
 import { McpScope } from "@nimbus/api/mcp-scope";
 import { and, eq, isNull } from "drizzle-orm";
@@ -300,6 +302,12 @@ export async function decideConsent(ctx: OAuthContext, request: Request) {
     if (!scopes.length)
       return seeOther(clientRedirect(ctx, authorization.redirectUri, { error: "access_denied", error_description: "The user approved no permissions.", state: authorization.state }));
     const code = await issueCode(ctx, session, authorization, scopes);
+    recordAudit({
+      action: "mcp.client_approved",
+      actor: await accountActor(ctx.db, session.userId),
+      target: await clientTarget(ctx.db, authorization.clientId),
+      details: { scope: McpScope.format(scopes) },
+    });
     return seeOther(clientRedirect(ctx, authorization.redirectUri, { code, state: authorization.state }));
   } catch (error) {
     console.error(`[mcp-oauth] consent failed: ${error instanceof Error ? error.name : typeof error}`);

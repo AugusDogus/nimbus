@@ -1,3 +1,4 @@
+import { auditUser, recordAudit } from "@nimbus/api/audit";
 import { backups, Backup } from "@/server/backup";
 import { httpError, requestAccess } from "@/server/http-files";
 import { getConfigRoot } from "@/server/storage-paths";
@@ -21,9 +22,17 @@ export async function GET(request: Request) {
 /** Back up the database now; joins a backup that is already running. */
 export async function POST(request: Request) {
   try {
-    (await requestAccess(request)).requireAdmin();
+    const access = await requestAccess(request);
+    access.requireAdmin();
     try {
-      return Response.json({ backup: await backups().run() }, { headers: noStore });
+      const backup = await backups().run();
+      recordAudit({
+        action: "backup.created",
+        actor: auditUser(access.user),
+        target: { type: "backup", id: backup.name },
+        details: { size: backup.size },
+      });
+      return Response.json({ backup }, { headers: noStore });
     } catch (error) {
       console.error("Nimbus database backup failed.", error);
       return Response.json(

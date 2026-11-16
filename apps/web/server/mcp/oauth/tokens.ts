@@ -1,3 +1,5 @@
+import { recordAudit } from "@nimbus/api/audit";
+import { clientTarget } from "./audit";
 import { createHash } from "node:crypto";
 import { McpScope } from "@nimbus/api/mcp-scope";
 import { and, eq, isNull, lt } from "drizzle-orm";
@@ -159,7 +161,14 @@ export async function handleToken(ctx: OAuthContext, request: Request) {
   const form = await readForm(request);
   if (!form.ok) return errorResponse(form.error);
   const client = await authenticateClient(ctx.db, request, form.value);
-  if (!client.ok) return errorResponse(client.error);
+  if (!client.ok) {
+    recordAudit({
+      action: "mcp.token_failed",
+      actor: { type: "anonymous", label: "MCP client" },
+      details: { error: client.error.error, grantType: form.value.get("grant_type") ?? null },
+    });
+    return errorResponse(client.error);
+  }
   const perClient = hit([{ key: `token:${client.value.clientId}:${address}`, rule: "tokenPerClient" }], ctx.now());
   if (!perClient.allowed) return throttled(perClient.retryAfterSeconds);
   const grantType = form.value.get("grant_type");
@@ -177,7 +186,15 @@ export async function handleToken(ctx: OAuthContext, request: Request) {
           };
   // Rows outlive expiry long enough for replay detection, then go.
   await ctx.db.delete(mcpTokens).where(lt(mcpTokens.expiresAt, ctx.now() - AUTHORIZATION_CODE_REPLAY_WINDOW_MS));
-  if (!result.ok) return errorResponse(result.error);
+  if (!result.ok) {
+    recordAudit({
+      action: "mcp.token_failed",
+      actor: { type: "anonymous", label: "MCP client" },
+      target: await clientTarget(ctx.db, client.value.clientId),
+      details: { error: result.error.error, grantType: grantType ?? null },
+    });
+    return errorResponse(result.error);
+  }
   return json({
     access_token: result.value.accessToken,
     token_type: "Bearer",
@@ -204,8 +221,16 @@ export async function handleRevoke(ctx: OAuthContext, request: Request) {
     clientId = client.value.clientId;
   }
   const row = await loadToken(ctx.db, token);
-  if (row && row.kind !== "authorization_code" && (clientId === null || row.clientId === clientId))
+  if (row && row.kind !== "authorization_code" && (clientId === null || row.clientId === clientId)) {
     await revokeGrant(ctx.db, row.grantId, ctx.now());
+    if (row.revokedAt === null)
+      recordAudit({
+        action: "mcp.client_disconnected",
+        actor: { type: "anonymous", label: "MCP client" },
+        target: await clientTarget(ctx.db, row.clientId),
+        details: { account: row.userId, by: "client" },
+      });
+  }
   return new Response(null, { status: 200, headers: { ...corsHeaders, "Cache-Control": "no-store" } });
 }
 
