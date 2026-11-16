@@ -4,7 +4,9 @@ import { Check, FileText, Folder } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { memo, type DragEvent, type MouseEvent, type PointerEvent } from "react";
-import { cn } from "@/lib/utils";
+// Rows mount continuously while scrolling large folders. Their classes never conflict, so they
+// are joined directly instead of through tailwind-merge.
+const classes = (...values: (string | false)[]) => values.filter(Boolean).join(" ");
 import { EntryActionsButton, openMenuAt } from "./entry-menu";
 import { fileHref, FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
@@ -101,7 +103,7 @@ export const EntryRow = memo(function EntryRow({
     <span
       data-entry-check
       aria-hidden
-      className={cn(
+      className={classes(
         "flex size-5 shrink-0 items-center justify-center rounded-full border transition-opacity duration-150",
         selected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/60 bg-background",
         selected || selectionActive ? "opacity-100" : "opacity-0 md:group-hover/entry:opacity-100",
@@ -115,7 +117,7 @@ export const EntryRow = memo(function EntryRow({
       {view === "list" ? (
         <span className="relative flex size-5 shrink-0 items-center justify-center">
           <Icon
-            className={cn(
+            className={classes(
               "size-5 text-muted-foreground transition-opacity duration-150",
               entry.type === "dir" && "fill-muted",
               selected || selectionActive ? "opacity-0" : "md:group-hover/entry:opacity-0",
@@ -137,25 +139,26 @@ export const EntryRow = memo(function EntryRow({
               className="h-20 w-full object-contain"
             />
           ) : (
-            <Icon className={cn("size-12 shrink-0 text-muted-foreground", entry.type === "dir" && "fill-muted")} />
+            <Icon className={classes("size-12 shrink-0 text-muted-foreground", entry.type === "dir" && "fill-muted")} />
           )}
         </>
       )}
-      <span className={cn("min-w-0 truncate text-sm", view === "grid" && "w-full text-center")}>{entry.name}</span>
+      <span className={classes("min-w-0 truncate text-sm", view === "grid" && "w-full text-center")}>{entry.name}</span>
     </>
   );
   const common = {
     ...drag,
     "aria-busy": dragLocked && dragging,
     "data-drop-target": dropTarget || undefined,
-    className: cn(
-      "w-full rounded-lg text-left [-webkit-touch-callout:none] hover:bg-accent/70 focus-visible:outline-2 focus-visible:outline-ring",
+    className: classes(
+      "w-full rounded-lg text-left [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-ring",
       view === "list"
         ? "flex h-12 items-center gap-3 py-3 pl-3 pr-12"
-        : "relative flex h-42 flex-col items-center justify-center gap-3 border bg-muted/30 px-4 pb-4 pt-10",
-      selected && "bg-accent hover:bg-accent",
+        : "relative flex h-42 flex-col items-center justify-center gap-3 border px-4 pb-4 pt-10",
+      // Background states are exclusive, so no class merging is needed.
+      selected || dropTarget ? "bg-accent" : view === "grid" ? "bg-muted/30 hover:bg-accent/70" : "hover:bg-accent/70",
       dragging && "opacity-50",
-      dropTarget && "bg-accent ring-2 ring-inset ring-primary",
+      dropTarget && "ring-2 ring-inset ring-primary",
     ),
     tabIndex: tabbable ? 0 : -1,
     "data-entry-name": entry.name,
@@ -182,6 +185,9 @@ export const EntryRow = memo(function EntryRow({
           <Link
             {...common}
             href={fileHref(entry.path)}
+            // Rows scroll past by the hundred. Prefetching each into the router cache would fetch
+            // pages nobody opens; listings are prefetched on hover and focus instead.
+            prefetch={false}
             onMouseEnter={() => actions.prefetchFolder(entry)}
             onFocus={() => {
               handlers.focus(entry);
