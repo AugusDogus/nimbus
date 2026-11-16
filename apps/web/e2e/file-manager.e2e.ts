@@ -219,6 +219,49 @@ test("long-press starts selection mode on touch, and taps then toggle items", as
   await expect(bar(page)).toHaveCount(0);
 });
 
+test("rows keep their elements through hydration and across the breakpoint, so a press on the first one shown selects", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "The touch layout applies after hydration on phones.");
+  const { folder } = await folderWithFiles(["one.txt", "two.txt"]);
+  // Remember the first element shown for the row, as a finger resting on it would. Streamed
+  // content waits in hidden containers until it is revealed.
+  await page.addInitScript(() => {
+    const observer = new MutationObserver(() => {
+      const row = [...document.querySelectorAll('[data-entry-name="one.txt"]')].find((element) => !element.closest("[hidden]"));
+      if (!row) return;
+      Reflect.set(window, "firstRow", row);
+      observer.disconnect();
+    });
+    observer.observe(document, { childList: true, subtree: true });
+  });
+  await page.goto(`/browse/${folder}`);
+  const target = entry(page, "one.txt");
+  const isFirstRow = () => target.evaluate((element) => element === Reflect.get(window, "firstRow"));
+  await expect(target).toHaveAttribute("draggable", "false");
+  expect(await isFirstRow()).toBe(true);
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("The mobile project has no viewport size.");
+  await page.setViewportSize({ width: 900, height: viewport.height });
+  await expect(target).toHaveAttribute("draggable", "true");
+  expect(await isFirstRow()).toBe(true);
+  await page.setViewportSize(viewport);
+  await expect(target).toHaveAttribute("draggable", "false");
+  expect(await isFirstRow()).toBe(true);
+
+  const press = (type: "pointerdown" | "pointerup" | "click") =>
+    page.evaluate((type) => {
+      const row = Reflect.get(window, "firstRow");
+      if (!(row instanceof HTMLElement)) throw new Error("The row was never shown.");
+      const point = { bubbles: true, cancelable: true, clientX: 100, clientY: 100, pointerType: "touch", isPrimary: true };
+      row.dispatchEvent(type === "click" ? new MouseEvent(type, point) : new PointerEvent(type, point));
+    }, type);
+  await press("pointerdown");
+  await page.waitForTimeout(600);
+  await press("pointerup");
+  await press("click");
+  await expect(bar(page)).toContainText("1 selected");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
 test("empties trash in one step after confirmation", async ({ page, context }) => {
   const rpc = await client(context);
   const { folder } = await folderWithFiles(["gone-1.txt", "gone-2.txt"]);

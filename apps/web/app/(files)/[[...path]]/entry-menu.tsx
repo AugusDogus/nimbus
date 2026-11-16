@@ -1,6 +1,6 @@
 "use client";
 
-import type { MouseEvent, ReactNode } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 import {
   Copy,
   Download,
@@ -187,42 +187,23 @@ export function EntryMenuHost({
   /** Return focus to the entry after the menu closes. The grid itself cannot hold focus. */
   onClosed: () => void;
 }) {
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const items = menu ? entryMenuItems(menu.entry, menu.targets, actions, open) : [];
-  if (touch)
-    return (
-      <>
-        {children}
-        <Drawer open={menu !== null} onOpenChange={(next) => !next && onMenuChange(null)}>
-          <DrawerContent>
-            <DrawerHeader>
-              <DrawerTitle className="break-words text-balance">
-                {menu && menu.targets.length > 1 ? `${menu.targets.length.toLocaleString()} selected items` : menu?.entry.name}
-              </DrawerTitle>
-              <DrawerDescription>File actions</DrawerDescription>
-            </DrawerHeader>
-            <div className="px-4 pb-6">
-              {items.map((item) => (
-                <DrawerClose asChild key={item.label}>
-                  <DrawerActionItem onClick={item.select}>
-                    <item.icon className="size-5" />
-                    {item.label}
-                  </DrawerActionItem>
-                </DrawerClose>
-              ))}
-            </div>
-          </DrawerContent>
-        </Drawer>
-      </>
-    );
+  // The tree around `children` is the same in both modes. Swapping it when the mode changes, as it
+  // does after hydration on phones, would replace every row's element, even under a finger.
   return (
     <ContextMenu
       onOpenChange={(next) => {
         if (!next) onMenuChange(null);
+        setContextMenuOpen(next);
       }}
     >
       <ContextMenuTrigger
         asChild
+        // Touch layouts long-press to select, and open actions in the drawer.
+        disabled={touch}
         onContextMenu={(event) => {
+          if (touch) return;
           const row = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-row-path]") : null;
           const target = row?.dataset.rowPath === undefined ? null : resolve(row.dataset.rowPath);
           // Empty space between entries has no actions.
@@ -252,6 +233,28 @@ export function EntryMenuHost({
           </ContextMenuItem>
         ))}
       </ContextMenuContent>
+      {/* Only touch layouts open the drawer. Both menus stay mounted, so one that is open when the
+          viewport crosses the breakpoint, as when a phone rotates, stays as it opened. */}
+      <Drawer open={menu !== null && !contextMenuOpen} onOpenChange={(next) => !next && onMenuChange(null)}>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle className="break-words text-balance">
+              {menu && menu.targets.length > 1 ? `${menu.targets.length.toLocaleString()} selected items` : menu?.entry.name}
+            </DrawerTitle>
+            <DrawerDescription>File actions</DrawerDescription>
+          </DrawerHeader>
+          <div className="px-4 pb-6">
+            {items.map((item) => (
+              <DrawerClose asChild key={item.label}>
+                <DrawerActionItem onClick={item.select}>
+                  <item.icon className="size-5" />
+                  {item.label}
+                </DrawerActionItem>
+              </DrawerClose>
+            ))}
+          </div>
+        </DrawerContent>
+      </Drawer>
     </ContextMenu>
   );
 }
