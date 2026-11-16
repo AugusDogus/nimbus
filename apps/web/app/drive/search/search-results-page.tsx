@@ -1,6 +1,6 @@
 import { Link } from "@/components/link";
 import { useCallback, useMemo } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { EntriesView } from "../files/entries-view";
 import type { FileEntry } from "../files/types";
 import { useEntryDialog } from "../files/use-entry-dialog";
@@ -84,9 +84,9 @@ export function SearchResultsPage({ query }: { query: string }) {
           <p className="text-pretty text-muted-foreground">
             No matching files. Try a different filename.
           </p>
-          <Button variant="outline" render={<Link to="/" />}>
+          <Link to="/" className={buttonVariants({ variant: "outline" })}>
             Open My Drive
-          </Button>
+          </Link>
         </div>
       )}
       {!search.complete && (
