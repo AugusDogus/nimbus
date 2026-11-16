@@ -82,7 +82,7 @@ Formatting and linting run from the repository root over every workspace; see [D
 
 ## File layer benchmark
 
-`bun run bench:files` (from the repository root) measures the file layer through its real code paths: tRPC callers, file operations, the SQLite drive store, live updates, the file watcher, the search crawl, and downloads, ZIPs and WebDAV over a node:http server that converts requests as `server/start.ts` does. It generates trees in a new directory under `/var/tmp` and deletes it afterwards (`--keep` retains it). Each metric reports latency percentiles or throughput, SQL statements per operation, peak RSS growth and the longest event-loop stall.
+`bun run bench:files` (from the repository root) measures the file layer through its real code paths: tRPC callers, file operations, the SQLite drive store, live updates, the file watcher, the search crawl, and downloads, ZIPs and WebDAV over HTTP. The HTTP scenario serves through a node:http bridge, as `server/start.ts` did before it moved to Bun.serve, so its numbers stay comparable with runs from that time. It generates trees in a new directory under `/var/tmp` and deletes it afterwards (`--keep` retains it). Each metric reports latency percentiles or throughput, SQL statements per operation, peak RSS growth and the longest event-loop stall.
 
 ```bash
 bun run bench:files --out=after.json                  # every scenario, about 15 minutes

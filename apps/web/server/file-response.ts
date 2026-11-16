@@ -13,8 +13,7 @@ import { zipStream } from "./zip-stream";
 
 /**
  * File and folder downloads as web Responses, shared by the download, public
- * link and MCP routes and WebDAV GET. Responses work under node:http, through
- * the bridge in start.ts, and under Bun.serve unchanged.
+ * link and MCP routes and WebDAV GET, served by Bun.serve.
  */
 
 export function streamBody(stream: Readable) {
@@ -82,7 +81,7 @@ async function openFile(head: boolean, requested: string) {
  * following a symlink, and the headers describe that open file, so a file
  * replaced meanwhile is served whole and consistent: either version, never a
  * mix or a length that does not match. Reads are 1 MiB, which measured twice
- * the throughput of the 64 KiB default through the node:http bridge.
+ * the throughput of the 64 KiB default.
  */
 export async function serveFile(
   request: Request,

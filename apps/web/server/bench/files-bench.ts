@@ -1176,7 +1176,7 @@ const scenarios: Record<string, () => Promise<void>> = {
   },
 };
 
-/** A node:http server that converts requests and responses exactly as server/start.ts does. */
+/** A node:http server that converts requests and responses as server/start.ts did before Bun.serve, kept so runs stay comparable. */
 function serve(
   handler: (request: Request) => Promise<Response>,
 ): Promise<Server> {
