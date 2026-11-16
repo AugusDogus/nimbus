@@ -1,18 +1,22 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
+  appendFile,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   rename,
   rm,
   symlink,
+  truncate,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
 import { createTestDriveStore } from "@nimbus/api/testing";
-import { serveFile, serveZip } from "./file-response";
+import { serveFile, serveZip, stillNamed } from "./file-response";
 
 let root: string;
 let previousRoot: string | undefined;
@@ -112,4 +116,130 @@ test("special files are refused without waiting on them", async () => {
   await expect(serveFile(get(), "docs/missing", access)).rejects.toMatchObject({
     code: "NOT_FOUND",
   });
+});
+
+/** Serve one download over real HTTP, changing the file after its headers are decided. */
+async function overHttp(change: (file: string) => Promise<void>) {
+  const access = await admin();
+  const file = path.join(root, "docs/large.bin");
+  await writeFile(file, Buffer.alloc(4 << 20, 65));
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      const response = await serveFile(request, "docs/large.bin", access);
+      await change(file);
+      return response;
+    },
+  });
+  try {
+    const response = await fetch(`http://localhost:${server.port}/`);
+    const advertised = Number(response.headers.get("content-length"));
+    const body = await response
+      .arrayBuffer()
+      .then((bytes) => ({
+        kind: "complete" as const,
+        bytes: new Uint8Array(bytes),
+      }))
+      .catch(() => ({ kind: "incomplete" as const }));
+    return { advertised, body };
+  } finally {
+    await server.stop(true);
+  }
+}
+
+test("a file replaced after its headers are decided is sent as the version they describe", async () => {
+  const { advertised, body } = await overHttp(async (file) => {
+    await writeFile(`${file}.new`, Buffer.alloc(1 << 20, 66));
+    await rename(`${file}.new`, file);
+  });
+  expect(advertised).toBe(4 << 20);
+  if (body.kind !== "complete") throw new Error("Expected the whole download.");
+  expect(body.bytes.length).toBe(4 << 20);
+  expect(body.bytes.every((byte) => byte === 65)).toBe(true);
+});
+
+test("a file grown after its headers are decided sends exactly what they describe", async () => {
+  const { advertised, body } = await overHttp((file) =>
+    appendFile(file, Buffer.alloc(1 << 20, 66)),
+  );
+  expect(advertised).toBe(4 << 20);
+  if (body.kind !== "complete") throw new Error("Expected the whole download.");
+  expect(body.bytes.length).toBe(4 << 20);
+  expect(body.bytes.every((byte) => byte === 65)).toBe(true);
+});
+
+test("a file truncated after its headers are decided never sends a length that does not match its bytes", async () => {
+  const { advertised, body } = await overHttp((file) =>
+    truncate(file, 1 << 20),
+  );
+  // Shortened in place: the server sends what remains, with that length.
+  if (body.kind !== "complete")
+    throw new Error("Expected the shortened download.");
+  expect(body.bytes.length).toBe(advertised);
+  expect(advertised).toBe(1 << 20);
+  expect(body.bytes.every((byte) => byte === 65)).toBe(true);
+});
+
+test("ranges through the server send exactly the requested bytes with matching headers", async () => {
+  const access = await admin();
+  const file = path.join(root, "docs/ranged.bin");
+  await writeFile(
+    file,
+    Uint8Array.from({ length: 3 << 20 }, (_, index) => index % 251),
+  );
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => serveFile(request, "docs/ranged.bin", access),
+  });
+  try {
+    const response = await fetch(`http://localhost:${server.port}/`, {
+      headers: { Range: "bytes=1048576-2097151" },
+    });
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(
+      `bytes 1048576-2097151/${3 << 20}`,
+    );
+    expect(response.headers.get("content-length")).toBe(String(1 << 20));
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(bytes.length).toBe(1 << 20);
+    expect(bytes[0]).toBe(1048576 % 251);
+    expect(bytes.at(-1)).toBe(2097151 % 251);
+    const whole = await fetch(`http://localhost:${server.port}/`);
+    expect(whole.headers.get("content-length")).toBe(String(3 << 20));
+    expect((await whole.arrayBuffer()).byteLength).toBe(3 << 20);
+  } finally {
+    await server.stop(true);
+  }
+});
+
+test("zero-copy is chosen only while the path names the opened file, unchanged", async () => {
+  const file = path.join(root, "docs/checked.bin");
+  const changes: [string, () => Promise<unknown>][] = [
+    ["unchanged", async () => undefined],
+    [
+      "replaced",
+      async () => {
+        await writeFile(`${file}.new`, "BB");
+        await rename(`${file}.new`, file);
+      },
+    ],
+    ["truncated", () => truncate(file, 1)],
+    ["grown", () => appendFile(file, "more")],
+    ["touched", () => utimes(file, new Date(), new Date(Date.now() + 5000))],
+  ];
+  for (const [name, change] of changes) {
+    await writeFile(file, "AAAA");
+    const handle = await open(file, "r");
+    try {
+      // The headers are built from the open file's stats.
+      const described = await handle.stat();
+      await change();
+      expect({ name, zeroCopy: await stillNamed(file, described) }).toEqual({
+        name,
+        zeroCopy: name === "unchanged",
+      });
+    } finally {
+      await handle.close();
+    }
+  }
 });
