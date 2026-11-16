@@ -20,5 +20,7 @@ export type SearchOutbound =
       reason: "startup" | "reconcile";
       entries: number;
       elapsedMs: number;
+      /** Longest single hold on the index during an in-place pass; null for full crawls. */
+      longestPauseMs: number | null;
     }
   | { type: "failed"; message: string };

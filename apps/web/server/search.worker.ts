@@ -1,6 +1,11 @@
 // Runs in a Bun Worker. Next copies this file without bundling it, so it may
 // import only packages, never relative or "@/" paths.
-import { applyChange, crawl } from "@nimbus/api/search-crawler";
+import {
+  applyChange,
+  crawl,
+  reconcile,
+  type Serialize,
+} from "@nimbus/api/search-crawler";
 import { createSearchIndex, type SearchIndex } from "@nimbus/api/search-index";
 import type { SearchInbound, SearchOutbound } from "./search-protocol";
 
@@ -27,6 +32,65 @@ const indexed = new Promise<void>((resolve) => {
 
 const post = (message: SearchOutbound) => self.postMessage(message);
 
+/** Run index work in turn with watcher changes, so neither sees the other half done. */
+const serialize: Serialize = (work) => {
+  const result = changes.then(work);
+  changes = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+};
+
+let reconciling = false;
+let reconcileAgain = false;
+
+/**
+ * Catch up with the disk in place: the index keeps answering searches from its
+ * current contents while each folder is compared with a fresh listing. Only
+ * when freed id slots outnumber live entries, after heavy churn, is a second
+ * index built instead, which also reclaims them.
+ */
+async function reconcileLive() {
+  if (queued) {
+    // The startup crawl replays changes itself; check again once it is done.
+    reconcileAgain = true;
+    return;
+  }
+  if (reconciling) {
+    reconcileAgain = true;
+    return;
+  }
+  reconciling = true;
+  try {
+    do {
+      reconcileAgain = false;
+      if (live.freedIds > Math.max(live.size, 1 << 16)) {
+        await rebuild("reconcile");
+        continue;
+      }
+      const started = performance.now();
+      const pass = await reconcile(live, root, serialize);
+      await serialize(async () => live.maybeCompact());
+      post({
+        type: "indexed",
+        reason: "reconcile",
+        entries: live.size,
+        elapsedMs: Math.round(performance.now() - started),
+        longestPauseMs: Math.round(pass.longestSliceMs),
+      });
+      if (pass.unreadable)
+        report(
+          new Error(
+            `${pass.unreadable} folders could not be read, so search and storage usage keep what was last seen in them. Check the permissions of the data root.`,
+          ),
+        );
+    } while (reconcileAgain);
+  } finally {
+    reconciling = false;
+  }
+}
+
 async function rebuild(reason: "startup" | "reconcile") {
   if (queued) return;
   queued = [];
@@ -51,12 +115,13 @@ async function rebuild(reason: "startup" | "reconcile") {
       reason,
       entries: fresh.size,
       elapsedMs: Math.round(performance.now() - started),
+      longestPauseMs: null,
     });
   } finally {
     building = null;
     queued = null;
   }
-  if (overflowed) void rebuild("reconcile").catch(report);
+  if (overflowed || reconcileAgain) void reconcileLive().catch(report);
 }
 
 function report(error: unknown) {
@@ -72,7 +137,7 @@ self.onmessage = (event: MessageEvent<SearchInbound>) => {
     case "start":
       root = message.root;
       void rebuild("startup").catch(report);
-      setInterval(() => void rebuild("reconcile").catch(report), RECONCILE_MS);
+      setInterval(() => void reconcileLive().catch(report), RECONCILE_MS);
       return;
     case "changed":
       if (queued) {
@@ -81,12 +146,10 @@ self.onmessage = (event: MessageEvent<SearchInbound>) => {
       }
       // A startup crawl owns the live index; its queue replays this change.
       if (building === live) return;
-      changes = changes
-        .then(() => applyChange(live, root, message.path))
-        .catch(report);
+      void serialize(() => applyChange(live, root, message.path)).catch(report);
       return;
     case "rescan":
-      void rebuild("reconcile").catch(report);
+      void reconcileLive().catch(report);
       return;
     case "usage":
       void indexed.then(() =>

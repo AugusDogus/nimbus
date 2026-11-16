@@ -70,7 +70,7 @@ function start(): BridgeState {
       }
       case "indexed":
         console.info(
-          `Nimbus search indexed ${message.entries} items in ${message.elapsedMs} ms (${message.reason}).`,
+          `Nimbus search indexed ${message.entries} items in ${message.elapsedMs} ms (${message.reason})${message.longestPauseMs === null ? "" : `, longest pause ${message.longestPauseMs} ms`}.`,
         );
         return;
       case "failed":
