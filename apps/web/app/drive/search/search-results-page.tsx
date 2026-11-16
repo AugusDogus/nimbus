@@ -44,10 +44,18 @@ export function SearchResultsPage({ query }: { query: string }) {
     actions.recordVisit,
   );
   const title = `Search: ${query}`;
-  const sections = useMemo(
-    () => [{ title: "", entries: search.entries }],
-    [search.entries],
-  );
+  // Typo and abbreviation matches always rank last, so a heading can separate them.
+  const sections = useMemo(() => {
+    const similar = search.entries.findIndex(
+      (entry) => entry.match === "fuzzy",
+    );
+    return similar < 0
+      ? [{ title: "", entries: search.entries }]
+      : [
+          { title: "", entries: search.entries.slice(0, similar) },
+          { title: "Similar names", entries: search.entries.slice(similar) },
+        ].filter((section) => section.entries.length > 0);
+  }, [search.entries]);
   const total = search.total;
   return (
     <div className="space-y-6">

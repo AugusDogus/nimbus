@@ -101,3 +101,26 @@ test("finds words across folders and loads every match", async ({
   await page.getByRole("button", { name: "Show 6 more", exact: true }).click();
   await expect(status).toHaveText("206 matches.");
 });
+
+test("finds names with a typo under a separate heading", async ({
+  page,
+  context,
+}) => {
+  const token = randomUUID().slice(0, 8);
+  const folder = `typo-${token}`;
+  await (await client(context)).files.createFolder.mutate({ name: folder });
+  const word = `zephyrine${token.replace(/\d/g, "")}`;
+  await writeFile(path.join(await dataRoot(), folder, `${word}.txt`), "x");
+  // Two neighbouring letters swapped.
+  const typo = `${word.slice(0, 2)}${word[3]}${word[2]}${word.slice(4)}`;
+  await expect(async () => {
+    await page.goto(`/search?q=${encodeURIComponent(typo)}`);
+    await expect(page.getByText("Similar names", { exact: true })).toBeVisible({
+      timeout: 2_000,
+    });
+  }).toPass();
+  const row = page
+    .locator(`[data-entry-path="${folder}/${word}.txt"]`)
+    .filter({ visible: true });
+  await expect(row.locator("mark").first()).toHaveText(word);
+});
