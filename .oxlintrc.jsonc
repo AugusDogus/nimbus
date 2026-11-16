@@ -1,6 +1,8 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["eslint", "typescript", "react", "nextjs", "jsx-a11y", "import"],
+  // Rules are listed explicitly: the eslint-config-next core-web-vitals and TypeScript presets
+  // that ESLint ran, followed by the repository's own standards. `bun run lint` fails on warnings.
   "categories": {
     "correctness": "off"
   },
@@ -10,6 +12,7 @@
   },
   "ignorePatterns": ["**/next-env.d.ts"],
   "options": {
+    "typeAware": true,
     "reportUnusedDisableDirectives": "error"
   },
   "settings": {
@@ -21,6 +24,7 @@
     }
   },
   "rules": {
+    // eslint-config-next/typescript
     "eslint/no-array-constructor": "error",
     "eslint/no-unused-expressions": [
       "warn",
@@ -32,6 +36,7 @@
         "vars": "all",
         "args": "after-used",
         "caughtErrors": "all",
+        // Destructuring a property away is how objects omit one: `({ secret, ...rest }) => rest`.
         "ignoreRestSiblings": true,
         "reportVarsOnlyUsedAsTypes": true
       }
@@ -57,10 +62,30 @@
     "typescript/no-wrapper-object-types": "error",
     "typescript/prefer-as-const": "error",
     "typescript/prefer-namespace-keyword": "error",
-    "typescript/triple-slash-reference": "error"
+    "typescript/triple-slash-reference": "error",
+
+    // Repository standards: no `any` flowing anywhere, no `!`, no unchecked assertions,
+    // no floating promises. The type-aware rules run through oxlint-tsgolint.
+    "typescript/no-non-null-assertion": "error",
+    "typescript/no-unsafe-type-assertion": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    "typescript/no-unsafe-enum-comparison": "error",
+    "typescript/no-unsafe-unary-minus": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error",
+    // Also stands in for react/no-deprecated, which oxlint lacks: @types/react marks the
+    // deprecated React APIs with @deprecated.
+    "typescript/no-deprecated": "error"
   },
   "overrides": [
     {
+      // eslint-config-next/core-web-vitals, for the Next.js app only.
       "files": ["apps/web/**"],
       "rules": {
         "react/display-name": "error",
@@ -79,6 +104,7 @@
         "react/require-render-return": "error",
         "react/rules-of-hooks": "error",
         "react/exhaustive-deps": "warn",
+        // eslint-plugin-react-hooks 7 recommended (React Compiler) rules.
         "react/error-boundaries": "error",
         "react/globals": "error",
         "react/immutability": "error",
@@ -118,6 +144,15 @@
         "jsx-a11y/aria-unsupported-elements": "warn",
         "jsx-a11y/role-has-required-aria-props": "warn",
         "jsx-a11y/role-supports-aria-props": "warn"
+      }
+    },
+    {
+      // bun-types declares `expect(promise).rejects` and `.resolves` matchers as returning void,
+      // but Bun returns a promise that must be awaited for the assertion to count. Every
+      // await-thenable finding in tests was one of these.
+      "files": ["**/*.test.ts", "**/*.test.tsx"],
+      "rules": {
+        "typescript/await-thenable": "off"
       }
     }
   ]
