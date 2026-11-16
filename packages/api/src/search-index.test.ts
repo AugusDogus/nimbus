@@ -82,6 +82,25 @@ describe("search index", () => {
     expect(paths(index, "q1", all, "docs")).toEqual(["docs/reports/q1.csv"]);
   });
 
+  it("stops each grant's scan at its end, even when the next name matches", () => {
+    const index = createSearchIndex();
+    for (const folder of ["a", "b", "c", "d"])
+      for (const name of ["note", "x-note", "xylophone"])
+        index.add(`${folder}/${folder}-${name}`, "file");
+    index.add("b/x", "file");
+    index.compact();
+    const grants: SearchScope = { type: "grants", paths: ["a", "c"] };
+    expect(paths(index, "x", grants)).toEqual([]);
+    expect(paths(index, "a-x-", grants)).toEqual(["a/a-x-note"]);
+    expect(paths(index, "note", grants).sort()).toEqual([
+      "a/a-note",
+      "a/a-x-note",
+      "c/c-note",
+      "c/c-x-note",
+    ]);
+    expect(paths(index, "d-", grants)).toEqual([]);
+  });
+
   it("removes subtrees, including entries that were already compacted", () => {
     const index = sample();
     index.compact();

@@ -529,8 +529,11 @@ export function createSearchIndex(initialCapacity = 1024) {
       const shift = prefixOnly ? 1 : 0;
       for (const [first, end] of visibleRanges(rootId, granted)) {
         const stop = foldedStarts[end];
+        // `indexOf` has no end bound: a view ending at the range keeps a miss
+        // from scanning the rest of the drive, which this caller cannot see.
+        const haystack = folded.subarray(0, stop);
         let slot = first;
-        let position = folded.indexOf(pattern, foldedStarts[first] - shift);
+        let position = haystack.indexOf(pattern, foldedStarts[first] - shift);
         while (position >= 0 && position + shift < stop) {
           const at = position + shift;
           // Gallop forward to the slot containing this match.
@@ -562,7 +565,7 @@ export function createSearchIndex(initialCapacity = 1024) {
               ),
             );
           }
-          position = folded.indexOf(pattern, foldedStarts[slot + 1] - shift);
+          position = haystack.indexOf(pattern, foldedStarts[slot + 1] - shift);
         }
       }
 
