@@ -1,7 +1,6 @@
 "use client";
 
-import type { HTMLAttributes, ReactNode } from "react";
-import { useState } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import {
   Copy,
   Download,
@@ -21,12 +20,6 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Drawer,
   DrawerClose,
   DrawerContent,
@@ -35,8 +28,6 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { DrawerActionItem } from "@/components/drawer-action-item";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { cn } from "@/lib/utils";
 import { FileEntry } from "./types";
 import type { EntryDialog } from "./entry-dialogs";
 import type { useFileActions } from "./use-file-actions";
@@ -48,10 +39,13 @@ type MenuItem = {
   select: () => void;
 };
 
+/** The entry a menu was opened for, and what its actions apply to. */
+export type EntryMenuTarget = { entry: FileEntry; targets: readonly FileEntry[] };
+
 const capabilityCache = new WeakMap<readonly FileEntry[], { move: boolean; trash: boolean }>();
 /**
- * Whether every target can be moved or trashed. Every mounted row shares the selection array, so
- * the answer is computed once per selection, not once per row over up to 50,000 entries.
+ * Whether every target can be moved or trashed. Rows share the selection array, so the answer is
+ * computed once per selection, not once per row over up to 50,000 entries.
  */
 export function selectionCapabilities(targets: readonly FileEntry[]) {
   let capabilities = capabilityCache.get(targets);
@@ -113,82 +107,92 @@ export function entryMenuItems(
   ];
 }
 
-export function EntryMenu({
-  entry,
-  targets,
-  children,
-  actions,
-  onSelect,
-  rowProps,
+/**
+ * The "more actions" button on each row. It holds no menu of its own: on desktop it opens the
+ * collection's shared context menu at the button, on touch screens the shared drawer.
+ */
+export function EntryActionsButton({
+  name,
+  count,
   tabbable,
-  onContextMenu,
+  open,
+  onOpen,
 }: {
-  entry: FileEntry;
-  targets: readonly FileEntry[];
-  children: ReactNode;
-  actions: ReturnType<typeof useFileActions>;
-  onSelect: (dialog: EntryDialog) => void;
-  /** Semantics, position, and data attributes for the row element that wraps the entry. */
-  rowProps: HTMLAttributes<HTMLDivElement> & Record<`data-${string}`, string | boolean | undefined>;
-  /** The actions button joins the tab order only for the roving tab stop. */
+  name: string;
+  /** Entries the menu will act on: more than one when the row is part of a multi-selection. */
+  count: number;
   tabbable: boolean;
-  /** Runs before the context menu opens, so right-clicking can adjust the selection. */
-  onContextMenu: () => void;
+  open: boolean;
+  onOpen: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
-  const isMobile = useIsMobile();
-  const [open, setOpen] = useState(false);
-  const items = entryMenuItems(entry, targets, actions, onSelect);
-  const label = targets.length > 1 ? `Actions for ${targets.length.toLocaleString()} selected items` : `Actions for ${entry.name}`;
-  const trigger = (
+  return (
     <Button
       variant="ghost"
       size="icon-sm"
-      aria-label={label}
+      aria-label={count > 1 ? `Actions for ${count.toLocaleString()} selected items` : `Actions for ${name}`}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      data-state={open ? "open" : "closed"}
       tabIndex={tabbable ? 0 : -1}
       className="absolute right-2 top-2 shrink-0 text-muted-foreground md:opacity-0 md:group-hover/entry:opacity-100 md:group-focus-within/entry:opacity-100 md:data-[state=open]:opacity-100"
       onClick={(event) => {
         event.stopPropagation();
-        if (isMobile) setOpen(true);
+        onOpen(event);
       }}
     >
       <EllipsisVertical className="size-4" />
     </Button>
   );
-  const content = (
-    <div {...rowProps} className={cn("group/entry relative", rowProps.className)}>
-      <div role="gridcell">
-        {children}
-        {isMobile ? (
-          trigger
-        ) : (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {items.map((item) => (
-                <DropdownMenuItem
-                  key={item.label}
-                  variant={item.destructive ? "destructive" : "default"}
-                  onSelect={item.select}
-                >
-                  <item.icon />
-                  {item.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
-    </div>
+}
+
+/** Open the shared context menu at a row's actions button, as a right-click there would. */
+export function openMenuAt(button: HTMLElement) {
+  const rect = button.getBoundingClientRect();
+  button.dispatchEvent(
+    new globalThis.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.right,
+      clientY: rect.bottom,
+    }),
   );
-  if (isMobile)
+}
+
+/**
+ * One menu for the whole collection. Mounting a menu per row made scrolling large folders mount
+ * menu machinery for every row that appeared. `resolve` maps the row under a right-click, a
+ * Shift+F10 press, or an actions button to its menu target; null leaves no menu to show.
+ */
+export function EntryMenuHost({
+  children,
+  touch,
+  menu,
+  onMenuChange,
+  resolve,
+  actions,
+  open,
+  onClosed,
+}: {
+  children: ReactNode;
+  touch: boolean;
+  menu: EntryMenuTarget | null;
+  onMenuChange: (menu: EntryMenuTarget | null) => void;
+  resolve: (path: string) => EntryMenuTarget | null;
+  actions: ReturnType<typeof useFileActions>;
+  open: (dialog: EntryDialog) => void;
+  /** Return focus to the entry after the menu closes. The grid itself cannot hold focus. */
+  onClosed: () => void;
+}) {
+  const items = menu ? entryMenuItems(menu.entry, menu.targets, actions, open) : [];
+  if (touch)
     return (
       <>
-        {content}
-        <Drawer open={open} onOpenChange={setOpen}>
+        {children}
+        <Drawer open={menu !== null} onOpenChange={(next) => !next && onMenuChange(null)}>
           <DrawerContent>
             <DrawerHeader>
               <DrawerTitle className="break-words text-balance">
-                {targets.length > 1 ? `${targets.length.toLocaleString()} selected items` : entry.name}
+                {menu && menu.targets.length > 1 ? `${menu.targets.length.toLocaleString()} selected items` : menu?.entry.name}
               </DrawerTitle>
               <DrawerDescription>File actions</DrawerDescription>
             </DrawerHeader>
@@ -209,11 +213,30 @@ export function EntryMenu({
   return (
     <ContextMenu
       onOpenChange={(next) => {
-        if (next) onContextMenu();
+        if (!next) onMenuChange(null);
       }}
     >
-      <ContextMenuTrigger asChild>{content}</ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuTrigger
+        asChild
+        onContextMenu={(event) => {
+          const row = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-row-path]") : null;
+          const target = row?.dataset.rowPath === undefined ? null : resolve(row.dataset.rowPath);
+          // Empty space between entries has no actions.
+          if (!target) {
+            event.preventDefault();
+            return;
+          }
+          onMenuChange(target);
+        }}
+      >
+        {children}
+      </ContextMenuTrigger>
+      <ContextMenuContent
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          onClosed();
+        }}
+      >
         {items.map((item) => (
           <ContextMenuItem
             key={item.label}

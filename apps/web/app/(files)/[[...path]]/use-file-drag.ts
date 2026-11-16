@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import { FileEntry } from "./types";
 
 const entryDragType = "application/x-nimbus-entry";
@@ -28,7 +28,15 @@ function setCountImage(event: DragEvent<HTMLElement>, count: number) {
 }
 
 export function useFileDrag({ moveEntry, moveEntries }: Moves) {
-  const [state, setState] = useState<DragState>({ status: "idle" });
+  const [state, setRendered] = useState<DragState>({ status: "idle" });
+  // Handlers read the latest state from this ref: memoized rows keep handlers from earlier renders.
+  const stateRef = useRef<DragState>(state);
+  const setState = (next: DragState | ((current: DragState) => DragState)) => {
+    const value = typeof next === "function" ? next(stateRef.current) : next;
+    if (value === stateRef.current) return;
+    stateRef.current = value;
+    setRendered(value);
+  };
 
   const move = async (sources: readonly FileEntry[], destination: FileEntry) => {
     setState({ status: "moving", sources, targetPath: destination.path });
@@ -55,11 +63,9 @@ export function useFileDrag({ moveEntry, moveEntries }: Moves) {
   /** `sources` is what dragging `entry` moves: the selection when it includes `entry`. */
   const getDragProps = (entry: FileEntry, sources: () => readonly FileEntry[]) => ({
     draggable: state.status !== "moving" && FileEntry.canMove(entry),
-    "aria-busy": state.status === "moving" && isDragging(entry),
-    "data-drop-target": isDropTarget(entry) || undefined,
     onDragStart(event: DragEvent<HTMLElement>) {
       const dragged = sources().filter(FileEntry.canMove);
-      if (state.status === "moving" || dragged.length === 0) {
+      if (stateRef.current.status === "moving" || dragged.length === 0) {
         event.preventDefault();
         return;
       }
@@ -74,10 +80,11 @@ export function useFileDrag({ moveEntry, moveEntries }: Moves) {
       setState((current) => (current.status === "dragging" ? { status: "idle" } : current));
     },
     onDragOver(event: DragEvent<HTMLElement>) {
-      if (state.status !== "dragging" || !event.dataTransfer.types.includes(entryDragType)) return;
+      const current = stateRef.current;
+      if (current.status !== "dragging" || !event.dataTransfer.types.includes(entryDragType)) return;
       event.preventDefault();
       event.stopPropagation();
-      const allowed = canMoveAllInto(state.sources, entry);
+      const allowed = canMoveAllInto(current.sources, entry);
       event.dataTransfer.dropEffect = allowed ? "move" : "none";
       const targetPath = allowed ? entry.path : null;
       setState((current) =>
@@ -92,10 +99,11 @@ export function useFileDrag({ moveEntry, moveEntries }: Moves) {
     },
     onDrop(event: DragEvent<HTMLElement>) {
       // Only this view's active drag can move entries. OS file drops still reach the uploader.
-      if (state.status !== "dragging" || !event.dataTransfer.types.includes(entryDragType)) return;
+      const current = stateRef.current;
+      if (current.status !== "dragging" || !event.dataTransfer.types.includes(entryDragType)) return;
       event.preventDefault();
       event.stopPropagation();
-      if (canMoveAllInto(state.sources, entry)) void move(state.sources, entry);
+      if (canMoveAllInto(current.sources, entry)) void move(current.sources, entry);
       else setState({ status: "idle" });
     },
   });

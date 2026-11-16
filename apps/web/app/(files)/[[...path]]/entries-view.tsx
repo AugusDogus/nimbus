@@ -1,8 +1,5 @@
 "use client";
 
-import { Check, FileText, Folder } from "lucide-react";
-import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
@@ -10,7 +7,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
@@ -18,8 +14,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { cn } from "@/lib/utils";
-import { EntryMenu } from "./entry-menu";
+import { EntryMenuHost, type EntryMenuTarget } from "./entry-menu";
+import { EntryRow, type EntryRowHandlers } from "./entry-row";
 import { EditEntryDialog, type EntryDialog } from "./entry-dialogs";
 import { commandFor, typeaheadMatch } from "./entry-keys";
 import { EntryLayout, entryGeometry, type EntrySection } from "./entry-layout";
@@ -50,7 +46,6 @@ type Props = {
 
 const longPressMs = 450;
 const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
-const imagePattern = /\.(png|jpe?g|webp|gif|avif)$/i;
 
 export function EntriesView({ view, sections, actions, restoreKey, label, toolbarRef, selectionSlot }: Props) {
   const router = useRouter();
@@ -64,6 +59,7 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   const [focusPath, setFocusPath] = useState<string | null>(null);
   const [touchSelecting, setTouchSelecting] = useState(false);
   const [dialog, setDialog] = useState<EntryDialog | null>(null);
+  const [menu, setMenu] = useState<EntryMenuTarget | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   // Entries can leave the folder through live updates, moves, and other clients.
   const retained = Selection.retain(selection, order);
@@ -276,120 +272,80 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
   if (focusedRow >= 0 && (focusedRow < virtual.range.start || focusedRow >= virtual.range.end)) rendered.push(focusedRow);
   const selectionActive = selection.paths.size > 0;
 
-  const renderEntry = (entry: FileEntry, index: number, rowIndex: number, style?: CSSProperties) => {
-    const selected = selection.paths.has(entry.path);
-    const isImage = view === "grid" && entry.type === "file" && imagePattern.test(entry.name);
-    const Icon = entry.type === "dir" ? Folder : FileText;
-    // Touch moves use the Move action: a long press selects instead of starting a drag.
-    const dragProps = isMobile ? { draggable: false } : drag.getDragProps(entry, () => targetsFor(entry));
-    const check = (
-      <span
-        data-entry-check
-        aria-hidden
-        className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded-full border transition-opacity duration-150",
-          selected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/60 bg-background",
-          selected || selectionActive ? "opacity-100" : "opacity-0 md:group-hover/entry:opacity-100",
-        )}
-      >
-        {selected && <Check className="size-3.5" strokeWidth={3} />}
-      </span>
-    );
-    const content = (
-      <>
-        {view === "list" ? (
-          <span className="relative flex size-5 shrink-0 items-center justify-center">
-            <Icon
-              className={cn(
-                "size-5 text-muted-foreground transition-opacity duration-150",
-                entry.type === "dir" && "fill-muted",
-                selected || selectionActive ? "opacity-0" : "md:group-hover/entry:opacity-0",
-              )}
-            />
-            <span className="absolute inset-0">{check}</span>
-          </span>
-        ) : (
-          <>
-            <span className="absolute left-2 top-2">{check}</span>
-            {isImage ? (
-              <Image
-                draggable={false}
-                unoptimized
-                src={`/api/files/thumbnail?path=${encodeURIComponent(entry.path)}`}
-                width={128}
-                height={80}
-                alt=""
-                className="h-20 w-full object-contain"
-              />
-            ) : (
-              <Icon className={cn("size-12 shrink-0 text-muted-foreground", entry.type === "dir" && "fill-muted")} />
-            )}
-          </>
-        )}
-        <span className={cn("min-w-0 truncate text-sm", view === "grid" && "w-full text-center")}>{entry.name}</span>
-      </>
-    );
-    const className = cn(
-      "w-full rounded-lg text-left [-webkit-touch-callout:none] hover:bg-accent/70 focus-visible:outline-2 focus-visible:outline-ring",
-      view === "list"
-        ? "flex h-12 items-center gap-3 py-3 pl-3 pr-12"
-        : "relative flex h-42 flex-col items-center justify-center gap-3 border bg-muted/30 px-4 pb-4 pt-10",
-      selected && "bg-accent hover:bg-accent",
-      drag.isDragging(entry) && "opacity-50",
-      drag.isDropTarget(entry) && "bg-accent ring-2 ring-inset ring-primary",
-    );
-    const common = {
-      ...dragProps,
-      className,
-      tabIndex: entry.path === tabStop ? 0 : -1,
-      "data-entry-name": entry.name,
-      "data-entry-path": entry.path,
-      onFocus: () => {
-        if (focusPath !== entry.path) setFocusPath(entry.path);
-      },
-      onClick: (event: MouseEvent<HTMLElement>) => onEntryClick(event, entry, index),
-      onPointerDown: (event: PointerEvent<HTMLElement>) => onEntryPointerDown(event, index),
-      onPointerMove: onEntryPointerMove,
-      onPointerUp: cancelLongPress,
-      onPointerCancel: cancelLongPress,
-      onContextMenu: (event: MouseEvent<HTMLElement>) => {
+  /**
+   * Opening a menu on an entry focuses it, and selects only it unless it is already selected.
+   * The menu then acts on the whole selection when the entry is part of one.
+   */
+  const menuTarget = (path: string): EntryMenuTarget | null => {
+    const index = order.index.get(path);
+    const entry = index === undefined ? undefined : layout.entries[index];
+    if (!entry) return null;
+    setFocusPath(path);
+    if (selection.paths.has(path)) return { entry, targets: targetsFor(entry) };
+    setSelection(Selection.only(path));
+    return { entry, targets: [entry] };
+  };
+
+  // One stable handler object for every row; its methods call this render's handlers.
+  const latest = useRef<EntryRowHandlers | null>(null);
+  useLayoutEffect(() => {
+    latest.current = {
+      click: onEntryClick,
+      pointerDown: onEntryPointerDown,
+      pointerMove: onEntryPointerMove,
+      pointerEnd: cancelLongPress,
+      nativeContextMenu: (event) => {
         // Touch long-press selects instead of opening the browser's link menu.
         if (suppressClick.current || touchSelecting) event.preventDefault();
       },
+      openDrawer: (entry) => setMenu(menuTarget(entry.path)),
+      focus: (entry) => {
+        if (focusPath !== entry.path) setFocusPath(entry.path);
+      },
+      dragProps: (entry) => drag.getDragProps(entry, () => targetsFor(entry)),
     };
+  });
+  const [handlers] = useState<EntryRowHandlers>(() => {
+    const call = () => {
+      if (!latest.current) throw new Error("Entry handlers ran before the file view rendered.");
+      return latest.current;
+    };
+    return {
+      click: (...args) => call().click(...args),
+      pointerDown: (...args) => call().pointerDown(...args),
+      pointerMove: (...args) => call().pointerMove(...args),
+      pointerEnd: () => call().pointerEnd(),
+      nativeContextMenu: (...args) => call().nativeContextMenu(...args),
+      openDrawer: (...args) => call().openDrawer(...args),
+      focus: (...args) => call().focus(...args),
+      dragProps: (...args) => call().dragProps(...args),
+    };
+  });
+  const multiSelection = selectedEntries.length > 1 ? selectedEntries : null;
+  const dragLocked = drag.state.status === "moving";
+
+  const renderEntry = (entry: FileEntry, index: number, rowIndex: number, position: { top: number; height: number; left?: string; width?: string }) => {
+    const selected = selection.paths.has(entry.path);
     return (
-      <EntryMenu
+      <EntryRow
         key={entry.path}
         entry={entry}
-        targets={targetsFor(entry)}
-        actions={actions}
-        onSelect={open}
+        index={index}
+        ariaRowIndex={index + headersBefore(rowIndex) + 1}
+        view={view}
+        selected={selected}
+        selectionActive={selectionActive}
         tabbable={entry.path === tabStop}
-        onContextMenu={() => {
-          setFocusPath(entry.path);
-          if (!selection.paths.has(entry.path)) setSelection(Selection.only(entry.path));
-        }}
-        rowProps={{
-          role: "row",
-          "aria-rowindex": index + headersBefore(rowIndex) + 1,
-          "aria-selected": selected,
-          "data-entry-row": true,
-          style,
-        }}
-      >
-        {entry.type === "dir" ? (
-          <Link {...common} href={fileHref(entry.path)} onMouseEnter={() => actions.prefetchFolder(entry)} onFocus={() => {
-            common.onFocus();
-            actions.prefetchFolder(entry);
-          }}>
-            {content}
-          </Link>
-        ) : (
-          <button {...common} type="button">
-            {content}
-          </button>
-        )}
-      </EntryMenu>
+        dragging={drag.isDragging(entry)}
+        dropTarget={drag.isDropTarget(entry)}
+        dragLocked={dragLocked}
+        touch={isMobile}
+        selectionTargets={selected ? multiSelection : null}
+        menuOpen={menu?.entry.path === entry.path}
+        actions={actions}
+        handlers={handlers}
+        {...position}
+      />
     );
   };
 
@@ -418,58 +374,72 @@ export function EntriesView({ view, sections, actions, restoreKey, label, toolba
       <p id="entries-keyboard-hint" className="sr-only">
         Use arrow keys to move, Enter to open, and question mark for keyboard shortcuts.
       </p>
-      <div
-        ref={containerRef}
-        role="grid"
-        aria-label={label}
-        aria-multiselectable="true"
-        aria-rowcount={layout.entries.length + headerRows.length}
-        aria-colcount={1}
-        aria-describedby="entries-keyboard-hint"
-        className="relative"
-        style={{ height: layout.height }}
-        onKeyDown={onKeyDown}
-        onKeyUp={(event) => {
-          const entry = previewOnRelease.current;
-          if (event.key !== " " || !entry) return;
-          previewOnRelease.current = null;
-          event.preventDefault();
-          open({ action: "preview", entry });
+      <EntryMenuHost
+        touch={isMobile}
+        menu={menu}
+        onMenuChange={setMenu}
+        resolve={menuTarget}
+        actions={actions}
+        open={open}
+        onClosed={() => {
+          // Actions that open a dialog move focus there. Otherwise return it to the entry.
+          if (document.activeElement && document.activeElement !== document.body) return;
+          if (focusPath)
+            containerRef.current?.querySelector<HTMLElement>(`[data-entry-path="${CSS.escape(focusPath)}"]`)?.focus();
         }}
-        onPointerDown={onContainerPointerDown}
       >
-        {rendered.map((rowIndex) => {
-          const row = layout.rows[rowIndex];
-          if (!row) return null;
-          const position = { position: "absolute", top: row.top, left: 0, right: 0, height: row.height } as const;
-          if (row.kind === "header")
-            return (
-              <div key={`header:${row.title}`} role="row" aria-rowindex={entriesBefore(rowIndex) + headersBefore(rowIndex) + 1} style={position}>
-                <h2 role="columnheader" className="px-3 text-balance text-xs font-medium text-muted-foreground">
-                  {row.title}
-                </h2>
-              </div>
+      <div
+          ref={containerRef}
+          role="grid"
+          aria-label={label}
+          aria-multiselectable="true"
+          aria-rowcount={layout.entries.length + headerRows.length}
+          aria-colcount={1}
+          aria-describedby="entries-keyboard-hint"
+          className="relative"
+          style={{ height: layout.height }}
+          onKeyDown={onKeyDown}
+          onKeyUp={(event) => {
+            const entry = previewOnRelease.current;
+            if (event.key !== " " || !entry) return;
+            previewOnRelease.current = null;
+            event.preventDefault();
+            open({ action: "preview", entry });
+          }}
+          onPointerDown={onContainerPointerDown}
+        >
+          {rendered.map((rowIndex) => {
+            const row = layout.rows[rowIndex];
+            if (!row) return null;
+            const position = { position: "absolute", top: row.top, left: 0, right: 0, height: row.height } as const;
+            if (row.kind === "header")
+              return (
+                <div key={`header:${row.title}`} role="row" aria-rowindex={entriesBefore(rowIndex) + headersBefore(rowIndex) + 1} style={position}>
+                  <h2 role="columnheader" className="px-3 text-balance text-xs font-medium text-muted-foreground">
+                    {row.title}
+                  </h2>
+                </div>
+              );
+            if (view === "list") {
+              const entry = layout.entries[row.start];
+              return entry ? renderEntry(entry, row.start, rowIndex, { top: row.top, height: row.height }) : null;
+            }
+            // Cards are positioned one by one, without row wrappers, so a change in column count only
+            // restyles them. Remounting under a new wrapper would drop focus and in-flight clicks.
+            const { gap } = entryGeometry.grid;
+            const columns = layout.columns;
+            const width = `((100% - ${(columns - 1) * gap}px) / ${columns})`;
+            return layout.entries.slice(row.start, row.start + row.count).map((entry, offset) =>
+              renderEntry(entry, row.start + offset, rowIndex, {
+                top: row.top,
+                height: row.height,
+                width: `calc${width}`,
+                left: `calc(${width} * ${offset} + ${offset * gap}px)`,
+              }),
             );
-          if (view === "list") {
-            const entry = layout.entries[row.start];
-            return entry ? renderEntry(entry, row.start, rowIndex, position) : null;
-          }
-          // Cards are positioned one by one, without row wrappers, so a change in column count only
-          // restyles them. Remounting under a new wrapper would drop focus and in-flight clicks.
-          const { gap } = entryGeometry.grid;
-          const columns = layout.columns;
-          const width = `((100% - ${(columns - 1) * gap}px) / ${columns})`;
-          return layout.entries.slice(row.start, row.start + row.count).map((entry, offset) =>
-            renderEntry(entry, row.start + offset, rowIndex, {
-              position: "absolute",
-              top: row.top,
-              height: row.height,
-              width: `calc${width}`,
-              left: `calc(${width} * ${offset} + ${offset * gap}px)`,
-            }),
-          );
-        })}
-      </div>
+          })}
+        </div>
+      </EntryMenuHost>
       {bar && (selectionSlot ? createPortal(bar, selectionSlot) : bar)}
       <ShortcutHelp
         open={helpOpen}
