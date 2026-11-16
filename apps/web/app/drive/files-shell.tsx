@@ -24,7 +24,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLinkItem,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -150,24 +150,26 @@ export function FilesShell({ children }: FilesShellProps) {
                   </Avatar>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>
-                    <div className="flex flex-col space-y-1">
-                      {session.user.name && (
-                        <p className="text-sm font-medium">
-                          {session.user.name}
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>
+                      <div className="flex flex-col space-y-1">
+                        {session.user.name && (
+                          <p className="text-sm font-medium">
+                            {session.user.name}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          {session.user.email}
                         </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        {session.user.email}
-                      </p>
-                    </div>
-                  </DropdownMenuLabel>
-                  {capabilities.data?.isAdmin === true && (
-                    <DropdownMenuLinkItem render={<Link to="/admin" />}>
-                      <Shield />
-                      Administration
-                    </DropdownMenuLinkItem>
-                  )}
+                      </div>
+                    </DropdownMenuLabel>
+                    {capabilities.data?.isAdmin === true && (
+                      <DropdownMenuItem render={<Link to="/admin" />}>
+                        <Shield />
+                        Administration
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuGroup>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() =>

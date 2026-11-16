@@ -15,7 +15,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
-  DropdownMenuLinkItem,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { FolderLink } from "./folder-link";
@@ -77,13 +77,13 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
                 <DropdownMenuContent align="start">
                   <DropdownMenuGroup>
                     {middleCrumbs.map((crumb) => (
-                      <DropdownMenuLinkItem
+                      <DropdownMenuItem
                         key={crumb.path}
                         className={crumb === parent ? "md:hidden" : undefined}
                         render={<FolderLink path={crumb.path} />}
                       >
                         {crumb.label}
-                      </DropdownMenuLinkItem>
+                      </DropdownMenuItem>
                     ))}
                   </DropdownMenuGroup>
                 </DropdownMenuContent>
