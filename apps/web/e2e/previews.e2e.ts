@@ -182,7 +182,7 @@ test("serves cached thumbnails that revalidate and work on public links", async 
   await anonymous.close();
 
   await page.goto(`/browse/${folder}`);
-  await page.getByRole("radio", { name: "Grid view", exact: true }).click();
+  await page.getByRole("button", { name: "Grid view", exact: true }).click();
   const thumbnail = page
     .locator('[data-entry-name="photo.png"] img')
     .filter({ visible: true });
@@ -197,7 +197,7 @@ test("serves cached thumbnails that revalidate and work on public links", async 
       ),
     )
     .toBe(256);
-  await page.getByRole("radio", { name: "List view", exact: true }).click();
+  await page.getByRole("button", { name: "List view", exact: true }).click();
   await expect
     .poll(async () => (await rpc.prefs.get.query()).view)
     .toBe("list");

@@ -206,7 +206,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
     path: testInfo.outputPath("files.png"),
     fullPage: true,
   });
-  await page.getByRole("radio", { name: "Grid view", exact: true }).click();
+  await page.getByRole("button", { name: "Grid view", exact: true }).click();
   await expect
     .poll(async () => (await rpc.prefs.get.query()).view)
     .toBe("grid");
@@ -216,9 +216,9 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   await page.reload();
   await hydrated;
   await expect(
-    page.getByRole("radio", { name: "Grid view", exact: true }),
-  ).toBeChecked();
-  await page.getByRole("radio", { name: "List view", exact: true }).click();
+    page.getByRole("button", { name: "Grid view", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "List view", exact: true }).click();
   await expect
     .poll(async () => (await rpc.prefs.get.query()).view)
     .toBe("list");

@@ -216,8 +216,8 @@ export function FiltersRow({
       {/* View toggle is always visible */}
       <ToggleGroup
         aria-label="File view"
-        value={view}
-        onValueChange={(value) => {
+        value={[view]}
+        onValueChange={([value]) => {
           if (value === "grid" || value === "list") {
             updatePreferences({ view: value });
           }
@@ -233,7 +233,7 @@ export function FiltersRow({
               <ToggleGroupItem
                 value="list"
                 aria-label="List view"
-                className="size-8 rounded-md px-0 data-checked:bg-card data-checked:shadow-sm dark:data-checked:bg-accent"
+                className="size-8 rounded-md px-0 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
               />
             }
           >
@@ -249,7 +249,7 @@ export function FiltersRow({
               <ToggleGroupItem
                 value="grid"
                 aria-label="Grid view"
-                className="size-8 rounded-md px-0 data-checked:bg-card data-checked:shadow-sm dark:data-checked:bg-accent"
+                className="size-8 rounded-md px-0 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
               />
             }
           >

@@ -317,7 +317,7 @@ test("keeps sorting controls and the final row reachable while scrolling", async
     ),
     animations: "disabled",
   });
-  await page.getByRole("radio", { name: "Grid view", exact: true }).click();
+  await page.getByRole("button", { name: "Grid view", exact: true }).click();
   await page.getByRole("main").hover();
   await page.mouse.wheel(0, 10_000);
   await expect(last).toBeInViewport();
@@ -335,7 +335,7 @@ test("keeps sorting controls and the final row reachable while scrolling", async
     ),
     animations: "disabled",
   });
-  await page.getByRole("radio", { name: "List view", exact: true }).click();
+  await page.getByRole("button", { name: "List view", exact: true }).click();
   await expect
     .poll(async () => (await rpc.prefs.get.query()).view)
     .toBe("list");
