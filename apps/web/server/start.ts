@@ -19,6 +19,7 @@ import { HttpRoutes } from "./http-routes";
 import { AppShell } from "./app-shell";
 import { PageBootstrap } from "./page-bootstrap";
 import { PageSkeleton } from "./page-skeleton";
+import { renderSharePage, shareToken } from "./share-page";
 import { backups, backupsToKeep } from "./backup";
 
 const port = Number(process.env.PORT ?? "3000");
@@ -142,6 +143,11 @@ async function route(request: Request): Promise<Response> {
     const file = await shell.file(request, pathname);
     if (file) return file;
     if (!page) return textResponse(404, `Nothing is served at ${pathname}.`);
+  }
+  const token = shareToken(pathname);
+  if (token !== null) {
+    const page = await renderSharePage(request, token, shell, securityMode);
+    return AppShell.htmlResponse(request, page.html, page.headers);
   }
   const kind = shell.route(pathname)?.kind ?? null;
   const bootstrap = await PageBootstrap.load(request, kind);

@@ -13,16 +13,10 @@ type Segment =
 
 /**
  * What a page needs first: `files` and `settings` pages are signed-in and check the session,
- * file browser pages also read the browsing preferences, `auth` pages read the sign-in options,
- * and the public `share` page loads its share.
+ * file browser pages also read the browsing preferences, and `auth` pages read the sign-in
+ * options.
  */
-export type PageKind =
-  | "files"
-  | "settings"
-  | "signed-in"
-  | "auth"
-  | "share"
-  | "public";
+export type PageKind = "files" | "settings" | "signed-in" | "auth" | "public";
 
 /** The page an address names, with the code-split chunks it loads beyond the entry. */
 export type PageRoute = { kind: PageKind; chunks: string[] };
@@ -46,7 +40,6 @@ function kindOf(file: string): PageKind {
   if (name.startsWith("_authed/_files/")) return "files";
   if (name.startsWith("_authed/settings")) return "settings";
   if (name.startsWith("_authed/")) return "signed-in";
-  if (name === "s/$token") return "share";
   return authPages.has(name) ? "auth" : "public";
 }
 
@@ -88,15 +81,6 @@ function matches(segments: Segment[], parts: string[]) {
     if (segment.kind === "static" && segment.value !== part) return false;
   }
   return parts.length === segments.length;
-}
-
-/** The token as the share page encodes it, which also makes it safe inside an attribute. */
-function shareToken(part: string) {
-  try {
-    return encodeURIComponent(decodeURIComponent(part));
-  } catch {
-    return encodeURIComponent(part);
-  }
 }
 
 export const RoutePreloads = {
@@ -180,13 +164,8 @@ export const RoutePreloads = {
       links(pathname, requests) {
         const route = match(pathname);
         if (!route) return "";
-        const parts = pathname.split("/").filter(Boolean);
-        const data =
-          route.kind === "share" && parts[1]
-            ? [`/api/share/${shareToken(parts[1])}?path=`, ...requests]
-            : requests;
         return [
-          ...data.map(
+          ...requests.map(
             (href) =>
               `<link rel="preload" as="fetch" crossorigin href="${href}">`,
           ),

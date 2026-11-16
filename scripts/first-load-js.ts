@@ -1,7 +1,8 @@
 // Computes the initial JavaScript of each page from the Vite build manifest.
 //
 // A page loads the app entry with its static imports, then the code-split chunk of its route
-// and of every layout route around it, each with its static imports. Chunks loaded later by
+// and of every layout route around it, each with its static imports. Pages with an entry of
+// their own, such as the server-rendered public share page, load that entry instead. Chunks loaded later by
 // `import()`, such as dialogs and preview renderers, are not counted. The theme boot script is
 // inline in the HTML and not counted either.
 //
@@ -26,6 +27,8 @@ const dist = path.resolve(
 );
 const routePrefix = "routes/";
 const splitSuffix = "?tsr-split=component";
+/** Pages with their own HTML entry instead of the app's router. */
+const htmlEntries: Record<string, string> = { "share.html": "/s/$token" };
 
 type RouteSize = {
   route: string;
@@ -147,6 +150,19 @@ async function measure(): Promise<RouteSize[]> {
       total.brotli += sizes.brotli;
     }
     results.push({ route: routePath(file), files: files.size, ...total });
+  }
+  for (const [entry, route] of Object.entries(htmlEntries)) {
+    if (!chunks.has(entry)) continue;
+    const files = new Set<string>();
+    staticFiles(chunks, entry, files);
+    const total: Sizes = { raw: 0, gzip: 0, brotli: 0 };
+    for (const name of files) {
+      const sizes = await sizeOf(name);
+      total.raw += sizes.raw;
+      total.gzip += sizes.gzip;
+      total.brotli += sizes.brotli;
+    }
+    results.push({ route, files: files.size, ...total });
   }
   return results.sort((a, b) => a.route.localeCompare(b.route));
 }

@@ -131,6 +131,12 @@ export default defineConfig(({ command }) => {
       emptyOutDir: true,
       manifest: true,
       rolldownOptions: {
+        // The public share page is server-rendered and hydrates through its own entry, which
+        // loads none of the signed-in app.
+        input: {
+          index: path.join(root, "index.html"),
+          share: path.join(root, "share.html"),
+        },
         output: { codeSplitting: startup?.codeSplitting ?? true },
       },
     },

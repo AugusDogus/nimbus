@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import * as z from "zod/mini";
 import { FileText, Folder } from "lucide-react";
@@ -12,52 +12,35 @@ import {
   EntryThumbnail,
   hasThumbnail,
 } from "@/app/drive/files/entry-thumbnail";
+import { publicShareQuery, shareEndpoint, shareUrl } from "./share-result";
 import { FilePreview } from "@/app/drive/files/preview-dialog";
 
-const entrySchema = z.object({
-  name: z.string(),
-  path: z.string(),
-  type: z.enum(["file", "dir"]),
-  size: z.number(),
-  mtime: z.number(),
-});
-const shareSchema = z.object({
-  entry: entrySchema,
-  entries: z.array(entrySchema),
-  expiresAt: z.nullable(z.number()),
-  mode: z.enum(["download", "view"]),
-});
 const errorSchema = z.object({ error: z.string() });
+
+/** The visitor's local date, written after hydration since the server cannot know the locale. */
+function LocalDate({ time }: { time: number }) {
+  const text = useSyncExternalStore(
+    noSubscription,
+    () => new Date(time).toLocaleDateString(),
+    () => "",
+  );
+  return text ? ` · Expires ${text}` : null;
+}
+const noSubscription = () => () => {};
 
 export function PublicShare({ token }: { token: string }) {
   const [path, setPath] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const endpoint = `/api/share/${encodeURIComponent(token)}`;
-  const url = `${endpoint}?path=${encodeURIComponent(path)}`;
-  const share = useQuery({
-    queryKey: ["public-share", token, path],
-    retry: false,
-    queryFn: async () => {
-      const response = await fetch(url);
-      const data: unknown = await response.json();
-      if (
-        response.status === 401 &&
-        typeof data === "object" &&
-        data &&
-        "passwordRequired" in data
-      )
-        return { kind: "locked" } as const;
-      if (!response.ok) {
-        const error = errorSchema.safeParse(data);
-        throw new Error(
-          error.success ? error.data.error : "This share could not be loaded.",
-        );
-      }
-      return { kind: "open", ...shareSchema.parse(data) } as const;
-    },
-  });
+  const endpoint = shareEndpoint(token);
+  const url = shareUrl(token, path);
+  const share = useQuery(publicShareQuery(token, path));
+  const unavailable = share.isError
+    ? share.error.message
+    : share.data?.kind === "unavailable"
+      ? share.data.message
+      : null;
   return (
     <div className="mx-auto min-h-dvh max-w-5xl px-4 pb-12">
       <header className="mb-8 flex h-16 items-center justify-between border-b">
@@ -69,13 +52,15 @@ export function PublicShare({ token }: { token: string }) {
       </header>
       {share.isPending ? (
         <p>Loading shared files…</p>
-      ) : share.isError ? (
+      ) : unavailable !== null ||
+        !share.data ||
+        share.data.kind === "unavailable" ? (
         <div className="space-y-3 rounded-lg border p-6">
           <h1 className="text-balance text-xl font-semibold">
             Share unavailable
           </h1>
           <p role="alert" className="text-pretty text-muted-foreground">
-            {share.error.message}
+            {unavailable}
           </p>
         </div>
       ) : share.data.kind === "locked" ? (
@@ -147,9 +132,9 @@ export function PublicShare({ token }: { token: string }) {
                 {share.data.mode === "view"
                   ? "Preview only"
                   : "Shared read-only"}
-                {share.data.expiresAt
-                  ? ` · Expires ${new Date(share.data.expiresAt).toLocaleDateString()}`
-                  : ""}
+                {share.data.expiresAt !== null && (
+                  <LocalDate time={share.data.expiresAt} />
+                )}
               </p>
             </div>
             {share.data.mode === "download" && (

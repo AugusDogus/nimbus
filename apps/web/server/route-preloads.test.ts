@@ -15,7 +15,7 @@ const preloads = RoutePreloads.fromManifest({
   ...split("_authed/_files/browse/$.tsx", "assets/browse.js"),
   ...split("_authed/_files/search.tsx", "assets/search.js"),
   ...split("login.tsx", "assets/login.js", ["_ui.js"]),
-  ...split("s/$token.tsx", "assets/share.js"),
+  ...split("r/$token.tsx", "assets/request.js"),
 });
 
 const hrefs = (pathname: string, requests: string[] = []) =>
@@ -28,7 +28,7 @@ describe("RoutePreloads", () => {
     expect(preloads.match("/browse/x")?.kind).toBe("files");
     expect(preloads.match("/")?.kind).toBe("files");
     expect(preloads.match("/login")?.kind).toBe("auth");
-    expect(preloads.match("/s/abc")?.kind).toBe("share");
+    expect(preloads.match("/r/abc")?.kind).toBe("public");
     expect(preloads.match("/nowhere/at/all")).toBeNull();
   });
 
@@ -44,16 +44,12 @@ describe("RoutePreloads", () => {
     expect(hrefs("/login")).toEqual(["/assets/login.js", "/assets/ui.js"]);
   });
 
-  test("prefers a literal route over a splat and preloads a share's listing", () => {
+  test("prefers a literal route over a splat and matches parameters", () => {
     expect(hrefs("/search")).toContain("/assets/search.js");
-    expect(hrefs("/s/abc%2D_x")).toEqual([
-      "/api/share/abc-_x?path=",
-      "/assets/share.js",
-    ]);
+    expect(hrefs("/r/abc%2D_x")).toEqual(["/assets/request.js"]);
   });
 
   test("names nothing for addresses outside the app", () => {
     expect(preloads.links("/nowhere/at/all", [])).toBe("");
-    expect(preloads.links('/s/a"b<c', [])).not.toContain('"b<');
   });
 });

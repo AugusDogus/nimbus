@@ -11,6 +11,7 @@ import { StaticFiles } from "./static-files";
  * the built client files. In development the page and modules come from the Vite dev server,
  * so edits reload instantly; the server still sets every header itself.
  */
+
 /**
  * What a page carries: its first data, the skeleton it shows until the app renders, and the
  * requests the app will make first, which the browser can start at once.
@@ -26,6 +27,11 @@ export type AppShell = {
   route(pathname: string): PageRoute | null;
   /** The page HTML for `pathname` with `nonce` in every script tag. */
   html(nonce: string, pathname: string, page: PageContent): Promise<string>;
+  /**
+   * The public share page: its own entry, with `markup` the server rendered in `#root` and
+   * `head` added to the head, such as the data the page hydrates with.
+   */
+  shareHtml(nonce: string, head: string, markup: string): Promise<string>;
   /** The `<link rel="stylesheet">` tags of the app, for pages the server renders itself. */
   stylesheets(nonce: string): Promise<string>;
   /** A client file such as a script or icon, or null when there is none at that path. */
@@ -45,13 +51,23 @@ const bootstrapTag = (nonce: string, data: Bootstrap) =>
 
 const root = '<div id="root"></div>';
 
-/** Places the skeleton inside the app's root element, which the app later replaces. */
-function withSkeleton(html: string, skeleton: string) {
-  if (!html.includes(root))
+/**
+ * A template with `nonce` filled in, `head` before the end of its head and `content` inside its
+ * root element. Replacements use callbacks, so `$` in names and data stays literal.
+ */
+function compose(
+  template: string,
+  nonce: string,
+  head: string,
+  content: string,
+) {
+  if (!template.includes(root))
     throw new Error(
-      "The page has no empty #root element, so the app cannot start. Check index.html, then rebuild Nimbus.",
+      "The page template has no empty #root element, so the app cannot start. Check index.html and share.html, then rebuild Nimbus.",
     );
-  return html.replace(root, `<div id="root">${skeleton}</div>`);
+  return fill(template, nonce)
+    .replace("</head>", () => `${head}</head>`)
+    .replace(root, () => `<div id="root">${content}</div>`);
 }
 
 const stylesheetTags = (html: string) =>
@@ -67,23 +83,26 @@ async function production(): Promise<AppShell> {
     );
   }
   const template = await Bun.file(index).text();
+  const shareTemplate = await Bun.file(`${dist}share.html`).text();
   const manifest: unknown = await Bun.file(`${dist}.vite/manifest.json`).json();
   const preloads = RoutePreloads.fromManifest(manifest);
   const files = await StaticFiles.load(dist, [
     "index.html",
+    "share.html",
     ".vite/manifest.json",
   ]);
   const styles = stylesheetTags(template);
   return {
     route: (pathname) => preloads.match(pathname),
     html: async (nonce, pathname, page) =>
-      withSkeleton(
-        fill(template, nonce).replace(
-          "</head>",
-          `${bootstrapTag(nonce, page.data)}${preloads.links(pathname, page.requests)}</head>`,
-        ),
+      compose(
+        template,
+        nonce,
+        `${bootstrapTag(nonce, page.data)}${preloads.links(pathname, page.requests)}`,
         page.skeleton,
       ),
+    shareHtml: async (nonce, head, markup) =>
+      compose(shareTemplate, nonce, head, markup),
     stylesheets: async (nonce) => fill(styles, nonce),
     file: async (request, pathname) => {
       const file = files.get(pathname);
@@ -106,8 +125,8 @@ async function development(vite: string): Promise<AppShell> {
       (file) => file.endsWith(".tsx") && !file.endsWith("__root.tsx"),
     ),
   );
-  const page = async () => {
-    const response = await fetch(`${vite}/`, {
+  const page = async (file = "") => {
+    const response = await fetch(`${vite}/${file}`, {
       headers: { Accept: "text/html" },
     });
     if (!response.ok)
@@ -119,13 +138,14 @@ async function development(vite: string): Promise<AppShell> {
   return {
     route: (pathname) => routes.match(pathname),
     html: async (nonce, _pathname, content) =>
-      withSkeleton(
-        fill(await page(), nonce).replace(
-          "</head>",
-          `${bootstrapTag(nonce, content.data)}</head>`,
-        ),
+      compose(
+        await page(),
+        nonce,
+        bootstrapTag(nonce, content.data),
         content.skeleton,
       ),
+    shareHtml: async (nonce, head, markup) =>
+      compose(await page("share.html"), nonce, head, markup),
     // Vite serves each stylesheet as a module; `?direct` asks for plain CSS.
     stylesheets: async (nonce) =>
       ["/app/globals.css", "/app/fonts.css"]

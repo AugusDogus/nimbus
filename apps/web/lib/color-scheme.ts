@@ -81,7 +81,8 @@ export const ColorScheme = {
 
 /** The chosen color scheme, kept in step with other tabs and the operating system. */
 export function useColorScheme() {
-  const scheme = useSyncExternalStore(subscribe, read);
+  // A page the server renders cannot know the choice; the browser corrects it after hydration.
+  const scheme = useSyncExternalStore(subscribe, read, () => "system" as const);
   const set = useCallback((next: ColorScheme) => ColorScheme.set(next), []);
   return { scheme, setScheme: set };
 }

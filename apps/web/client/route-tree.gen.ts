@@ -17,7 +17,6 @@ import { Route as SignupRouteImport } from './../routes/signup'
 import { Route as AuthedFilesRouteImport } from './../routes/_authed/_files'
 import { Route as AuthedSettingsRouteImport } from './../routes/_authed/settings'
 import { Route as RTokenRouteImport } from './../routes/r/$token'
-import { Route as STokenRouteImport } from './../routes/s/$token'
 import { Route as AuthedFilesIndexRouteImport } from './../routes/_authed/_files/index'
 import { Route as AuthedFilesAdminRouteImport } from './../routes/_authed/_files/admin'
 import { Route as AuthedFilesHomeRouteImport } from './../routes/_authed/_files/home'
@@ -72,11 +71,6 @@ const AuthedSettingsRoute = AuthedSettingsRouteImport.update({
 const RTokenRoute = RTokenRouteImport.update({
   id: '/r/$token',
   path: '/r/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const STokenRoute = STokenRouteImport.update({
-  id: '/s/$token',
-  path: '/s/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthedFilesIndexRoute = AuthedFilesIndexRouteImport.update({
@@ -176,7 +170,6 @@ export interface FileRoutesByFullPath {
   '/signup': typeof SignupRoute
   '/settings': typeof AuthedSettingsRouteWithChildren
   '/r/$token': typeof RTokenRoute
-  '/s/$token': typeof STokenRoute
   '/admin': typeof AuthedFilesAdminRoute
   '/home': typeof AuthedFilesHomeRoute
   '/recent': typeof AuthedFilesRecentRoute
@@ -201,7 +194,6 @@ export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/signup': typeof SignupRoute
   '/r/$token': typeof RTokenRoute
-  '/s/$token': typeof STokenRoute
   '/admin': typeof AuthedFilesAdminRoute
   '/home': typeof AuthedFilesHomeRoute
   '/recent': typeof AuthedFilesRecentRoute
@@ -229,7 +221,6 @@ export interface FileRoutesById {
   '/_authed/_files': typeof AuthedFilesRouteWithChildren
   '/_authed/settings': typeof AuthedSettingsRouteWithChildren
   '/r/$token': typeof RTokenRoute
-  '/s/$token': typeof STokenRoute
   '/_authed/_files/admin': typeof AuthedFilesAdminRoute
   '/_authed/_files/home': typeof AuthedFilesHomeRoute
   '/_authed/_files/recent': typeof AuthedFilesRecentRoute
@@ -258,7 +249,6 @@ export interface FileRouteTypes {
     | '/signup'
     | '/settings'
     | '/r/$token'
-    | '/s/$token'
     | '/admin'
     | '/home'
     | '/recent'
@@ -283,7 +273,6 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/signup'
     | '/r/$token'
-    | '/s/$token'
     | '/admin'
     | '/home'
     | '/recent'
@@ -310,7 +299,6 @@ export interface FileRouteTypes {
     | '/_authed/_files'
     | '/_authed/settings'
     | '/r/$token'
-    | '/s/$token'
     | '/_authed/_files/admin'
     | '/_authed/_files/home'
     | '/_authed/_files/recent'
@@ -337,7 +325,6 @@ export interface RootRouteChildren {
   SignInRoute: typeof SignInRoute
   SignupRoute: typeof SignupRoute
   RTokenRoute: typeof RTokenRoute
-  STokenRoute: typeof STokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -396,13 +383,6 @@ declare module '@tanstack/react-router' {
       path: '/r/$token'
       fullPath: '/r/$token'
       preLoaderRoute: typeof RTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/s/$token': {
-      id: '/s/$token'
-      path: '/s/$token'
-      fullPath: '/s/$token'
-      preLoaderRoute: typeof STokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authed/_files/': {
@@ -601,7 +581,6 @@ const rootRouteChildren: RootRouteChildren = {
   SignInRoute: SignInRoute,
   SignupRoute: SignupRoute,
   RTokenRoute: RTokenRoute,
-  STokenRoute: STokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
