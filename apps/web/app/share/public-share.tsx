@@ -119,7 +119,9 @@ export function PublicShare({ token }: { token: string }) {
               {error}
             </p>
           )}
-          <Button disabled={busy}>Unlock</Button>
+          <Button type="submit" disabled={busy}>
+            Unlock
+          </Button>
         </form>
       ) : (
         <main className="space-y-6">
@@ -138,7 +140,10 @@ export function PublicShare({ token }: { token: string }) {
               </p>
             </div>
             {share.data.mode === "download" && (
-              <Button render={<a href={`${url}&download=1`} download />}>
+              <Button
+                nativeButton={false}
+                render={<a href={`${url}&download=1`} download />}
+              >
                 {share.data.entry.type === "dir" ? "Download ZIP" : "Download"}
               </Button>
             )}

@@ -213,7 +213,7 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeySummary[] }) {
               >
                 Cancel
               </Button>
-              <Button disabled={busy}>
+              <Button type="submit" disabled={busy}>
                 {busy ? "Waiting for your device…" : "Continue"}
               </Button>
             </DialogFooter>

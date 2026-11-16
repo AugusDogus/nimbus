@@ -96,6 +96,7 @@ export function BackupSettings() {
                 </p>
               </div>
               <Button
+                nativeButton={false}
                 size="sm"
                 variant="ghost"
                 render={

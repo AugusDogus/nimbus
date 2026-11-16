@@ -148,7 +148,7 @@ export function GroupDialog({
             >
               Cancel
             </Button>
-            <Button disabled={busy}>
+            <Button type="submit" disabled={busy}>
               {busy
                 ? "Saving…"
                 : editor.kind === "edit"

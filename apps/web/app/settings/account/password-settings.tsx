@@ -135,7 +135,7 @@ export function PasswordSettings() {
               Changing your password signs out other browser sessions. WebDAV
               app passwords stay active.
             </p>
-            <Button className="shrink-0" disabled={busy}>
+            <Button type="submit" className="shrink-0" disabled={busy}>
               {busy ? "Saving…" : "Change password"}
             </Button>
           </div>

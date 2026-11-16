@@ -153,6 +153,7 @@ export function AuditPage({ search }: { search: AuditSearch }) {
         <div className="flex justify-end gap-2">
           {page.before !== null && (
             <Button
+              nativeButton={false}
               variant="outline"
               size="sm"
               render={<Link to="/settings/admin/audit" search={filters} />}
@@ -162,6 +163,7 @@ export function AuditPage({ search }: { search: AuditSearch }) {
           )}
           {page.next !== undefined && (
             <Button
+              nativeButton={false}
               variant="outline"
               size="sm"
               render={

@@ -1,5 +1,4 @@
-import { mergeProps } from "@base-ui/react/merge-props";
-import { useRender } from "@base-ui/react/use-render";
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
@@ -10,14 +9,14 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        destructive:
-          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
         outline:
           "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+        destructive:
+          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
@@ -38,28 +37,19 @@ const buttonVariants = cva(
   },
 );
 
-/** A button, or another element (such as a link) given in `render`, styled as one. */
 function Button({
   className,
   variant = "default",
   size = "default",
-  render,
   ...props
-}: useRender.ComponentProps<"button"> & VariantProps<typeof buttonVariants>) {
-  const defaults = {
-    // Base UI renders a bare <button> as type="button"; keep the native default so a Button in a
-    // form submits it. Components that render a Button as their trigger pass their own type.
-    type: render ? undefined : ("submit" as const),
-    "data-slot": "button",
-    "data-variant": variant ?? undefined,
-    "data-size": size ?? undefined,
-    className: cn(buttonVariants({ variant, size, className })),
-  };
-  return useRender({
-    defaultTagName: "button",
-    render,
-    props: mergeProps<"button">(defaults, props),
-  });
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  );
 }
 
-export { Button };
+export { Button, buttonVariants };

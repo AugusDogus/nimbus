@@ -94,6 +94,7 @@ export default function VersionsDialog({
                     </p>
                   </div>
                   <Button
+                    nativeButton={false}
                     size="sm"
                     variant="outline"
                     render={

@@ -119,7 +119,7 @@ export function CreatePasswordDialog({ onClose }: { onClose: () => void }) {
               >
                 Cancel
               </Button>
-              <Button disabled={busy}>
+              <Button type="submit" disabled={busy}>
                 {busy ? "Creating…" : "Create password"}
               </Button>
             </DialogFooter>

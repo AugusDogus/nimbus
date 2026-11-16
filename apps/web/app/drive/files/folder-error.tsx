@@ -13,7 +13,7 @@ export function FolderError({ reset }: { reset: () => void }) {
       </p>
       <div className="flex gap-3">
         <Button onClick={reset}>Try again</Button>
-        <Button variant="outline" render={<Link to="/" />}>
+        <Button nativeButton={false} variant="outline" render={<Link to="/" />}>
           Open My Drive
         </Button>
       </div>

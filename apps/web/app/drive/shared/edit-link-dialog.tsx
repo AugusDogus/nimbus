@@ -170,7 +170,9 @@ export default function EditLinkDialog({
             >
               Cancel
             </Button>
-            <Button disabled={busy}>Save changes</Button>
+            <Button type="submit" disabled={busy}>
+              Save changes
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

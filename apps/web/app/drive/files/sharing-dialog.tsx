@@ -159,7 +159,9 @@ export function SharingDialog({
                 ))}
               </SelectContent>
             </Select>
-            <Button disabled={busy || !subject}>Grant access</Button>
+            <Button type="submit" disabled={busy || !subject}>
+              Grant access
+            </Button>
           </form>
           <div className="space-y-2 border-t pt-3">
             <p className="text-sm font-medium">Direct access</p>
@@ -232,7 +234,9 @@ export function SharingDialog({
               value={settings}
               onChange={setSettings}
             />
-            <Button disabled={busy}>Create link</Button>
+            <Button type="submit" disabled={busy}>
+              Create link
+            </Button>
             {link && (
               <div className="flex gap-2">
                 <Input

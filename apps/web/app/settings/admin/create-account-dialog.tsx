@@ -138,7 +138,7 @@ export function CreateAccountDialog({ onClose }: { onClose: () => void }) {
             >
               Cancel
             </Button>
-            <Button disabled={busy}>
+            <Button type="submit" disabled={busy}>
               {busy ? "Creating…" : "Create account"}
             </Button>
           </DialogFooter>

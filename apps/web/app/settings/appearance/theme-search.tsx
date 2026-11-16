@@ -100,6 +100,7 @@ export function ThemeSearch({
           />
         </div>
         <Button
+          type="submit"
           variant="outline"
           disabled={
             disabled ||

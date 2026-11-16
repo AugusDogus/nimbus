@@ -9,7 +9,9 @@ export function FolderNotFound() {
         This folder may have moved or been deleted. Open your drive to find it
         again.
       </p>
-      <Button render={<Link to="/" />}>Open My Drive</Button>
+      <Button nativeButton={false} render={<Link to="/" />}>
+        Open My Drive
+      </Button>
     </div>
   );
 }

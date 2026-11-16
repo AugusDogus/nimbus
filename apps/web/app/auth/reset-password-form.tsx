@@ -69,7 +69,11 @@ export function ResetPasswordForm({
               <p role="status" className="text-pretty text-sm">
                 Your password has been changed.
               </p>
-              <Button className="w-full" render={<Link to="/login" />}>
+              <Button
+                nativeButton={false}
+                className="w-full"
+                render={<Link to="/login" />}
+              >
                 Sign in
               </Button>
             </div>
@@ -175,6 +179,7 @@ export function ResetPasswordForm({
               works for one hour. Check your spam folder if it does not arrive.
             </p>
             <Button
+              nativeButton={false}
               variant="outline"
               className="w-full"
               render={<Link to="/login" />}

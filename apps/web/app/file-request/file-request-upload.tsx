@@ -233,7 +233,9 @@ export function FileRequestUpload({ token }: { token: string }) {
               {unlockError}
             </p>
           )}
-          <Button disabled={busy}>Unlock</Button>
+          <Button type="submit" disabled={busy}>
+            Unlock
+          </Button>
         </form>
       ) : (
         <main className="space-y-6">

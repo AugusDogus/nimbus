@@ -144,7 +144,9 @@ export default function PreviewDialog({
               </Button>
             </div>
           )}
-          <Button render={<a href={url} download />}>Download</Button>
+          <Button nativeButton={false} render={<a href={url} download />}>
+            Download
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

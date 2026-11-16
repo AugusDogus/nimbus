@@ -108,6 +108,7 @@ export default function FilePreview({
             className="h-[65dvh] w-full rounded-md border bg-muted"
           />
           <Button
+            nativeButton={false}
             variant="link"
             className="h-auto p-0"
             render={<a href={url} target="_blank" rel="noopener" />}

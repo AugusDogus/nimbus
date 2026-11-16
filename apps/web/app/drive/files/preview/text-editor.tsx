@@ -64,7 +64,7 @@ export default function TextEditor({
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button disabled={saving || !dirty}>
+        <Button type="submit" disabled={saving || !dirty}>
           {saving ? "Saving…" : "Save"}
         </Button>
       </div>

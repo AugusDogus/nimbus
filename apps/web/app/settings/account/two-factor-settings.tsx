@@ -224,6 +224,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
                   Cancel
                 </Button>
                 <Button
+                  type="submit"
                   disabled={busy}
                   variant={
                     flow.purpose === "disable" ? "destructive" : "default"
@@ -313,7 +314,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
                 >
                   Cancel
                 </Button>
-                <Button disabled={busy}>
+                <Button type="submit" disabled={busy}>
                   {busy ? "Verifying…" : "Turn on"}
                 </Button>
               </DialogFooter>

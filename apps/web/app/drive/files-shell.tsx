@@ -193,7 +193,11 @@ export function FilesShell({ children }: FilesShellProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Button size="sm" render={<Link to="/login" />}>
+              <Button
+                nativeButton={false}
+                size="sm"
+                render={<Link to="/login" />}
+              >
                 Sign in
               </Button>
             )}

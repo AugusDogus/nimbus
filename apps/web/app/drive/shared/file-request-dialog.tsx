@@ -315,7 +315,7 @@ export default function FileRequestDialog({
               >
                 Cancel
               </Button>
-              <Button disabled={busy}>
+              <Button type="submit" disabled={busy}>
                 {mode.kind === "create" ? "Create upload link" : "Save changes"}
               </Button>
             </DialogFooter>

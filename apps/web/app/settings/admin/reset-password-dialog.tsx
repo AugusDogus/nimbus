@@ -114,7 +114,7 @@ export function ResetPasswordDialog({
             >
               Cancel
             </Button>
-            <Button disabled={busy}>
+            <Button type="submit" disabled={busy}>
               {busy ? "Saving…" : "Reset password"}
             </Button>
           </DialogFooter>

@@ -104,7 +104,11 @@ export function LibraryPage({
                   ? "Files you preview and folders you visit will appear here."
                   : "No matching files. Try a different filename."}
           </p>
-          <Button variant="outline" render={<Link to="/" />}>
+          <Button
+            nativeButton={false}
+            variant="outline"
+            render={<Link to="/" />}
+          >
             Open My Drive
           </Button>
         </div>

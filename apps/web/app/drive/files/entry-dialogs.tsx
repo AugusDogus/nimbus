@@ -221,7 +221,9 @@ function RenameDialog({
             >
               Cancel
             </Button>
-            <Button disabled={busy || !name.trim()}>Rename</Button>
+            <Button type="submit" disabled={busy || !name.trim()}>
+              Rename
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -356,7 +358,9 @@ function DestinationDialog({
             >
               Cancel
             </Button>
-            <Button disabled={busy || blocked}>{verb} here</Button>
+            <Button type="submit" disabled={busy || blocked}>
+              {verb} here
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
