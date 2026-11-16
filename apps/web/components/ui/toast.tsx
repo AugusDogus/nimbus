@@ -31,7 +31,7 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       className={cn(
-        "pointer-events-none fixed right-6 bottom-6 z-[999999999] w-[356px] font-[ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,Segoe_UI,Roboto,Helvetica_Neue,Arial,Noto_Sans,sans-serif,Apple_Color_Emoji,Segoe_UI_Emoji,Segoe_UI_Symbol,Noto_Color_Emoji] outline-none max-[600px]:right-4 max-[600px]:bottom-4 max-[600px]:left-4 max-[600px]:w-auto",
+        "pointer-events-none fixed right-6 bottom-6 z-[999999999] w-[356px] outline-none max-[600px]:right-4 max-[600px]:bottom-4 max-[600px]:left-4 max-[600px]:w-auto",
         className,
       )}
       {...props}
