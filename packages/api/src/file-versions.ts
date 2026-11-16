@@ -140,12 +140,21 @@ async function preserve(source: string, destination: string, nlink: bigint) {
   return "copy" as const;
 }
 
+/** Payloads removed at once: purging a large folder's history removes thousands. */
+const removalBatch = 256;
+
 async function removePayloads(
   dataRoot: string,
   versions: readonly FileVersion[],
 ) {
-  for (const version of versions)
-    await rm(payloadPath(dataRoot, version.id), { force: true });
+  for (let start = 0; start < versions.length; start += removalBatch)
+    await Promise.all(
+      versions
+        .slice(start, start + removalBatch)
+        .map((version) =>
+          rm(payloadPath(dataRoot, version.id), { force: true }),
+        ),
+    );
 }
 
 /** Remove the history at or under `location`, records and payloads. */

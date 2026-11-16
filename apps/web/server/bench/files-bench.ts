@@ -245,9 +245,16 @@ function instrument(target: object) {
     Reflect.set(
       target,
       "transaction",
-      async function (this: unknown, ...args: unknown[]) {
-        const tx: unknown = await Reflect.apply(transaction, this, args);
-        if (typeof tx === "object" && tx !== null) instrument(tx);
+      function (this: unknown, ...args: unknown[]) {
+        const tx: unknown = Reflect.apply(transaction, this, args);
+        // libsql resolves a transaction object whose statements run on another connection.
+        // bun:sqlite returns a function that runs on this one, already counted.
+        if (tx instanceof Promise)
+          return tx.then((opened: unknown) => {
+            if (typeof opened === "object" && opened !== null)
+              instrument(opened);
+            return opened;
+          });
         return tx;
       },
     );
