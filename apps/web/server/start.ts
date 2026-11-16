@@ -161,11 +161,7 @@ async function route(request: Request): Promise<Response> {
     request,
     await shell.html(nonce, pathname, {
       data: bootstrap.data,
-      skeleton: PageSkeleton.markup(
-        kind,
-        bootstrap.folder,
-        bootstrap.data.prefs,
-      ),
+      skeleton: PageSkeleton.markup(kind, url, bootstrap),
       requests: bootstrap.requests,
     }),
     new Headers(SecurityHeaders.document(nonce, securityMode)),

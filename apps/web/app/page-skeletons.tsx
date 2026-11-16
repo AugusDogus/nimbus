@@ -178,18 +178,3 @@ export function SettingsSkeleton() {
     </SidebarFrame>
   );
 }
-
-/** Sign-in, sign-up and password reset before they load: the logo above an empty card. */
-export function AuthSkeleton() {
-  return (
-    <div className="bg-muted flex min-h-dvh flex-col items-center justify-center gap-6 p-6 md:p-10">
-      <div className="flex w-full max-w-sm flex-col gap-6">
-        <div className="flex items-center gap-2 self-center font-medium">
-          <NimbusLogo className="size-8" />
-          <NimbusWordmark />
-        </div>
-        <div className="bg-card h-80 rounded-xl border shadow-sm" />
-      </div>
-    </div>
-  );
-}
