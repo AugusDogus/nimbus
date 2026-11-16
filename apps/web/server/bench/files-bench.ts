@@ -1142,6 +1142,283 @@ const scenarios: Record<string, () => Promise<void>> = {
     }
   },
 
+  /**
+   * The real server entry, `bun server/start.ts` on Bun.serve, under an 8 GB cap: listings
+   * through /api/trpc as the browser fetches them, and downloads through /api/files/download
+   * and WebDAV. A probe request every 2 ms during the largest listing shows how long the
+   * server stops answering. Folders are seeded before the server starts, so its watcher
+   * sees no burst.
+   */
+  async server() {
+    await requireMemory();
+    const sizes = [100, 10_000, 50_000];
+    for (const size of sizes) await writeFiles(`server/n${size}`, size);
+    Bun.spawnSync([
+      "dd",
+      "if=/dev/urandom",
+      `of=${absolute("server/big.bin")}`,
+      "bs=1M",
+      "count=1024",
+      "status=none",
+    ]);
+    await writeFiles("server/small", 2000, 4096);
+    const serverConfig = path.join(workspace, "server-config");
+    await mkdir(serverConfig, { recursive: true });
+    const origin = "http://localhost:3201";
+    const child = Bun.spawn(
+      [
+        "systemd-run",
+        "--user",
+        "--scope",
+        "--quiet",
+        "-p",
+        "MemoryMax=8G",
+        "-p",
+        "MemorySwapMax=0",
+        "--",
+        "bun",
+        "server/start.ts",
+      ],
+      {
+        cwd: webRoot,
+        env: {
+          ...process.env,
+          NODE_ENV: "production",
+          PORT: "3201",
+          BETTER_AUTH_URL: origin,
+          BETTER_AUTH_TRUSTED_ORIGINS: origin,
+          NIMBUS_CONFIG_ROOT: serverConfig,
+          DATABASE_URL: `file:${path.join(serverConfig, "db.sqlite")}`,
+        },
+        stdout: "ignore",
+        stderr: "inherit",
+      },
+    );
+    try {
+      for (let attempt = 0; ; attempt++) {
+        if (attempt > 600)
+          throw new Error(
+            "The benchmark server did not start within a minute.",
+          );
+        const live = await fetch(`${origin}/api/health/live`).catch(() => null);
+        if (live?.ok) break;
+        await Bun.sleep(100);
+      }
+      const signup = await fetch(`${origin}/api/auth/sign-up/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: origin },
+        body: JSON.stringify({
+          name: "Bench",
+          email: "bench@bench.test",
+          password: "Bench-password-42",
+        }),
+      });
+      if (!signup.ok)
+        throw new Error(
+          `Benchmark sign-up failed: ${signup.status} ${await signup.text()}`,
+        );
+      const cookie = signup.headers
+        .getSetCookie()
+        .map((value) => value.split(";")[0])
+        .join("; ");
+      const listingUrl = (folder: string) =>
+        `${origin}/api/trpc/files.list?batch=1&input=${encodeURIComponent(JSON.stringify({ 0: { path: folder, includeStats: true } }))}`;
+      // The browser's decoding step, wherever this checkout keeps it.
+      const listingModule = path.join(apiSource, "file-listing.ts");
+      const decodeListing: (data: unknown) => unknown = (await Bun.file(
+        listingModule,
+      ).exists())
+        ? await (async () => {
+            const loaded: unknown = await import(listingModule);
+            const listing: unknown =
+              typeof loaded === "object" && loaded !== null
+                ? Reflect.get(loaded, "FileListing")
+                : undefined;
+            const decode: unknown =
+              typeof listing === "object" && listing !== null
+                ? Reflect.get(listing, "decode")
+                : undefined;
+            if (typeof decode !== "function")
+              throw new Error(
+                "file-listing.ts does not export FileListing.decode.",
+              );
+            return (data: unknown): unknown =>
+              Reflect.apply(decode, listing, [data]);
+          })()
+        : (data: unknown) => data;
+      for (const size of sizes) {
+        const folder = `server/n${size}`;
+        const times: number[] = [];
+        const decodeTimes: number[] = [];
+        let probeMax = 0;
+        let probing = size === 50_000;
+        const probe = (async () => {
+          while (probing) {
+            const started = performance.now();
+            await fetch(`${origin}/api/health/live`);
+            probeMax = Math.max(probeMax, performance.now() - started);
+            await Bun.sleep(2);
+          }
+        })();
+        for (let run = 0; run < (size === 100 ? 50 : 10); run++) {
+          const started = performance.now();
+          const response = await fetch(listingUrl(folder), {
+            headers: { Cookie: cookie, "Accept-Encoding": "gzip" },
+          });
+          const text = await response.text();
+          const fetched = performance.now();
+          const body: unknown = JSON.parse(text);
+          const entries = decodeListing(trpcData(body));
+          if (!Array.isArray(entries) || entries.length !== size)
+            throw new Error(
+              `The ${size}-entry listing came back with ${Array.isArray(entries) ? entries.length : "no"} entries.`,
+            );
+          times.push(performance.now() - started);
+          decodeTimes.push(performance.now() - fetched);
+        }
+        probing = false;
+        await probe;
+        times.sort((a, b) => a - b);
+        decodeTimes.sort((a, b) => a - b);
+        const sized = Bun.spawnSync([
+          "curl",
+          "-s",
+          "-o",
+          "/dev/null",
+          "-w",
+          "%{size_download}",
+          "-H",
+          "Accept-Encoding: gzip",
+          "-H",
+          `Cookie: ${cookie}`,
+          listingUrl(folder),
+        ]);
+        record(
+          `server: files.list ${size} over HTTP p50`,
+          percentile(times, 0.5),
+          "ms",
+        );
+        record(
+          `server: files.list ${size} bytes on the wire`,
+          Number(sized.stdout.toString()) / 1024,
+          "KB",
+        );
+        record(
+          `server: files.list ${size} client parse and decode p50`,
+          percentile(decodeTimes, 0.5),
+          "ms",
+        );
+        if (size === 50_000)
+          record(
+            `server: longest probe wait during files.list 50000`,
+            probeMax,
+            "ms",
+          );
+      }
+      const curl = (args: string[]) => {
+        const run = Bun.spawnSync([
+          "curl",
+          "-s",
+          "-o",
+          "/dev/null",
+          "-w",
+          "%{http_code} %{size_download}",
+          "-H",
+          `Cookie: ${cookie}`,
+          ...args,
+        ]);
+        const [status, bytes] = run.stdout.toString().split(" ").map(Number);
+        if (status !== 200 && status !== 206)
+          throw new Error(`Benchmark download failed with ${status}.`);
+        return bytes ?? 0;
+      };
+      const download = `${origin}/api/files/download?path=server/big.bin`;
+      const throughput = async (name: string, run: () => Promise<number>) => {
+        const started = performance.now();
+        const bytes = await run();
+        record(
+          `server: ${name}`,
+          bytes / 1024 / 1024 / ((performance.now() - started) / 1000),
+          "MB/s",
+          "higher",
+        );
+      };
+      const curlAsync = async (args: string[]) => {
+        const run = Bun.spawn(
+          [
+            "curl",
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{size_download}",
+            "-H",
+            `Cookie: ${cookie}`,
+            ...args,
+          ],
+          { stdout: "pipe" },
+        );
+        const bytes = Number(await new Response(run.stdout).text());
+        await run.exited;
+        return bytes;
+      };
+      await throughput("download 1 GB", async () => curl([download]));
+      await throughput("download 1 GB x4 concurrent", async () =>
+        (
+          await Promise.all(
+            Array.from({ length: 4 }, () => curlAsync([download])),
+          )
+        ).reduce((a, b) => a + b, 0),
+      );
+      await throughput("download 1 GB range (second half)", async () =>
+        curl(["-H", "Range: bytes=536870912-", download]),
+      );
+      const small = performance.now();
+      await Promise.all(
+        Array.from({ length: 8 }, (_, worker) =>
+          curlAsync(
+            Array.from(
+              { length: 250 },
+              (_, index) =>
+                `${origin}/api/files/download?path=server/small/file-${worker * 250 + index}.txt`,
+            ),
+          ),
+        ),
+      );
+      record(
+        "server: download 2000 x 4 KB (8 connections)",
+        performance.now() - small,
+        "ms",
+      );
+      const created = await fetch(`${origin}/api/trpc/appPasswords.create`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: origin,
+          Cookie: cookie,
+        },
+        body: JSON.stringify({ name: "Bench" }),
+      });
+      const token = /"token":"([A-Za-z0-9_-]+)"/.exec(
+        await created.text(),
+      )?.[1];
+      if (!token)
+        throw new Error("Creating the benchmark app password failed.");
+      const authorization = `Basic ${Buffer.from(`bench@bench.test:${token}`).toString("base64")}`;
+      await throughput("WebDAV GET 1 GB", async () =>
+        curl([
+          "-H",
+          `Authorization: ${authorization}`,
+          `${origin}/dav/server/big.bin`,
+        ]),
+      );
+    } finally {
+      child.kill();
+      await child.exited;
+      await rm(absolute("server"), { recursive: true, force: true });
+    }
+  },
+
   async http() {
     await requireMemory();
     await mkdir(absolute("http"), { recursive: true });
@@ -1308,6 +1585,18 @@ const scenarios: Record<string, () => Promise<void>> = {
     }
   },
 };
+
+/** The output of the first procedure in a tRPC batch response: `[{ result: { data } }]`. */
+function trpcData(body: unknown): unknown {
+  const first: unknown = Array.isArray(body) ? body[0] : undefined;
+  const result: unknown =
+    typeof first === "object" && first !== null
+      ? Reflect.get(first, "result")
+      : undefined;
+  return typeof result === "object" && result !== null
+    ? Reflect.get(result, "data")
+    : undefined;
+}
 
 /** A node:http server that converts requests and responses as server/start.ts did before Bun.serve, kept so runs stay comparable. */
 function serve(
