@@ -12,7 +12,7 @@ const env = {
 };
 const cwd = new URL("..", import.meta.url).pathname;
 const children = [
-  Bun.spawn(["bun", "--bun", "vite"], {
+  Bun.spawn(["bun", "--bun", "vite", "--configLoader", "runner"], {
     cwd,
     env,
     stdout: "inherit",
