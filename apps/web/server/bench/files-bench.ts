@@ -768,6 +768,8 @@ const scenarios: Record<string, () => Promise<void>> = {
     const size = Number(options.tree);
     await requireMemory();
     await writeTree("tree", size);
+    // Read every inode once, so each walker below measures warm metadata as a running server sees it.
+    for (const file of await treeFiles("tree")) await lstat(absolute(file));
     Bun.gc(true);
     const heapBefore = process.memoryUsage().heapUsed;
     const index = createSearchIndex(1 << 16);
@@ -786,26 +788,29 @@ const scenarios: Record<string, () => Promise<void>> = {
     record(`search crawl max stall`, crawled.stallMaxMs, "ms");
     record(`search index entries`, index.size, "entries", "info");
 
-    resetCaches();
-    const getStorageUsage = await apiFunction(
-      "storage-cache",
-      "getStorageUsage",
-    );
-    Bun.gc(true);
-    const storageHeap = process.memoryUsage().heapUsed;
-    const usage = await observe(async () => {
-      const started = performance.now();
-      await getStorageUsage();
-      return performance.now() - started;
-    });
-    Bun.gc(true);
-    record(`storage usage scan, ${size} files`, usage.value, "ms");
-    record(
-      `storage usage heap retained`,
-      (process.memoryUsage().heapUsed - storageHeap) / 1024 / 1024,
-      "MB",
-    );
-    record(`storage usage max stall`, usage.stallMaxMs, "ms");
+    // The separate storage usage walk, where this checkout still has one.
+    if (await Bun.file(path.join(apiSource, "storage-cache.ts")).exists()) {
+      resetCaches();
+      const getStorageUsage = await apiFunction(
+        "storage-cache",
+        "getStorageUsage",
+      );
+      Bun.gc(true);
+      const storageHeap = process.memoryUsage().heapUsed;
+      const usage = await observe(async () => {
+        const started = performance.now();
+        await getStorageUsage();
+        return performance.now() - started;
+      });
+      Bun.gc(true);
+      record(`storage usage scan, ${size} files`, usage.value, "ms");
+      record(
+        `storage usage heap retained`,
+        (process.memoryUsage().heapUsed - storageHeap) / 1024 / 1024,
+        "MB",
+      );
+      record(`storage usage max stall`, usage.stallMaxMs, "ms");
+    }
 
     // The stats warm-up the web server starts with the watcher, with its bridge's message handler.
     const workerUrl = new URL("../stats.worker.ts", import.meta.url);

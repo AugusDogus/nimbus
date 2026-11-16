@@ -12,6 +12,10 @@
  *
  * Ids are never reused before the next rebuild. Removing an entry frees it
  * immediately; its compacted text is skipped until the next compaction.
+ *
+ * Each entry also carries a byte count: a file's size, or the total of
+ * everything beneath a folder, kept current as sizes change, so the root holds
+ * the drive's storage usage and any folder's total is one lookup.
  */
 
 export type IndexedKind = "file" | "dir";
@@ -64,6 +68,16 @@ const growInt32 = (
   return next;
 };
 
+const growFloat64 = (
+  array: Float64Array<ArrayBuffer>,
+  size: number,
+): Float64Array<ArrayBuffer> => {
+  if (size <= array.length) return array;
+  const next = new Float64Array(Math.max(size, array.length * 2));
+  next.set(array);
+  return next;
+};
+
 const growUint8 = (
   array: Uint8Array<ArrayBuffer>,
   size: number,
@@ -89,6 +103,8 @@ export function createSearchIndex(initialCapacity = 1024) {
   let nextSibling = new Int32Array(initialCapacity);
   let previousSibling = new Int32Array(initialCapacity);
   let kinds = new Uint8Array(initialCapacity);
+  /** File size, or the total beneath a folder. Float64 keeps byte totals exact up to 8 PiB. */
+  let bytes = new Float64Array(initialCapacity);
   /** id → compacted slot, or NONE for delta and freed entries. */
   let slotOf = new Int32Array(initialCapacity).fill(NONE);
 
@@ -182,11 +198,21 @@ export function createSearchIndex(initialCapacity = 1024) {
     nextSibling = growInt32(nextSibling, size);
     previousSibling = growInt32(previousSibling, size);
     kinds = growUint8(kinds, size);
+    bytes = growFloat64(bytes, size);
     slotOf = growInt32(slotOf, size, NONE);
+  };
+
+  /** Change an entry's own byte count and every ancestor's total by `delta`. */
+  const addBytes = (id: number, delta: number) => {
+    if (delta === 0) return;
+    for (let current = id; current !== NONE; current = parent[current])
+      bytes[current] += delta;
   };
 
   function remove(id: number) {
     if (id === ROOT || kinds[id] === FREE) return;
+    // The subtree's total leaves its ancestors once; freed entries are zeroed below.
+    addBytes(parent[id], -bytes[id]);
     const before = previousSibling[id];
     const after = nextSibling[id];
     if (before === NONE) firstChild[parent[id]] = after;
@@ -205,6 +231,7 @@ export function createSearchIndex(initialCapacity = 1024) {
         pending.push(child);
       unhash(current);
       kinds[current] = FREE;
+      bytes[current] = 0;
       slotOf[current] = NONE;
       deltaNames.delete(current);
       live--;
@@ -224,6 +251,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     const id = count++;
     ensureCapacity(count);
     kinds[id] = code;
+    bytes[id] = 0;
     parent[id] = parentId;
     firstChild[id] = NONE;
     previousSibling[id] = NONE;
@@ -361,18 +389,33 @@ export function createSearchIndex(initialCapacity = 1024) {
       return live;
     },
 
-    /** Add or replace one entry, creating missing ancestor folders. */
-    add(relative: string, kind: IndexedKind) {
+    /**
+     * Add or replace one entry, creating missing ancestor folders. A file's
+     * `size` replaces its previous one; a folder's total comes from its contents.
+     */
+    add(relative: string, kind: IndexedKind, size = 0) {
       const segments = relative.split("/");
       let id = ROOT;
       for (let i = 0; i < segments.length - 1; i++)
         id = insert(id, segments[i], "dir");
-      return insert(id, segments[segments.length - 1], kind);
+      const added = insert(id, segments[segments.length - 1], kind);
+      if (added !== NONE && kind === "file")
+        addBytes(added, size - bytes[added]);
+      return added;
     },
 
     /** Add a child by parent id, for crawlers that already hold the id. */
-    addChild(parentId: number, name: string, kind: IndexedKind) {
-      return insert(parentId, name, kind);
+    addChild(parentId: number, name: string, kind: IndexedKind, size = 0) {
+      const added = insert(parentId, name, kind);
+      if (added !== NONE && kind === "file")
+        addBytes(added, size - bytes[added]);
+      return added;
+    },
+
+    /** Bytes in the files at or beneath a path: the drive's usage for "". Null when not indexed. */
+    bytesAt(relative: string) {
+      const id = find(relative);
+      return id === NONE ? null : bytes[id];
     },
 
     /** Remove an entry and everything beneath it. Missing paths are ignored. */

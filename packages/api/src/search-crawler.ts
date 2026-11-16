@@ -5,7 +5,14 @@ import type { SearchIndex } from "./search-index";
 
 const isPrivate = (name: string) => name.toLowerCase() === ".nimbus";
 
-/** Same visibility rules as browsing: no `.nimbus`, symlinks or special files. */
+/** Files stated at once per folder: bounded so a huge folder cannot flood the filesystem. */
+const statConcurrency = 64;
+
+/**
+ * Same visibility rules as browsing: no `.nimbus`, symlinks or special files.
+ * Files are stated with lstat for their size, which also confirms they are
+ * still regular files.
+ */
 async function crawlInto(
   index: SearchIndex,
   absolute: string,
@@ -25,13 +32,30 @@ async function crawlInto(
       // Removed or unreadable while crawling; reconciliation retries later.
       continue;
     }
+    const files: string[] = [];
     for (const entry of entries) {
       if (isPrivate(entry.name)) continue;
       if (entry.isDirectory()) {
         const child = index.addChild(id, entry.name, "dir");
         if (child >= 0) pending.push([path.join(directory, entry.name), child]);
-      } else if (entry.isFile()) index.addChild(id, entry.name, "file");
+      } else if (entry.isFile()) files.push(entry.name);
     }
+    let cursor = 0;
+    const statNext = async () => {
+      for (let at = cursor++; at < files.length; at = cursor++) {
+        const name = files[at];
+        if (name === undefined) continue;
+        try {
+          const stats = await lstat(path.join(directory, name));
+          if (stats.isFile()) index.addChild(id, name, "file", stats.size);
+        } catch {
+          // Removed while crawling.
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(statConcurrency, files.length) }, statNext),
+    );
     listed += entries.length;
     if (listed >= 50_000) {
       listed = 0;
@@ -81,7 +105,7 @@ export async function applyChange(
     const known = index.kindOf(relative) === "dir";
     const id = index.add(relative, "dir");
     if (!known && id >= 0) await crawlInto(index, absolute, id, () => false);
-  } else if (stats.isFile()) index.add(relative, "file");
+  } else if (stats.isFile()) index.add(relative, "file", stats.size);
   else index.remove(relative);
   index.maybeCompact();
 }

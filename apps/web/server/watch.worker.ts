@@ -13,10 +13,18 @@ export type FileWatchHandle = {
   close: () => void;
 };
 
+/**
+ * Watch `root` recursively, emitting one debounced event per changed path.
+ * When the kernel's event queue overflows, Bun reports a change without a
+ * filename: events were dropped, and folders created meanwhile are not
+ * watched. The watch is then recreated, which watches every current folder
+ * again, and `onLost` is called so state built from events can be rebuilt.
+ */
 export const startFileWatch = (
   root: string,
   debounceMs: number,
   emit: (event: FileEvent) => void,
+  onLost: () => void = () => {},
 ): FileWatchHandle => {
   const pending = new Map<string, FileEvent>();
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -29,8 +37,13 @@ export const startFileWatch = (
     timer = null;
   };
 
-  const watcher = watch(root, { recursive: true }, (event, relativePath) => {
-    if (!relativePath) return;
+  const listener = (event: string, relativePath: string | null) => {
+    if (!relativePath) {
+      watcher.close();
+      watcher = watch(root, { recursive: true }, listener);
+      onLost();
+      return;
+    }
 
     const fullPath = path.resolve(root, relativePath);
     const relative = path.relative(root, fullPath);
@@ -53,7 +66,8 @@ export const startFileWatch = (
     if (!timer) {
       timer = setTimeout(flush, debounceMs);
     }
-  });
+  };
+  let watcher = watch(root, { recursive: true }, listener);
 
   return {
     close: () => {

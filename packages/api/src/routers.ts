@@ -30,8 +30,8 @@ import { sharesRouter } from "./shares-router";
 import { fileRequestsRouter } from "./file-requests-router";
 import { versionsRouter } from "./versions-router";
 import { catalogRouter } from "./catalog-router";
-import { getStorageUsage } from "./storage-cache";
 import { FilesystemCapacity } from "./filesystem-capacity";
+import { driveUsage } from "./search-service";
 
 import {
   publishFileEvent,
@@ -123,7 +123,7 @@ export const appRouter = router({
   files: router({
     storage: protectedProcedure.query(async ({ ctx }) => {
       ctx.access.requireAdmin();
-      const usedBytes = await getStorageUsage();
+      const usedBytes = await driveUsage();
       const capacity = await FilesystemCapacity.read(getDataRoot());
       return { usedBytes, capacity };
     }),

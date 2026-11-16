@@ -19,6 +19,11 @@ let overflowed = false;
 /** The index a crawl is filling; it alone mutates it until the queue replays. */
 let building: SearchIndex | null = null;
 let changes = Promise.resolve();
+/** Storage usage requests wait for the first complete crawl, then read the root total. */
+let markIndexed = () => {};
+const indexed = new Promise<void>((resolve) => {
+  markIndexed = resolve;
+});
 
 const post = (message: SearchOutbound) => self.postMessage(message);
 
@@ -31,7 +36,8 @@ async function rebuild(reason: "startup" | "reconcile") {
   const fresh =
     reason === "startup"
       ? live
-      : createSearchIndex(Math.max(1 << 16, live.size));
+      : // Room for every entry plus the root, so a same-size tree never doubles the arrays.
+        createSearchIndex(Math.max(1 << 16, live.size + 1));
   building = fresh;
   try {
     await crawl(fresh, root);
@@ -39,6 +45,7 @@ async function rebuild(reason: "startup" | "reconcile") {
       await applyChange(fresh, root, queued[i]);
     live = fresh;
     complete = true;
+    markIndexed();
     post({
       type: "indexed",
       reason,
@@ -77,6 +84,14 @@ self.onmessage = (event: MessageEvent<SearchInbound>) => {
       changes = changes
         .then(() => applyChange(live, root, message.path))
         .catch(report);
+      return;
+    case "rescan":
+      void rebuild("reconcile").catch(report);
+      return;
+    case "usage":
+      void indexed.then(() =>
+        post({ type: "usage", id: message.id, bytes: live.bytesAt("") ?? 0 }),
+      );
       return;
     case "search":
       try {

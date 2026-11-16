@@ -303,5 +303,10 @@ export function crawlingSearchService(root: string): SearchService {
       await crawl(index, root);
       return { ...index.search(request), complete: true };
     },
+    async usage() {
+      const index = createSearchIndex();
+      await crawl(index, root);
+      return index.bytesAt("") ?? 0;
+    },
   };
 }

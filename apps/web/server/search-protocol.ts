@@ -5,11 +5,15 @@ import type { SearchAnswer } from "@nimbus/api/search-service";
 export type SearchInbound =
   | { type: "start"; root: string }
   | { type: "changed"; path: string }
-  | { type: "search"; id: number; request: SearchRequest };
+  | { type: "search"; id: number; request: SearchRequest }
+  | { type: "usage"; id: number }
+  /** The watcher lost events: walk the drive again. */
+  | { type: "rescan" };
 
 /** Messages from the search worker. */
 export type SearchOutbound =
   | { type: "result"; id: number; answer: SearchAnswer }
+  | { type: "usage"; id: number; bytes: number }
   | { type: "error"; id: number; message: string }
   | {
       type: "indexed";

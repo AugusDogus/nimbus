@@ -1,6 +1,10 @@
 import { getDataRoot } from "@nimbus/api/data-root";
 import { publishFileEvent } from "@nimbus/api/file-events";
-import { ensureSearchIndex, notifySearchChange } from "./search-bridge";
+import {
+  ensureSearchIndex,
+  notifySearchChange,
+  requestSearchRescan,
+} from "./search-bridge";
 import { startFileWatch, type FileWatchHandle } from "./watch.worker";
 
 declare global {
@@ -20,8 +24,18 @@ export const ensureFileWatcher = () => {
       : 300;
   // fs.watch already delivers asynchronous notifications. Import its helper into
   // the server bundle so Next does not copy a worker entry without its imports.
-  globalThis.__nimbusFileWatcher = startFileWatch(root, debounceMs, (event) => {
-    publishFileEvent(event);
-    notifySearchChange(event.path);
-  });
+  globalThis.__nimbusFileWatcher = startFileWatch(
+    root,
+    debounceMs,
+    (event) => {
+      publishFileEvent(event);
+      notifySearchChange(event.path);
+    },
+    () => {
+      console.warn(
+        "Nimbus's file watcher fell behind and dropped events. Search results and storage usage are being rebuilt from disk; files are unaffected.",
+      );
+      requestSearchRescan();
+    },
+  );
 };

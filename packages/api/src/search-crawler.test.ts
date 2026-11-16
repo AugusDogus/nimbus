@@ -112,6 +112,7 @@ describe("searchEntries", () => {
   it("re-checks permissions and drops hits that no longer exist", async () => {
     // A stale or faulty index must not leak paths outside the caller's grants.
     provideSearchService({
+      usage: async () => 0,
       search: async () => ({
         hits: [
           { path: "docs/report.txt", type: "file" },
@@ -132,6 +133,7 @@ describe("searchEntries", () => {
   it("asks the index only for the caller's grants", async () => {
     let scope: unknown;
     provideSearchService({
+      usage: async () => 0,
       search: async (request) => {
         scope = request.scope;
         return { hits: [], truncated: false, complete: true };

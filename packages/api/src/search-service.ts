@@ -9,9 +9,15 @@ export type SearchAnswer = SearchResult & {
   complete: boolean;
 };
 
-/** Where the filename index lives; the web server runs it in a worker. */
+/**
+ * The drive index: one model of the tree, built by one crawl and kept current
+ * by the file watcher, that answers filename searches and storage usage. The
+ * web server runs it in a worker.
+ */
 export type SearchService = {
   search: (request: SearchRequest) => Promise<SearchAnswer>;
+  /** Bytes in every indexed file, once the first crawl after startup has finished. */
+  usage: () => Promise<number>;
 };
 
 // Next bundles API handlers separately from the custom server; one process-wide
@@ -24,6 +30,20 @@ export const provideSearchService = (service: SearchService) => {
   globalThis.__nimbusSearchService = service;
 };
 
+const runningService = (): SearchService => {
+  const service = globalThis.__nimbusSearchService;
+  if (!service)
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message:
+        "The drive index is not running in this server process. Restart Nimbus with `bun run start`; your files are unaffected.",
+    });
+  return service;
+};
+
+/** Total size of the files Nimbus serves, excluding `.nimbus`, symlinks and special files. */
+export const driveUsage = () => runningService().usage();
+
 /**
  * Filename search for one caller. The index already limits results to the
  * caller's grants; every hit is re-checked here and stated from disk, so a
@@ -35,13 +55,7 @@ export async function searchEntries(
   query: string,
   limit: number,
 ) {
-  const service = globalThis.__nimbusSearchService;
-  if (!service)
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message:
-        "The search index is not running in this server process. Restart Nimbus with `bun run start`; your files are unaffected.",
-    });
+  const service = runningService();
   const answer = await service.search({
     query,
     root,
