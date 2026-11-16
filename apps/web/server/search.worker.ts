@@ -1,5 +1,6 @@
-// Runs in a Bun Worker. Next copies this file without bundling it, so it may
-// import only packages, never relative or "@/" paths.
+// Runs in a Bun Worker, and starts the scan workers large searches use. It
+// may import only packages and the protocol beside it.
+import { availableParallelism } from "node:os";
 import {
   applyChange,
   crawl,
@@ -11,6 +12,7 @@ import {
   type SearchIndex,
   type SearchRequest,
 } from "@nimbus/api/search-index";
+import { createScanPool, searchWithPool } from "@nimbus/api/search-scan-pool";
 import type { SearchInbound, SearchOutbound } from "./search-protocol";
 
 declare const self: Worker;
@@ -135,31 +137,50 @@ async function rebuild(reason: "startup" | "reconcile") {
  */
 const searches = new Map<number, SearchRequest>();
 let searchScheduled = false;
+/** The search being answered, so a cancel can stop its scan workers. */
+let answering: number | null = null;
+
+/**
+ * Scan workers for large searches: one fewer than the CPUs this process may
+ * use, at most eight, and none with fewer than three. Measured with the
+ * search benchmark, unpinned and pinned to four cores. One search uses them
+ * at a time, so they never take more than that many cores however many
+ * people search.
+ */
+const scanThreads = Math.min(8, availableParallelism() - 1);
+const pool =
+  scanThreads >= 2
+    ? createScanPool(
+        () => new Worker(new URL("./search-scan.worker.ts", import.meta.url)),
+        scanThreads,
+      )
+    : null;
 
 function scheduleSearch() {
-  if (searchScheduled || searches.size === 0) return;
+  if (searchScheduled || answering !== null || searches.size === 0) return;
   searchScheduled = true;
-  setTimeout(runNextSearch, 0);
+  setTimeout(() => void runNextSearch(), 0);
 }
 
-function runNextSearch() {
+async function runNextSearch() {
   searchScheduled = false;
   const next = searches.entries().next();
   if (next.done) return;
   const [id, request] = next.value;
   searches.delete(id);
+  answering = id;
   try {
-    post({
-      type: "result",
-      id,
-      answer: { ...live.search(request), complete },
-    });
+    const answer = await searchWithPool(() => live, request, pool);
+    // Null: cancelled while its scan ran; nobody waits for it.
+    if (answer) post({ type: "result", id, answer: { ...answer, complete } });
   } catch (error) {
     post({
       type: "error",
       id,
       message: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    answering = null;
   }
   scheduleSearch();
 }
@@ -202,6 +223,7 @@ self.onmessage = (event: MessageEvent<SearchInbound>) => {
       return;
     case "cancel":
       searches.delete(message.id);
+      if (answering === message.id) pool?.stop();
       return;
   }
 };
