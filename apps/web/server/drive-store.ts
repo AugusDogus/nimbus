@@ -88,6 +88,8 @@ const detachedAccessSchema = z.object({
       path: z.string(),
       starred: z.boolean(),
       accessedAt: z.number(),
+      // Detached before visits were counted.
+      visits: z.number().default(1),
     }),
   ),
   properties: z.array(

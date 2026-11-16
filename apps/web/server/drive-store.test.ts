@@ -55,7 +55,12 @@ test("movePath rewrites records at and under the source, treating SQL wildcards 
   ].entries()) {
     await store.saveGrant(grant(`g${index}`, path));
     await store.createShare(share(`s${index}`, path));
-    await store.saveBookmark("reader", { path, starred: true, accessedAt: 1 });
+    await store.saveBookmark("reader", {
+      path,
+      starred: true,
+      accessedAt: 1,
+      visits: 1,
+    });
   }
   await store.movePath("a_%", "moved/😀 b");
   const expected = [
@@ -80,6 +85,7 @@ test("movePath drops records left at the vacant destination instead of attaching
     path: "target",
     starred: true,
     accessedAt: 1,
+    visits: 1,
   });
   await store.saveGrant(grant("moving", "source"));
   await store.movePath("source", "target");
@@ -101,6 +107,7 @@ test("trash detaches records, hides them from listings, and restores them with t
     path: "docs",
     starred: true,
     accessedAt: 5,
+    visits: 1,
   });
   const item = {
     id: "trash-1",
@@ -131,7 +138,7 @@ test("trash detaches records, hides them from listings, and restores them with t
     "secret-hash",
   );
   expect(await store.listBookmarks("reader")).toMatchObject([
-    { path: "docs", starred: true, accessedAt: 5 },
+    { path: "docs", starred: true, accessedAt: 5, visits: 1 },
   ]);
 });
 
@@ -153,6 +160,7 @@ test("restoring skips records whose account or group was removed while the item 
     path: "docs",
     starred: true,
     accessedAt: 1,
+    visits: 1,
   });
   await store.addTrash({
     id: "trash-2",
@@ -440,7 +448,12 @@ test("concurrent writes and transactions all commit", async () => {
     store.saveGroup({ id: "two", name: "Two", memberIds: ["reader"] }),
     store.saveGrant(grant("during", "docs")),
     store.movePath("docs", "papers"),
-    store.saveBookmark("reader", { path: "x", starred: true, accessedAt: 1 }),
+    store.saveBookmark("reader", {
+      path: "x",
+      starred: true,
+      accessedAt: 1,
+      visits: 1,
+    }),
   ]);
   expect(results.map((result) => result.status)).toEqual(
     Array.from({ length: 5 }, () => "fulfilled"),
@@ -489,6 +502,7 @@ test("the access epoch changes with every grant, group, membership and account c
     path: "docs",
     starred: true,
     accessedAt: 1,
+    visits: 1,
   });
   expect(await store.accessEpoch()).toBe(steady);
 });

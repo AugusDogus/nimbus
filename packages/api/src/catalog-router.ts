@@ -80,6 +80,8 @@ export const catalogRouter = router({
         path: target.relative,
         starred: input.starred ?? existing?.starred ?? false,
         accessedAt: Date.now(),
+        // Starring is not an open; every other call records one.
+        visits: (existing?.visits ?? 0) + (input.starred === undefined ? 1 : 0),
       });
     }),
 });

@@ -49,7 +49,13 @@ export type TrashItem = {
   deletedAt: number;
   expiresAt: number;
 };
-export type Bookmark = { path: string; starred: boolean; accessedAt: number };
+export type Bookmark = {
+  path: string;
+  starred: boolean;
+  accessedAt: number;
+  /** How many times this user opened the item. */
+  visits: number;
+};
 /** A WebDAV dead property: an arbitrary client-set XML element, keyed by expanded name. */
 export type DavProperty = { namespace: string; name: string; xml: string };
 export type DavPropertyName = Pick<DavProperty, "namespace" | "name">;

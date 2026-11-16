@@ -87,6 +87,8 @@ export const bookmarks = sqliteTable(
     path: text("path").notNull(),
     starred: integer("starred", { mode: "boolean" }).notNull().default(false),
     accessedAt: integer("accessed_at").notNull(),
+    /** Opens of this item by this user, for ranking frequent ones first in search. */
+    visits: integer("visits").notNull().default(1),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.path] }),

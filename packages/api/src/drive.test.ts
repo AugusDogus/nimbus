@@ -318,6 +318,15 @@ describe("drive workflows", () => {
       ]),
     ).toEqual([["docs/renamed.txt", true]]);
   });
+  it("counts each open of a bookmarked item, but not starring it", async () => {
+    await caller().catalog.bookmark({ path: "docs/report.txt" });
+    await caller().catalog.bookmark({ path: "docs/report.txt" });
+    await caller().catalog.bookmark({ path: "docs/report.txt", starred: true });
+    expect(await memory.store.listBookmarks("user-1")).toMatchObject([
+      { path: "docs/report.txt", starred: true, visits: 2 },
+    ]);
+  });
+
   it("moves descendant grants with a folder while the destination's inherited access replaces the source's", async () => {
     await mkdir(path.join(root, "archive"));
     await caller().access.grant({
