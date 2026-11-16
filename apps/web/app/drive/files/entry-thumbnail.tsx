@@ -56,6 +56,10 @@ export function EntryThumbnail({
           decoding="async"
           draggable={false}
           onError={() => setFailed(src)}
+          // An image in server-rendered markup can fail before the page handles errors.
+          ref={(image) => {
+            if (image?.complete && image.naturalWidth === 0) setFailed(src);
+          }}
           className="size-full object-contain"
         />
       )}
