@@ -1,8 +1,7 @@
-import { fileURLToPath } from "node:url";
-import { migrate } from "drizzle-orm/libsql/migrator";
 import { getDataRoot } from "@nimbus/api/data-root";
 import { Homes } from "@nimbus/api/homes";
 import { client, db } from "./db";
+import { migrateDatabase } from "./db/migrate-database";
 import { createDriveStore } from "./drive-store";
 import { handleWebDAV } from "./webdav";
 import { cleanExpiredData } from "./maintenance";
@@ -50,12 +49,7 @@ const securityMode = {
 };
 const commonHeaders = SecurityHeaders.common(securityMode);
 backupsToKeep();
-await migrate(db, {
-  migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
-});
-// WAL lets online backups read a snapshot while requests keep writing. The
-// mode is stored in the database file, so this applies to every connection.
-await client.execute("PRAGMA journal_mode = WAL");
+migrateDatabase(client, db);
 setAuditSink(createAuditSink(db));
 const store = createDriveStore(db);
 for (const home of await Homes.backfill(store))

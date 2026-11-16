@@ -90,31 +90,35 @@ async function rotate(
   const access = mintSecret(TokenPrefix.accessToken);
   const refresh = mintSecret(TokenPrefix.refreshToken);
   const scope = McpScope.format(scopes);
-  const committed = await ctx.db.transaction(async (tx) => {
-    const consumed = await tx
+  // Synchronous, so the transaction commits exactly these statements.
+  const committed = ctx.db.transaction((tx) => {
+    const consumed = tx
       .update(mcpTokens)
       .set({ consumedAt: now })
       .where(and(eq(mcpTokens.hash, row.hash), isNull(mcpTokens.consumedAt)))
-      .returning({ hash: mcpTokens.hash });
+      .returning({ hash: mcpTokens.hash })
+      .all();
     if (consumed.length !== 1) return false;
-    await tx.insert(mcpTokens).values([
-      {
-        hash: access.hash,
-        kind: "access_token",
-        grantId: row.grantId,
-        scope,
-        expiresAt: now + ACCESS_TOKEN_TTL_MS,
-        createdAt: now,
-      },
-      {
-        hash: refresh.hash,
-        kind: "refresh_token",
-        grantId: row.grantId,
-        scope,
-        expiresAt: now + REFRESH_TOKEN_TTL_MS,
-        createdAt: now,
-      },
-    ]);
+    tx.insert(mcpTokens)
+      .values([
+        {
+          hash: access.hash,
+          kind: "access_token",
+          grantId: row.grantId,
+          scope,
+          expiresAt: now + ACCESS_TOKEN_TTL_MS,
+          createdAt: now,
+        },
+        {
+          hash: refresh.hash,
+          kind: "refresh_token",
+          grantId: row.grantId,
+          scope,
+          expiresAt: now + REFRESH_TOKEN_TTL_MS,
+          createdAt: now,
+        },
+      ])
+      .run();
     return true;
   });
   return committed

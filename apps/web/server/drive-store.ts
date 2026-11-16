@@ -7,7 +7,8 @@ import {
   type Grant,
 } from "@nimbus/api/drive-store";
 import { FileVersions } from "@nimbus/api/file-versions";
-import type { db } from "./db";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
+import type { Database } from "./db";
 import {
   createFileRequestStore,
   FileRequestRecords,
@@ -38,7 +39,23 @@ const toGrant = (row: typeof grants.$inferSelect): Grant => ({
       : { type: "group", id: row.subjectId },
 });
 
-type Transaction = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
+/**
+ * A synchronous transaction. Every statement inside one runs with `.run()`, `.all()` or
+ * `.get()` and nothing is awaited, so SQLite commits exactly the work the callback did.
+ */
+type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+/** Insert rows in batches that stay below SQLite's bound-parameter limit. */
+function insertChunked<T extends SQLiteTable>(
+  tx: Transaction,
+  table: T,
+  rows: readonly T["$inferInsert"][],
+) {
+  for (let start = 0; start < rows.length; start += 500)
+    tx.insert(table)
+      .values(rows.slice(start, start + 500))
+      .run();
+}
 
 /** Records detached from a trashed item's path, persisted as JSON on its trash row. */
 const detachedAccessSchema = z.object({
@@ -95,24 +112,26 @@ const trashColumns = {
 };
 
 /** Delete and return every link, file request, grant, bookmark, and dead property at or under a path. */
-async function detach(tx: Transaction, path: string): Promise<DetachedAccess> {
+function detach(tx: Transaction, path: string): DetachedAccess {
   const detached = {
-    fileRequests: await FileRequestRecords.detach(tx, path),
-    grants: await tx.select().from(grants).where(atOrUnder(grants.path, path)),
-    shares: await tx.select().from(shares).where(atOrUnder(shares.path, path)),
-    bookmarks: await tx
+    fileRequests: FileRequestRecords.detach(tx, path),
+    grants: tx.select().from(grants).where(atOrUnder(grants.path, path)).all(),
+    shares: tx.select().from(shares).where(atOrUnder(shares.path, path)).all(),
+    bookmarks: tx
       .select()
       .from(bookmarks)
-      .where(atOrUnder(bookmarks.path, path)),
-    properties: await tx
+      .where(atOrUnder(bookmarks.path, path))
+      .all(),
+    properties: tx
       .select()
       .from(davProperties)
-      .where(atOrUnder(davProperties.path, path)),
+      .where(atOrUnder(davProperties.path, path))
+      .all(),
   };
-  await tx.delete(grants).where(atOrUnder(grants.path, path));
-  await tx.delete(shares).where(atOrUnder(shares.path, path));
-  await tx.delete(bookmarks).where(atOrUnder(bookmarks.path, path));
-  await tx.delete(davProperties).where(atOrUnder(davProperties.path, path));
+  tx.delete(grants).where(atOrUnder(grants.path, path)).run();
+  tx.delete(shares).where(atOrUnder(shares.path, path)).run();
+  tx.delete(bookmarks).where(atOrUnder(bookmarks.path, path)).run();
+  tx.delete(davProperties).where(atOrUnder(davProperties.path, path)).run();
   return detached;
 }
 
@@ -121,15 +140,15 @@ async function detach(tx: Transaction, path: string): Promise<DetachedAccess> {
  * dropping history left at `to` by content removed outside Nimbus. Payloads of dropped
  * records are swept by version cleanup a day later.
  */
-async function relocateVersions(tx: Transaction, from: string, to: string) {
-  await tx.delete(fileVersions).where(atOrUnder(fileVersions.path, to));
-  await tx
-    .update(fileVersions)
+function relocateVersions(tx: Transaction, from: string, to: string) {
+  tx.delete(fileVersions).where(atOrUnder(fileVersions.path, to)).run();
+  tx.update(fileVersions)
     .set({ path: relocated(fileVersions.path, from, to) })
-    .where(atOrUnder(fileVersions.path, from));
+    .where(atOrUnder(fileVersions.path, from))
+    .run();
 }
 
-export function createDriveStore(database: typeof db): DriveStore {
+export function createDriveStore(database: Database): DriveStore {
   return {
     async getUser(id) {
       const [row] = await database.select().from(user).where(eq(user.id, id));
@@ -209,28 +228,26 @@ export function createDriveStore(database: typeof db): DriveStore {
       }));
     },
     async saveGroup(group) {
-      await database.transaction(async (tx) => {
-        await tx
-          .insert(groups)
+      database.transaction((tx) => {
+        tx.insert(groups)
           .values({ id: group.id, name: group.name })
-          .onConflictDoUpdate({ target: groups.id, set: { name: group.name } });
-        await tx.delete(groupMembers).where(eq(groupMembers.groupId, group.id));
+          .onConflictDoUpdate({ target: groups.id, set: { name: group.name } })
+          .run();
+        tx.delete(groupMembers).where(eq(groupMembers.groupId, group.id)).run();
         if (group.memberIds.length)
-          await tx
-            .insert(groupMembers)
+          tx.insert(groupMembers)
             .values(
               group.memberIds.map((userId) => ({ groupId: group.id, userId })),
-            );
+            )
+            .run();
       });
     },
     async removeGroup(id) {
-      await database.transaction(async (tx) => {
-        await tx
-          .delete(grants)
-          .where(
-            and(eq(grants.subjectType, "group"), eq(grants.subjectId, id)),
-          );
-        await tx.delete(groups).where(eq(groups.id, id));
+      database.transaction((tx) => {
+        tx.delete(grants)
+          .where(and(eq(grants.subjectType, "group"), eq(grants.subjectId, id)))
+          .run();
+        tx.delete(groups).where(eq(groups.id, id)).run();
       });
     },
     async createShare(share) {
@@ -276,17 +293,13 @@ export function createDriveStore(database: typeof db): DriveStore {
       return claimed.length > 0;
     },
     async addTrash(item) {
-      await database.transaction(async (tx) => {
-        const detached = await detach(tx, item.path);
-        await tx
-          .insert(trash)
-          .values({ ...item, detachedAccess: JSON.stringify(detached) });
+      database.transaction((tx) => {
+        const detached = detach(tx, item.path);
+        tx.insert(trash)
+          .values({ ...item, detachedAccess: JSON.stringify(detached) })
+          .run();
         // History waits at the item's trash location, where it never matches a live path.
-        await relocateVersions(
-          tx,
-          item.path,
-          FileVersions.trashLocation(item.id),
-        );
+        relocateVersions(tx, item.path, FileVersions.trashLocation(item.id));
       });
     },
     async getTrash(id) {
@@ -306,8 +319,8 @@ export function createDriveStore(database: typeof db): DriveStore {
         .where(userId === null ? undefined : eq(trash.deletedBy, userId));
     },
     async restoreTrash(id) {
-      await database.transaction(async (tx) => {
-        const [item] = await tx.select().from(trash).where(eq(trash.id, id));
+      database.transaction((tx) => {
+        const item = tx.select().from(trash).where(eq(trash.id, id)).get();
         if (!item) return;
         const parsed = detachedAccessSchema.safeParse(
           JSON.parse(item.detachedAccess),
@@ -317,19 +330,21 @@ export function createDriveStore(database: typeof db): DriveStore {
             `Nimbus could not read the saved sharing records for trash item ${id} (${item.path}): ${parsed.error.message}. The item is still in trash; restore was not completed.`,
           );
         // Records now at the vacant path were left by content removed outside Nimbus.
-        await detach(tx, item.path);
-        await relocateVersions(
-          tx,
-          FileVersions.trashLocation(item.id),
-          item.path,
-        );
+        detach(tx, item.path);
+        relocateVersions(tx, FileVersions.trashLocation(item.id), item.path);
         const userIds = new Set(
-          (await tx.select({ id: user.id }).from(user)).map((row) => row.id),
+          tx
+            .select({ id: user.id })
+            .from(user)
+            .all()
+            .map((row) => row.id),
         );
         const groupIds = new Set(
-          (await tx.select({ id: groups.id }).from(groups)).map(
-            (row) => row.id,
-          ),
+          tx
+            .select({ id: groups.id })
+            .from(groups)
+            .all()
+            .map((row) => row.id),
         );
         // Accounts and groups removed while the item was in trash lose their records.
         const restoredGrants = parsed.data.grants.filter((row) =>
@@ -341,20 +356,12 @@ export function createDriveStore(database: typeof db): DriveStore {
         const restoredBookmarks = parsed.data.bookmarks.filter((row) =>
           userIds.has(row.userId),
         );
-        if (restoredGrants.length)
-          await tx.insert(grants).values(restoredGrants);
-        if (restoredShares.length)
-          await tx.insert(shares).values(restoredShares);
-        if (restoredBookmarks.length)
-          await tx.insert(bookmarks).values(restoredBookmarks);
-        if (parsed.data.properties.length)
-          await tx.insert(davProperties).values(parsed.data.properties);
-        await FileRequestRecords.reattach(
-          tx,
-          parsed.data.fileRequests,
-          userIds,
-        );
-        await tx.delete(trash).where(eq(trash.id, id));
+        insertChunked(tx, grants, restoredGrants);
+        insertChunked(tx, shares, restoredShares);
+        insertChunked(tx, bookmarks, restoredBookmarks);
+        insertChunked(tx, davProperties, parsed.data.properties);
+        FileRequestRecords.reattach(tx, parsed.data.fileRequests, userIds);
+        tx.delete(trash).where(eq(trash.id, id)).run();
       });
     },
     async removeTrash(id) {
@@ -402,18 +409,20 @@ export function createDriveStore(database: typeof db): DriveStore {
     fileRequests: createFileRequestStore(database),
     versions: createFileVersionStore(database),
     async discardPath(path) {
-      await database.transaction((tx) => detach(tx, path));
+      database.transaction((tx) => {
+        detach(tx, path);
+      });
     },
     async movePath(from, to) {
-      await database.transaction(async (tx) => {
-        await detach(tx, to);
-        await relocateVersions(tx, from, to);
+      database.transaction((tx) => {
+        detach(tx, to);
+        relocateVersions(tx, from, to);
         for (const table of [grants, shares, bookmarks, davProperties])
-          await tx
-            .update(table)
+          tx.update(table)
             .set({ path: relocated(table.path, from, to) })
-            .where(atOrUnder(table.path, from));
-        await FileRequestRecords.relocate(tx, from, to);
+            .where(atOrUnder(table.path, from))
+            .run();
+        FileRequestRecords.relocate(tx, from, to);
       });
     },
     async homeOf(userId) {
@@ -440,10 +449,9 @@ export function createDriveStore(database: typeof db): DriveStore {
       );
     },
     async createHome(home, grant) {
-      await database.transaction(async (tx) => {
-        await tx.insert(homes).values(home);
-        await tx
-          .insert(grants)
+      database.transaction((tx) => {
+        tx.insert(homes).values(home).run();
+        tx.insert(grants)
           .values({
             id: grant.id,
             path: grant.path,
@@ -454,7 +462,8 @@ export function createDriveStore(database: typeof db): DriveStore {
           .onConflictDoUpdate({
             target: [grants.subjectType, grants.subjectId, grants.path],
             set: { permission: grant.permission },
-          });
+          })
+          .run();
       });
     },
     async davProperties(paths) {
@@ -474,20 +483,19 @@ export function createDriveStore(database: typeof db): DriveStore {
       return result;
     },
     async patchDavProperties(path, set, remove) {
-      await database.transaction(async (tx) => {
+      database.transaction((tx) => {
         for (const property of remove)
-          await tx
-            .delete(davProperties)
+          tx.delete(davProperties)
             .where(
               and(
                 eq(davProperties.path, path),
                 eq(davProperties.namespace, property.namespace),
                 eq(davProperties.name, property.name),
               ),
-            );
+            )
+            .run();
         for (const property of set)
-          await tx
-            .insert(davProperties)
+          tx.insert(davProperties)
             .values({ path, ...property })
             .onConflictDoUpdate({
               target: [
@@ -496,23 +504,26 @@ export function createDriveStore(database: typeof db): DriveStore {
                 davProperties.name,
               ],
               set: { xml: property.xml },
-            });
+            })
+            .run();
       });
     },
     async copyDavProperties(from, to) {
-      await database.transaction(async (tx) => {
-        await tx.delete(davProperties).where(atOrUnder(davProperties.path, to));
-        const rows = await tx
+      database.transaction((tx) => {
+        tx.delete(davProperties).where(atOrUnder(davProperties.path, to)).run();
+        const rows = tx
           .select()
           .from(davProperties)
-          .where(atOrUnder(davProperties.path, from));
-        if (rows.length)
-          await tx.insert(davProperties).values(
-            rows.map((row) => ({
-              ...row,
-              path: to + row.path.slice(from.length),
-            })),
-          );
+          .where(atOrUnder(davProperties.path, from))
+          .all();
+        insertChunked(
+          tx,
+          davProperties,
+          rows.map((row) => ({
+            ...row,
+            path: to + row.path.slice(from.length),
+          })),
+        );
       });
     },
   };

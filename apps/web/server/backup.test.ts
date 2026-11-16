@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { createClient } from "@libsql/client";
+import { Database } from "bun:sqlite";
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -10,14 +10,10 @@ let databaseUrl: string;
 beforeEach(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), "nimbus-backup-"));
   databaseUrl = `file:${path.join(root, "db.sqlite")}`;
-  const client = createClient({ url: databaseUrl });
-  await client.execute("PRAGMA journal_mode = WAL");
-  await client.execute(
-    "CREATE TABLE item (id INTEGER PRIMARY KEY, body TEXT NOT NULL)",
-  );
-  await client.execute(
-    "INSERT INTO item (body) VALUES ('committed before the backup')",
-  );
+  const client = new Database(path.join(root, "db.sqlite"));
+  client.run("PRAGMA journal_mode = WAL");
+  client.run("CREATE TABLE item (id INTEGER PRIMARY KEY, body TEXT NOT NULL)");
+  client.run("INSERT INTO item (body) VALUES ('committed before the backup')");
   client.close();
 });
 afterEach(async () => {
@@ -26,16 +22,14 @@ afterEach(async () => {
 
 test("a backup is a consistent private snapshot and old backups are pruned", async () => {
   const directory = path.join(root, "backups");
-  const writer = createClient({ url: databaseUrl });
+  const writer = new Database(path.join(root, "db.sqlite"));
+  writer.run("PRAGMA busy_timeout = 5000");
   // Keep writing while snapshots run; neither side may fail with SQLITE_BUSY.
   let writing = true;
   const writes = (async () => {
     let count = 0;
     while (writing) {
-      await writer.execute({
-        sql: "INSERT INTO item (body) VALUES (?)",
-        args: [`during ${count++}`],
-      });
+      writer.run("INSERT INTO item (body) VALUES (?)", [`during ${count++}`]);
       await Bun.sleep(1);
     }
     return count;
@@ -68,11 +62,10 @@ test("a backup is a consistent private snapshot and old backups are pruned", asy
   const latest = Backup.file(directory, "nimbus-20260103T000000Z.sqlite");
   if (!latest) throw new Error("The latest backup name was rejected.");
   expect((await stat(latest)).mode & 0o777).toBe(0o600);
-  const snapshot = createClient({ url: `file:${latest}` });
-  const rows = await snapshot.execute(
-    "SELECT body FROM item ORDER BY id LIMIT 1",
-  );
-  expect(rows.rows[0]?.body).toBe("committed before the backup");
+  const snapshot = new Database(latest, { readonly: true });
+  expect(
+    snapshot.query("SELECT body FROM item ORDER BY id LIMIT 1").get(),
+  ).toEqual({ body: "committed before the backup" });
   snapshot.close();
 });
 

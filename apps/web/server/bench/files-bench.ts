@@ -23,6 +23,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { parseArgs } from "node:util";
 import { gzipSync } from "node:zlib";
+import type { SQL } from "drizzle-orm";
 
 const { values: options } = parseArgs({
   options: {
@@ -134,8 +135,12 @@ for (const name of [
   if (typeof loaded === "object" && loaded !== null) cacheModules.push(loaded);
 }
 
+/** Driver-agnostic statements: the libsql driver returns promises, bun:sqlite returns values. */
+const run = (query: SQL) => Promise.resolve(db.run(query));
+const all = <T>(query: SQL) => Promise.resolve(db.all<T>(query));
+
 // As server/start.ts does after migrating.
-await db.run(sql`PRAGMA journal_mode = WAL`);
+await run(sql`PRAGMA journal_mode = WAL`);
 /** A function exported by an API module, looked up by file so removed modules fail clearly. */
 async function apiFunction(name: string, exported: string) {
   const loaded: unknown = await import(path.join(apiSource, `${name}.ts`));
@@ -319,7 +324,7 @@ async function treeFiles(directory: string) {
 
 const versionColumns = new Set(
   (
-    await db.all<{ name: string }>(sql`PRAGMA table_info(nimbus_file_version)`)
+    await all<{ name: string }>(sql`PRAGMA table_info(nimbus_file_version)`)
   ).map((row) => row.name),
 );
 
@@ -329,7 +334,7 @@ async function seedHistory(files: readonly string[]) {
   const flush = async () => {
     if (!rows.length) return;
     const keyColumn = versionColumns.has("path") ? "path" : "file_key";
-    await db.run(
+    await run(
       sql.raw(
         `INSERT INTO nimbus_file_version (id, ${keyColumn}, name, size, modified_at, archived_at, archived_by) VALUES ${rows.join(",")}`,
       ),
@@ -360,13 +365,13 @@ async function seedHistory(files: readonly string[]) {
   await flush();
 }
 
-await db.run(
+await run(
   sql.raw(`INSERT INTO user (id, name, email, role) VALUES
     ('admin', 'Admin', 'admin@bench.test', 'admin'),
     ('member', 'Member', 'member@bench.test', 'user')`),
 );
 // A member with many grants: one per folder they collaborate on, plus group memberships.
-await db.run(
+await run(
   sql.raw(
     `INSERT INTO nimbus_grant (id, subject_type, subject_id, path, permission) VALUES ${Array.from(
       { length: 1000 },
@@ -375,12 +380,12 @@ await db.run(
     ).join(",")}`,
   ),
 );
-await db.run(
+await run(
   sql.raw(
     `INSERT INTO nimbus_group (id, name) VALUES ${Array.from({ length: 20 }, (_, index) => `('team${index}', 'Team ${index}')`).join(",")}`,
   ),
 );
-await db.run(
+await run(
   sql.raw(
     `INSERT INTO nimbus_group_member (group_id, user_id) VALUES ${Array.from({ length: 20 }, (_, index) => `('team${index}', 'member')`).join(",")}`,
   ),

@@ -1,21 +1,15 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
-import { migrate } from "drizzle-orm/libsql/migrator";
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import type { Database as SQLite } from "bun:sqlite";
 import type { FileRequest } from "@nimbus/api/file-request";
-import * as schema from "./db/schema";
+import type { Database } from "./db";
+import { createTestDatabase } from "./db/testing";
 import {
   createFileRequestStore,
   FileRequestRecords,
 } from "./file-request-store";
 
-let client: Client;
-let directory: string;
-let database: ReturnType<typeof drizzle<typeof schema>>;
+let client: SQLite;
+let database: Database;
 let store: ReturnType<typeof createFileRequestStore>;
 const request: FileRequest = {
   id: "request",
@@ -39,22 +33,15 @@ const upload = (id: string, size: number, createdAt = 1000) => ({
 });
 
 beforeEach(async () => {
-  // A file, not :memory:, because libsql runs transactions on a separate connection.
-  directory = await mkdtemp(path.join(os.tmpdir(), "nimbus-file-requests-"));
-  client = createClient({ url: `file:${path.join(directory, "db.sqlite")}` });
-  database = drizzle(client, { schema });
-  await migrate(database, {
-    migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)),
-  });
-  await client.execute(
+  ({ sqlite: client, db: database } = createTestDatabase());
+  client.run(
     "INSERT INTO user (id, name, email, role) VALUES ('owner', 'Owner', 'owner@example.test', 'admin')",
   );
   store = createFileRequestStore(database);
   await store.create(request);
 });
-afterEach(async () => {
+afterEach(() => {
   client.close();
-  await rm(directory, { recursive: true, force: true });
 });
 
 const options = { activeSince: 0, maxActive: 10 };
@@ -130,7 +117,7 @@ test("records follow moves, are suspended in trash and come back on restore", as
     kind: "reserved",
   });
   await store.finishUpload("a", "inbox/a.txt", 2000);
-  await database.transaction((tx) =>
+  database.transaction((tx) =>
     FileRequestRecords.relocate(tx, "inbox", "archive/inbox"),
   );
   const paths = async () =>
@@ -142,24 +129,22 @@ test("records follow moves, are suspended in trash and come back on restore", as
     ["request", "archive/inbox"],
     ["sibling", "inbox-2"],
   ]);
-  const detached = await database.transaction((tx) =>
+  const detached = database.transaction((tx) =>
     FileRequestRecords.detach(tx, "archive/inbox"),
   );
   expect(await paths()).toEqual([["sibling", "inbox-2"]]);
   expect(await store.getUpload("a")).toBeNull();
   // Suspended records round-trip through the trash row's JSON.
   const saved = FileRequestRecords.parse(JSON.parse(JSON.stringify(detached)));
-  await database.transaction((tx) =>
+  database.transaction((tx) =>
     FileRequestRecords.reattach(tx, saved, new Set(["owner"])),
   );
   expect(
     (await store.list("owner")).find((row) => row.id === "request")?.received,
   ).toEqual({ files: 1, bytes: 10 });
   // Links of accounts removed while in trash are not restored.
-  await database.transaction((tx) =>
-    FileRequestRecords.detach(tx, "archive/inbox"),
-  );
-  await database.transaction((tx) =>
+  database.transaction((tx) => FileRequestRecords.detach(tx, "archive/inbox"));
+  database.transaction((tx) =>
     FileRequestRecords.reattach(tx, saved, new Set()),
   );
   expect(await paths()).toEqual([["sibling", "inbox-2"]]);

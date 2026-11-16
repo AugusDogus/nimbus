@@ -5,7 +5,7 @@ import { getConfigRoot } from "@/server/storage-paths";
 
 const readiness = Readiness.cached(
   () => ({
-    query: () => client.execute("select 1"),
+    query: async () => client.query("select 1").get(),
     dataRoot: getDataRoot(),
     configRoot: getConfigRoot(),
     timeoutMs: 2000,

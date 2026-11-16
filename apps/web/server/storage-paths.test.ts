@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { createClient } from "@libsql/client";
+import { Database } from "bun:sqlite";
 import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { getConfigRoot, getDatabaseUrl } from "./storage-paths";
+import { databaseFile, getConfigRoot, getDatabaseUrl } from "./storage-paths";
 
 let root: string;
 let previous: NodeJS.ProcessEnv;
@@ -44,12 +44,10 @@ test("a separate config directory holds the database and respects explicit URLs"
 test("switching config roots requires migrating an existing default database", async () => {
   const legacy = path.join(root, "data/.nimbus");
   await mkdir(legacy, { recursive: true });
-  const original = createClient({ url: getDatabaseUrl() });
+  const original = new Database(databaseFile(getDatabaseUrl()));
   try {
-    await original.execute(
-      "CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT)",
-    );
-    await original.execute(
+    original.run("CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT)");
+    original.run(
       "INSERT INTO user VALUES ('existing', 'Existing administrator')",
     );
   } finally {
@@ -63,10 +61,9 @@ test("switching config roots requires migrating an existing default database", a
     path.join(getConfigRoot(), "db.sqlite"),
   );
   expect(getDatabaseUrl()).toBe(`file:${root}/config/db.sqlite`);
-  const relocated = createClient({ url: getDatabaseUrl() });
+  const relocated = new Database(databaseFile(getDatabaseUrl()));
   try {
-    const result = await relocated.execute("SELECT id, name FROM user");
-    expect(result.rows.map((row) => [row.id, row.name])).toEqual([
+    expect(relocated.query("SELECT id, name FROM user").values()).toEqual([
       ["existing", "Existing administrator"],
     ]);
   } finally {

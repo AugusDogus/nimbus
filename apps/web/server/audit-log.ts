@@ -4,10 +4,8 @@ import {
   type AuditAction,
   type RecordedAuditEvent,
 } from "@nimbus/api/audit";
-import type { db as database } from "./db";
+import type { Database } from "./db";
 import { auditEvents } from "./db/schema";
-
-type Database = typeof database;
 
 /** Days that audit events are kept. The database refuses to delete anything younger than 30 days. */
 export const AuditRetention = {
@@ -66,11 +64,15 @@ export async function purgeAuditEvents(
   const started = performance.now();
   let removed = 0;
   while (performance.now() - started < budgetMs) {
-    const result = await db.run(
-      sql`DELETE FROM ${auditEvents} WHERE ${auditEvents.id} IN (SELECT ${auditEvents.id} FROM ${auditEvents} WHERE ${auditEvents.at} < ${cutoff} ORDER BY ${auditEvents.id} LIMIT 200)`,
-    );
-    removed += result.rowsAffected;
-    if (result.rowsAffected < 200) break;
+    const deleted = db
+      .delete(auditEvents)
+      .where(
+        sql`${auditEvents.id} IN (SELECT ${auditEvents.id} FROM ${auditEvents} WHERE ${auditEvents.at} < ${cutoff} ORDER BY ${auditEvents.id} LIMIT 200)`,
+      )
+      .returning({ id: auditEvents.id })
+      .all().length;
+    removed += deleted;
+    if (deleted < 200) break;
     await new Promise((resolve) => setImmediate(resolve));
   }
   return removed;

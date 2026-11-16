@@ -81,9 +81,9 @@ async function syncProviderGroups(userId: string, email: string) {
         .where(inArray(groups.name, pending.groups))
     : [];
   const ids = matched.map((group) => group.id);
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(groupMembers)
+  // Synchronous, so the transaction commits exactly these statements.
+  db.transaction((tx) => {
+    tx.delete(groupMembers)
       .where(
         ids.length
           ? and(
@@ -91,12 +91,13 @@ async function syncProviderGroups(userId: string, email: string) {
               notInArray(groupMembers.groupId, ids),
             )
           : eq(groupMembers.userId, userId),
-      );
+      )
+      .run();
     if (ids.length)
-      await tx
-        .insert(groupMembers)
+      tx.insert(groupMembers)
         .values(ids.map((groupId) => ({ groupId, userId })))
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .run();
   });
   recordAudit({
     action: "account.updated",

@@ -1,34 +1,22 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
-import { migrate } from "drizzle-orm/libsql/migrator";
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import type { Database as SQLite } from "bun:sqlite";
 import type { DriveStore } from "@nimbus/api/drive-store";
 import { createDriveStore } from "./drive-store";
-import * as schema from "./db/schema";
+import { createTestDatabase } from "./db/testing";
 
-const migrationsFolder = fileURLToPath(new URL("../drizzle", import.meta.url));
-let client: Client;
+let client: SQLite;
 let store: DriveStore;
-let directory: string;
 
-beforeEach(async () => {
-  // libsql opens a fresh connection after each transaction, so an in-memory database would vanish.
-  directory = await mkdtemp(path.join(os.tmpdir(), "nimbus-store-"));
-  client = createClient({ url: `file:${path.join(directory, "db.sqlite")}` });
-  const database = drizzle(client, { schema });
-  await migrate(database, { migrationsFolder });
-  await client.execute(
+beforeEach(() => {
+  const opened = createTestDatabase();
+  client = opened.sqlite;
+  client.run(
     "INSERT INTO user (id, name, email, role) VALUES ('owner', 'Owner', 'owner@example.test', 'admin'), ('reader', 'Reader', 'reader@example.test', 'user')",
   );
-  store = createDriveStore(database);
+  store = createDriveStore(opened.db);
 });
-afterEach(async () => {
+afterEach(() => {
   client.close();
-  await rm(directory, { recursive: true, force: true });
 });
 
 const share = (id: string, path: string) => ({
@@ -148,7 +136,7 @@ test("trash detaches records, hides them from listings, and restores them with t
 });
 
 test("restoring skips records whose account or group was removed while the item was in trash", async () => {
-  await client.execute(
+  client.run(
     "INSERT INTO user (id, name, email) VALUES ('gone', 'Gone', 'gone@example.test')",
   );
   await store.saveGroup({ id: "team", name: "Team", memberIds: ["reader"] });
@@ -173,7 +161,7 @@ test("restoring skips records whose account or group was removed while the item 
     deletedAt: 1,
     expiresAt: 2,
   });
-  await client.execute("DELETE FROM user WHERE id = 'gone'");
+  client.run("DELETE FROM user WHERE id = 'gone'");
   await store.removeGroup("team");
   await store.restoreTrash("trash-2");
   expect(await store.grantsForPath("docs")).toEqual([]);
@@ -358,7 +346,7 @@ test("trash rows saved without file requests still restore", async () => {
     deletedAt: 1,
     expiresAt: 2,
   });
-  await client.execute(
+  client.run(
     `UPDATE nimbus_trash SET detached_access = json_remove(detached_access, '$.fileRequests') WHERE id = 'trash-legacy'`,
   );
   await store.restoreTrash("trash-legacy");
@@ -436,12 +424,29 @@ test("path prefix matches use the path indexes", async () => {
     ["nimbus_bookmark", "nimbus_bookmark_path"],
     ["nimbus_file_request", "nimbus_file_request_path"],
   ] as const) {
-    const plan = await client.execute({
-      sql: `EXPLAIN QUERY PLAN SELECT * FROM ${table} WHERE path = ? OR (path >= ? AND path < ?)`,
-      args: ["docs", "docs/", "docs0"],
-    });
-    expect(plan.rows.map((row) => String(row.detail)).join("\n")).toContain(
-      index,
-    );
+    const plan = client
+      .query<{ detail: string }, [string, string, string]>(
+        `EXPLAIN QUERY PLAN SELECT * FROM ${table} WHERE path = ? OR (path >= ? AND path < ?)`,
+      )
+      .all("docs", "docs/", "docs0");
+    expect(plan.map((row) => row.detail).join("\n")).toContain(index);
   }
+});
+
+test("concurrent writes and transactions all commit", async () => {
+  // With an asynchronous driver, overlapping transactions failed with SQLITE_BUSY.
+  const results = await Promise.allSettled([
+    store.saveGroup({ id: "one", name: "One", memberIds: ["reader"] }),
+    store.saveGroup({ id: "two", name: "Two", memberIds: ["reader"] }),
+    store.saveGrant(grant("during", "docs")),
+    store.movePath("docs", "papers"),
+    store.saveBookmark("reader", { path: "x", starred: true, accessedAt: 1 }),
+  ]);
+  expect(results.map((result) => result.status)).toEqual(
+    Array.from({ length: 5 }, () => "fulfilled"),
+  );
+  expect((await store.listGroups()).map((group) => group.id).sort()).toEqual([
+    "one",
+    "two",
+  ]);
 });

@@ -30,3 +30,13 @@ export function getDatabaseUrl() {
   }
   return `file:${database}`;
 }
+
+/** The local SQLite file named by a `file:` database URL. */
+export function databaseFile(databaseUrl: string) {
+  const match = /^file:(?:\/\/)?([^?]+)/.exec(databaseUrl);
+  if (!match?.[1])
+    throw new Error(
+      `Nimbus needs a local SQLite database, but DATABASE_URL is "${databaseUrl}". Set it to a file: URL with an absolute path, for example file:/config/db.sqlite.`,
+    );
+  return decodeURIComponent(match[1]);
+}

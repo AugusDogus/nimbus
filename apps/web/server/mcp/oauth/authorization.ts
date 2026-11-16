@@ -388,10 +388,10 @@ async function issueCode(
   const grantId = randomUUID();
   const code = mintSecret(TokenPrefix.authorizationCode);
   const scope = McpScope.format(scopes);
-  await ctx.db.batch([
+  // One synchronous transaction: the three statements commit together.
+  ctx.db.transaction((tx) => {
     // Reconnecting the same app replaces its previous approval, so Settings lists one entry per app.
-    ctx.db
-      .update(mcpGrants)
+    tx.update(mcpGrants)
       .set({ revokedAt: now })
       .where(
         and(
@@ -399,25 +399,30 @@ async function issueCode(
           eq(mcpGrants.clientId, request.clientId),
           isNull(mcpGrants.revokedAt),
         ),
-      ),
-    ctx.db.insert(mcpGrants).values({
-      id: grantId,
-      userId: session.userId,
-      clientId: request.clientId,
-      scope,
-      createdAt: now,
-    }),
-    ctx.db.insert(mcpTokens).values({
-      hash: code.hash,
-      kind: "authorization_code",
-      grantId,
-      scope,
-      expiresAt: now + AUTHORIZATION_CODE_TTL_MS,
-      redirectUri: request.redirectUri,
-      codeChallenge: request.codeChallenge,
-      createdAt: now,
-    }),
-  ]);
+      )
+      .run();
+    tx.insert(mcpGrants)
+      .values({
+        id: grantId,
+        userId: session.userId,
+        clientId: request.clientId,
+        scope,
+        createdAt: now,
+      })
+      .run();
+    tx.insert(mcpTokens)
+      .values({
+        hash: code.hash,
+        kind: "authorization_code",
+        grantId,
+        scope,
+        expiresAt: now + AUTHORIZATION_CODE_TTL_MS,
+        redirectUri: request.redirectUri,
+        codeChallenge: request.codeChallenge,
+        createdAt: now,
+      })
+      .run();
+  });
   return code.secret;
 }
 

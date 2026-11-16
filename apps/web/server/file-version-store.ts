@@ -1,10 +1,10 @@
 import { desc, eq, inArray, lt, type SQL } from "drizzle-orm";
 import type { FileVersionStore } from "@nimbus/api/file-versions";
-import type { db } from "./db";
+import type { Database } from "./db";
 import { atOrUnder } from "./db/path-prefix";
 import { fileVersions } from "./db/schema";
 
-export function createFileVersionStore(database: typeof db): FileVersionStore {
+export function createFileVersionStore(database: Database): FileVersionStore {
   const removeWhere = async (condition: SQL) =>
     database.delete(fileVersions).where(condition).returning();
   return {

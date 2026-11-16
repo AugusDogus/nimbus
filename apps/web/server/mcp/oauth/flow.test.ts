@@ -1,14 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { createClient, type Client } from "@libsql/client";
+import type { Database as SQLite } from "bun:sqlite";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { drizzle } from "drizzle-orm/libsql";
-import { migrate } from "drizzle-orm/libsql/migrator";
 import {
   flushAudit,
   resetAuditForTest,
@@ -16,6 +10,7 @@ import {
   type RecordedAuditEvent,
 } from "@nimbus/api/audit";
 import * as schema from "../../db/schema";
+import { createTestDatabase } from "../../db/testing";
 import { resetThrottleForTest } from "../throttle";
 import { decideConsent, handleAuthorize, loadConsent } from "./authorization";
 import { registerClient } from "./clients";
@@ -28,13 +23,9 @@ const containing = (text: string): unknown => expect.stringContaining(text);
 
 const origin = "https://files.example.test";
 const redirectUri = "http://127.0.0.1:33418/callback";
-const migrationsFolder = fileURLToPath(
-  new URL("../../../drizzle", import.meta.url),
-);
 
 describe("MCP OAuth flow", () => {
-  let client: Client;
-  let directory: string;
+  let client: SQLite;
   let ctx: OAuthContext;
   let now: number;
   let session: BrowserSession | null;
@@ -163,12 +154,9 @@ describe("MCP OAuth flow", () => {
     );
 
   beforeEach(async () => {
-    // A file, not :memory:, because libsql runs transactions on a separate connection.
-    directory = await mkdtemp(path.join(os.tmpdir(), "nimbus-mcp-oauth-"));
-    client = createClient({ url: `file:${path.join(directory, "db.sqlite")}` });
-    const db = drizzle(client, { schema });
-    await migrate(db, { migrationsFolder });
-    await client.execute(
+    const { sqlite, db } = createTestDatabase();
+    client = sqlite;
+    client.run(
       "INSERT INTO user (id, name, email, role) VALUES ('owner', 'Owner', 'owner@example.test', 'admin')",
     );
     now = 1_800_000_000_000;
@@ -182,9 +170,8 @@ describe("MCP OAuth flow", () => {
     };
     resetThrottleForTest();
   });
-  afterEach(async () => {
+  afterEach(() => {
     client.close();
-    await rm(directory, { recursive: true, force: true });
   });
 
   it("sends signed-out users to sign-in and back to consent", async () => {
@@ -354,7 +341,7 @@ describe("MCP OAuth flow", () => {
   });
 
   it("cuts off a disabled account immediately", async () => {
-    await client.execute(
+    client.run(
       "INSERT INTO user (id, name, email) VALUES ('member', 'Member', 'member@example.test')",
     );
     session = { userId: "member", sessionId: "session-2" };

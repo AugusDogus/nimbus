@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
-import { migrate } from "drizzle-orm/libsql/migrator";
-import { fileURLToPath } from "node:url";
-import * as schema from "./db/schema";
+import type { Database as SQLite } from "bun:sqlite";
+import type { Database } from "./db";
+import { createTestDatabase } from "./db/testing";
 import {
   AuditQuery,
   AuditRetention,
@@ -12,15 +10,12 @@ import {
   purgeAuditEvents,
 } from "./audit-log";
 
-const migrationsFolder = fileURLToPath(new URL("../drizzle", import.meta.url));
 const day = 24 * 60 * 60 * 1000;
-let client: Client;
-let db: ReturnType<typeof drizzle<typeof schema>>;
+let client: SQLite;
+let db: Database;
 
-beforeEach(async () => {
-  client = createClient({ url: "file::memory:" });
-  db = drizzle(client, { schema });
-  await migrate(db, { migrationsFolder });
+beforeEach(() => {
+  ({ sqlite: client, db } = createTestDatabase());
 });
 afterEach(() => client.close());
 
@@ -34,17 +29,17 @@ describe("audit storage", () => {
       { action: "share.revoked", actor, at: now - 40 * day },
       { action: "grant.added", actor, at: now },
     ]);
-    await expect(
-      client.execute("UPDATE nimbus_audit_event SET action = 'x'"),
-    ).rejects.toThrow("append-only");
-    await expect(
-      client.execute("DELETE FROM nimbus_audit_event"),
-    ).rejects.toThrow("at least 30 days");
-    await expect(
-      client.execute(
+    expect(() =>
+      client.run("UPDATE nimbus_audit_event SET action = 'x'"),
+    ).toThrow("append-only");
+    expect(() => client.run("DELETE FROM nimbus_audit_event")).toThrow(
+      "at least 30 days",
+    );
+    expect(() =>
+      client.run(
         "INSERT OR REPLACE INTO nimbus_audit_event (id, at, action, actor_type) VALUES (1, 0, 'x', 'system')",
       ),
-    ).rejects.toThrow("append-only");
+    ).toThrow("append-only");
     expect(await purgeAuditEvents(db, 365, now)).toBe(1);
     expect(await purgeAuditEvents(db, 30, now)).toBe(1);
     const remaining = await listAuditEvents(db, { limit: 50 });
@@ -107,13 +102,13 @@ describe("audit storage", () => {
 });
 
 it("keeps the administrator triggers on the extended user table", async () => {
-  await client.execute(
+  client.run(
     "INSERT INTO user (id, name, email, role, email_verified) VALUES ('a', 'A', 'a@example.test', 'admin', 0)",
   );
-  await expect(
-    client.execute("UPDATE user SET role = 'user' WHERE id = 'a'"),
-  ).rejects.toThrow("Nimbus requires an active administrator");
-  await expect(
-    client.execute("UPDATE user SET two_factor_enabled = 1 WHERE id = 'a'"),
-  ).resolves.toBeDefined();
+  expect(() =>
+    client.run("UPDATE user SET role = 'user' WHERE id = 'a'"),
+  ).toThrow("Nimbus requires an active administrator");
+  expect(() =>
+    client.run("UPDATE user SET two_factor_enabled = 1 WHERE id = 'a'"),
+  ).not.toThrow();
 });

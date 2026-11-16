@@ -1,7 +1,6 @@
-import type { LibSQLDatabase } from "drizzle-orm/libsql";
-import type * as schema from "../../db/schema";
+import type { Database } from "../../db";
 
-export type Database = LibSQLDatabase<typeof schema>;
+export type { Database };
 
 /** The signed-in browser user, from the Better Auth session. */
 export type BrowserSession = { userId: string; sessionId: string };

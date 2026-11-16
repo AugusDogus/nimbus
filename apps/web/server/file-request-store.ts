@@ -1,14 +1,14 @@
 import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { FileRequestStore } from "@nimbus/api/file-request";
-import type { db } from "./db";
+import type { Database } from "./db";
 import { atOrUnder, relocated } from "./db/path-prefix";
 import { fileRequestUploads, fileRequests } from "./db/schema";
 
 const counted = (activeSince: number) =>
   sql`(${fileRequestUploads.finishedAt} IS NOT NULL OR ${fileRequestUploads.createdAt} >= ${activeSince})`;
 
-export function createFileRequestStore(database: typeof db): FileRequestStore {
+export function createFileRequestStore(database: Database): FileRequestStore {
   const usage = async (requestId: string, activeSince: number) => {
     const [row] = await database
       .select({
@@ -80,7 +80,7 @@ export function createFileRequestStore(database: typeof db): FileRequestStore {
     async reserve(upload, { activeSince, maxActive }) {
       const u = fileRequestUploads;
       // One statement, so concurrent uploads cannot both pass a limit check.
-      const inserted = await database.all<{ id: string }>(sql`
+      const inserted = database.all<{ id: string }>(sql`
         INSERT INTO ${u} (id, request_id, uploader_hash, size, created_at)
         SELECT ${upload.id}, r.id, ${upload.uploaderHash}, ${upload.size}, ${upload.createdAt}
         FROM ${fileRequests} r
@@ -153,7 +153,8 @@ export function createFileRequestStore(database: typeof db): FileRequestStore {
   };
 }
 
-type Transaction = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
+/** A synchronous drive store transaction; see drive-store.ts. */
+type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 const detachedSchema = z.object({
   requests: z.array(
@@ -199,28 +200,30 @@ export const FileRequestRecords = {
   /** Validate suspended records read back from a trash row. */
   parse: (value: unknown) => detachedSchema.parse(value),
   /** Delete and return the requests at or under `path`, with their uploads. */
-  async detach(tx: Transaction, path: string): Promise<DetachedFileRequests> {
-    const requests = await tx
+  detach(tx: Transaction, path: string): DetachedFileRequests {
+    const requests = tx
       .select()
       .from(fileRequests)
-      .where(atOrUnder(fileRequests.path, path));
+      .where(atOrUnder(fileRequests.path, path))
+      .all();
     const ids = requests.map((row) => row.id);
     const uploads = ids.length
-      ? await tx
+      ? tx
           .select()
           .from(fileRequestUploads)
           .where(inArray(fileRequestUploads.requestId, ids))
+          .all()
       : [];
     if (ids.length) {
-      await tx
-        .delete(fileRequestUploads)
-        .where(inArray(fileRequestUploads.requestId, ids));
-      await tx.delete(fileRequests).where(inArray(fileRequests.id, ids));
+      tx.delete(fileRequestUploads)
+        .where(inArray(fileRequestUploads.requestId, ids))
+        .run();
+      tx.delete(fileRequests).where(inArray(fileRequests.id, ids)).run();
     }
     return { requests, uploads };
   },
   /** Reinsert suspended records, except those of accounts removed meanwhile. */
-  async reattach(
+  reattach(
     tx: Transaction,
     detached: DetachedFileRequests,
     liveUserIds: ReadonlySet<string>,
@@ -232,16 +235,14 @@ export const FileRequestRecords = {
     const uploads = detached.uploads.filter((row) =>
       restored.has(row.requestId),
     );
-    if (requests.length) await tx.insert(fileRequests).values(requests);
-    if (uploads.length) await tx.insert(fileRequestUploads).values(uploads);
+    if (requests.length) tx.insert(fileRequests).values(requests).run();
+    if (uploads.length) tx.insert(fileRequestUploads).values(uploads).run();
   },
   /** Rewrite the paths at or under `from` to the same place under `to`. */
-  async relocate(tx: Transaction, from: string, to: string) {
-    await tx
-      .update(fileRequests)
-      .set({
-        path: relocated(fileRequests.path, from, to),
-      })
-      .where(atOrUnder(fileRequests.path, from));
+  relocate(tx: Transaction, from: string, to: string) {
+    tx.update(fileRequests)
+      .set({ path: relocated(fileRequests.path, from, to) })
+      .where(atOrUnder(fileRequests.path, from))
+      .run();
   },
 } as const;

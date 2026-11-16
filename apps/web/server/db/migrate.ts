@@ -1,11 +1,8 @@
-import { migrate } from "drizzle-orm/libsql/migrator";
-import { fileURLToPath } from "node:url";
-import { db, client } from "./index";
+import { client, db } from "./index";
+import { migrateDatabase } from "./migrate-database";
 
 try {
-  await migrate(db, {
-    migrationsFolder: fileURLToPath(new URL("../../drizzle", import.meta.url)),
-  });
+  migrateDatabase(client, db);
 } finally {
   client.close();
 }

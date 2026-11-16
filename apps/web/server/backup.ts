@@ -8,7 +8,7 @@ import {
   stat,
 } from "node:fs/promises";
 import path from "node:path";
-import { getConfigRoot, getDatabaseUrl } from "./storage-paths";
+import { databaseFile, getConfigRoot, getDatabaseUrl } from "./storage-paths";
 
 /**
  * Online SQLite backups.
@@ -51,16 +51,6 @@ try {
 }
 `;
 
-/** Local database file behind a libsql `file:` URL. */
-function databaseFile(databaseUrl: string) {
-  const match = /^file:(?:\/\/)?([^?]+)/.exec(databaseUrl);
-  if (!match?.[1])
-    throw new Error(
-      `Backups need a local SQLite database, but DATABASE_URL is "${databaseUrl}". Use a file: URL or back up the remote database with its own tools.`,
-    );
-  return decodeURIComponent(match[1]);
-}
-
 function stamp(now: number) {
   return new Date(now)
     .toISOString()
@@ -69,6 +59,10 @@ function stamp(now: number) {
 }
 
 async function snapshot(databaseUrl: string, destination: string) {
+  if (!databaseUrl.startsWith("file:"))
+    throw new Error(
+      `Backups need a local SQLite database, but DATABASE_URL is "${databaseUrl}". Use a file: URL or back up the remote database with its own tools.`,
+    );
   const child = Bun.spawn(
     [
       process.execPath,
