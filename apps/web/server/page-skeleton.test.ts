@@ -8,12 +8,16 @@ const signInOptions = {
 };
 const at = (path: string) => new URL(path, "http://localhost");
 
-test("sign-in shows its real card, inert until the app replaces it", () => {
+test("sign-in shows its real card's size, with its fields hidden and inert", () => {
   const html = PageSkeleton.markup("auth", at("/login"), {
     folder: false,
     data: { signInOptions },
   });
-  expect(html.startsWith("<div inert")).toBe(true);
+  expect(
+    html.startsWith(
+      '<div inert="" class="[&amp;_[data-slot=card]&gt;*]:invisible">',
+    ),
+  ).toBe(true);
   expect(html).toContain("Welcome back");
   expect(html).toContain(">Sign in</button>");
   expect(

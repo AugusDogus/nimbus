@@ -29,16 +29,21 @@ const router = createRouter({
 
 const signInCards = new Map<string, string>();
 
+/** Hides everything inside the card while keeping the space it takes. */
+const cardContentHidden = "[&_[data-slot=card]>*]:invisible";
+
 /**
- * The sign-in page as the app first renders it, from the same components, so nothing moves
- * when the app replaces it. It is inert, so nothing typed before then is lost.
+ * The sign-in page laid out as the app first renders it, from the same components, so nothing
+ * moves when the app replaces it. Only the logo and an empty card of the right size show: its
+ * fields stay hidden and inert, so neither people, autofill nor scripts can type into fields
+ * that are about to be replaced.
  */
 function signIn(options: SignInOptions) {
   const key = JSON.stringify(options);
   const cached = signInCards.get(key);
   if (cached !== undefined) return cached;
   const html = renderToStaticMarkup(
-    <div inert>
+    <div inert className={cardContentHidden}>
       <RouterContextProvider router={router}>
         <AuthPage>
           <LoginForm {...options} />

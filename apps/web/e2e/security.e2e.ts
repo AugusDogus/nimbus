@@ -281,6 +281,32 @@ test("a signed-out session's cookie sends every signed-in page to sign-in", asyn
   }
 });
 
+test("the sign-in page offers no fields before the app can keep what is typed", async ({
+  browser,
+  page,
+}) => {
+  const visitor = await memberPage(browser, page);
+  try {
+    // Hold back the app's code, so the page shows only what the server sent.
+    await visitor.page.route(/\.(js|tsx?)(\?|$)/, (route) => route.abort());
+    await visitor.page.goto("/login");
+    await expect(
+      visitor.page.getByRole("link").filter({ hasText: "Nimbus" }),
+    ).toBeVisible();
+    await expect(
+      visitor.page.getByLabel("Email", { exact: true }),
+    ).toBeHidden();
+    await expect(
+      visitor.page.getByLabel("Password", { exact: true }),
+    ).toBeHidden();
+    await expect(
+      visitor.page.getByRole("button", { name: "Sign in", exact: true }),
+    ).toBeHidden();
+  } finally {
+    await visitor.context.close();
+  }
+});
+
 test("passkeys sign in without a password", async ({
   browser,
   page,
