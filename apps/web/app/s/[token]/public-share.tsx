@@ -83,7 +83,7 @@ export function PublicShare({ token }: { token: string }) {
       ) : share.data.kind === "locked" ? (
         <form
           className="mx-auto max-w-sm space-y-4 rounded-lg border p-6"
-          onSubmit={async (event) => {
+          onSubmit={(event) => void (async () => {
             event.preventDefault();
             setBusy(true);
             setError(null);
@@ -112,7 +112,7 @@ export function PublicShare({ token }: { token: string }) {
             } finally {
               setBusy(false);
             }
-          }}
+          })()}
         >
           <h1 className="text-balance text-xl font-semibold">
             Protected share

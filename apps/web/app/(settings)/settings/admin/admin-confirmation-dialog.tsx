@@ -53,7 +53,7 @@ export function AdminConfirmationDialog({
           <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             disabled={busy}
-            onClick={async (event) => {
+            onClick={(event) => void (async () => {
               event.preventDefault();
               setBusy(true);
               setError(null);
@@ -74,7 +74,7 @@ export function AdminConfirmationDialog({
               } finally {
                 setBusy(false);
               }
-            }}
+            })()}
           >
             {busy ? "Saving…" : "Confirm"}
           </AlertDialogAction>

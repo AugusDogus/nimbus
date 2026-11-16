@@ -48,7 +48,7 @@ export function ResetPasswordDialog({
         </DialogHeader>
         <form
           className="space-y-4"
-          onSubmit={async (event) => {
+          onSubmit={(event) => void (async () => {
             event.preventDefault();
             const password = new FormData(event.currentTarget).get("password");
             if (typeof password !== "string") return;
@@ -83,7 +83,7 @@ export function ResetPasswordDialog({
             } finally {
               setBusy(false);
             }
-          }}
+          })()}
         >
           <div className="space-y-2">
             <Label htmlFor="reset-password">New password</Label>

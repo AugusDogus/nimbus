@@ -64,7 +64,7 @@ export function CreatePasswordDialog({ onClose }: { onClose: () => void }) {
         ) : (
           <form
             className="space-y-5"
-            onSubmit={async (event) => {
+            onSubmit={(event) => void (async () => {
               event.preventDefault();
               const name = new FormData(event.currentTarget).get("name");
               if (typeof name !== "string") return;
@@ -91,7 +91,7 @@ export function CreatePasswordDialog({ onClose }: { onClose: () => void }) {
               } finally {
                 setBusy(false);
               }
-            }}
+            })()}
           >
             <div className="space-y-2">
               <Label htmlFor="device-name">Device name</Label>

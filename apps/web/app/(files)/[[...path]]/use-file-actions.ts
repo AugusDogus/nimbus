@@ -11,7 +11,7 @@ function invalidateFileQueries() {
   void queryClient.invalidateQueries({ queryKey: ["catalog"] });
   void queryClient.invalidateQueries({ queryKey: ["trash"] });
   void queryClient.invalidateQueries({ queryKey: ["shares"] });
-  queryClient.invalidateQueries({ queryKey: ["files.storage"] });
+  void queryClient.invalidateQueries({ queryKey: ["files.storage"] });
 }
 
 function buildRenamedPath(entryPath: string, newName: string) {
@@ -269,7 +269,7 @@ export function useFileActions({
     (entry: FileEntry) => {
       if (entry.type !== "dir") return;
       const listKey = ["files.list", entry.path, includeStats];
-      queryClient.prefetchQuery({
+      void queryClient.prefetchQuery({
         queryKey: listKey,
         queryFn: () =>
           trpcClient.files.list.query(

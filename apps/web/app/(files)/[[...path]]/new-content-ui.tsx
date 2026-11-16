@@ -20,7 +20,7 @@ export function NewFolderDialog({ state }: { state: NewContentState }) {
       onOpenChange={state.setFolderDialogOpen}
     >
       <DialogContent>
-        <form onSubmit={state.handleCreateFolder}>
+        <form onSubmit={(event) => void state.handleCreateFolder(event)}>
           <DialogHeader>
             <DialogTitle>New folder</DialogTitle>
             <DialogDescription>

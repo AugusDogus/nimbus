@@ -62,7 +62,7 @@ export function GroupDialog({
         </DialogHeader>
         <form
           className="space-y-5"
-          onSubmit={async (event) => {
+          onSubmit={(event) => void (async () => {
             event.preventDefault();
             setBusy(true);
             setError(null);
@@ -86,7 +86,7 @@ export function GroupDialog({
             } finally {
               setBusy(false);
             }
-          }}
+          })()}
         >
           <div className="space-y-2">
             <Label htmlFor="group-name">Group name</Label>

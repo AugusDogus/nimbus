@@ -46,7 +46,7 @@ export function ResetPasswordForm({ token, expired }: { token: string | null; ex
             </div>
           ) : (
             <form
-              onSubmit={async (event) => {
+              onSubmit={(event) => void (async () => {
                 event.preventDefault();
                 const values = new FormData(event.currentTarget);
                 const newPassword = values.get("newPassword");
@@ -68,7 +68,7 @@ export function ResetPasswordForm({ token, expired }: { token: string | null; ex
                         : (result.error.message ?? "Your password could not be changed. Try again."),
                   });
                 else setState({ kind: "reset" });
-              }}
+              })()}
             >
               <FieldGroup>
                 <Field>
@@ -109,7 +109,7 @@ export function ResetPasswordForm({ token, expired }: { token: string | null; ex
           </div>
         ) : (
           <form
-            onSubmit={async (event) => {
+            onSubmit={(event) => void (async () => {
               event.preventDefault();
               const email = new FormData(event.currentTarget).get("email");
               if (typeof email !== "string") return;
@@ -121,7 +121,7 @@ export function ResetPasswordForm({ token, expired }: { token: string | null; ex
               else if (result.error)
                 setState({ kind: "error", message: result.error.message ?? "The reset email could not be requested. Try again later." });
               else setState({ kind: "sent" });
-            }}
+            })()}
           >
             <FieldGroup>
               <Field>

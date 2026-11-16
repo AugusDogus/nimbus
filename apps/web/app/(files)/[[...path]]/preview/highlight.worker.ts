@@ -52,8 +52,7 @@ const grammars: Record<CodeLanguage, () => Promise<Tokenizer>> = {
 // Sugar High token type ids that carry a color; others stay plain text.
 const COLORED = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
 
-addEventListener("message", async (event: MessageEvent<HighlightRequest>) => {
-  const { id, text, language } = event.data;
+async function highlight({ id, text, language }: HighlightRequest) {
   let response: HighlightResponse;
   try {
     const tokens = (await grammars[language]())(text);
@@ -91,4 +90,6 @@ addEventListener("message", async (event: MessageEvent<HighlightRequest>) => {
     };
     postMessage(response);
   }
-});
+}
+
+addEventListener("message", (event: MessageEvent<HighlightRequest>) => void highlight(event.data));

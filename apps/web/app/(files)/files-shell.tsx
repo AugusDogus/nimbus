@@ -190,7 +190,7 @@ export function FilesShell({
                   )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={async () => {
+                    onClick={() => void (async () => {
                       const result = await signOut();
                       if (result.error) {
                         toast.error(
@@ -201,7 +201,7 @@ export function FilesShell({
                       }
                       queryClient.clear();
                       window.location.assign("/login");
-                    }}
+                    })()}
                     variant="destructive"
                   >
                     Sign out

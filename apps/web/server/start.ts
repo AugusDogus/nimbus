@@ -98,7 +98,7 @@ const server = createServer((incoming, outgoing) => {
   );
   incoming.headers[clientIpHeader] = ip;
   const userAgent = incoming.headers["user-agent"];
-  return runWithAuditRequest({ ip, userAgent }, () =>
+  void runWithAuditRequest({ ip, userAgent }, () =>
     handleRequest(incoming, outgoing),
   );
 });
@@ -201,7 +201,7 @@ function cleanup() {
   return pendingCleanup;
 }
 void cleanup();
-const cleanupTimer = setInterval(cleanup, 60 * 60 * 1000);
+const cleanupTimer = setInterval(() => void cleanup(), 60 * 60 * 1000);
 cleanupTimer.unref();
 
 let shuttingDown = false;

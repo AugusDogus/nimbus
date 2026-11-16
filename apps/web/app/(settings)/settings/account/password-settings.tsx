@@ -20,7 +20,7 @@ export function PasswordSettings() {
     >
       <form
         className="divide-y divide-border/50"
-        onSubmit={async (event) => {
+        onSubmit={(event) => void (async () => {
           event.preventDefault();
           const form = event.currentTarget;
           const values = new FormData(form);
@@ -69,7 +69,7 @@ export function PasswordSettings() {
           } finally {
             setBusy(false);
           }
-        }}
+        })()}
       >
         <SettingsRow
           label={<Label htmlFor="current-password">Current password</Label>}

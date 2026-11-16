@@ -43,7 +43,7 @@ export function CreateAccountDialog({ onClose }: { onClose: () => void }) {
         </DialogHeader>
         <form
           className="space-y-4"
-          onSubmit={async (event) => {
+          onSubmit={(event) => void (async () => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
             const name = data.get("name");
@@ -83,7 +83,7 @@ export function CreateAccountDialog({ onClose }: { onClose: () => void }) {
             } finally {
               setBusy(false);
             }
-          }}
+          })()}
         >
           <div className="space-y-2">
             <Label htmlFor="new-user-name">Name</Label>

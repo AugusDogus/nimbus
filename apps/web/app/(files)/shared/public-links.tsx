@@ -94,7 +94,7 @@ export function PublicLinks() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={async () => {
+                onClick={() => void (async () => {
                   try {
                     await navigator.clipboard.writeText(
                       `${window.location.origin}/s/${share.token}`,
@@ -104,7 +104,7 @@ export function PublicLinks() {
                       "Copy failed. Open the link and copy its address.",
                     );
                   }
-                }}
+                })()}
               >
                 Copy link
               </Button>
