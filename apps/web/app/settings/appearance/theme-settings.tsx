@@ -19,6 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { CustomThemeStyles } from "@/components/custom-theme-styles";
 import { ThemeStore, useThemePreferences } from "@/lib/theme-store";
 import { ThemePreferences } from "@/lib/theme-preferences";
 import { VsCodeTheme, type ThemeResult } from "@/lib/vscode-theme";
@@ -119,6 +120,8 @@ export function ThemeSettings() {
 
   return (
     <section aria-labelledby="appearance-heading" className="space-y-6">
+      {/* Applies choices at once; the app-wide copy may still be loading. */}
+      <CustomThemeStyles />
       <h1
         id="appearance-heading"
         className="text-balance text-2xl font-semibold"
