@@ -202,7 +202,9 @@ test("long-press starts selection mode on touch, and taps then toggle items", as
   const { folder } = await folderWithFiles(["one.txt", "two.txt", "three.txt"]);
   await page.goto(`/browse/${folder}`);
   const target = entry(page, "one.txt");
-  await expect(target).toBeVisible();
+  // Server-rendered rows show before the page hydrates and are draggable until the touch layout
+  // applies. A press before then never reaches the long-press handler.
+  await expect(target).toHaveAttribute("draggable", "false");
   // A stationary press: only the distance between pointer events matters, not where they land.
   const point = { clientX: 100, clientY: 100, pointerType: "touch", isPrimary: true, button: 0 };
   await target.dispatchEvent("pointerdown", point);
