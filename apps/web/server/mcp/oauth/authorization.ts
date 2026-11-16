@@ -9,7 +9,6 @@ import { mcpResource } from "../config";
 import { findClient, type OAuthClient } from "./clients";
 import type { BrowserSession, OAuthContext } from "./context";
 import { htmlError, seeOther } from "./http";
-import { matchesRegisteredRedirect } from "./redirect-uri";
 import { AUTHORIZATION_CODE_TTL_MS, mintSecret, TokenPrefix } from "./secrets";
 
 /** A validated authorization request (RFC 6749 4.1.1 with PKCE and RFC 8707). */
@@ -67,9 +66,8 @@ export async function validateAuthorization(
       kind: "untrusted",
       message: `This request must include exactly one redirect_uri. ${restart}`,
     };
-  // Always continue with the registered spelling; never with the requested one.
-  const redirectUri = client.redirectUris.find((uri) =>
-    matchesRegisteredRedirect(uri, requestedRedirect),
+  const redirectUri = client.redirectUris.find(
+    (uri) => uri === requestedRedirect,
   );
   if (redirectUri === undefined)
     return {

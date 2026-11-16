@@ -204,14 +204,14 @@ describe("MCP OAuth flow", () => {
     );
   });
 
-  it("accepts a loopback redirect URI whose host Next.js rewrote, and returns to the registered one", async () => {
+  it("accepts only the exact registered loopback redirect URI", async () => {
     const clientId = await register();
     const { verifier, challenge } = pkce();
-    // Next.js rewrites 127.0.0.1 to localhost inside request URLs, query values included.
-    const params = authorizeParams(clientId, challenge, {
-      redirect_uri: "http://localhost:33418/callback",
-    });
-    const view = await loadConsent(ctx, params, new Headers());
+    const view = await loadConsent(
+      ctx,
+      authorizeParams(clientId, challenge),
+      new Headers(),
+    );
     if (view.kind !== "ready")
       throw new Error(`Expected a consent form, got ${view.kind}`);
     const response = await decideConsent(
@@ -233,12 +233,17 @@ describe("MCP OAuth flow", () => {
         )
       ).status,
     ).toBe(200);
-    const elsewhere = authorizeParams(clientId, challenge, {
-      redirect_uri: "http://localhost:9999/callback",
-    });
-    expect(await loadConsent(ctx, elsewhere, new Headers())).toMatchObject({
-      kind: "invalid",
-    });
+    for (const other of [
+      "http://localhost:33418/callback",
+      "http://localhost:9999/callback",
+    ])
+      expect(
+        await loadConsent(
+          ctx,
+          authorizeParams(clientId, challenge, { redirect_uri: other }),
+          new Headers(),
+        ),
+      ).toMatchObject({ kind: "invalid" });
   });
 
   it("never redirects an unregistered redirect URI, even for errors", async () => {

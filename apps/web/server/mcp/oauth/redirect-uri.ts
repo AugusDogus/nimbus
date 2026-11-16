@@ -77,27 +77,3 @@ export function validateWebUri(value: unknown): UriCheck {
     ? { ok: true, value: parsed.raw }
     : reject("must be an https URI");
 }
-
-const loopbackAddress = /^(127(\.\d{1,3}){3}|\[::1\]|localhost)$/;
-
-/**
- * Whether a requested redirect URI names a registered one. Exact match, except
- * that loopback hosts are interchangeable (RFC 8252 section 7.3): Next.js
- * rewrites 127.0.0.1 and [::1] to localhost anywhere in a request URL,
- * including inside the redirect_uri query value.
- */
-export function matchesRegisteredRedirect(
-  registered: string,
-  requested: string,
-) {
-  if (registered === requested) return true;
-  if (!URL.canParse(registered) || !URL.canParse(requested)) return false;
-  const a = new URL(registered);
-  const b = new URL(requested);
-  if (a.protocol !== "http:" || b.protocol !== "http:") return false;
-  if (!loopbackAddress.test(a.hostname) || !loopbackAddress.test(b.hostname))
-    return false;
-  a.hostname = "localhost";
-  b.hostname = "localhost";
-  return a.href === b.href;
-}
