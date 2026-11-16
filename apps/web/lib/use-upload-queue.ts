@@ -3,7 +3,7 @@ import { TRPCClientError } from "@trpc/client";
 import { toast } from "sonner";
 import { coalesce } from "@/lib/coalesce";
 import { queryClient, trpcClient } from "@/lib/trpc";
-import { UploadPlan, type ClashChoice, type EntryKind, type UploadClash } from "./upload-plan";
+import type { ClashChoice, EntryKind, UploadClash } from "./upload-plan";
 import { createUploadQueue, type UploadSummary, type UploadTransport } from "./upload-queue";
 import type { CollectedUpload } from "./upload-sources";
 
@@ -151,7 +151,7 @@ export function useUploadQueue() {
       choices.set(clash.name, answer.choice);
       if (answer.all)
         for (const rest of clashes.slice(index + 1))
-          choices.set(rest.name, answer.choice === "replace" && !UploadPlan.canReplace(rest) ? "keep-both" : answer.choice);
+          choices.set(rest.name, answer.choice === "replace" && rest.kind !== rest.existing ? "keep-both" : answer.choice);
       if (answer.all) break;
     }
     setPrompt(null);
@@ -164,7 +164,8 @@ export function useUploadQueue() {
       if (upload.skipped.length > 0)
         toast.error(`${plural(upload.skipped.length, "item")} could not be read and will not upload, starting with “${upload.skipped[0]}”.`);
       try {
-        const existing = await existingNames(target.path);
+        // Planning code loads with the first upload, keeping it out of every page's initial bundle.
+        const [{ UploadPlan }, existing] = await Promise.all([import("./upload-plan"), existingNames(target.path)]);
         const clashes = UploadPlan.clashes(upload, existing);
         const choices = clashes.length ? await decide(clashes) : new Map<string, ClashChoice>();
         if (!choices) return;
