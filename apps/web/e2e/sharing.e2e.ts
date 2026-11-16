@@ -129,10 +129,13 @@ test("public folder links require passwords, confine downloads and honor revocat
       .getByRole("listitem")
       .filter({ has: page.getByRole("link", { name: folder, exact: true }) });
     await record.getByRole("button", { name: "Revoke", exact: true }).click();
-    await page
-      .getByRole("alertdialog", { name: "Revoke this link?" })
-      .getByRole("button", { name: "Revoke link" })
-      .click();
+    const confirm = page.getByRole("alertdialog", {
+      name: "Revoke this link?",
+    });
+    await confirm.getByRole("button", { name: "Revoke link" }).click();
+    // The open dialog hides the list from the accessibility tree, so wait for it to close,
+    // which happens once the server has revoked the link.
+    await expect(confirm).toBeHidden();
     await expect(record).toHaveCount(0);
     await visitor.reload();
     await expect(

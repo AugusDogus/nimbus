@@ -138,10 +138,13 @@ test("file requests accept anonymous uploads into one folder without exposing it
       .filter({ has: page.locator(`a[href="/r/${token}"]`) });
     await expect(record).toContainText("2 of 2 files");
     await record.getByRole("button", { name: "Revoke", exact: true }).click();
-    await page
-      .getByRole("alertdialog", { name: "Revoke this upload link?" })
-      .getByRole("button", { name: "Revoke link" })
-      .click();
+    const confirm = page.getByRole("alertdialog", {
+      name: "Revoke this upload link?",
+    });
+    await confirm.getByRole("button", { name: "Revoke link" }).click();
+    // The open dialog hides the list from the accessibility tree, so wait for it to close,
+    // which happens once the server has revoked the link.
+    await expect(confirm).toBeHidden();
     await expect(record).toHaveCount(0);
     await visitor.reload();
     await expect(
