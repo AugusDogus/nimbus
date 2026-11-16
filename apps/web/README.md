@@ -64,12 +64,15 @@ Commit both the generated SQL and Drizzle metadata. Startup applies the same mig
 ## Verification
 
 ```bash
-bun test
-bun run typecheck
+bun run format:check
 bun run lint
+bun run typecheck
+bun test
 bun run build
 bun playwright install chromium
 bun run test:e2e
 ```
+
+Formatting and linting run from the repository root over every workspace; see [Development and verification](../../README.md#development-and-verification) for the tools and their configuration.
 
 The browser tests create and remove their own temporary database and files. Keep port 3100 available, or set `NIMBUS_E2E_PORT` to run on another port. Production builds and browser tests must run sequentially because they share the Next.js build directory.
