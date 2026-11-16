@@ -11,11 +11,19 @@
 //   bun scripts/first-load-js.ts                     print a table
 //   bun scripts/first-load-js.ts --json out.json     also write the numbers
 //   bun scripts/first-load-js.ts --compare base.json compare with a saved run
+//   bun scripts/first-load-js.ts --dist <dir>        measure another build directory
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 
-const dist = path.resolve(import.meta.dir, "../apps/web/dist");
+const args = process.argv.slice(2);
+const option = (name: string) => {
+  const index = args.indexOf(name);
+  return index === -1 ? undefined : args[index + 1];
+};
+const dist = path.resolve(
+  option("--dist") ?? path.join(import.meta.dir, "../apps/web/dist"),
+);
 const routePrefix = "routes/";
 const splitSuffix = "?tsr-split=component";
 
@@ -168,12 +176,6 @@ function parseSaved(value: unknown): RouteSize[] {
 const kb = (bytes: number) => (bytes / 1000).toFixed(1);
 const delta = (bytes: number) =>
   `${bytes > 0 ? "+" : ""}${(bytes / 1000).toFixed(1)}`;
-
-const args = process.argv.slice(2);
-const option = (name: string) => {
-  const index = args.indexOf(name);
-  return index === -1 ? undefined : args[index + 1];
-};
 
 const current = await measure();
 const jsonPath = option("--json");
