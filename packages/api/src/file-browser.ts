@@ -1,7 +1,8 @@
-import { readdir } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
+import path from "node:path";
 import type { Access } from "./access";
 import { requireExisting, safePath } from "./file-operations";
-import { isApiError } from "./safe-path";
+import { isFsError } from "./safe-path";
 
 export type FileEntry = {
   name: string;
@@ -22,35 +23,65 @@ export async function entryAt(requested: string): Promise<FileEntry> {
   };
 }
 
+/** Names `safePath` refuses: Nimbus's private folder, and names with control characters or backslashes. */
+const unservable = (name: string) =>
+  name.toLowerCase() === ".nimbus" || /[\x00-\x1f\\]/.test(name);
+
+/** Children stated at once; enough to keep the filesystem busy without flooding it. */
+const statBatch = 256;
+
+/**
+ * The browsable files and folders directly inside a folder. The folder's own
+ * path is validated once; each child is read with lstat, which never follows
+ * a symlink, so symlinks and special files are skipped even if one replaces a
+ * child while the folder is listed.
+ */
 export async function readDirectory(
   requested: string,
   access: Pick<Access, "canBrowse">,
 ): Promise<FileEntry[]> {
   const target = await safePath(requested);
-  const entries = await readdir(target.absolute, { withFileTypes: true });
-  const results: FileEntry[] = [];
-  for (const entry of entries) {
-    if (
-      entry.name.toLowerCase() === ".nimbus" ||
-      (!entry.isFile() && !entry.isDirectory())
+  const children = (await readdir(target.absolute, { withFileTypes: true }))
+    .filter(
+      (entry) =>
+        (entry.isFile() || entry.isDirectory()) && !unservable(entry.name),
     )
-      continue;
-    const childPath = target.relative
-      ? `${target.relative}/${entry.name}`
-      : entry.name;
-    if (!access.canBrowse(childPath)) continue;
-    try {
-      results.push(await entryAt(childPath));
-    } catch (error) {
-      // The filesystem can change while we list it. Skip removed or inaccessible
-      // entries, while preserving actual I/O failures for the caller.
-      if (
-        !isApiError(error, "NOT_FOUND") &&
-        !isApiError(error, "FORBIDDEN") &&
-        !isApiError(error, "BAD_REQUEST")
-      )
-        throw error;
-    }
+    .map((entry) => ({
+      name: entry.name,
+      path: target.relative ? `${target.relative}/${entry.name}` : entry.name,
+    }))
+    .filter((child) => access.canBrowse(child.path));
+  const results: FileEntry[] = [];
+  for (let start = 0; start < children.length; start += statBatch) {
+    const batch = await Promise.all(
+      children.slice(start, start + statBatch).map(async (child) => {
+        try {
+          const stats = await lstat(path.join(target.absolute, child.name));
+          if (stats.isDirectory())
+            return {
+              ...child,
+              type: "dir",
+              mtime: stats.mtimeMs,
+              size: 0,
+            } as const;
+          if (stats.isFile())
+            return {
+              ...child,
+              type: "file",
+              mtime: stats.mtimeMs,
+              size: stats.size,
+            } as const;
+          return null;
+        } catch (error) {
+          // The filesystem can change while we list it. Skip removed entries,
+          // while preserving actual I/O failures for the caller.
+          if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR"))
+            return null;
+          throw error;
+        }
+      }),
+    );
+    for (const entry of batch) if (entry) results.push(entry);
   }
   return results;
 }

@@ -34,7 +34,8 @@ import { FileVersions } from "@nimbus/api/file-versions";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
 import { recordAudit } from "@nimbus/api/audit";
 import { ClientIp } from "./client-ip";
-import { httpDriveStore, httpError, serveFile } from "./http-files";
+import { serveFile } from "./file-response";
+import { httpDriveStore, httpError } from "./http-files";
 import { RateLimiter } from "./rate-limit";
 import {
   evaluateIfHeader,

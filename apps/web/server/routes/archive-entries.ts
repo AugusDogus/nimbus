@@ -4,7 +4,7 @@ import type { Access } from "@nimbus/api/access";
 import { readDirectory } from "@nimbus/api/file-browser";
 import { numberedName } from "@nimbus/api/numbered-name";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
-import { isApiError } from "@nimbus/api/safe-path";
+import { getDataRoot } from "@nimbus/api/data-root";
 
 /** One member of a ZIP: a folder marker or a file read from disk. Names use `/` separators. */
 export type ArchiveEntry =
@@ -39,11 +39,26 @@ export async function resolveArchiveRoots(
   return roots;
 }
 
-/** Walk the requested items breadth first, yielding readable entries. Removed entries are skipped. */
+/** The contents of one folder, with names relative to it, as a folder download lists them. */
+export async function folderRoot(relative: string) {
+  const existing = await requireExisting(relative);
+  if (!existing.stats.isDirectory())
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Choose a folder for ZIP download.",
+    });
+  return [{ relative, name: "", isDirectory: true }];
+}
+
+/**
+ * Walk the requested items breadth first, yielding readable entries. A root
+ * named "" contributes its contents at the top level. Removed entries are skipped.
+ */
 export async function* archiveEntries(
-  roots: Awaited<ReturnType<typeof resolveArchiveRoots>>,
+  roots: readonly { relative: string; name: string; isDirectory: boolean }[],
   access: Access,
 ): AsyncGenerator<ArchiveEntry> {
+  const dataRoot = getDataRoot();
   for (const root of roots) {
     const top = await requireExisting(root.relative);
     if (!root.isDirectory) {
@@ -56,33 +71,30 @@ export async function* archiveEntries(
       };
       continue;
     }
-    yield { type: "dir", name: `${root.name}/`, mtime: top.stats.mtime };
+    const prefix = root.name ? `${root.name}/` : "";
+    if (prefix) yield { type: "dir", name: prefix, mtime: top.stats.mtime };
     const pending = [root.relative];
     for (
       let directory = pending.shift();
       directory !== undefined;
       directory = pending.shift()
     ) {
+      // Entries come from lstat inside a validated folder, so they are plain files and folders.
       for (const entry of await readDirectory(directory, access)) {
         if (!access.can(entry.path, "read")) continue;
-        const name = `${root.name}/${root.relative ? entry.path.slice(root.relative.length + 1) : entry.path}`;
+        const name = `${prefix}${root.relative ? entry.path.slice(root.relative.length + 1) : entry.path}`;
         if (entry.type === "dir") {
           yield { type: "dir", name: `${name}/`, mtime: new Date(entry.mtime) };
           pending.push(entry.path);
           continue;
         }
-        try {
-          const file = await requireExisting(entry.path);
-          yield {
-            type: "file",
-            name,
-            absolute: file.absolute,
-            size: file.stats.size,
-            mtime: file.stats.mtime,
-          };
-        } catch (error) {
-          if (!isApiError(error, "NOT_FOUND")) throw error;
-        }
+        yield {
+          type: "file",
+          name,
+          absolute: path.join(dataRoot, entry.path),
+          size: entry.size,
+          mtime: new Date(entry.mtime),
+        };
       }
     }
   }

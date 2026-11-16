@@ -1,9 +1,5 @@
-import {
-  httpError,
-  requestAccess,
-  serveFile,
-  serveZip,
-} from "@/server/http-files";
+import { serveFile, serveZip } from "@/server/file-response";
+import { httpError, requestAccess } from "@/server/http-files";
 import { safePath } from "@nimbus/api/file-operations";
 
 export async function GET(request: Request) {

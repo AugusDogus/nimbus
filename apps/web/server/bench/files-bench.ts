@@ -117,7 +117,48 @@ const { crawl } = await import("@nimbus/api/search-crawler");
 const { createSearchIndex } = await import("@nimbus/api/search-index");
 const { saveFileContent } = await import("../file-content");
 const { startFileWatch } = await import("../watch.worker");
-const httpFiles = await import("../http-files");
+// Byte serving moved out of http-files.ts; load it from wherever this checkout keeps it.
+const bytesModule: unknown = await import(
+  path.join(
+    import.meta.dir,
+    (await Bun.file(path.join(import.meta.dir, "../file-response.ts")).exists())
+      ? "../file-response.ts"
+      : "../http-files.ts",
+  )
+);
+function callBytes(name: string, args: unknown[]): unknown {
+  const fn: unknown =
+    typeof bytesModule === "object" && bytesModule !== null
+      ? Reflect.get(bytesModule, name)
+      : undefined;
+  if (typeof fn !== "function")
+    throw new Error(`No module in this checkout exports ${name}.`);
+  return Reflect.apply(fn, undefined, args);
+}
+const httpFiles = {
+  async serveFile(request: Request, target: string, access: unknown) {
+    const response: unknown = await callBytes("serveFile", [
+      request,
+      target,
+      access,
+    ]);
+    if (!(response instanceof Response))
+      throw new Error("serveFile did not return a Response.");
+    return response;
+  },
+  async serveZip(target: string, access: unknown) {
+    const response: unknown = await callBytes("serveZip", [target, access]);
+    if (!(response instanceof Response))
+      throw new Error("serveZip did not return a Response.");
+    return response;
+  },
+  streamBody(incoming: IncomingMessage) {
+    const body = callBytes("streamBody", [incoming]);
+    if (!(body instanceof ReadableStream))
+      throw new Error("streamBody did not return a stream.");
+    return body;
+  },
+};
 const { handleWebDAV } = await import("../webdav");
 // Listing caches by file, so the benchmark keeps running when a cache module is removed.
 const apiSource = path.resolve(import.meta.dir, "../../../../packages/api/src");

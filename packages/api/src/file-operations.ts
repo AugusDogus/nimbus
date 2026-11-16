@@ -17,7 +17,6 @@ import { publishFileEvent } from "./file-events";
 import { auditUser, recordAudit } from "./audit";
 import { FileVersions } from "./file-versions";
 import {
-  isApiError,
   isFsError,
   isWithinPath,
   PathError,
@@ -240,14 +239,15 @@ async function stageCopy(
         pending.push(entry.path);
       } else {
         try {
+          // Listed by lstat inside a validated folder, so a plain file.
           await copyFile(
-            (await requireExisting(entry.path)).absolute,
+            path.join(getDataRoot(), entry.path),
             destination,
             copyMode,
           );
         } catch (error) {
           // Entries removed while copying are skipped, like a listing taken at that moment.
-          if (!isApiError(error, "NOT_FOUND")) throw error;
+          if (!isFsError(error, "ENOENT")) throw error;
         }
       }
     }

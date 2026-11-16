@@ -29,7 +29,6 @@
     "@trpc/tanstack-react-query": "^11.9.0",
     "@tus/file-store": "^2.0.0",
     "@tus/server": "^2.3.0",
-    "archiver": "^8.0.0",
     "better-auth": "^1.7.25",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -53,7 +52,6 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",
     "@tanstack/router-plugin": "^1.169.0",
-    "@types/archiver": "^8.0.0",
     "@types/bun": "^1.4.4",
     "@types/node": "^20",
     "@types/react": "^19",

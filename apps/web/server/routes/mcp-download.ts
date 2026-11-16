@@ -1,11 +1,7 @@
 import { getAccess } from "@nimbus/api/access";
 import { entryAt } from "@nimbus/api/file-browser";
-import {
-  httpDriveStore,
-  httpError,
-  serveFile,
-  serveZip,
-} from "@/server/http-files";
+import { serveFile, serveZip } from "@/server/file-response";
+import { httpDriveStore, httpError } from "@/server/http-files";
 import { verifyDownloadLink } from "@/server/mcp/download-link";
 import { liveConnectionUser } from "@/server/mcp/oauth/connections";
 import { json } from "@/server/mcp/oauth/http";

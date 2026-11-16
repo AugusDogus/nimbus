@@ -1,10 +1,6 @@
 import { entryAt, readDirectory } from "@nimbus/api/file-browser";
-import {
-  httpDriveStore,
-  httpError,
-  serveFile,
-  serveZip,
-} from "@/server/http-files";
+import { serveFile, serveZip } from "@/server/file-response";
+import { httpDriveStore, httpError } from "@/server/http-files";
 import { RateLimiter } from "@/server/rate-limit";
 import {
   SharePasswordAttempts,
