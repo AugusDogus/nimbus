@@ -329,16 +329,105 @@ describe("words layer against a brute-force oracle", () => {
         scope,
         depth: "full",
       });
-      const found = answer.hits.map((hit) => hit.path);
+      // Typo matches (the fuzzy layer) come after, and only when few matched strictly.
+      const strict = answer.hits.filter((hit) => hit.match !== "fuzzy");
+      const fuzzy = answer.hits.filter((hit) => hit.match === "fuzzy");
+      const found = strict.map((hit) => hit.path);
       expect({ query, root, grants, found: [...found].sort() }).toEqual({
         query,
         root,
         grants,
         found: expected,
       });
-      expect(answer.total).toBe(expected.length);
+      expect(answer.hits.slice(0, strict.length)).toEqual(strict);
+      if (expected.length >= 10) expect(fuzzy).toEqual([]);
+      for (const hit of fuzzy) {
+        expect(expected).not.toContain(hit.path);
+        expect(within(root, hit.path) && hit.path !== root).toBe(true);
+        if (grants !== null)
+          expect(grants.some((grant) => within(grant, hit.path))).toBe(true);
+      }
+      expect(answer.total).toBe(answer.hits.length);
       // Refining in place never reorders the instant results.
       expect(found.slice(0, instant.length)).toEqual(instant);
     }
+  });
+});
+
+describe("fuzzy layer", () => {
+  const hits = (
+    index: ReturnType<typeof createSearchIndex>,
+    query: string,
+    extra: Partial<SearchRequest> = {},
+  ) =>
+    index
+      .search({
+        query,
+        root: "",
+        limit: 50,
+        scope: all,
+        depth: "full",
+        ...extra,
+      })
+      .hits.map((hit) => `${hit.match} ${hit.path}`);
+
+  for (const compacted of [false, true])
+    describe(compacted ? "compacted" : "before compaction", () => {
+      const index = drive();
+      index.add("Projects/robot/useConfigTable.ts", "file");
+      if (compacted) index.compact();
+
+      it("finds words one typo away, below every stricter match", () => {
+        expect(hits(index, "invioce")).toEqual([
+          "fuzzy Finance/2024/invoice-0042.pdf",
+          "fuzzy Finance/2023/invoice-0007.pdf",
+          "fuzzy Finance/2024 invoice summary.xlsx",
+        ]);
+        expect(hits(index, "invioce 2023")).toEqual([
+          "fuzzy Finance/2023/invoice-0007.pdf",
+        ]);
+      });
+
+      it("finds abbreviations, and words inside camel case names", () => {
+        expect(hits(index, "prjcts")).toEqual(["fuzzy Projects"]);
+        expect(hits(index, "cnfig")).toEqual([
+          "fuzzy Projects/robot/useConfigTable.ts",
+        ]);
+      });
+
+      it("never runs while typing", () => {
+        expect(
+          index.search({ query: "invioce", root: "", limit: 50, scope: all })
+            .hits,
+        ).toEqual([]);
+      });
+
+      it("never reaches outside the caller's grants", () => {
+        expect(
+          hits(index, "invioce", {
+            scope: { type: "grants", paths: ["Finance/2023"] },
+          }),
+        ).toEqual(["fuzzy Finance/2023/invoice-0007.pdf"]);
+        expect(
+          hits(index, "invioce", {
+            scope: { type: "grants", paths: ["Projects"] },
+          }),
+        ).toEqual([]);
+      });
+    });
+
+  it("stays out of the way once ten or more names match strictly", () => {
+    const index = createSearchIndex();
+    for (let i = 0; i < 10; i++) index.add(`notes/note-${i}.txt`, "file");
+    index.add("other/nots.txt", "file");
+    index.compact();
+    expect(hits(index, "note")).toHaveLength(11);
+    expect(
+      hits(index, "note").filter((hit) => hit.startsWith("fuzzy")),
+    ).toEqual([]);
+    index.remove("notes/note-9.txt");
+    expect(hits(index, "note.txt")).toEqual([]);
+    // A word some name holds is not a typo, however few names hold it.
+    expect(hits(index, "nots")).toEqual(["name other/nots.txt"]);
   });
 });

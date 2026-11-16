@@ -235,18 +235,20 @@ export async function searchWithPool(
   minBytes = POOL_MIN_BYTES,
 ): Promise<SearchResult | null> {
   const index = current();
-  const prepared = index.prepareSearch(request);
-  if (prepared.done) return prepared.done;
-  const { layout, plan, limit } = prepared;
-  if (pool && scanBytes(layout, plan) >= minBytes && isShared(layout)) {
-    const before = index.changes;
+  const before = index.changes;
+  let prepared = index.prepareSearch(request);
+  while (!prepared.done) {
+    const { layout, plan, limit } = prepared;
+    if (!pool || scanBytes(layout, plan) < minBytes || !isShared(layout)) {
+      prepared = prepared.finish(index.scanHere(layout, plan, limit));
+      continue;
+    }
     const outcome = await pool.scan(layout, plan, limit);
+    if (!outcome.ok && outcome.reason === "stopped") return null;
     const now = current();
-    if (outcome.ok) {
-      if (now === index && index.changes === before)
-        return prepared.finish(outcome.ranks);
-    } else if (outcome.reason === "stopped") return null;
-    return now.search(request);
+    if (!outcome.ok || now !== index || index.changes !== before)
+      return now.search(request);
+    prepared = prepared.finish(outcome.ranks);
   }
-  return prepared.finish(index.scanHere(layout, plan, limit));
+  return prepared.done;
 }

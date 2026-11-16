@@ -18,6 +18,7 @@
  * the drive's storage usage and any folder's total is one lookup.
  */
 
+import { SearchVocabulary } from "./search-vocabulary";
 import {
   createSearchState,
   foldName,
@@ -135,6 +136,8 @@ export function createSearchIndex(initialCapacity = 1024) {
   };
   // Names for entries added since compaction.
   const deltaNames = new Map<number, { raw: string; folded: string }>();
+  /** Words of every live name, for the fuzzy layer's corrections. */
+  const vocabulary = SearchVocabulary.create();
 
   // Open-addressed (parent, name) → id table.
   let table = new Int32Array(2048).fill(NONE);
@@ -248,6 +251,7 @@ export function createSearchIndex(initialCapacity = 1024) {
       )
         pending.push(child);
       unhash(current);
+      vocabulary.remove(nameOf(current));
       kinds[current] = FREE;
       // Scans of the layout skip it from now on.
       if (slotOf[current] !== NONE) layout.dead[slotOf[current]] = 1;
@@ -282,6 +286,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     firstChild[parentId] = id;
     slotOf[id] = NONE;
     deltaNames.set(id, { raw: name, folded: foldName(name) });
+    vocabulary.add(name);
     const { slot } = probe(parentId, name);
     table[slot] = id;
     tableUsed++;
@@ -465,6 +470,7 @@ export function createSearchIndex(initialCapacity = 1024) {
       );
     },
     visibleRanges,
+    corrections: (term) => vocabulary.corrections(term),
   };
   const state = createSearchState();
 

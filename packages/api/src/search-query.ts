@@ -25,7 +25,10 @@ import {
   Rank,
   scanLayout,
   ScanScratch,
+  patternBits,
   termBits,
+  TIER_FUZZY_IN_NAME,
+  TIER_FUZZY_IN_PATH,
   TIER_WORDS_IN_NAME,
   TIER_WORDS_IN_PATH,
   type CompactRanks,
@@ -75,8 +78,11 @@ export type SearchRequest = {
   cursor?: string;
 };
 
-/** Which layer found a hit: the whole query in its name, or its words across name and folders. */
-export type SearchMatch = "name" | "words";
+/**
+ * Which layer found a hit: the whole query in its name, its words across name
+ * and folders, or words it may have meant (typos and abbreviations).
+ */
+export type SearchMatch = "name" | "words" | "fuzzy";
 
 export type SearchHit = { path: string; type: IndexedKind; match: SearchMatch };
 
@@ -107,7 +113,15 @@ export type IndexView = {
   pathOf: (id: number) => string;
   foldedNameOf: (id: number) => string;
   visibleRanges: (rootId: number, granted: number[] | null) => VisibleRange[];
+  /** Words in the index a folded query word may have meant, best first. */
+  corrections: (term: string) => string[];
 };
+
+/**
+ * The fuzzy layer runs when the stricter ones found fewer matches than this
+ * in the whole result list: typos are worth suggesting when little else is.
+ */
+export const FUZZY_BELOW = 10;
 
 const NONE = -1;
 const ROOT = 0;
@@ -186,10 +200,26 @@ function scanDelta(
   boosts: ReadonlyMap<number, number>,
   add: (rank: number) => void,
 ) {
-  const { needle, terms } = plan;
+  const { needle, terms, fuzzy } = plan;
   const prefixOnly = needle.length === 1;
   const all = (1 << terms.length) - 1;
   const { slots } = view.layout;
+  /** Bits of every word in a name and the folders above it. */
+  const reach = (
+    id: number,
+    inName: number,
+    full: number,
+    bitsOf: (name: string) => number,
+  ) => {
+    let bits = inName;
+    for (
+      let parent = view.parentOf(id);
+      bits !== full && parent > ROOT;
+      parent = view.parentOf(parent)
+    )
+      bits |= bitsOf(view.foldedNameOf(parent));
+    return bits;
+  };
   const keep = (rank: number) => {
     if (rank > plan.after) add(rank);
   };
@@ -197,7 +227,12 @@ function scanDelta(
     const at = name.folded.indexOf(needle);
     const literal = at >= 0 && (!prefixOnly || at === 0);
     const inName = !literal && terms.length ? termBits(name.folded, terms) : 0;
-    if ((!literal && inName === 0) || !deltaVisible(view, id, rootId, grants))
+    if (
+      (!literal &&
+        inName === 0 &&
+        !(fuzzy && patternBits(name.folded, fuzzy))) ||
+      !deltaVisible(view, id, rootId, grants)
+    )
       continue;
     const boost = boosts.get(id) ?? 0;
     const length = Buffer.byteLength(name.folded);
@@ -216,17 +251,32 @@ function scanDelta(
       );
       continue;
     }
-    let bits = inName;
-    for (
-      let parent = view.parentOf(id);
-      bits !== all && parent > ROOT;
-      parent = view.parentOf(parent)
-    )
-      bits |= termBits(view.foldedNameOf(parent), terms);
-    if (bits === all)
+    if (
+      inName !== 0 &&
+      reach(id, inName, all, (folder) => termBits(folder, terms)) === all
+    ) {
       keep(
         Rank.of(
           inName === all ? TIER_WORDS_IN_NAME : TIER_WORDS_IN_PATH,
+          boost,
+          length,
+          slots + id,
+        ),
+      );
+      continue;
+    }
+    if (!fuzzy) continue;
+    const fuzzyAll = (1 << fuzzy.length) - 1;
+    const fuzzyInName = patternBits(name.folded, fuzzy);
+    if (
+      fuzzyInName !== 0 &&
+      reach(id, fuzzyInName, fuzzyAll, (folder) =>
+        patternBits(folder, fuzzy),
+      ) === fuzzyAll
+    )
+      keep(
+        Rank.of(
+          fuzzyInName === fuzzyAll ? TIER_FUZZY_IN_NAME : TIER_FUZZY_IN_PATH,
           boost,
           length,
           slots + id,
@@ -245,8 +295,9 @@ const empty = (): SearchResult => ({
 
 /**
  * A search ready for its compacted scan: run `plan` over `layout` keeping the
- * best `limit` ranks, then pass them to `finish` for the entries added since
- * compaction and the page.
+ * best `limit` ranks, then pass them to `finish`, which matches the entries
+ * added since compaction and returns the page, or a second scan when the
+ * fuzzy layer should run too.
  */
 export type PreparedSearch =
   | { done: SearchResult }
@@ -255,8 +306,17 @@ export type PreparedSearch =
       layout: SearchLayout;
       plan: ScanPlan;
       limit: number;
-      finish: (compacted: CompactRanks) => SearchResult;
+      finish: (compacted: CompactRanks) => PreparedSearch;
     };
+
+const matchOf = (rank: number): SearchMatch => {
+  const tier = Rank.tier(rank);
+  return tier < TIER_WORDS_IN_NAME
+    ? "name"
+    : tier < TIER_FUZZY_IN_NAME
+      ? "words"
+      : "fuzzy";
+};
 
 export function prepareSearch(
   view: IndexView,
@@ -272,14 +332,13 @@ export function prepareSearch(
       ? scope.paths.map(view.find).filter((id) => id !== NONE)
       : null;
   if (granted?.length === 0) return { done: empty() };
+  const full = request.depth === "full";
   const allTerms = queryTerms(needle);
+  const usable = allTerms.length <= MAX_TERMS;
   const terms =
-    request.depth === "full" &&
-    allTerms.length <= MAX_TERMS &&
-    !(allTerms.length === 1 && allTerms[0] === needle)
+    full && usable && !(allTerms.length === 1 && allTerms[0] === needle)
       ? allTerms
       : [];
-  const matchedTerms = terms.length ? terms : [needle];
 
   const { layout } = view;
   // Within the layout a page was ranked in, continue after its last rank;
@@ -300,16 +359,18 @@ export function prepareSearch(
     if (slot === NONE) deltaBoosts.set(id, boost);
     else boosts.push(slot, boost);
   }
-  const plan: ScanPlan = {
+  const strict: ScanPlan = {
     needle,
     terms,
+    fuzzy: null,
     ranges: view.visibleRanges(rootId, granted),
     boosts,
     after: continues ? cursor.after : -1,
   };
   const grants = granted ? new Set(granted) : null;
   const want = skip + limit;
-  return {
+
+  const step = (plan: ScanPlan): PreparedSearch => ({
     done: null,
     layout,
     plan,
@@ -320,6 +381,19 @@ export function prepareSearch(
       scanDelta(view, plan, rootId, grants, deltaBoosts, (rank) =>
         results.add(rank),
       );
+      // Too little found: run again with the words the query may have meant.
+      // Pages before this one count, so every page of a search decides alike.
+      if (plan.fuzzy === null && full && usable && allTerms.length) {
+        const strictTotal = continues ? shown + results.total : results.total;
+        if (strictTotal < FUZZY_BELOW) {
+          const fuzzy = allTerms.map((term) => [
+            term,
+            ...view.corrections(term),
+          ]);
+          if (fuzzy.some((patterns) => patterns.length > 1))
+            return step({ ...plan, fuzzy });
+        }
+      }
       const best = results.best();
       const hits: SearchHit[] = [];
       let last = -1;
@@ -334,26 +408,32 @@ export function prepareSearch(
         hits.push({
           path: view.pathOf(id),
           type: view.isFolder(id) ? "dir" : "file",
-          match: Rank.tier(rank) < TIER_WORDS_IN_NAME ? "name" : "words",
+          match: matchOf(rank),
         });
       }
-      const before = continues ? shown : 0;
       const more = results.total > want;
       return {
-        hits,
-        truncated: more,
-        total: before + results.total,
-        next: more
-          ? Cursor.format({
-              generation: layout.generation,
-              after: last,
-              shown: shown + hits.length,
-            })
-          : null,
-        terms: matchedTerms,
+        done: {
+          hits,
+          truncated: more,
+          total: (continues ? shown : 0) + results.total,
+          next: more
+            ? Cursor.format({
+                generation: layout.generation,
+                after: last,
+                shown: shown + hits.length,
+              })
+            : null,
+          terms: plan.fuzzy
+            ? [...new Set(plan.fuzzy.flat())]
+            : terms.length
+              ? terms
+              : [needle],
+        },
       };
     },
-  };
+  });
+  return step(strict);
 }
 
 /** Scan the compacted names on this thread. */
@@ -374,9 +454,10 @@ export function runSearch(
   state: SearchState,
   request: SearchRequest,
 ): SearchResult {
-  const prepared = prepareSearch(view, request);
-  if (prepared.done) return prepared.done;
-  return prepared.finish(
-    scanCompacted(state, prepared.layout, prepared.plan, prepared.limit),
-  );
+  let prepared = prepareSearch(view, request);
+  while (!prepared.done)
+    prepared = prepared.finish(
+      scanCompacted(state, prepared.layout, prepared.plan, prepared.limit),
+    );
+  return prepared.done;
 }
