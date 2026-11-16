@@ -80,4 +80,16 @@ bun run test:e2e
 
 Formatting and linting run from the repository root over every workspace; see [Development and verification](../../README.md#development-and-verification) for the tools and their configuration.
 
+## File layer benchmark
+
+`bun run bench:files` (from the repository root) measures the file layer through its real code paths: tRPC callers, file operations, the SQLite drive store, live updates, the file watcher, the search crawl, and downloads, ZIPs and WebDAV over a node:http server that converts requests as `server/start.ts` does. It generates trees in a new directory under `/var/tmp` and deletes it afterwards (`--keep` retains it). Each metric reports latency percentiles or throughput, SQL statements per operation, peak RSS growth and the longest event-loop stall.
+
+```bash
+bun run bench:files --out=after.json                  # every scenario, about 15 minutes
+bun run bench:files --only=list,save --big=10000      # selected scenarios, smaller trees
+bun run bench:files --compare=before.json,after.json  # Markdown table of two runs
+```
+
+Scenarios: `list`, `access`, `safepath`, `save`, `rename`, `copy`, `events`, `watch`, `tree` (`--tree`, default 200,000 files) and `http`. `rename` uses `--big` (default 100,000) files, each with a version. The run waits while less than 8 GB of memory is available. For syscall counts, run it under `strace -f -c`. Compare runs on the same machine back to back; the numbers are not portable between machines.
+
 The browser tests create and remove their own temporary database and files. Keep port 3100 available, or set `NIMBUS_E2E_PORT` to run on another port. Do not rebuild while browser tests run against the production build in `dist`.
