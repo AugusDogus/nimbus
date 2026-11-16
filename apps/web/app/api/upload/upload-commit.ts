@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { mkdir } from "node:fs/promises";
 import { z } from "zod";
 import type { Access } from "@nimbus/api/access";
+import type { FileVersionStore } from "@nimbus/api/file-versions";
 import { publishFileEvent } from "@nimbus/api/file-events";
 import { mutateFiles, requireUnlocked } from "@nimbus/api/file-mutations";
 import { fileNameSchema } from "@nimbus/api/file-name";
@@ -70,6 +71,7 @@ async function ensureFolders(access: Access, base: string, folder: string, userI
  */
 export async function commitUpload(
   store: UploadStore,
+  versions: FileVersionStore,
   id: string,
   metadata: UploadMetadata,
   authorize: () => Promise<Access>,
@@ -89,7 +91,10 @@ export async function commitUpload(
       uploadId: id,
       filename: metadata.filename,
       folder,
-      conflict: metadata.conflict,
+      conflict:
+        metadata.conflict === "replace"
+          ? { kind: "replace", versions, archivedBy: access.user.id }
+          : { kind: "keep-both" },
       credentials: { userId: access.user.id },
       requireWrite: (relative) => access.require(relative, "write"),
     });

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
 import { lockFile } from "@nimbus/api/file-mutations";
+import { FileVersions } from "@nimbus/api/file-versions";
 import { createTestDriveStore } from "@nimbus/api/testing";
 import { UploadStore } from "@/server/upload-store";
 import { commitUpload, UploadMetadata } from "./upload-commit";
@@ -20,7 +21,7 @@ describe("committing finished uploads", () => {
     return id;
   };
   const commit = async (body: string, metadata: Partial<UploadMetadata> & { filename: string }, userId = "user-1") =>
-    commitUpload(store, await stage(body), UploadMetadata.parse({ targetPath: "docs", owner: userId, ...metadata }), () => getAccess(memory.store, userId));
+    commitUpload(store, memory.store.versions, await stage(body), UploadMetadata.parse({ targetPath: "docs", owner: userId, ...metadata }), () => getAccess(memory.store, userId));
 
   beforeEach(async () => {
     previousRoot = process.env.NIMBUS_DATA_ROOT;
@@ -48,6 +49,12 @@ describe("committing finished uploads", () => {
     expect(await commit("replacement", { filename: "notes.txt", conflict: "replace" })).toEqual({ kind: "published", path: "docs/notes.txt", replaced: true });
     expect(await readFile(path.join(root, "docs/notes.txt"), "utf8")).toBe("replacement");
     expect(await commit("new", { filename: "fresh.txt", conflict: "replace" })).toEqual({ kind: "published", path: "docs/fresh.txt", replaced: false });
+  });
+
+  it("keeps the replaced content as a version", async () => {
+    await commit("replacement", { filename: "notes.txt", conflict: "replace" });
+    const [version] = await FileVersions.history(memory.store.versions, path.join(root, "docs/notes.txt"));
+    expect(version).toMatchObject({ name: "notes.txt", size: "original".length, archivedBy: "user-1" });
   });
 
   it("never replaces a folder or a WebDAV-locked file", async () => {

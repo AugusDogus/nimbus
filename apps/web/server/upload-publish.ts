@@ -7,6 +7,7 @@ import {
   requireUnlocked,
   type MutationCredentials,
 } from "@nimbus/api/file-mutations";
+import { FileVersions, type FileVersionStore } from "@nimbus/api/file-versions";
 import { numberedName } from "@nimbus/api/numbered-name";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
@@ -29,8 +30,13 @@ export async function uploadStaging() {
   });
 }
 
-/** What to do when the uploaded name is already taken in its folder. */
-export type UploadConflict = "keep-both" | "replace";
+/**
+ * What to do when the uploaded name is already taken in its folder: number the
+ * new file, or replace the existing file and keep its content as a version.
+ */
+export type PublishConflict =
+  | { kind: "keep-both" }
+  | { kind: "replace"; versions: FileVersionStore; archivedBy: string };
 
 export type PublishResult =
   | { kind: "published"; path: string; replaced: boolean }
@@ -38,14 +44,24 @@ export type PublishResult =
 
 /**
  * Put a staged upload at `destination`, replacing the file there. This is the
- * single commit point for replacing content through an upload.
+ * single commit point for replacing content through an upload: the previous
+ * content is kept as a version before the new content takes its place.
  */
 async function replaceWithUpload(
   store: UploadStore,
   uploadId: string,
   destination: string,
+  conflict: Extract<PublishConflict, { kind: "replace" }>,
 ) {
-  await store.replace(uploadId, destination);
+  await store.replace(uploadId, destination, (incoming) =>
+    FileVersions.commitReplacement({
+      store: conflict.versions,
+      dataRoot: getDataRoot(),
+      target: destination,
+      incoming,
+      archivedBy: conflict.archivedBy,
+    }),
+  );
   publishFileEvent({ path: destination, event: "change", ts: Date.now() });
 }
 
@@ -68,7 +84,7 @@ export async function publishUpload({
   uploadId: string;
   filename: string;
   folder: string;
-  conflict: UploadConflict;
+  conflict: PublishConflict;
   credentials: MutationCredentials;
   /** Throws when the uploader may not write `relative`. */
   requireWrite: (relative: string) => void;
@@ -93,13 +109,13 @@ export async function publishUpload({
     } catch (error) {
       if (!isApiError(error, "NOT_FOUND")) throw error;
     }
-    if (existing && conflict === "replace") {
+    if (existing && conflict.kind === "replace") {
       if (!existing.stats.isFile())
         throw new TRPCError({
           code: "CONFLICT",
           message: `A folder named “${filename}” already exists here. Uploads cannot replace folders; rename the file or keep both.`,
         });
-      await replaceWithUpload(store, uploadId, destination.absolute);
+      await replaceWithUpload(store, uploadId, destination.absolute, conflict);
       return { kind: "published", path: destination.relative, replaced: true };
     }
     if (existing && !(await store.isPublishedAt(uploadId, destination.absolute)))

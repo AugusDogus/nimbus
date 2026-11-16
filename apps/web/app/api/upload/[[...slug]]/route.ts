@@ -1,5 +1,5 @@
 import type { Server } from "@tus/server";
-import { httpError, requestAccess } from "@/server/http-files";
+import { httpDriveStore, httpError, requestAccess } from "@/server/http-files";
 import { tusFailure } from "@/server/tus-failure";
 import { uploadStaging } from "@/server/upload-publish";
 import { createUploadServer } from "../upload-server";
@@ -10,6 +10,7 @@ async function getServer() {
   if (server) return server;
   server = createUploadServer({
     store: await uploadStaging(),
+    versions: httpDriveStore.versions,
     access: requestAccess,
     fail: tusFailure,
   });

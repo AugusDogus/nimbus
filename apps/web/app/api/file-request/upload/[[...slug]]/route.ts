@@ -62,7 +62,7 @@ async function getServer() {
           uploadId: id,
           filename: fileNameSchema.parse(filename),
           folder: current.path,
-          conflict: "keep-both",
+          conflict: { kind: "keep-both" },
           credentials: { userId: owner.user.id },
           requireWrite: (relative) => {
             if (!owner.can(relative, "write"))

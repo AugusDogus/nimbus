@@ -61,8 +61,15 @@ export class UploadStore extends FileStore {
     await this.markFinished(id, destination, copied);
   }
 
-  /** Publish over an existing file. The rename swaps content atomically on the same filesystem. */
-  async replace(id: string, destination: string) {
+  /**
+   * Publish over an existing file. `commit` moves the staged content over the destination,
+   * atomically on the same filesystem; it defaults to a plain rename.
+   */
+  async replace(
+    id: string,
+    destination: string,
+    commit: (incoming: string) => Promise<unknown> = (incoming) => rename(incoming, destination),
+  ) {
     if (await this.isFinished(id)) return;
     const source = path.join(this.directory, id);
     const temporary = path.join(this.directory, `${id}.replace`);
@@ -70,7 +77,7 @@ export class UploadStore extends FileStore {
       await rm(temporary, { force: true });
       try {
         await link(source, temporary);
-        await rename(temporary, destination);
+        await commit(temporary);
       } catch (error) {
         if (!crossDevice.some((code) => isFsError(error, code))) throw error;
         // Nested mounts cannot rename between filesystems. Overwrite in place instead.
