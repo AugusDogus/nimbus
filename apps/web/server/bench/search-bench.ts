@@ -65,6 +65,8 @@ type SizeResult = {
   rssMiB: number;
   /** After one more compaction once built: the build's transient garbage is gone by then. */
   steadyRssMiB: number;
+  /** After every query class ran: adds scan scratch space and the fuzzy layer's corrections. */
+  queriedRssMiB: number;
   heapMiB: number;
   renameMs: Distribution;
   create10kMs: number;
@@ -136,6 +138,7 @@ function compare(before: Results, after: Results) {
     row("compact ms", old?.compactMs, size.compactMs);
     row("RSS MiB", old?.rssMiB, size.rssMiB);
     row("steady RSS MiB", old?.steadyRssMiB, size.steadyRssMiB);
+    row("RSS after queries MiB", old?.queriedRssMiB, size.queriedRssMiB);
     row("rename p50 ms", old?.renameMs.p50, size.renameMs.p50);
     row("10k creations ms", old?.create10kMs, size.create10kMs);
     for (const query of size.queries) {
@@ -310,6 +313,7 @@ async function measureSize(entries: number): Promise<SizeResult> {
         );
       }
 
+  const queried = memory();
   const history = plantedHistory.map((path, order) => ({
     path,
     openedAt: Date.now() - order * 60_000,
@@ -365,6 +369,7 @@ async function measureSize(entries: number): Promise<SizeResult> {
     compactMs: Math.round(compactMs),
     rssMiB: Math.round((after.rss - before.rss) / 2 ** 20),
     steadyRssMiB: Math.round((steady.rss - before.rss) / 2 ** 20),
+    queriedRssMiB: Math.round((queried.rss - before.rss) / 2 ** 20),
     heapMiB: Math.round((after.heap - before.heap) / 2 ** 20),
     renameMs: distribution(renames),
     create10kMs: round(create10kMs),
