@@ -61,7 +61,7 @@ Open [http://localhost:3000/signup](http://localhost:3000/signup) to create the 
 
 ### HTTPS reverse proxy
 
-Nimbus speaks HTTP/1.1. Browsers open at most six HTTP/1.1 connections to a server, and the file browser's first visit loads about 30 scripts, so on slow networks requests wait for a free connection. A proxy that speaks HTTP/2 to the browser removes that wait: in a measured cold load of a comparable app, first paint came 41% sooner on a fast mobile connection and 13% sooner on a slow one. Use HTTPS with HTTP/2 (HTTP/3 is optional) towards browsers and plain HTTP/1.1 to Nimbus. Nimbus already compresses its files, so leave compression off in the proxy, and do not buffer uploads or the live event stream.
+Nimbus speaks plain HTTP/1.1 and expects a reverse proxy in front of it to provide HTTPS, which browsers require for passkeys. Speak HTTP/1.1 to Nimbus; HTTP/2 or HTTP/3 towards browsers is fine but not needed for speed, since the file browser's first visit loads about 30 scripts and fits in the six connections browsers open over HTTP/1.1. Nimbus already compresses its files, so leave compression off in the proxy, and do not buffer uploads or the live event stream.
 
 [Caddy](https://caddyserver.com) does all of this by default:
 
