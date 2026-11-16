@@ -65,7 +65,10 @@ export async function resolveSafePath(
   return { absolute, relative: segments.join("/") };
 }
 
-/** Error codes survive the separate tRPC copies loaded by Next and the custom server. */
+/**
+ * Whether an error carries a tRPC error code: a TRPCError, or a PathError thrown by
+ * `resolveSafePath` for callers that do not go through `safePath`.
+ */
 export function isApiError(error: unknown, code: TRPCError["code"]) {
   return (
     typeof error === "object" &&

@@ -14,7 +14,7 @@ import type { DriveStore, Permission } from "./drive-store";
 import { FolderAccess } from "./folder-access";
 import { numberedName } from "./numbered-name";
 import { fileNameSchema } from "./file-name";
-import { mutateFiles } from "./file-mutations";
+import { mutateFiles, FileLockedError } from "./file-mutations";
 import {
   copyItem,
   moveItem,
@@ -302,7 +302,7 @@ export const appRouter = router({
           } catch (error) {
             const nameTaken =
               isApiError(error, "CONFLICT") &&
-              !(error instanceof Error && error.name === "FileLockedError");
+              !(error instanceof FileLockedError);
             if (!nameTaken) throw error;
           }
         }

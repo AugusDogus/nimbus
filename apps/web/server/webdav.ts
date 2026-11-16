@@ -21,6 +21,7 @@ import {
   type LockDepth,
   type LockScope,
   type MutationCredentials,
+  FileLockedError,
 } from "@nimbus/api/file-mutations";
 import {
   copyItem,
@@ -567,10 +568,7 @@ async function transfer(
           ));
   } catch (error) {
     // An existing destination with Overwrite: F is a failed precondition, not a conflict.
-    if (
-      isApiError(error, "CONFLICT") &&
-      !(error instanceof Error && error.name === "FileLockedError")
-    )
+    if (isApiError(error, "CONFLICT") && !(error instanceof FileLockedError))
       return new Response(null, { status: 412 });
     // Source and destination overlap, or the drive root was named.
     if (isApiError(error, "BAD_REQUEST"))

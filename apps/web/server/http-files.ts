@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
-import { z } from "zod";
 import { getAccess } from "@nimbus/api/access";
+import { FileLockedError } from "@nimbus/api/file-mutations";
 
 import { auth } from "@/lib/auth";
 import { db } from "./db";
@@ -18,22 +18,8 @@ export async function requestAccess(request: Request) {
   return getAccess(httpDriveStore, session.user.id);
 }
 
-const requestError = z.object({
-  code: z.enum([
-    "UNAUTHORIZED",
-    "FORBIDDEN",
-    "NOT_FOUND",
-    "CONFLICT",
-    "TOO_MANY_REQUESTS",
-    "INTERNAL_SERVER_ERROR",
-    "BAD_REQUEST",
-    "PRECONDITION_FAILED",
-    "PAYLOAD_TOO_LARGE",
-  ]),
-  message: z.string(),
-  name: z.string().optional(),
-});
-const errorStatuses = {
+/** HTTP statuses of the tRPC error codes file routes raise; any other error is a 500. */
+const errorStatuses: Partial<Record<TRPCError["code"], number>> = {
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   NOT_FOUND: 404,
@@ -43,18 +29,17 @@ const errorStatuses = {
   BAD_REQUEST: 400,
   PRECONDITION_FAILED: 412,
   PAYLOAD_TOO_LARGE: 413,
-} as const;
+};
 
 export function httpError(error: unknown) {
-  // The custom server and Next's bundles can load separate copies of tRPC.
-  const parsed = requestError.safeParse(error);
-  if (parsed.success) {
-    const status =
-      parsed.data.name === "FileLockedError"
-        ? 423
-        : errorStatuses[parsed.data.code];
-    return Response.json({ error: parsed.data.message }, { status });
-  }
+  const status =
+    error instanceof FileLockedError
+      ? 423
+      : error instanceof TRPCError
+        ? errorStatuses[error.code]
+        : undefined;
+  if (error instanceof TRPCError && status !== undefined)
+    return Response.json({ error: error.message }, { status });
   console.error("Nimbus file request failed", error);
   return Response.json(
     {
