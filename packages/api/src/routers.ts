@@ -12,7 +12,7 @@ import { getListCache, getListCacheKey, setListCache } from "./list-cache";
 import { getPermissionsHash } from "./perms-hash";
 import { isApiError, isFsError } from "./safe-path";
 import { getAccess } from "./access";
-import type { Permission } from "./drive-store";
+import type { DriveStore, Permission } from "./drive-store";
 import { FolderAccess } from "./folder-access";
 import { numberedName } from "./numbered-name";
 import { fileNameSchema } from "./file-name";
@@ -49,6 +49,52 @@ const fileEventSchema = z.object({
   event: z.enum(["rename", "change", "delete", "unknown"]),
   ts: z.number(),
 });
+
+type EventFacts =
+  | { kind: "present"; type: FileDelta["type"] }
+  | { kind: "removed" }
+  | { kind: "unreadable" };
+
+/**
+ * Every live-update subscriber receives the same event object. Facts about it, and the
+ * access epoch read after it happened, are computed once per event, not once per subscriber.
+ */
+const eventFacts = new WeakMap<object, Promise<EventFacts>>();
+const eventEpochs = new WeakMap<object, Promise<number>>();
+
+function sharedEpoch(event: unknown, store: DriveStore) {
+  if (typeof event !== "object" || event === null) return store.accessEpoch();
+  let read = eventEpochs.get(event);
+  if (!read) {
+    read = store.accessEpoch();
+    eventEpochs.set(event, read);
+  }
+  return read;
+}
+
+function sharedFacts(event: unknown, relative: string, absolute: string) {
+  const describe = async (): Promise<EventFacts> => {
+    try {
+      await safePath(relative);
+      const stats = await statPath(absolute);
+      return {
+        kind: "present",
+        type: stats.isDirectory ? "dir" : stats.isFile ? "file" : "other",
+      };
+    } catch (error) {
+      return isFsError(error, "ENOENT")
+        ? { kind: "removed" }
+        : { kind: "unreadable" };
+    }
+  };
+  if (typeof event !== "object" || event === null) return describe();
+  let facts = eventFacts.get(event);
+  if (!facts) {
+    facts = describe();
+    eventFacts.set(event, facts);
+  }
+  return facts;
+}
 
 const defaultPreferences: UserPreferences = {
   view: "list",
@@ -358,48 +404,36 @@ export const appRouter = router({
             ? fileEvent.path
             : path.resolve(root, fileEvent.path);
           const eventRel = path.relative(requestedAbs, eventAbs);
+          // Path filters first: they cost nothing and drop most events for most subscribers.
+          if (
+            eventRel === "" ||
+            eventRel === "." ||
+            eventRel.startsWith("..") ||
+            path.isAbsolute(eventRel) ||
+            (hasFilter && eventRel.includes(path.sep)) ||
+            eventRel.split(path.sep).includes(".nimbus")
+          )
+            continue;
           const driveRelative = path
             .relative(root, eventAbs)
             .split(path.sep)
             .join("/");
-          const access = await getAccess(ctx.drive, ctx.access.user.id);
+          const access = await getAccess(
+            ctx.drive,
+            ctx.access.user.id,
+            sharedEpoch(event, ctx.drive),
+          );
           if (!access.can(driveRelative, "read")) continue;
-
-          if (
-            eventRel.startsWith("..") ||
-            path.isAbsolute(eventRel) ||
-            (hasFilter && eventRel.includes(path.sep))
-          ) {
-            continue;
-          }
-
-          if (eventRel === "" || eventRel === ".") {
-            continue;
-          }
-
-          if (eventRel.split(path.sep).includes(".nimbus")) {
-            continue;
-          }
-
-          let entryType: FileDelta["type"] = "other";
-          let action: FileDelta["action"] = "changed";
-
-          try {
-            await safePath(driveRelative);
-            const stats = await statPath(eventAbs);
-            entryType = stats.isDirectory
-              ? "dir"
-              : stats.isFile
-                ? "file"
-                : "other";
-            action = fileEvent.event === "change" ? "changed" : "added";
-          } catch (error) {
-            if (isFsError(error, "ENOENT")) {
-              action = "removed";
-            } else {
-              continue;
-            }
-          }
+          const facts = await sharedFacts(event, driveRelative, eventAbs);
+          if (facts.kind === "unreadable") continue;
+          const entryType: FileDelta["type"] =
+            facts.kind === "present" ? facts.type : "other";
+          const action: FileDelta["action"] =
+            facts.kind === "removed"
+              ? "removed"
+              : fileEvent.event === "change"
+                ? "changed"
+                : "added";
 
           const requestedRelNative = requestedRel.split("/").join(path.sep);
           const normalizedPath = [requestedRelNative, eventRel]

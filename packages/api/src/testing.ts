@@ -57,7 +57,12 @@ export function createTestDriveStore() {
   const bookmarks = new Map<string, Bookmark[]>();
   const passwords = new Map<string, AppPassword>();
   const versions = createTestFileVersionStore();
+  // Tests edit the maps directly, so cached access is never reused.
+  let epoch = 0;
   const store: DriveStore = {
+    async accessEpoch() {
+      return ++epoch;
+    },
     async getUser(id) {
       return users.get(id) ?? null;
     },

@@ -150,6 +150,16 @@ function relocateVersions(tx: Transaction, from: string, to: string) {
 
 export function createDriveStore(database: Database): DriveStore {
   return {
+    async accessEpoch() {
+      const [row] = database.all<{ value: number }>(
+        sql`SELECT value FROM nimbus_access_epoch WHERE id = 0`,
+      );
+      if (!row)
+        throw new Error(
+          "The nimbus_access_epoch row is missing, so Nimbus cannot tell whether cached permissions are current. Restart Nimbus to rerun its migrations; no data was changed.",
+        );
+      return row.value;
+    },
     async getUser(id) {
       const [row] = await database.select().from(user).where(eq(user.id, id));
       return row

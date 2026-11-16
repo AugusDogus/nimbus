@@ -66,6 +66,11 @@ export type Home = { userId: string; path: string };
 
 /** Persistence boundary. Filesystem content remains on disk, never in these records. */
 export type DriveStore = {
+  /**
+   * A number that changes whenever any account, grant, group or membership changes, by
+   * whatever writer. Access computed at one epoch stays valid until it changes.
+   */
+  accessEpoch(): Promise<number>;
   getUser(id: string): Promise<DriveUser | null>;
   listUsers(): Promise<DriveUser[]>;
   grantsForUser(userId: string): Promise<Grant[]>;

@@ -450,3 +450,67 @@ test("concurrent writes and transactions all commit", async () => {
     "two",
   ]);
 });
+
+test("the access epoch changes with every grant, group, membership and account change, whoever writes it", async () => {
+  const changes: [string, () => Promise<unknown> | unknown][] = [
+    ["grant saved", () => store.saveGrant(grant("e1", "docs"))],
+    ["grant moved", () => store.movePath("docs", "papers")],
+    ["grant removed", () => store.removeGrant("e1")],
+    [
+      "group saved",
+      () => store.saveGroup({ id: "t", name: "T", memberIds: ["reader"] }),
+    ],
+    [
+      "membership removed by sign-in sync",
+      () =>
+        client.run("DELETE FROM nimbus_group_member WHERE user_id = 'reader'"),
+    ],
+    ["group removed", () => store.removeGroup("t")],
+    [
+      "account disabled by Better Auth",
+      () => client.run("UPDATE user SET banned = 1 WHERE id = 'reader'"),
+    ],
+    [
+      "account removed",
+      () => client.run("DELETE FROM user WHERE id = 'reader'"),
+    ],
+  ];
+  for (const [name, change] of changes) {
+    const before = await store.accessEpoch();
+    await change();
+    expect({ name, changed: (await store.accessEpoch()) !== before }).toEqual({
+      name,
+      changed: true,
+    });
+  }
+  const steady = await store.accessEpoch();
+  await store.createShare(share("unrelated", "docs"));
+  await store.saveBookmark("owner", {
+    path: "docs",
+    starred: true,
+    accessedAt: 1,
+  });
+  expect(await store.accessEpoch()).toBe(steady);
+});
+
+test("cached access follows revoked grants and disabled accounts on the next request", async () => {
+  const { getAccess } = await import("@nimbus/api/access");
+  await store.saveGrant(grant("read-docs", "docs"));
+  expect((await getAccess(store, "reader")).can("docs/a.txt", "read")).toBe(
+    true,
+  );
+  // Unchanged epoch: the same access object is reused.
+  expect(await getAccess(store, "reader")).toBe(
+    await getAccess(store, "reader"),
+  );
+  await store.removeGrant("read-docs");
+  expect((await getAccess(store, "reader")).can("docs/a.txt", "read")).toBe(
+    false,
+  );
+  await store.saveGrant(grant("read-docs", "docs"));
+  await getAccess(store, "reader");
+  client.run("UPDATE user SET banned = 1 WHERE id = 'reader'");
+  await expect(getAccess(store, "reader")).rejects.toMatchObject({
+    code: "UNAUTHORIZED",
+  });
+});
