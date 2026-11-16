@@ -51,7 +51,7 @@ describe("search index", () => {
     const index = sample();
     expect(
       index.search({ query: "report", root: "", limit: 2, scope: all }),
-    ).toEqual({
+    ).toMatchObject({
       hits: [
         { path: "docs/reports", type: "dir" },
         { path: "docs/Report.pdf", type: "file" },

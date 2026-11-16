@@ -115,11 +115,14 @@ describe("searchEntries", () => {
       usage: async () => 0,
       search: async () => ({
         hits: [
-          { path: "docs/report.txt", type: "file" },
-          { path: "docs/deep/notes.txt", type: "file" },
-          { path: "docs/deep/gone.txt", type: "file" },
+          { path: "docs/report.txt", type: "file", match: "name" },
+          { path: "docs/deep/notes.txt", type: "file", match: "name" },
+          { path: "docs/deep/gone.txt", type: "file", match: "name" },
         ],
         truncated: false,
+        total: 3,
+        next: null,
+        terms: ["notes"],
         complete: true,
       }),
     });
@@ -136,7 +139,14 @@ describe("searchEntries", () => {
       usage: async () => 0,
       search: async (request) => {
         scope = request.scope;
-        return { hits: [], truncated: false, complete: true };
+        return {
+          hits: [],
+          truncated: false,
+          total: 0,
+          next: null,
+          terms: [],
+          complete: true,
+        };
       },
     });
     await searchEntries(reader, "", "notes", 50);

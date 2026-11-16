@@ -18,24 +18,30 @@
  * the drive's storage usage and any folder's total is one lookup.
  */
 
-export type IndexedKind = "file" | "dir";
+import {
+  createSearchState,
+  foldName,
+  runSearch,
+  type IndexView,
+  type IndexedKind,
+  type SearchLayout,
+  type SearchRequest,
+  type SearchResult,
+  type VisibleRange,
+} from "./search-query";
 
-export type SearchHit = { path: string; type: IndexedKind };
-
-export type SearchScope =
-  | { type: "all" }
-  /** Readable subtrees: a path is visible when it is, or is inside, one of these. */
-  | { type: "grants"; paths: readonly string[] };
-
-export type SearchRequest = {
-  query: string;
-  /** Only return entries inside this folder ("" is the drive root). */
-  root: string;
-  limit: number;
-  scope: SearchScope;
-};
-
-export type SearchResult = { hits: SearchHit[]; truncated: boolean };
+export {
+  foldName,
+  foldQuery,
+  type HistoryEntry,
+  type IndexedKind,
+  type SearchDepth,
+  type SearchHit,
+  type SearchMatch,
+  type SearchRequest,
+  type SearchResult,
+  type SearchScope,
+} from "./search-query";
 
 const ROOT = 0;
 const NONE = -1;
@@ -46,16 +52,6 @@ const DIR = 2;
 const SEPARATOR = "\0";
 /** Delta entries scanned one by one before a compaction is worthwhile. */
 const DELTA_LIMIT = 20_000;
-
-const boundary = new Uint8Array(128);
-for (const char of " _-.()[]+,@#&'") boundary[char.charCodeAt(0)] = 1;
-
-/** NFC plus lowercase: what both names and queries are compared as. */
-export const foldName = (value: string) => value.normalize("NFC").toLowerCase();
-
-/** Queries are typed text; control characters can never match a name. */
-export const foldQuery = (value: string) =>
-  foldName(value.trim()).replace(/[\u0000-\u001f\u007f]/g, "");
 
 const growInt32 = (
   array: Int32Array<ArrayBuffer>,
@@ -116,6 +112,14 @@ export function createSearchIndex(initialCapacity = 1024) {
   let slotId = new Int32Array([ROOT]);
   let subtreeEnd = new Int32Array([1]);
   let slots = 1;
+  /** The arrays above as one value, replaced whenever compaction replaces them. */
+  let layout: SearchLayout = {
+    folded,
+    foldedStarts,
+    slotId,
+    subtreeEnd,
+    slots,
+  };
   // Names for entries added since compaction.
   const deltaNames = new Map<number, { raw: string; folded: string }>();
 
@@ -344,6 +348,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     slotId = order.subarray(0, used);
     subtreeEnd = ends;
     slots = used;
+    layout = { folded, foldedStarts, slotId, subtreeEnd, slots };
     slotOf = nextSlotOf;
     deltaNames.clear();
     // Ids are unchanged, so the table stays valid; only shed tombstones.
@@ -351,17 +356,29 @@ export function createSearchIndex(initialCapacity = 1024) {
       rehash(Math.max(2048, 2 ** Math.ceil(Math.log2((live + 1) * 2))));
   };
 
-  /** Disjoint compacted slot ranges a caller may see beneath `rootId`. */
-  const visibleRanges = (rootId: number, granted: number[] | null) => {
+  /**
+   * Disjoint compacted slot ranges a caller may see beneath `rootId`. Nested
+   * grants merge into the outer one; ranges that only touch stay apart, so
+   * each keeps the folder above it.
+   */
+  const visibleRanges = (
+    rootId: number,
+    granted: number[] | null,
+  ): VisibleRange[] => {
     const rootSlot = slotOf[rootId];
     const within = (inner: number, outer: number) => {
       for (let current = inner; current !== NONE; current = parent[current])
         if (current === outer) return true;
       return false;
     };
-    const ranges: [number, number][] = [];
+    const ranges: VisibleRange[] = [];
+    const whole = () => ({
+      first: rootSlot + 1,
+      end: subtreeEnd[rootSlot],
+      outside: rootId,
+    });
     if (granted === null) {
-      if (rootSlot !== NONE) ranges.push([rootSlot + 1, subtreeEnd[rootSlot]]);
+      if (rootSlot !== NONE) ranges.push(whole());
       return ranges;
     }
     for (const grant of granted) {
@@ -371,18 +388,47 @@ export function createSearchIndex(initialCapacity = 1024) {
           ? rootId
           : NONE;
       const slot = top === NONE ? NONE : slotOf[top];
-      if (slot !== NONE)
-        ranges.push([top === rootId ? slot + 1 : slot, subtreeEnd[slot]]);
+      if (slot === NONE) continue;
+      ranges.push(
+        top === rootId
+          ? whole()
+          : { first: slot, end: subtreeEnd[slot], outside: parent[top] },
+      );
     }
-    ranges.sort((a, b) => a[0] - b[0]);
-    const merged: [number, number][] = [];
+    ranges.sort((a, b) => a.first - b.first);
+    const merged: VisibleRange[] = [];
     for (const range of ranges) {
       const last = merged[merged.length - 1];
-      if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+      if (last && range.first < last.end)
+        last.end = Math.max(last.end, range.end);
       else merged.push(range);
     }
     return merged;
   };
+
+  const view: IndexView = {
+    get layout(): SearchLayout {
+      return layout;
+    },
+    delta: deltaNames,
+    find,
+    isLive: (id) => id >= 0 && id < count && kinds[id] !== FREE,
+    isFolder: (id) => id >= 0 && id < count && kinds[id] === DIR,
+    parentOf: (id) => (id >= 0 && id < count ? parent[id] : NONE),
+    slotOf: (id) => (id >= 0 && id < count ? slotOf[id] : NONE),
+    pathOf,
+    foldedNameOf: (id) => {
+      const slot = slotOf[id];
+      if (slot === NONE) return deltaNames.get(id)?.folded ?? "";
+      return folded.toString(
+        "utf8",
+        foldedStarts[slot],
+        foldedStarts[slot + 1] - 1,
+      );
+    },
+    visibleRanges,
+  };
+  const state = createSearchState();
 
   return {
     get size() {
@@ -481,125 +527,9 @@ export function createSearchIndex(initialCapacity = 1024) {
 
     compact,
 
-    search({ query, root, limit, scope }: SearchRequest): SearchResult {
-      const needle = foldQuery(query);
-      const rootId = find(root);
-      if (!needle || limit <= 0 || rootId === NONE || kinds[rootId] !== DIR)
-        return { hits: [], truncated: false };
-      const granted =
-        scope.type === "grants"
-          ? scope.paths.map(find).filter((id) => id !== NONE)
-          : null;
-      if (granted?.length === 0) return { hits: [], truncated: false };
-
-      // Best `limit` hits by (tier, name length, layout order), kept sorted.
-      const ranks = new Float64Array(limit);
-      const ids = new Int32Array(limit);
-      let kept = 0;
-      let matched = 0;
-      const keep = (id: number, rank: number) => {
-        matched++;
-        if (kept === limit && rank >= ranks[limit - 1]) return;
-        let index = kept < limit ? kept++ : limit - 1;
-        while (index > 0 && ranks[index - 1] > rank) {
-          ranks[index] = ranks[index - 1];
-          ids[index] = ids[index - 1];
-          index--;
-        }
-        ranks[index] = rank;
-        ids[index] = id;
-      };
-      const rankOf = (
-        exact: boolean,
-        length: number,
-        at: number,
-        before: number,
-        order: number,
-      ) =>
-        (exact ? 0 : at === 0 ? 1 : before < 128 && boundary[before] ? 2 : 3) *
-          2 ** 44 +
-        length * 2 ** 32 +
-        order;
-
-      // A single character matches name prefixes only: infix hits would be
-      // nearly every name and help nobody.
-      const prefixOnly = needle.length === 1;
-      const pattern = Buffer.from(prefixOnly ? SEPARATOR + needle : needle);
-      const needleBytes = pattern.length - (prefixOnly ? 1 : 0);
-      const shift = prefixOnly ? 1 : 0;
-      for (const [first, end] of visibleRanges(rootId, granted)) {
-        const stop = foldedStarts[end];
-        // `indexOf` has no end bound: a view ending at the range keeps a miss
-        // from scanning the rest of the drive, which this caller cannot see.
-        const haystack = folded.subarray(0, stop);
-        let slot = first;
-        let position = haystack.indexOf(pattern, foldedStarts[first] - shift);
-        while (position >= 0 && position + shift < stop) {
-          const at = position + shift;
-          // Gallop forward to the slot containing this match.
-          if (foldedStarts[slot + 1] <= at) {
-            let step = 1;
-            while (slot + step < end && foldedStarts[slot + step + 1] <= at)
-              step *= 2;
-            let low = slot + (step >> 1);
-            let high = Math.min(slot + step, end - 1);
-            while (low < high) {
-              const middle = (low + high + 1) >> 1;
-              if (foldedStarts[middle] <= at) low = middle;
-              else high = middle - 1;
-            }
-            slot = low;
-          }
-          const id = slotId[slot];
-          if (kinds[id] !== FREE) {
-            const start = foldedStarts[slot];
-            const length = foldedStarts[slot + 1] - start - 1;
-            keep(
-              id,
-              rankOf(
-                length === needleBytes,
-                length,
-                at - start,
-                folded[at - 1],
-                slot,
-              ),
-            );
-          }
-          position = haystack.indexOf(pattern, foldedStarts[slot + 1] - shift);
-        }
-      }
-
-      // Delta entries: check visibility by walking ancestors.
-      const grantSet = granted ? new Set(granted) : null;
-      for (const [id, name] of deltaNames) {
-        const at = name.folded.indexOf(needle);
-        if (at < 0 || (prefixOnly && at !== 0) || id === rootId) continue;
-        let inRoot = false;
-        let inGrant = grantSet === null;
-        for (let current = id; current !== NONE; current = parent[current]) {
-          if (current === rootId) inRoot = true;
-          if (grantSet?.has(current)) inGrant = true;
-        }
-        if (inRoot && inGrant)
-          keep(
-            id,
-            rankOf(
-              name.folded.length === needle.length,
-              name.folded.length,
-              at,
-              name.folded.charCodeAt(at - 1),
-              slots + id,
-            ),
-          );
-      }
-
-      const hits: SearchHit[] = [];
-      for (let i = 0; i < kept; i++)
-        hits.push({
-          path: pathOf(ids[i]),
-          type: kinds[ids[i]] === DIR ? "dir" : "file",
-        });
-      return { hits, truncated: matched > kept };
+    /** Filename search; see search-query.ts for its layers and order. */
+    search(request: SearchRequest): SearchResult {
+      return runSearch(view, state, request);
     },
   };
 }
