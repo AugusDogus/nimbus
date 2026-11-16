@@ -25,13 +25,16 @@ const children = [
     stderr: "inherit",
   }),
 ];
+let stopping = false;
 const stop = () => {
+  stopping = true;
   for (const child of children) child.kill("SIGTERM");
 };
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
-// When either stops, stop the other too, and exit with the first failure.
+// When either stops on its own, stop the other too and report its exit code.
 const first = await Promise.race(children.map((child) => child.exited));
+const failed = !stopping && first !== 0;
 stop();
-const codes = await Promise.all(children.map((child) => child.exited));
-process.exit(first || codes.find((code) => code !== 0) || 0);
+await Promise.all(children.map((child) => child.exited));
+process.exit(failed ? first || 1 : 0);
