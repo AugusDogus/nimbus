@@ -6,7 +6,11 @@ import {
   reconcile,
   type Serialize,
 } from "@nimbus/api/search-crawler";
-import { createSearchIndex, type SearchIndex } from "@nimbus/api/search-index";
+import {
+  createSearchIndex,
+  type SearchIndex,
+  type SearchRequest,
+} from "@nimbus/api/search-index";
 import type { SearchInbound, SearchOutbound } from "./search-protocol";
 
 declare const self: Worker;
@@ -124,6 +128,42 @@ async function rebuild(reason: "startup" | "reconcile") {
   if (overflowed || reconcileAgain) void reconcileLive().catch(report);
 }
 
+/**
+ * Searches waiting to run, oldest first. One runs per task, so a cancel that
+ * arrives meanwhile (the user typed on) removes its search before it runs,
+ * and many users' searches take turns instead of piling up.
+ */
+const searches = new Map<number, SearchRequest>();
+let searchScheduled = false;
+
+function scheduleSearch() {
+  if (searchScheduled || searches.size === 0) return;
+  searchScheduled = true;
+  setTimeout(runNextSearch, 0);
+}
+
+function runNextSearch() {
+  searchScheduled = false;
+  const next = searches.entries().next();
+  if (next.done) return;
+  const [id, request] = next.value;
+  searches.delete(id);
+  try {
+    post({
+      type: "result",
+      id,
+      answer: { ...live.search(request), complete },
+    });
+  } catch (error) {
+    post({
+      type: "error",
+      id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+  scheduleSearch();
+}
+
 function report(error: unknown) {
   post({
     type: "failed",
@@ -157,19 +197,11 @@ self.onmessage = (event: MessageEvent<SearchInbound>) => {
       );
       return;
     case "search":
-      try {
-        post({
-          type: "result",
-          id: message.id,
-          answer: { ...live.search(message.request), complete },
-        });
-      } catch (error) {
-        post({
-          type: "error",
-          id: message.id,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
+      searches.set(message.id, message.request);
+      scheduleSearch();
+      return;
+    case "cancel":
+      searches.delete(message.id);
       return;
   }
 };

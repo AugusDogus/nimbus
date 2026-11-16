@@ -104,7 +104,7 @@ const search = defineTool({
   name: "search_files",
   title: "Search files",
   description:
-    "Find files and folders whose names contain the query (case-insensitive) under a folder you can read, using Nimbus's filename index. Returns at most 200 matches; truncated is true when more matched, so narrow the folder or query. complete is false while the index is still being built after the server started, so some matches may be missing.",
+    "Find files and folders by name under a folder you can read, using Nimbus's filename index (case-insensitive). Names containing the whole query come first; then items whose name holds some of its words and whose folders hold the rest, so `2024 invoice` finds Finance/2024/invoice-0042.pdf. total counts every match; page through all of them with nextCursor. complete is false while the index is still being built after the server started, so some matches may be missing.",
   scope: McpScope.read,
   annotations: readOnly,
   input: z.object({
@@ -116,6 +116,7 @@ const search = defineTool({
   }),
   output: z.object({
     entries: z.array(entryOutput),
+    total: z.number(),
     truncated: z.boolean(),
     complete: z.boolean(),
     ...pageOutput,
@@ -124,14 +125,16 @@ const search = defineTool({
     const result = await caller.catalog.search({
       query: input.query,
       path: input.path,
-      limit: 200,
+      limit: input.limit,
+      depth: "full",
+      offset: input.cursor === undefined ? 0 : Number(input.cursor),
     });
-    const page = paginate(result.entries, input);
     return {
-      entries: page.items.map(toEntry),
+      entries: result.entries.map(toEntry),
+      total: result.total,
       truncated: result.truncated,
       complete: result.complete,
-      nextCursor: page.nextCursor,
+      nextCursor: result.next === null ? null : String(result.next),
     };
   },
 });

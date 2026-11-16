@@ -103,6 +103,12 @@ function start(): BridgeState {
 
 const bridge = () => (running ??= start());
 
+const cancelled = () =>
+  new TRPCError({
+    code: "CLIENT_CLOSED_REQUEST",
+    message: "The search was cancelled because a newer one replaced it.",
+  });
+
 /** Register a request the worker answers by id; it fails after `timeoutMs`. */
 function track(
   timeoutMs: number,
@@ -125,8 +131,12 @@ function track(
 export function ensureSearchIndex() {
   bridge();
   provideSearchService({
-    search: (request) =>
+    search: (request, signal) =>
       new Promise<SearchAnswer>((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(cancelled());
+          return;
+        }
         const { id, worker } = track(
           QUERY_TIMEOUT_MS,
           "Search took too long to answer. The index may still be starting; try again shortly.",
@@ -134,6 +144,19 @@ export function ensureSearchIndex() {
         );
         const message: SearchInbound = { type: "search", id, request };
         worker.postMessage(message);
+        signal?.addEventListener(
+          "abort",
+          () => {
+            const pending = running?.pending.get(id);
+            if (!pending) return;
+            running?.pending.delete(id);
+            clearTimeout(pending.timer);
+            pending.reject(cancelled());
+            const cancel: SearchInbound = { type: "cancel", id };
+            worker.postMessage(cancel);
+          },
+          { once: true },
+        );
       }),
     usage: () =>
       new Promise<number>((resolve, reject) => {

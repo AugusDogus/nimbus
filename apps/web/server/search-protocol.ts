@@ -6,6 +6,8 @@ export type SearchInbound =
   | { type: "start"; root: string }
   | { type: "changed"; path: string }
   | { type: "search"; id: number; request: SearchRequest }
+  /** Nobody waits for this search any more: drop it if it has not run yet. */
+  | { type: "cancel"; id: number }
   | { type: "usage"; id: number }
   /** The watcher lost events: walk the drive again. */
   | { type: "rescan" };

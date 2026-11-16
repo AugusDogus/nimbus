@@ -285,6 +285,34 @@ describe("MCP tools", () => {
     });
   });
 
+  it("matches words across folders and pages through every match", async () => {
+    const searchPage = z.object({
+      entries: z.array(z.object({ path: z.string() })),
+      total: z.number(),
+      nextCursor: z.string().nullable(),
+    });
+    await mkdir(path.join(root, "docs", "2024"));
+    for (let i = 0; i < 5; i++)
+      await writeFile(path.join(root, "docs", "2024", `invoice-${i}.pdf`), "x");
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = searchPage.parse(
+        await value("search_files", {
+          query: "2024 invoice",
+          limit: 2,
+          ...(cursor === undefined ? {} : { cursor }),
+        }),
+      );
+      expect(page.total).toBe(5);
+      seen.push(...page.entries.map((entry) => entry.path));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+    expect(seen.sort()).toEqual(
+      [0, 1, 2, 3, 4].map((i) => `docs/2024/invoice-${i}.pdf`),
+    );
+  });
+
   it("respects WebDAV locks", async () => {
     lockFile("docs/report.txt", { userId: "user-1" });
     expect(

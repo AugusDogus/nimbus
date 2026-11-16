@@ -2,10 +2,31 @@ import { permissionFor } from "./access";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { entryAt } from "./file-browser";
+import type { Bookmark } from "./drive-store";
+import type { HistoryEntry } from "./search-index";
 import { searchEntries } from "./search-service";
 import { safePath } from "./file-operations";
 import { isApiError } from "./safe-path";
 import { protectedProcedure, router } from "./index";
+
+/** Opens that count toward ranking: the most recent ones, and every starred one. */
+const HISTORY_LIMIT = 500;
+
+/** The caller's bookmarks as search history, newest first. */
+function searchHistory(bookmarks: readonly Bookmark[]): HistoryEntry[] {
+  return [...bookmarks]
+    .sort(
+      (a, b) =>
+        Number(b.starred) - Number(a.starred) || b.accessedAt - a.accessedAt,
+    )
+    .slice(0, HISTORY_LIMIT)
+    .map((bookmark) => ({
+      path: bookmark.path,
+      openedAt: bookmark.accessedAt,
+      visits: bookmark.visits,
+      starred: bookmark.starred,
+    }));
+}
 
 export const catalogRouter = router({
   shared: protectedProcedure.query(async ({ ctx }) => {
@@ -28,15 +49,27 @@ export const catalogRouter = router({
         query: z.string().trim().min(1).max(200),
         path: z.string().default(""),
         limit: z.number().int().min(1).max(200).default(50),
+        /** "instant" for names only while typing; "full" adds the words layer and paging. */
+        depth: z.enum(["instant", "full"]).default("full"),
+        /** `next` from the previous page. */
+        offset: z.number().int().min(0).default(0),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .query(async ({ ctx, input, signal }) => {
       const target = await safePath(input.path);
       const result = await searchEntries(
         ctx.access,
         target.relative,
         input.query,
         input.limit,
+        {
+          depth: input.depth,
+          offset: input.offset,
+          history: searchHistory(
+            await ctx.drive.listBookmarks(ctx.access.user.id),
+          ),
+          signal,
+        },
       );
       return {
         ...result,

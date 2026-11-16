@@ -40,22 +40,13 @@ async function crawlInto(
         if (child >= 0) pending.push([path.join(directory, entry.name), child]);
       } else if (entry.isFile()) files.push(entry.name);
     }
-    let cursor = 0;
-    const statNext = async () => {
-      for (let at = cursor++; at < files.length; at = cursor++) {
-        const name = files[at];
-        if (name === undefined) continue;
-        try {
-          const stats = await lstat(path.join(directory, name));
-          if (stats.isFile()) index.addChild(id, name, "file", stats.size);
-        } catch {
-          // Removed while crawling.
-        }
-      }
-    };
-    await Promise.all(
-      Array.from({ length: Math.min(statConcurrency, files.length) }, statNext),
-    );
+    // Added in listing order, not as stats finish, so equal matches rank the
+    // same way after every crawl and a later page continues where one ended.
+    const sizes = await statFiles(directory, files);
+    for (const name of files) {
+      const size = sizes.get(name);
+      if (size !== undefined) index.addChild(id, name, "file", size);
+    }
     listed += entries.length;
     if (listed >= 50_000) {
       listed = 0;

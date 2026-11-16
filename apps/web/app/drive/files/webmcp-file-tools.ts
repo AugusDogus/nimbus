@@ -138,7 +138,7 @@ export async function registerFileTools(
         name: "nimbus.search",
         title: "Search files",
         description:
-          "Find files and folders whose names contain the query, anywhere you have access. Returns up to 50 matches.",
+          "Find files and folders by name anywhere you have access. Names containing the whole query come first, then items whose name holds some of its words and whose folders hold the rest (`2024 invoice` finds Finance/2024/invoice-0042.pdf). Returns up to 50 matches and the total.",
         inputSchema: {
           type: "object",
           properties: {
@@ -156,13 +156,14 @@ export async function registerFileTools(
           if (!query || query.length > 200)
             return fail("Pass a search query of 1 to 200 characters.");
           const result = await trpcClient.catalog.search.query(
-            { query, path: "", limit: 50 },
+            { query, path: "", limit: 50, depth: "full" },
             { signal },
           );
           return {
             ok: true,
-            entries: result.entries.slice(0, 50).map(describe),
-            truncated: result.truncated || result.entries.length > 50,
+            entries: result.entries.map(describe),
+            total: result.total,
+            truncated: result.truncated,
           };
         },
       },
