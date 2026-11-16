@@ -8,8 +8,23 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { sessionQuery } from "@/lib/session-query";
 import { queryClient } from "@/lib/trpc";
+import { trpcErrorCode } from "@/lib/trpc-error";
 import { router } from "./router";
+
+// A session that ended elsewhere, such as by signing out everywhere, sends the next request's
+// page to sign-in, as the server-rendered pages did.
+queryClient.getQueryCache().subscribe((event) => {
+  if (
+    event.type === "updated" &&
+    event.action.type === "error" &&
+    trpcErrorCode(event.action.error) === "UNAUTHORIZED"
+  ) {
+    queryClient.removeQueries({ queryKey: sessionQuery.queryKey });
+    void router.navigate({ to: "/login" });
+  }
+});
 
 const container = document.getElementById("root");
 if (!container)

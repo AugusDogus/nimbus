@@ -2,7 +2,6 @@ import { Folder, HardDrive } from "lucide-react";
 import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { useSession } from "@/lib/auth-client";
 import { trpcErrorCode } from "@/lib/trpc-error";
 
 import { FileBreadcrumbs } from "./breadcrumbs";
@@ -25,9 +24,7 @@ export function FilesPageClient() {
     () => (currentPath ? currentPath.split("/") : []),
     [currentPath],
   );
-  const { session: initialSession } = useRouteContext({ from: "/_authed" });
-  const { data: sessionData, isPending } = useSession();
-  const session = isPending ? initialSession : sessionData;
+  const { session } = useRouteContext({ from: "/_authed" });
   const isAuthed = Boolean(session);
 
   const { prefs, updatePreferences } = useFilePreferences(isAuthed);

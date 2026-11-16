@@ -34,7 +34,6 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { signOut, useSession } from "@/lib/auth-client";
 import { useFolderPath } from "./files/folder-path";
 
 import { AppSidebar } from "./files/app-sidebar";
@@ -59,10 +58,8 @@ const sidebarStyle: CSSProperties & Record<`--${string}`, string> = {
 
 export function FilesShell({ children }: FilesShellProps) {
   const currentPath = useFolderPath();
-  const { session: initialSession } = useRouteContext({ from: "/_authed" });
+  const { session } = useRouteContext({ from: "/_authed" });
 
-  const { data: sessionData, isPending } = useSession();
-  const session = isPending ? initialSession : sessionData;
   const isAuthed = Boolean(session);
 
   const { prefs } = useFilePreferences(isAuthed);
@@ -175,6 +172,8 @@ export function FilesShell({ children }: FilesShellProps) {
                   <DropdownMenuItem
                     onClick={() =>
                       void (async () => {
+                        // The auth client loads only for this, not with every page.
+                        const { signOut } = await import("@/lib/auth-client");
                         const result = await signOut();
                         if (result.error) {
                           toast.error(
