@@ -18,11 +18,6 @@ import { parseArgs } from "node:util";
 import { availableParallelism } from "node:os";
 import { createSearchIndex } from "@nimbus/api/search-index";
 import {
-  createScanPool,
-  POOL_MIN_BYTES,
-  searchWithPool,
-} from "@nimbus/api/search-scan-pool";
-import {
   pathAt,
   plantedFiles,
   plantedHistory,
@@ -68,6 +63,8 @@ type SizeResult = {
   buildMs: number;
   compactMs: number;
   rssMiB: number;
+  /** After one more compaction once built: the build's transient garbage is gone by then. */
+  steadyRssMiB: number;
   heapMiB: number;
   renameMs: Distribution;
   create10kMs: number;
@@ -138,6 +135,7 @@ function compare(before: Results, after: Results) {
     row("build ms", old?.buildMs, size.buildMs);
     row("compact ms", old?.compactMs, size.compactMs);
     row("RSS MiB", old?.rssMiB, size.rssMiB);
+    row("steady RSS MiB", old?.steadyRssMiB, size.steadyRssMiB);
     row("rename p50 ms", old?.renameMs.p50, size.renameMs.p50);
     row("10k creations ms", old?.create10kMs, size.create10kMs);
     for (const query of size.queries) {
@@ -221,17 +219,19 @@ if (!Number.isInteger(threads) || threads < 0)
   throw new Error(
     `--threads takes a whole number of scan workers, not "${options.threads}".`,
   );
+// Imported only with workers, so the same file still measures a baseline without them.
+const parallel =
+  threads > 0 ? await import("@nimbus/api/search-scan-pool") : null;
 const minBytes =
   options["min-bytes"] === undefined
-    ? POOL_MIN_BYTES
+    ? (parallel?.POOL_MIN_BYTES ?? 0)
     : Number(options["min-bytes"]);
-const pool =
-  threads > 0
-    ? createScanPool(
-        () => new Worker(new URL("../search-scan.worker.ts", import.meta.url)),
-        threads,
-      )
-    : null;
+const pool = parallel
+  ? parallel.createScanPool(
+      () => new Worker(new URL("../search-scan.worker.ts", import.meta.url)),
+      threads,
+    )
+  : null;
 const admin = { type: "all" } as const;
 const user = { type: "grants", paths: userGrants } as const;
 const scopes = [
@@ -258,14 +258,22 @@ async function measureSize(entries: number): Promise<SizeResult> {
   const compactMs = now() - compactStarted;
   const buildMs = now() - started;
   const after = memory();
+  real.compact();
+  await Bun.sleep(1000);
+  const steady = memory();
   console.log(
     `${entries} entries from ${generated} generated paths: build ${Math.round(buildMs)} ms, RSS +${Math.round((after.rss - before.rss) / 2 ** 20)} MiB`,
   );
 
   const queries: ClassResult[] = [];
   const search = async (request: BenchRequest): Promise<BenchAnswer> => {
-    if (!pool) return index.search(request);
-    const answer = await searchWithPool(() => real, request, pool, minBytes);
+    if (!parallel || !pool) return index.search(request);
+    const answer = await parallel.searchWithPool(
+      () => real,
+      request,
+      pool,
+      minBytes,
+    );
     if (!answer)
       throw new Error("A benchmark search was stopped; none run concurrently.");
     return answer;
@@ -356,6 +364,7 @@ async function measureSize(entries: number): Promise<SizeResult> {
     buildMs: Math.round(buildMs),
     compactMs: Math.round(compactMs),
     rssMiB: Math.round((after.rss - before.rss) / 2 ** 20),
+    steadyRssMiB: Math.round((steady.rss - before.rss) / 2 ** 20),
     heapMiB: Math.round((after.heap - before.heap) / 2 ** 20),
     renameMs: distribution(renames),
     create10kMs: round(create10kMs),
