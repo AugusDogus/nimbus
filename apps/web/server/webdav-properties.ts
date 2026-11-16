@@ -6,6 +6,7 @@
 import { lstat } from "node:fs/promises";
 import type { DavProperty, DavPropertyName } from "@nimbus/api/drive-store";
 import type { FileEntry } from "@nimbus/api/file-browser";
+import { fileTag } from "@nimbus/api/file-content";
 import type { FileLock } from "@nimbus/api/file-mutations";
 import type { FilesystemCapacity } from "@nimbus/api/filesystem-capacity";
 import { safePath } from "@nimbus/api/file-operations";
@@ -23,8 +24,6 @@ import {
 export const davHref = (path: string, type: FileEntry["type"]) =>
   `/dav/${path.split("/").map(encodeURIComponent).join("/")}${type === "dir" && path ? "/" : ""}`;
 
-export const entityTag = (entry: Pick<FileEntry, "mtime" | "size">) =>
-  `"${entry.mtime}-${entry.size}"`;
 
 /** Live properties returned for allprop, in response order. */
 const allpropNames = [
@@ -102,7 +101,7 @@ async function liveValue(
       return new Date(stats.birthtimeMs || stats.mtimeMs).toISOString();
     }
     case "getetag":
-      return escapeXml(entityTag(entry));
+      return escapeXml(fileTag(entry));
     case "supportedlock":
       return "<d:lockentry><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockentry><d:lockentry><d:lockscope><d:shared/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockentry>";
     case "lockdiscovery":

@@ -42,7 +42,6 @@ import {
   type IfHeader,
 } from "./webdav-if";
 import {
-  entityTag,
   lockDiscovery,
   parsePropertyUpdate,
   parsePropfind,
@@ -221,7 +220,7 @@ function ifHeaderHolds(lists: IfHeader, requestUrl: URL, target: string) {
     }
     const entry = await entryOrNull(relative);
     return {
-      etag: entry ? entityTag(entry) : null,
+      etag: entry ? fileTag(entry) : null,
       lockTokens: locksCovering(relative).map((lock) => lock.token),
     };
   });
