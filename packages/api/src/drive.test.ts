@@ -10,6 +10,9 @@ import { resetDirListCacheForTest } from "./dir-list-cache";
 import { flushAudit, resetAuditForTest, setAuditSink, type RecordedAuditEvent } from "./audit";
 import { FileVersions } from "./file-versions";
 
+// bun-types declares asymmetric matchers as returning any; typing it unknown keeps any out of the assertions.
+const anyString: unknown = expect.any(String);
+
 describe("drive workflows", () => {
   let root: string;
   let previousRoot: string | undefined;
@@ -70,11 +73,11 @@ describe("drive workflows", () => {
       await caller().shares.create({ path: "docs", expiresAt: null, password: "test-password" });
       await caller().files.delete({ path: "private.txt" });
       await flushAudit();
-      expect(events.map(({ action, actor, target }) => ({ action, actor, target: target?.id }))).toEqual([
+      // toMatchObject accepts the unknown-typed matcher; every mapped event has exactly these keys.
+      expect(events.map(({ action, actor, target }) => ({ action, actor, target: target?.id }))).toMatchObject([
         { action: "grant.added", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: "docs" },
         { action: "grant.removed", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: "docs" },
-        // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
-        { action: "share.created", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: expect.any(String) },
+        { action: "share.created", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: anyString },
         { action: "trash.moved", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: "private.txt" },
       ]);
       expect(JSON.stringify(events)).not.toContain("test-password");

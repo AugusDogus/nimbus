@@ -18,6 +18,9 @@ import { listConnections, revokeConnection } from "./connections";
 import type { BrowserSession, OAuthContext } from "./context";
 import { authenticateBearer, handleRevoke, handleToken } from "./tokens";
 
+// bun-types declares asymmetric matchers as returning any; typing them unknown keeps any out of the assertions.
+const containing = (text: string): unknown => expect.stringContaining(text);
+
 const origin = "https://files.example.test";
 const redirectUri = "http://127.0.0.1:33418/callback";
 const migrationsFolder = fileURLToPath(new URL("../../../drizzle", import.meta.url));
@@ -164,8 +167,7 @@ describe("MCP OAuth flow", () => {
     const { challenge } = pkce();
     const code = await approve(clientId, challenge);
     const wrong = await exchange(clientId, code, pkce().verifier);
-    // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
-    expect(await wrong.json()).toMatchObject({ error: "invalid_grant", error_description: expect.stringContaining("PKCE") });
+    expect(await wrong.json()).toMatchObject({ error: "invalid_grant", error_description: containing("PKCE") });
   });
 
   it("revokes the connection when its own client replays a used code", async () => {
@@ -186,8 +188,7 @@ describe("MCP OAuth flow", () => {
     expect((await refresh(tokens.refresh_token)).status).toBe(400);
     expect(await bearer(next.access_token)).toMatchObject({ kind: "authenticated" });
     now += 60_000;
-    // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
-    expect(await (await refresh(tokens.refresh_token)).json()).toMatchObject({ error_description: expect.stringContaining("revoked") });
+    expect(await (await refresh(tokens.refresh_token)).json()).toMatchObject({ error_description: containing("revoked") });
     expect(await bearer(next.access_token)).toMatchObject({ kind: "rejected" });
   });
 
@@ -200,8 +201,7 @@ describe("MCP OAuth flow", () => {
   it("rejects expired access tokens", async () => {
     const tokens = await connect();
     now += 60 * 60 * 1000;
-    // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
-    expect(await bearer(tokens.access_token)).toMatchObject({ kind: "rejected", message: expect.stringContaining("expired") });
+    expect(await bearer(tokens.access_token)).toMatchObject({ kind: "rejected", message: containing("expired") });
   });
 
   it("cuts off a disabled account immediately", async () => {
@@ -209,8 +209,7 @@ describe("MCP OAuth flow", () => {
     session = { userId: "member", sessionId: "session-2" };
     const tokens = await connect();
     await ctx.db.update(schema.user).set({ banned: true }).where(eq(schema.user.id, "member"));
-    // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
-    expect(await bearer(tokens.access_token)).toMatchObject({ kind: "rejected", message: expect.stringContaining("disabled") });
+    expect(await bearer(tokens.access_token)).toMatchObject({ kind: "rejected", message: containing("disabled") });
   });
 
   it("lets the user revoke a connection from Settings and a client revoke its own token", async () => {
@@ -219,8 +218,7 @@ describe("MCP OAuth flow", () => {
     if (!connection) throw new Error("Expected a connection");
     expect(await revokeConnection(ctx.db, "someone-else", connection.id, now)).toBe(false);
     expect(await revokeConnection(ctx.db, "owner", connection.id, now)).toBe(true);
-    // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
-    expect(await bearer(first.access_token)).toMatchObject({ kind: "rejected", message: expect.stringContaining("revoked") });
+    expect(await bearer(first.access_token)).toMatchObject({ kind: "rejected", message: containing("revoked") });
     const second = await connect();
     expect((await handleRevoke(ctx, post("/oauth/revoke", { token: second.refresh_token, client_id: second.clientId }))).status).toBe(200);
     expect(await bearer(second.access_token)).toMatchObject({ kind: "rejected" });
