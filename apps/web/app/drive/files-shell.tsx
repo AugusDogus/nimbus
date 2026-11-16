@@ -235,7 +235,11 @@ export function FilesShell({ children }: FilesShellProps) {
               New
             </Button>
 
-            <Drawer open={fabDrawerOpen} onOpenChange={setFabDrawerOpen}>
+            <Drawer
+              showSwipeHandle
+              open={fabDrawerOpen}
+              onOpenChange={setFabDrawerOpen}
+            >
               <DrawerContent>
                 <DrawerHeader>
                   <DrawerTitle>Create new</DrawerTitle>

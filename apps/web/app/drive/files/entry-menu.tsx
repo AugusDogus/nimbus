@@ -358,6 +358,7 @@ export function EntryMenuHost({
         ))}
       </ContextMenuContent>
       <Drawer
+        showSwipeHandle
         open={menu?.surface.kind === "drawer"}
         onOpenChange={(next) => !next && onMenuChange(null)}
       >

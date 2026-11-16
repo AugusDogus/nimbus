@@ -110,7 +110,11 @@ export function FiltersRow({
         <SlidersHorizontal className="size-4" />
       </Button>
 
-      <Drawer open={filterDrawerOpen} onOpenChange={setFilterDrawerOpen}>
+      <Drawer
+        showSwipeHandle
+        open={filterDrawerOpen}
+        onOpenChange={setFilterDrawerOpen}
+      >
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>Sort &amp; filter</DrawerTitle>
