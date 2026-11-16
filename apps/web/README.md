@@ -14,20 +14,21 @@ The root scripts run this workspace with `apps/web` as its working directory, so
 ## Code layout
 
 - `app/(files)`: authenticated file browser, shared and saved items, and trash.
-- `app/(settings)/settings`: dedicated settings sidebar with Appearance, Account, WebDAV, and admin-only Users & groups pages.
+- `app/(settings)/settings`: dedicated settings sidebar with Appearance, Account, WebDAV, MCP, and the admin-only Users & groups and Audit log pages.
 - `app/s/[token]`: public file and folder sharing pages.
 - `app/r/[token]`: public upload page for file requests.
 - `app/api`: authentication, tRPC, resumable uploads (signed-in and file requests), downloads, versions, thumbnails, public shares, backups, and health endpoints.
 - `server/start.ts`: startup migrations, Next.js and WebDAV routing, cleanup scheduling, and process shutdown.
 - `server/db`: Drizzle schema and the SQLite connection.
-- `server/drive-store.ts`: persistent accounts, grants, groups, shares, trash records, bookmarks, and app passwords.
+- `server/drive-store.ts`: persistent accounts, grants, groups, shares, file requests, versions, homes, WebDAV properties, trash records with their suspended links and grants, bookmarks, and app passwords.
 - `server/webdav.ts`: WebDAV request handling.
 - `server/security-headers.ts`, `server/client-ip.ts`, `server/rate-limit.ts`: response hardening, trusted-proxy client addresses, and in-memory rate limits.
 - `server/audit-log.ts` and `../../packages/api/src/audit.ts`: the audit log store and the `recordAudit` function for recording events from any server code.
 - `lib/auth.ts`, `lib/auth-security.ts`, `lib/auth-audit.ts`: Better Auth configuration, Nimbus account-security endpoints, and sign-in auditing.
 - `server/maintenance.ts`: trash, upload staging, file request reservation, version, and thumbnail retention.
 - `server/backup.ts`: daily online database backups.
-- `server/upload-publish.ts`: the staging store and publish step shared by every tus endpoint.
+- `server/upload-publish.ts`: the staging store, publish and replace step, and resume recovery shared by both tus endpoints.
+- `../../packages/api/src/file-content.ts`, `../../packages/api/src/file-versions.ts`: the one staged-write commit used by WebDAV `PUT`, the editor, and MCP, and `FileVersions.commitReplacement`, which every content replacement goes through.
 - `server/thumbnails.ts`, `server/thumbnail-renderers.ts`: content-addressed thumbnail cache with bounded concurrency, and the bounded `pdftoppm` and FFmpeg subprocesses.
 - `server/search.worker.ts`, `server/search-bridge.ts`: the filename index runs in a Bun worker, fed by the file watcher and reconciled every 30 minutes. The index itself is `../../packages/api/src/search-index.ts`.
 - `app/(files)/[[...path]]/preview`: preview renderers. Each renderer, the Markdown parser, the highlighter worker, and each highlighting grammar is a separate chunk loaded only when a file of that kind is opened.

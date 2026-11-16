@@ -50,7 +50,7 @@ BETTER_AUTH_SECRET=REPLACE_WITH_RANDOM_SECRET
 BETTER_AUTH_URL=http://localhost:3000
 ```
 
-Generate the secret with `openssl rand -base64 32` and paste its output as the value. Keep this file private and keep the same secret across restarts.
+Generate the secret with `openssl rand -base64 32` and paste its output as the value. Keep this file private and keep the same secret across restarts. Compose passes the auth settings, `PUID`, `PGID`, and `UMASK` to the container. To use other settings from [Configuration](#configuration), such as SMTP, single sign-on, or `NIMBUS_TRUSTED_PROXIES`, add them under `environment` in `compose.yaml`.
 
 ```bash
 docker compose up -d --build
@@ -129,8 +129,8 @@ Set the deployment values in `apps/web/.env` before startup. For PDF and video t
 | `NIMBUS_OIDC_AUTO_PROVISION`  | `true` lets provider identities without a Nimbus account create a member account. Default `false`. |
 | `NIMBUS_OIDC_GROUPS_CLAIM`    | Optional ID token claim listing group names, for example `groups`. See [Single sign-on](#single-sign-on). |
 | `NIMBUS_BACKUP_KEEP`          | Daily database backups to keep in `<config root>/backups`, default `7`. |
-
 | `NIMBUS_MCP_ENABLED`          | Optional. `false` turns off the MCP server, its OAuth endpoints, and discovery documents. Default: `true`. Approved clients stay stored. |
+
 Startup fails with a message naming the problem when an optional integration is only partly configured, so a typo cannot silently turn email or single sign-on off.
 
 The reserved `<data root>/.nimbus` directory contains trash and temporary uploads. Without a separate config root, it also contains the database and thumbnail cache. Nimbus never exposes `.nimbus` through file browsing or sharing. Keep a separate config root outside the browsable data root. Symbolic links and special files are excluded. Nimbus needs read and write access to both roots; other local programs with access to those directories remain outside Nimbus's permission controls.
@@ -142,9 +142,9 @@ Open the settings cog beside **Trash** to switch to the settings sidebar:
 - **Appearance:** choose System, Light, or Dark mode and a separate theme for each color scheme. **Add theme** supports VS Code theme files and Open VSX community search. Themes and selections are saved in this browser. See [theme details and import limits](apps/web/README.md#themes).
 - **Account:** view your name and email, change your password, set up two-factor authentication and passkeys, and review or sign out your browser sessions. Changing your password signs out other browser sessions; WebDAV app passwords remain active.
 - **WebDAV:** copy your server address and username, create a password for each device, and revoke passwords you no longer need.
-- **Administration → Users & groups** (server administrators only): create accounts, manage group membership, and grant drive access. Each user's action menu contains password reset, sign-in method reset, sign out everywhere, administrator role, and enable/disable controls.
 - **MCP:** copy the MCP server address and setup command, see connected AI clients with when they were last used, and disconnect them.
-- **Administration → Audit log** (server administrators only): review sign-ins and failures, account and role changes, group and permission changes, public links, deletions, and app passwords. Filter by event, account, and date.
+- **Administration → Users & groups** (server administrators only): create accounts, manage group membership, grant drive access, and back up the database. Each user's action menu contains password reset, sign-in method reset, sign out everywhere, administrator role, and enable/disable controls.
+- **Administration → Audit log** (server administrators only): review sign-ins and failures, account and role changes, group and permission changes, public links and file requests, version restores, deletions and emptied trash, database backups, app passwords, and connected AI clients. Filter by event, account, and date.
 
 Use **Back to files** to return to the drive. Active uploads continue while you browse Settings.
 
@@ -170,13 +170,13 @@ Nimbus does not send email verification messages. Registration is closed, so eve
 
 ### Single sign-on
 
-Nimbus can sign people in through one OpenID Connect provider such as Authentik, Keycloak, Authelia, or Microsoft Entra ID. Registration stays closed: a provider identity signs in to the Nimbus account with the same email address, and only when the provider marks that address as verified. Other identities are refused with a message to ask an administrator. Set `NIMBUS_OIDC_AUTO_PROVISION=true` to create member accounts for them instead; new accounts start without file access. The administrator account must exist before single sign-on can provision accounts. Two-factor authentication applies to password sign-in; enforce multi-factor sign-in for single sign-on at your provider.
+Nimbus can sign people in through one OpenID Connect provider such as Authentik, Keycloak, Authelia, or Microsoft Entra ID. Registration stays closed: a provider identity signs in to the Nimbus account with the same email address, and only when the provider marks that address as verified. Other identities are refused with a message to ask an administrator. Set `NIMBUS_OIDC_AUTO_PROVISION=true` to create member accounts for them instead; new accounts start with only their own home folder. The administrator account must exist before single sign-on can provision accounts. Two-factor authentication applies to password sign-in; enforce multi-factor sign-in for single sign-on at your provider.
 
 With `NIMBUS_OIDC_GROUPS_CLAIM` set, every single sign-on sign-in makes the provider the source of truth for that person's membership in Nimbus groups whose names match the claim exactly. Matching memberships are added and other memberships of that person are removed. Groups are never created automatically. The claim must be in the ID token; request the matching scope from your provider if needed.
 
 ### Rate limits
 
-Nimbus limits sign-in, sign-up, password reset, second-factor, and passkey attempts per client address, public link password attempts, and WebDAV authentication failures. Limited requests receive `429 Too Many Requests` with a `Retry-After` header. Limits are kept in memory and reset when Nimbus restarts.
+Nimbus limits sign-in, sign-up, password reset, second-factor, and passkey attempts per client address, wrong public link and file request passwords, file request uploads, WebDAV authentication failures, and MCP registration, token, and tool requests. Limited requests receive `429 Too Many Requests` with a `Retry-After` header. Limits are kept in memory and reset when Nimbus restarts.
 
 ### Reverse proxies and client addresses
 
@@ -186,7 +186,7 @@ Rate limits, sessions, and the audit log use the client address. By default Nimb
 
 Every page is served with a Content-Security-Policy that allows only same-origin scripts carrying a fresh per-request nonce (`'strict-dynamic'`), so injected scripts do not run. It also forbids plugins, `<base>` tags, cross-origin form targets, and embedding Nimbus in other sites (`frame-ancestors 'none'`). Inline styles stay allowed because the interface components set them at runtime. File previews keep their own sandbox policy. Responses also send `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, a `Permissions-Policy` that turns off camera, microphone, location, payment and USB access, and `Cross-Origin-Opener-Policy: same-origin`.
 
-When `BETTER_AUTH_URL` uses `https`, Nimbus adds `Strict-Transport-Security: max-age=31536000`, marks session and public link cookies `Secure`, and adds `upgrade-insecure-requests`. Configure your proxy to redirect plain HTTP to HTTPS. Session cookies are always `HttpOnly` and `SameSite=Lax`.
+When `BETTER_AUTH_URL` uses `https`, Nimbus adds `Strict-Transport-Security: max-age=31536000`, marks session, public link, and file request cookies `Secure`, and adds `upgrade-insecure-requests`. Configure your proxy to redirect plain HTTP to HTTPS. Session cookies are always `HttpOnly` and `SameSite=Lax`.
 
 ## Sharing and permissions
 
@@ -205,7 +205,7 @@ Homes live in a `homes` folder at the data root, one folder per account. The fol
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Read       | Browse, preview, and download the item and its contents.                                                                                |
 | Write      | Read access plus uploads, folder creation, file changes, and moving items to trash.                                                     |
-| Admin      | Write access plus managing permissions and public links for that subtree. Moving or copying a folder requires this level on its source. |
+| Admin      | Write access plus managing permissions, public links, and file requests for that subtree. Moving a folder requires this level on it, and so does copying a folder in the browser or over MCP. WebDAV `COPY` of a folder requires Read. |
 
 Permissions apply to descendants and are additive. User and group grants combine using the strongest matching permission. A narrower grant cannot reduce access inherited from a parent. Remove the parent or group grant to remove that inherited access. A folder administrator is distinct from a server administrator.
 
@@ -213,19 +213,19 @@ Manage links you created under **Shared → Public links** and **Shared → File
 
 Public links grant read-only access and work without a Nimbus account. A link to a folder also exposes its descendants. Password-protected links unlock for one hour in that browser. Revoking or expiring a link prevents future requests; downloaded copies remain with the recipient. Links also stop working when their creator loses sharing permission or is disabled.
 
-Public links, direct grants, and stars follow an item, and its descendants, when it is renamed or moved through Nimbus or WebDAV. Inherited access does not: after a move, the item loses the permissions it inherited from its old parent folders and gains those of its destination. Moving a folder therefore requires Admin permission on it. Records left at a destination by content removed outside Nimbus are discarded, so they never attach to arriving content.
+Public links, file requests, direct grants, and stars follow an item, and its descendants, when it is renamed or moved through Nimbus, WebDAV, or MCP. Inherited access does not: after a move, the item loses the permissions it inherited from its old parent folders and gains those of its destination. Moving a folder therefore requires Admin permission on it. Records left at a destination by content removed outside Nimbus are discarded, so they never attach to arriving content.
 
-Moving an item to trash suspends its public links, direct grants, and stars. They do not apply to anything created at the old path in the meantime. Restoring the item returns them unchanged, except for those belonging to accounts or groups removed in the meantime. Permanently deleting the item, including automatic deletion after 30 days, discards them. Changes made outside Nimbus, such as renaming a folder on the host, are not tracked; links and grants stay with the old path.
+Moving an item to trash suspends its public links, file requests, direct grants, and stars. They do not apply to anything created at the old path in the meantime. Restoring the item returns them unchanged, except for those belonging to accounts or groups removed in the meantime. Permanently deleting the item, including automatic deletion after 30 days, discards them. Changes made outside Nimbus, such as renaming a folder on the host, are not tracked; links and grants stay with the old path.
 
 Select **Edit** on a public link to change its password, expiry, download limit, or mode without changing its address. A new or removed password ends earlier unlocks. A download limit counts each transfer of a file or ZIP, including opening a preview; resumed downloads and video seeking do not count again. Once the limit is used, the link stops working until you raise it. **Preview only** removes download and ZIP actions and refuses files the browser cannot preview. It is not copy protection: anything a browser displays can still be saved.
 
-To request files, open a folder's **Share** action and select **Request files**. Anyone with the upload link can add files to that folder. They cannot list, open, replace, or delete anything, including their own uploads. A file with a taken name gets a number added. Optional settings are a password, an expiry, a note shown to uploaders, a largest file size, a number of files, and a total size. Uploads are resumable; unfinished uploads count toward the limits for up to a day, then their space is released. Each link accepts at most 20 uploads at a time, and uploads are refused when less than 1 GB of disk space would remain. Upload links stop working under the same conditions as public links. Files uploaded through a link belong to the folder like any other file.
+To request files, open a folder's **Share** action and select **Request files**. Anyone with the upload link can add files to that folder. They cannot list, open, replace, or delete anything, including their own uploads. A file with a taken name gets a number added. Optional settings are a password, an expiry, a note shown to uploaders, a largest file size, a number of files, and a total size. Uploads are resumable; unfinished uploads count toward the limits for up to a day, then their space is released. Each link accepts at most 20 uploads at a time, and uploads are refused when less than 1 GB, or 5% of the disk if that is more, would remain free. Upload links stop working under the same conditions as public links. Files uploaded through a link belong to the folder like any other file.
 
 ## Previews, editing, and search
 
 Text, Markdown, and code previews load the first 1 MB of a file. Markdown is rendered without raw HTML or images, and only web, email, and in-page links are kept, so a file cannot run scripts or contact other servers. Previews are served with a sandboxing Content Security Policy.
 
-Users with write permission can edit text files up to 1 MB from the preview. Saving checks that the file has not changed since it was opened; if it has, the save is refused, the file on disk is kept, and your edits stay in the editor so you can copy them. Saves also respect WebDAV locks held by other clients.
+Users with write permission can edit text files up to 1 MB from the preview. Saving checks that the file has not changed since it was opened; if it has, the save is refused, the file on disk is kept, and your edits stay in the editor so you can copy them. Saves also respect WebDAV locks held by other clients, and the previous content is kept as a [version](#versions).
 
 Search matches file and folder names anywhere in the drive that you can read. Nimbus indexes names in memory at startup, keeps the index current from filesystem changes, and re-checks the whole drive every 30 minutes to catch changes made while it was stopped. Until the first index completes, the search page says results may be incomplete. One-letter searches match the beginning of names.
 
@@ -233,13 +233,13 @@ Search matches file and folder names anywhere in the drive that you can read. Ni
 
 Deleted items remain in **Trash** for 30 days. Users see their own deleted items; server administrators can manage all trash. Restoring requires write access at the original location, an existing parent folder, and an unused filename. Permanent deletion cannot be undone.
 
-Cleanup runs at startup and hourly. It permanently removes expired trash, upload staging files inactive for more than 24 hours, and thumbnails older than 30 days. Browser uploads finalize with a hardlink when supported: the visible file and its temporary staging name share the same data, allowing completion retries without a second full copy. Removing the staging link preserves the visible file. Across filesystem boundaries or where hardlinks are unavailable, Nimbus falls back to a copy and needs additional storage headroom until staging expires. Trash is a recovery convenience, not a backup.
+Cleanup runs at startup and hourly. It permanently removes expired trash, versions older than 30 days, upload staging files and file request reservations inactive for more than 24 hours, thumbnails older than 30 days, and audit log entries past their retention. It also takes the daily [database backup](#database-backups) when one is due. Browser uploads finalize with a hardlink when supported: the visible file and its temporary staging name share the same data, allowing completion retries without a second full copy. Removing the staging link preserves the visible file. Across filesystem boundaries or where hardlinks are unavailable, Nimbus falls back to a copy and needs additional storage headroom until staging expires. Trash is a recovery convenience, not a backup.
 
 ## Versions
 
 When a file is replaced, Nimbus keeps its previous content as a version. Open a file's actions and select **Version history** to download a version or, with write access, restore it. Restoring keeps the current content as another version, so it can be undone. Versions follow the file through renames, moves, and trash, and are removed when the file is permanently deleted. Each file keeps its 25 most recent versions for up to 30 days; hourly cleanup removes older ones.
 
-Versions are stored in `<data root>/.nimbus/versions`. Keeping a version adds a hardlink to the previous content rather than copying it. Where hardlinks are unavailable, Nimbus uses a reflink on filesystems that support them (Btrfs, XFS, recent ZFS), and otherwise a full copy. Each version still holds its content on disk until it expires. Replacing a file over WebDAV creates a version. Edits that other programs make directly on the host do not.
+Versions are stored in `<data root>/.nimbus/versions`. Keeping a version adds a hardlink to the previous content rather than copying it. Where hardlinks are unavailable, Nimbus uses a reflink on filesystems that support them (Btrfs, XFS, recent ZFS), and otherwise a full copy. Each version still holds its content on disk until it expires. Every way Nimbus replaces a file's content creates a version: uploading with **Replace**, saving in the editor, WebDAV `PUT`, MCP `write_text`, and moving or copying a file over another. Edits that other programs make directly on the host do not.
 
 ## Installing the app
 
@@ -260,7 +260,7 @@ Nimbus implements WebDAV classes 1 and 2 (RFC 4918) and passes the complete [Lit
 - **Methods:** `OPTIONS`, `GET`, `HEAD`, `PROPFIND`, `PROPPATCH`, `PUT`, `MKCOL`, `DELETE`, `MOVE`, `COPY`, `LOCK`, and `UNLOCK`. Deletes go to trash. Downloads support single byte ranges. Uploads may use chunked transfer encoding.
 - **Listings:** `PROPFIND` supports depth `0` and `1`, `allprop`, `propname`, and named properties. Infinite depth is refused, as RFC 4918 permits. Properties include size, content type, modification and creation dates, ETag, lock state, and the filesystem's free and used space (RFC 4331).
 - **Custom properties:** `PROPPATCH` stores properties set by clients, such as the Windows `Win32*` file attributes, and returns them in later listings. They move, copy, and go to trash with their item. Setting `Win32LastModifiedTime` also sets the file's modification time.
-- **Replacing items:** `MOVE` and `COPY` honor the `Overwrite` header, which defaults to `T`. Moving a file over another file replaces its content and keeps the destination's links, grants, and stars, so applications that save through a temporary file keep their sharing. Replacing a folder, or a file with a folder, sends the replaced item to trash.
+- **Replacing items:** `MOVE` and `COPY` honor the `Overwrite` header, which defaults to `T`. Moving a file over another file replaces its content and keeps the destination's links, grants, and stars, so applications that save through a temporary file keep their sharing. The replaced content is kept as a version. Replacing a folder, or a file with a folder, sends the replaced item to trash.
 - **Locks:** exclusive and shared write locks, depth `0` or infinity, on files, folders, and unmapped URLs (which creates an empty file). A lock lasts for the client's requested timeout, up to one hour, and clients can refresh it. Locks also block conflicting changes from the web interface. They are kept in memory and cleared on restart. `If` header conditions with lock tokens and ETags are evaluated.
 - **Modification times:** uploads, moves, and copies accept the `X-OC-Mtime` header used by rclone and ownCloud clients.
 - Request URLs must percent-encode `#` in names as `%23`; a URL containing `#` is refused so a fragment can never redirect a delete to the parent folder.
