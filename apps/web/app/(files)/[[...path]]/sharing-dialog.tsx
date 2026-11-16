@@ -25,6 +25,12 @@ import type { Permission } from "@nimbus/api/drive-store";
 import type { FileEntry } from "./types";
 import { LinkSettingsDraft, LinkSettingsFields } from "../shared/link-settings";
 
+const permissions: Record<Permission, string> = {
+  read: "View and download",
+  write: "Edit files",
+  admin: "Manage files and sharing",
+};
+
 const FileRequestDialog = dynamic(
   () => import("../shared/file-request-dialog"),
 );
@@ -48,7 +54,18 @@ export function SharingDialog({
     queryKey: ["permissions", entry.path],
     queryFn: () => trpcClient.access.permissions.query({ path: entry.path }),
   });
-  const [subject, setSubject] = useState("");
+  // Null until a person or group is picked; the select shows its placeholder meanwhile.
+  const [subject, setSubject] = useState<string | null>(null);
+  const subjects = [
+    ...(people.data ?? []).map((person) => ({
+      value: `user:${person.id}`,
+      label: `${person.name} (${person.email})`,
+    })),
+    ...(groups.data ?? []).map((group) => ({
+      value: `group:${group.id}`,
+      label: `Group: ${group.name}`,
+    })),
+  ];
   const [permission, setPermission] = useState<Permission>("read");
   const [password, setPassword] = useState("");
   const [settings, setSettings] = useState<LinkSettingsDraft>(
@@ -97,7 +114,7 @@ export function SharingDialog({
             className="space-y-3"
             onSubmit={(event) => {
               event.preventDefault();
-              const [type, id] = subject.split(":");
+              const [type, id] = subject?.split(":") ?? [];
               if (id && (type === "user" || type === "group"))
                 void perform(() =>
                   trpcClient.access.grant.mutate({
@@ -109,38 +126,39 @@ export function SharingDialog({
             }}
           >
             <Label htmlFor="share-person">Person or group</Label>
-            <Select value={subject} onValueChange={setSubject}>
+            <Select
+              items={subjects}
+              value={subject}
+              onValueChange={(value) => setSubject(value)}
+            >
               <SelectTrigger id="share-person" className="w-full">
                 <SelectValue placeholder="Choose a person or group" />
               </SelectTrigger>
               <SelectContent>
-                {people.data?.map((person) => (
-                  <SelectItem key={person.id} value={`user:${person.id}`}>
-                    {person.name} ({person.email})
-                  </SelectItem>
-                ))}
-                {groups.data?.map((group) => (
-                  <SelectItem key={group.id} value={`group:${group.id}`}>
-                    Group: {group.name}
+                {subjects.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Label htmlFor="share-permission">Permission</Label>
             <Select
+              items={permissions}
               value={permission}
               onValueChange={(value) => {
-                if (value === "read" || value === "write" || value === "admin")
-                  setPermission(value);
+                if (value !== null) setPermission(value);
               }}
             >
               <SelectTrigger id="share-permission">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="read">View and download</SelectItem>
-                <SelectItem value="write">Edit files</SelectItem>
-                <SelectItem value="admin">Manage files and sharing</SelectItem>
+                {Object.entries(permissions).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Button disabled={busy || !subject}>Grant access</Button>

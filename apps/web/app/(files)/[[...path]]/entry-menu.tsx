@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useRef, useState, type MouseEvent, type ReactElement } from "react";
 import {
   Copy,
   Download,
@@ -45,6 +45,22 @@ export type EntryMenuTarget = {
   entry: FileEntry;
   targets: readonly FileEntry[];
 };
+
+/**
+ * An open entry menu and where it shows: the menu at the pointer (a right-click, or the corner of an
+ * actions button, see `openMenuAt`), or the drawer on touch layouts. The surface is fixed when the
+ * menu opens, so a menu that is open when the viewport crosses the breakpoint stays as it opened.
+ * A menu opened from the keyboard starts on its first item.
+ */
+export type EntryMenu = EntryMenuTarget & {
+  surface: { kind: "menu"; keyboard: boolean } | { kind: "drawer" };
+};
+
+export const EntryMenu = {
+  inDrawer(target: EntryMenuTarget): EntryMenu {
+    return { ...target, surface: { kind: "drawer" } };
+  },
+} as const;
 
 const capabilityCache = new WeakMap<
   readonly FileEntry[],
@@ -181,7 +197,7 @@ export function entryMenuItems(
 
 /**
  * The "more actions" button on each row. It holds no menu of its own: on desktop it opens the
- * collection's shared context menu at the button, on touch screens the shared drawer.
+ * collection's shared menu at the button, on touch screens the shared drawer.
  */
 export function EntryActionsButton({
   name,
@@ -221,8 +237,13 @@ export function EntryActionsButton({
   );
 }
 
-/** Open the shared context menu at a row's actions button, as a right-click there would. */
-export function openMenuAt(button: HTMLElement) {
+/**
+ * Open the shared menu at a row's actions button, as a right-click at its bottom-right corner would.
+ * Base UI's context menu only arms outside-press dismissal and its pointer guards when its trigger
+ * handles the opening `contextmenu` event, and it has no public way to open at a point.
+ */
+export function openMenuAt(click: MouseEvent<HTMLElement>) {
+  const button = click.currentTarget;
   const rect = button.getBoundingClientRect();
   button.dispatchEvent(
     new globalThis.MouseEvent("contextmenu", {
@@ -230,8 +251,18 @@ export function openMenuAt(button: HTMLElement) {
       cancelable: true,
       clientX: rect.right,
       clientY: rect.bottom,
+      // 0 for a click from Enter or Space, so the menu knows it was opened from the keyboard.
+      detail: click.detail,
     }),
   );
+}
+
+/**
+ * A `contextmenu` from Shift+F10, the menu key, or a keyboard click on an actions button: a pointer
+ * sends the secondary button (2), or a click count of 1 or more for an actions button.
+ */
+function fromKeyboard(event: globalThis.MouseEvent) {
+  return event.button !== 2 && event.detail === 0;
 }
 
 /**
@@ -249,33 +280,43 @@ export function EntryMenuHost({
   open,
   onClosed,
 }: {
-  children: ReactNode;
+  /** The collection's element. The right-click area is rendered onto it, not around it. */
+  children: ReactElement;
   touch: boolean;
-  menu: EntryMenuTarget | null;
-  onMenuChange: (menu: EntryMenuTarget | null) => void;
+  menu: EntryMenu | null;
+  onMenuChange: (menu: EntryMenu | null) => void;
   resolve: (path: string) => EntryMenuTarget | null;
   actions: ReturnType<typeof useFileActions>;
   open: (dialog: EntryDialog) => void;
   /** Return focus to the entry after the menu closes. The grid itself cannot hold focus. */
   onClosed: () => void;
 }) {
-  const [contextMenuOpen, setContextMenuOpen] = useState(false);
-  const items = menu
-    ? entryMenuItems(menu.entry, menu.targets, actions, open)
+  // The last menu stays rendered while it animates closed, in place and with its items.
+  const [shown, setShown] = useState(menu);
+  if (menu !== null && menu !== shown) setShown(menu);
+  const items = shown
+    ? entryMenuItems(shown.entry, shown.targets, actions, open)
     : [];
+  const popup = useRef<HTMLDivElement>(null);
   // The tree around `children` is the same in both modes. Swapping it when the mode changes, as it
   // does after hydration on phones, would replace every row's element, even under a finger.
   return (
     <ContextMenu
+      // Touch layouts long-press to select, and open actions in the drawer.
+      disabled={touch}
+      open={menu?.surface.kind === "menu"}
       onOpenChange={(next) => {
         if (!next) onMenuChange(null);
-        setContextMenuOpen(next);
+      }}
+      onOpenChangeComplete={(opened) => {
+        if (opened && menu?.surface.kind === "menu" && menu.surface.keyboard)
+          popup.current
+            ?.querySelector<HTMLElement>('[role="menuitem"]')
+            ?.focus();
       }}
     >
       <ContextMenuTrigger
-        asChild
-        // Touch layouts long-press to select, and open actions in the drawer.
-        disabled={touch}
+        render={children}
         onContextMenu={(event) => {
           if (touch) return;
           const row =
@@ -286,55 +327,59 @@ export function EntryMenuHost({
             row?.dataset.rowPath === undefined
               ? null
               : resolve(row.dataset.rowPath);
-          // Empty space between entries has no actions.
+          // Empty space between entries has no actions. The browser's own menu stays suppressed.
           if (!target) {
-            event.preventDefault();
+            event.preventBaseUIHandler();
             return;
           }
-          onMenuChange(target);
+          onMenuChange({
+            ...target,
+            surface: {
+              kind: "menu",
+              keyboard: fromKeyboard(event.nativeEvent),
+            },
+          });
         }}
-      >
-        {children}
-      </ContextMenuTrigger>
+      />
       <ContextMenuContent
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
+        ref={popup}
+        finalFocus={() => {
           onClosed();
+          return false;
         }}
       >
         {items.map((item) => (
           <ContextMenuItem
             key={item.label}
             variant={item.destructive ? "destructive" : "default"}
-            onSelect={item.select}
+            onClick={item.select}
           >
             <item.icon />
             {item.label}
           </ContextMenuItem>
         ))}
       </ContextMenuContent>
-      {/* Only touch layouts open the drawer. Both menus stay mounted, so one that is open when the
-          viewport crosses the breakpoint, as when a phone rotates, stays as it opened. */}
       <Drawer
-        open={menu !== null && !contextMenuOpen}
+        open={menu?.surface.kind === "drawer"}
         onOpenChange={(next) => !next && onMenuChange(null)}
       >
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle className="break-words text-balance">
-              {menu && menu.targets.length > 1
-                ? `${menu.targets.length.toLocaleString()} selected items`
-                : menu?.entry.name}
+              {shown && shown.targets.length > 1
+                ? `${shown.targets.length.toLocaleString()} selected items`
+                : shown?.entry.name}
             </DrawerTitle>
             <DrawerDescription>File actions</DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-6">
             {items.map((item) => (
-              <DrawerClose asChild key={item.label}>
-                <DrawerActionItem onClick={item.select}>
-                  <item.icon className="size-5" />
-                  {item.label}
-                </DrawerActionItem>
+              <DrawerClose
+                key={item.label}
+                render={<DrawerActionItem onClick={item.select} />}
+              >
+                <item.icon className="size-5" />
+                {item.label}
               </DrawerClose>
             ))}
           </div>

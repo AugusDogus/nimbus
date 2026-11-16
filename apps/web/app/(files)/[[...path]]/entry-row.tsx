@@ -248,7 +248,7 @@ export const EntryRow = memo(function EntryRow({
           open={menuOpen}
           onOpen={(event) => {
             if (touch) handlers.openDrawer(entry);
-            else openMenuAt(event.currentTarget);
+            else openMenuAt(event);
           }}
         />
       </div>

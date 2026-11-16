@@ -2,7 +2,7 @@
 
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
-import type { ComponentProps, ReactElement } from "react";
+import type { ComponentProps } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,28 +13,27 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 type ThemeToggleProps = {
-  children?: ReactElement;
   side?: ComponentProps<typeof DropdownMenuContent>["side"];
 };
 
-export function ThemeToggle({ children, side = "bottom" }: ThemeToggleProps) {
+export function ThemeToggle({ side = "bottom" }: ThemeToggleProps) {
   const { setTheme } = useTheme();
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        {children ?? (
+      <DropdownMenuTrigger
+        render={
           <Button
             variant="ghost"
             size="icon"
             aria-label="Toggle theme"
             className="relative"
-          >
-            <Sun className="size-4 scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
-            <Moon className="absolute size-4 scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
-            <span className="sr-only">Toggle theme</span>
-          </Button>
-        )}
+          />
+        }
+      >
+        <Sun className="size-4 scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
+        <Moon className="absolute size-4 scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
+        <span className="sr-only">Toggle theme</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side={side} sideOffset={8}>
         <DropdownMenuItem onClick={() => setTheme("light")}>

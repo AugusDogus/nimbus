@@ -27,6 +27,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLinkItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -152,20 +153,22 @@ export function FilesShell({
           <div className="flex shrink-0 items-center gap-1 md:gap-3">
             {session ? (
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    aria-label="Account menu"
-                    className="relative size-9 rounded-full"
-                  >
-                    <Avatar>
-                      <AvatarFallback className="bg-secondary text-secondary-foreground">
-                        {session.user.name?.charAt(0).toUpperCase() ||
-                          session.user.email?.charAt(0).toUpperCase() ||
-                          "U"}
-                      </AvatarFallback>
-                    </Avatar>
-                  </Button>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      aria-label="Account menu"
+                      className="relative size-9 rounded-full"
+                    />
+                  }
+                >
+                  <Avatar>
+                    <AvatarFallback className="bg-secondary text-secondary-foreground">
+                      {session.user.name?.charAt(0).toUpperCase() ||
+                        session.user.email?.charAt(0).toUpperCase() ||
+                        "U"}
+                    </AvatarFallback>
+                  </Avatar>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel>
@@ -181,12 +184,10 @@ export function FilesShell({
                     </div>
                   </DropdownMenuLabel>
                   {capabilities.data?.isAdmin === true && (
-                    <DropdownMenuItem asChild>
-                      <Link href="/admin">
-                        <Shield />
-                        Administration
-                      </Link>
-                    </DropdownMenuItem>
+                    <DropdownMenuLinkItem render={<Link href="/admin" />}>
+                      <Shield />
+                      Administration
+                    </DropdownMenuLinkItem>
                   )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

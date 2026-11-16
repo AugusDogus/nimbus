@@ -78,6 +78,11 @@ const settingsFor = (draft: Draft) => ({
 });
 
 type PasswordChoice = "keep" | "set" | "remove";
+const passwordChoices: Record<PasswordChoice, string> = {
+  keep: "Keep current password",
+  set: "Change password",
+  remove: "Remove password",
+};
 
 export default function FileRequestDialog({
   mode,
@@ -215,14 +220,10 @@ export default function FileRequestDialog({
               <>
                 <Label htmlFor="file-request-password-choice">Password</Label>
                 <Select
+                  items={passwordChoices}
                   value={choice}
                   onValueChange={(value) => {
-                    if (
-                      value === "keep" ||
-                      value === "set" ||
-                      value === "remove"
-                    )
-                      setChoice(value);
+                    if (value !== null) setChoice(value);
                   }}
                 >
                   <SelectTrigger
@@ -232,9 +233,11 @@ export default function FileRequestDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="keep">Keep current password</SelectItem>
-                    <SelectItem value="set">Change password</SelectItem>
-                    <SelectItem value="remove">Remove password</SelectItem>
+                    {Object.entries(passwordChoices).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </>

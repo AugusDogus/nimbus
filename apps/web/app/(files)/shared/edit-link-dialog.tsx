@@ -33,6 +33,11 @@ export type EditableLink = {
 };
 
 type PasswordChoice = "keep" | "set" | "remove";
+const passwordChoices: Record<PasswordChoice, string> = {
+  keep: "Keep current password",
+  set: "Change password",
+  remove: "Remove password",
+};
 
 export default function EditLinkDialog({
   link,
@@ -102,10 +107,10 @@ export default function EditLinkDialog({
             <>
               <Label htmlFor="edit-link-password-choice">Password</Label>
               <Select
+                items={passwordChoices}
                 value={choice}
                 onValueChange={(value) => {
-                  if (value === "keep" || value === "set" || value === "remove")
-                    setChoice(value);
+                  if (value !== null) setChoice(value);
                 }}
               >
                 <SelectTrigger
@@ -115,9 +120,11 @@ export default function EditLinkDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="keep">Keep current password</SelectItem>
-                  <SelectItem value="set">Change password</SelectItem>
-                  <SelectItem value="remove">Remove password</SelectItem>
+                  {Object.entries(passwordChoices).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </>

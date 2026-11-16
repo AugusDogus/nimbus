@@ -28,6 +28,11 @@ export function AuditFilters({
   const router = useRouter();
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
+  const actionItems = [{ value: any, label: "All events" }, ...actions];
+  const accountItems = [
+    { value: any, label: "Everyone" },
+    ...accounts.map((account) => ({ value: account.id, label: account.email })),
+  ];
   const apply = (next: Filters) => {
     const params = new URLSearchParams();
     for (const [key, entry] of Object.entries(next))
@@ -47,17 +52,17 @@ export function AuditFilters({
       <div className="space-y-2">
         <Label htmlFor="audit-action">Event</Label>
         <Select
+          items={actionItems}
           value={value.action || any}
           onValueChange={(action) =>
-            apply({ ...value, action: action === any ? "" : action })
+            apply({ ...value, action: action === any ? "" : (action ?? "") })
           }
         >
           <SelectTrigger id="audit-action" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={any}>All events</SelectItem>
-            {actions.map((action) => (
+            {actionItems.map((action) => (
               <SelectItem key={action.value} value={action.value}>
                 {action.label}
               </SelectItem>
@@ -68,19 +73,19 @@ export function AuditFilters({
       <div className="space-y-2">
         <Label htmlFor="audit-actor">Account</Label>
         <Select
+          items={accountItems}
           value={value.actor || any}
           onValueChange={(actor) =>
-            apply({ ...value, actor: actor === any ? "" : actor })
+            apply({ ...value, actor: actor === any ? "" : (actor ?? "") })
           }
         >
           <SelectTrigger id="audit-actor" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={any}>Everyone</SelectItem>
-            {accounts.map((account) => (
-              <SelectItem key={account.id} value={account.id}>
-                {account.email}
+            {accountItems.map((account) => (
+              <SelectItem key={account.value} value={account.value}>
+                {account.label}
               </SelectItem>
             ))}
           </SelectContent>

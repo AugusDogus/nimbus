@@ -83,19 +83,21 @@ export function UserList({
           </div>
           {user.id !== currentUserId ? (
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0"
-                  aria-label={`Actions for ${user.email}`}
-                >
-                  <MoreHorizontal aria-hidden="true" />
-                </Button>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    aria-label={`Actions for ${user.email}`}
+                  />
+                }
+              >
+                <MoreHorizontal aria-hidden="true" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
-                  onSelect={() =>
+                  onClick={() =>
                     onResetPassword({ id: user.id, email: user.email })
                   }
                 >
@@ -103,7 +105,7 @@ export function UserList({
                   Reset password
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onSelect={() =>
+                  onClick={() =>
                     onConfirm({
                       title: "Reset sign-in methods?",
                       description: `${user.email} will lose two-factor authentication, recovery codes, passkeys and trusted browsers, and will be signed out everywhere. Their WebDAV app passwords will be revoked, which disconnects every WebDAV device until they create new passwords. They can then sign in with their password and set these up again. Files are not affected.`,
@@ -125,7 +127,7 @@ export function UserList({
                   Reset sign-in methods
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onSelect={() =>
+                  onClick={() =>
                     onConfirm({
                       title: "Sign out everywhere?",
                       description: `Every browser signed in as ${user.email} will need to sign in again. WebDAV app passwords keep working; the account owner can revoke them, or you can reset sign-in methods or disable the account.`,
@@ -147,7 +149,7 @@ export function UserList({
                   Sign out everywhere
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onSelect={() => {
+                  onClick={() => {
                     onConfirm({
                       title: "Change administrator access?",
                       description:
@@ -173,7 +175,7 @@ export function UserList({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   variant={user.banned ? "default" : "destructive"}
-                  onSelect={() => {
+                  onClick={() => {
                     onConfirm({
                       title: user.banned
                         ? "Enable account?"

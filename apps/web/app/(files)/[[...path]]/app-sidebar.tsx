@@ -80,24 +80,26 @@ export function AppSidebar({
       <SidebarContent className="gap-4 px-3 pt-4 group-data-[collapsible=icon]:px-0">
         <div className="flex justify-center">
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="lg"
-                aria-label="New"
-                title="New"
-                disabled={!canWrite}
-                className="h-12 w-full rounded-full bg-create text-create-foreground hover:bg-create/90 group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:p-0"
-              >
-                <span className="relative flex items-center">
-                  <Plus
-                    className="absolute right-full mr-2 size-5 group-data-[collapsible=icon]:static group-data-[collapsible=icon]:mr-0"
-                    strokeWidth={1.8}
-                  />
-                  <span className="group-data-[collapsible=icon]:hidden">
-                    New
-                  </span>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  size="lg"
+                  aria-label="New"
+                  title="New"
+                  disabled={!canWrite}
+                  className="h-12 w-full rounded-full bg-create text-create-foreground hover:bg-create/90 group-data-[collapsible=icon]:size-10 group-data-[collapsible=icon]:p-0"
+                />
+              }
+            >
+              <span className="relative flex items-center">
+                <Plus
+                  className="absolute right-full mr-2 size-5 group-data-[collapsible=icon]:static group-data-[collapsible=icon]:mr-0"
+                  strokeWidth={1.8}
+                />
+                <span className="group-data-[collapsible=icon]:hidden">
+                  New
                 </span>
-              </Button>
+              </span>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="start"
@@ -105,7 +107,7 @@ export function AppSidebar({
               className="w-48 rounded-xl p-1.5"
             >
               <DropdownMenuItem
-                onSelect={() => {
+                onClick={() => {
                   closeNavigation();
                   newContent.openFolderDialog();
                 }}
@@ -114,7 +116,7 @@ export function AppSidebar({
                 New folder
               </DropdownMenuItem>
               <DropdownMenuItem
-                onSelect={() => {
+                onClick={() => {
                   closeNavigation();
                   newContent.triggerFileInput();
                 }}
@@ -123,7 +125,7 @@ export function AppSidebar({
                 Upload file
               </DropdownMenuItem>
               <DropdownMenuItem
-                onSelect={() => {
+                onClick={() => {
                   closeNavigation();
                   newContent.triggerFolderInput();
                 }}

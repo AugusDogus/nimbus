@@ -17,7 +17,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
-  DropdownMenuItem,
+  DropdownMenuLinkItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { fileHref } from "./types";
@@ -73,22 +73,22 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
             <BreadcrumbSeparator className={ellipsisClassName} />
             <BreadcrumbItem className={ellipsisClassName}>
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="icon-sm" variant="ghost">
-                    <BreadcrumbEllipsis />
-                    <span className="sr-only">Toggle menu</span>
-                  </Button>
+                <DropdownMenuTrigger
+                  render={<Button size="icon-sm" variant="ghost" />}
+                >
+                  <BreadcrumbEllipsis />
+                  <span className="sr-only">Toggle menu</span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   <DropdownMenuGroup>
                     {middleCrumbs.map((crumb) => (
-                      <DropdownMenuItem
+                      <DropdownMenuLinkItem
+                        render={<Link href={crumb.href} />}
                         key={crumb.href}
-                        asChild
                         className={crumb === parent ? "md:hidden" : undefined}
                       >
-                        <Link href={crumb.href}>{crumb.label}</Link>
-                      </DropdownMenuItem>
+                        {crumb.label}
+                      </DropdownMenuLinkItem>
                     ))}
                   </DropdownMenuGroup>
                 </DropdownMenuContent>

@@ -16,7 +16,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { EntryMenuHost, type EntryMenuTarget } from "./entry-menu";
+import { EntryMenu, EntryMenuHost, type EntryMenuTarget } from "./entry-menu";
 import { EntryRow, type EntryRowHandlers } from "./entry-row";
 import { EditEntryDialog, type EntryDialog } from "./entry-dialogs";
 import { commandFor, typeaheadMatch } from "./entry-keys";
@@ -99,7 +99,7 @@ export function EntriesView({
       previewing ? layout.entries.filter((entry) => entry.type === "file") : [],
     [previewing, layout.entries],
   );
-  const [menu, setMenu] = useState<EntryMenuTarget | null>(null);
+  const [menu, setMenu] = useState<EntryMenu | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   // Entries can leave the folder through live updates, moves, and other clients.
   const retained = Selection.retain(selection, order);
@@ -408,7 +408,10 @@ export function EntriesView({
         // Touch long-press selects instead of opening the browser's link menu.
         if (suppressClick.current || touchSelecting) event.preventDefault();
       },
-      openDrawer: (entry) => setMenu(menuTarget(entry.path)),
+      openDrawer: (entry) => {
+        const target = menuTarget(entry.path);
+        setMenu(target && EntryMenu.inDrawer(target));
+      },
       focus: (entry) => {
         if (focusPath !== entry.path) setFocusPath(entry.path);
       },
