@@ -52,36 +52,40 @@ async function cleanFiles(
 export async function cleanExpiredData(
   store: Pick<
     DriveStore,
-    "listTrash" | "removeTrash" | "fileRequests" | "versions"
+    "listTrash" | "getTrash" | "removeTrash" | "fileRequests" | "versions"
   >,
   dataRoot: string,
   now = Date.now(),
   configRoot = getConfigRoot(dataRoot),
 ) {
   const internal = path.join(dataRoot, ".nimbus");
-  await mutateFiles([], { userId: "maintenance" }, async () => {
-    // Read inside the mutation queue so restoration cannot race permanent deletion.
-    for (const item of await store.listTrash(null)) {
-      if (item.expiresAt > now) continue;
-      const trashed = path.join(internal, "trash", item.id);
-      await FileVersions.discard(
-        store.versions,
-        dataRoot,
-        FileVersions.trashLocation(item.id),
-      );
-      await rm(trashed, {
-        recursive: true,
-        force: true,
-      });
-      await store.removeTrash(item.id);
-      recordAudit({
-        action: "trash.expired",
-        actor: { type: "system" },
-        target: { type: "path", id: item.path },
-        details: { trashId: item.id, deletedBy: item.deletedBy },
-      });
-    }
-  });
+  for (const listed of await store.listTrash(null)) {
+    if (listed.expiresAt > now) continue;
+    // Each expired item is held and read again, so a restore cannot race its deletion.
+    await mutateFiles(
+      [],
+      { userId: "maintenance" },
+      async () => {
+        const item = await store.getTrash(listed.id);
+        if (!item || item.expiresAt > now) return;
+        const trashed = path.join(internal, "trash", item.id);
+        await FileVersions.discard(
+          store.versions,
+          dataRoot,
+          FileVersions.trashLocation(item.id),
+        );
+        await rm(trashed, { recursive: true, force: true });
+        await store.removeTrash(item.id);
+        recordAudit({
+          action: "trash.expired",
+          actor: { type: "system" },
+          target: { type: "path", id: item.path },
+          details: { trashId: item.id, deletedBy: item.deletedBy },
+        });
+      },
+      { trash: [listed.id] },
+    );
+  }
   await cleanFiles(path.join(internal, "uploads"), now - day, true);
   await store.fileRequests.releaseAbandoned(now - reservationLifetimeMs);
   await FileVersions.cleanup(store.versions, dataRoot, now);

@@ -61,34 +61,50 @@ async function getServer() {
   ) =>
     finisher.finish(id, async () => {
       const { request: fileRequest } = await reservedUpload(request, id);
-      await mutateFiles([], { userId: fileRequest.createdBy }, async () => {
-        // Re-check inside the queue: the owner may have lost access meanwhile.
-        const { request: current, owner } = await activeFileRequest({
-          id: fileRequest.id,
-        });
-        const result = await publishUpload({
-          store,
-          versions: httpDriveStore.versions,
-          uploadId: id,
-          filename: fileNameSchema.parse(filename),
-          folder: current.path,
-          conflict: { kind: "keep-both" },
-          credentials: { userId: owner.user.id },
-          requireWrite: (relative) => {
-            if (!owner.can(relative, "write"))
-              throw new TRPCError({
-                code: "NOT_FOUND",
-                message: "This upload link is no longer available.",
-              });
+      // Hold the request's folder while publishing. If the folder moved before the
+      // lock was held, hold its new location and check again.
+      for (let folder = fileRequest.path; ;) {
+        const outcome = await mutateFiles(
+          [],
+          { userId: fileRequest.createdBy },
+          async (): Promise<
+            { kind: "published" } | { kind: "moved"; to: string }
+          > => {
+            // Re-check inside the lock: the owner may have lost access meanwhile.
+            const { request: current, owner } = await activeFileRequest({
+              id: fileRequest.id,
+            });
+            if (current.path !== folder)
+              return { kind: "moved", to: current.path };
+            const result = await publishUpload({
+              store,
+              versions: httpDriveStore.versions,
+              uploadId: id,
+              filename: fileNameSchema.parse(filename),
+              folder: current.path,
+              conflict: { kind: "keep-both" },
+              credentials: { userId: owner.user.id },
+              requireWrite: (relative) => {
+                if (!owner.can(relative, "write"))
+                  throw new TRPCError({
+                    code: "NOT_FOUND",
+                    message: "This upload link is no longer available.",
+                  });
+              },
+            });
+            if (result.kind === "published")
+              await httpDriveStore.fileRequests.finishUpload(
+                id,
+                result.path,
+                Date.now(),
+              );
+            return { kind: "published" };
           },
-        });
-        if (result.kind === "published")
-          await httpDriveStore.fileRequests.finishUpload(
-            id,
-            result.path,
-            Date.now(),
-          );
-      });
+          { within: [folder] },
+        );
+        if (outcome.kind === "published") return;
+        folder = outcome.to;
+      }
     });
   server = new Server({
     path: "/api/file-request/upload",

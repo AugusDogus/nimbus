@@ -118,12 +118,14 @@ async function prepareDestination(
   source: Stats,
   target: { absolute: string; relative: string },
   existing: ExistingDestination,
+  /** The trash id a replaced folder gets, already held by the caller's mutation scope. */
+  trashId: string,
 ): Promise<Replacement> {
   const current = await statOrNull(target.absolute);
   if (!current) return { kind: "vacant" };
   if (existing === "refuse") await requireUnused(target.absolute);
   if (source.isFile() && current.isFile()) return { kind: "content" };
-  const { trashId } = await trashUnlocked(store, access, target.relative);
+  await trashUnlocked(store, access, target.relative, trashId);
   return { kind: "trashed", trashId };
 }
 
@@ -142,6 +144,7 @@ async function moveUnlocked(
   sourcePath: string,
   targetPath: string,
   existingDestination: ExistingDestination,
+  trashId: string,
 ) {
   const source = await safePath(sourcePath);
   const target = await safePath(targetPath);
@@ -162,6 +165,7 @@ async function moveUnlocked(
     existing.stats,
     target,
     existingDestination,
+    trashId,
   );
   try {
     if (replacement.kind === "content") {
@@ -280,6 +284,7 @@ export async function copyItem(
   const stagingDirectory = path.join(getDataRoot(), ".nimbus", "uploads");
   await mkdir(stagingDirectory, { recursive: true });
   const staging = path.join(stagingDirectory, `${randomUUID()}.copy`);
+  const trashId = randomUUID();
   try {
     await stageCopy(access, source, staging, options.depth ?? "infinity");
     return await mutateFiles(
@@ -296,6 +301,7 @@ export async function copyItem(
           source.stats,
           target,
           existingDestination,
+          trashId,
         );
         try {
           if (replacement.kind === "content")
@@ -332,6 +338,7 @@ export async function copyItem(
           replaced: replacement.kind !== "vacant",
         };
       },
+      { trash: [trashId] },
     );
   } finally {
     await rm(staging, { recursive: true, force: true });
@@ -342,13 +349,14 @@ async function trashUnlocked(
   store: DriveStore,
   access: Access,
   requested: string,
+  /** The new trash item's id, held by the caller's mutation scope. */
+  id: string,
 ) {
   const target = await safePath(requested);
   requireMutable(target.relative);
   access.require(target.relative, "write");
   await requireExisting(target.relative);
   await Homes.requireNotHome(store, target.relative);
-  const id = randomUUID();
   const trashDir = path.join(getDataRoot(), ".nimbus", "trash");
   await mkdir(trashDir, { recursive: true });
   const destination = path.join(trashDir, id);
@@ -453,6 +461,8 @@ export async function moveItem(
 ) {
   const source = await safePath(sourcePath);
   const target = await safePath(targetPath);
+  // A replaced folder goes to trash under this id.
+  const trashId = randomUUID();
   return mutateFiles(
     [source.relative, target.relative],
     { userId: access.user.id, lockTokens: options.lockTokens },
@@ -463,7 +473,9 @@ export async function moveItem(
         source.relative,
         target.relative,
         options.existing ?? "refuse",
+        trashId,
       ),
+    { trash: [trashId] },
   );
 }
 
@@ -474,6 +486,7 @@ export async function trashItem(
   lockTokens?: MutationCredentials["lockTokens"],
 ) {
   const target = await safePath(requested);
+  const id = randomUUID();
   return mutateFiles(
     [target.relative],
     { userId: access.user.id, lockTokens },
@@ -482,7 +495,9 @@ export async function trashItem(
         store,
         await getAccess(store, access.user.id),
         target.relative,
+        id,
       ),
+    { trash: [id] },
   );
 }
 
@@ -491,14 +506,23 @@ export async function restoreItem(
   access: Access,
   id: string,
 ) {
+  // The trash row's path never changes, so it can be read before the lock.
   const item = await getOwnedTrash(store, access, id);
-  return mutateFiles([item.path], { userId: access.user.id }, async () =>
-    restoreUnlocked(store, await getAccess(store, access.user.id), id),
+  return mutateFiles(
+    [item.path],
+    { userId: access.user.id },
+    async () =>
+      restoreUnlocked(store, await getAccess(store, access.user.id), id),
+    { trash: [id] },
   );
 }
 
 export async function purgeItem(store: DriveStore, access: Access, id: string) {
-  return mutateFiles([], { userId: access.user.id }, async () =>
-    purgeUnlocked(store, await getAccess(store, access.user.id), id),
+  return mutateFiles(
+    [],
+    { userId: access.user.id },
+    async () =>
+      purgeUnlocked(store, await getAccess(store, access.user.id), id),
+    { trash: [id] },
   );
 }

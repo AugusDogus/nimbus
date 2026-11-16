@@ -21,12 +21,15 @@ let root: string;
 let trash: TrashItem[];
 const store: Pick<
   DriveStore,
-  "listTrash" | "removeTrash" | "fileRequests" | "versions"
+  "listTrash" | "getTrash" | "removeTrash" | "fileRequests" | "versions"
 > = {
   fileRequests: createTestFileRequestStore(),
   versions: createTestFileVersionStore(),
   async listTrash() {
     return trash;
+  },
+  async getTrash(id) {
+    return trash.find((item) => item.id === id) ?? null;
   },
   async removeTrash(id) {
     trash = trash.filter((item) => item.id !== id);

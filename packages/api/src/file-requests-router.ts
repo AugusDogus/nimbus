@@ -52,40 +52,50 @@ export const fileRequestsRouter = router({
       const passwordHash = input.password
         ? await Bun.password.hash(input.password)
         : null;
-      return mutateFiles([], { userId: ctx.access.user.id }, async () => {
-        const access = await getAccess(ctx.drive, ctx.access.user.id);
-        access.require(target.relative, "admin");
-        const folder = await requireExisting(target.relative);
-        if (!folder.stats.isDirectory())
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Choose a folder to receive files.",
+      return mutateFiles(
+        [],
+        { userId: ctx.access.user.id },
+        async () => {
+          const access = await getAccess(ctx.drive, ctx.access.user.id);
+          access.require(target.relative, "admin");
+          const folder = await requireExisting(target.relative);
+          if (!folder.stats.isDirectory())
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Choose a folder to receive files.",
+            });
+          const request: FileRequest = {
+            id: randomUUID(),
+            token: randomBytes(32).toString("base64url"),
+            path: target.relative,
+            createdBy: access.user.id,
+            createdAt: Date.now(),
+            expiresAt: input.expiresAt,
+            passwordHash,
+            note: input.note || null,
+            maxFileBytes: input.maxFileBytes,
+            maxFiles: input.maxFiles,
+            maxTotalBytes: input.maxTotalBytes,
+          };
+          await ctx.drive.fileRequests.create(request);
+          recordAudit({
+            action: "file_request.created",
+            actor: auditUser(access.user),
+            target: {
+              type: "file_request",
+              id: request.id,
+              label: request.path,
+            },
+            details: {
+              passwordProtected: passwordHash !== null,
+              expiresAt: request.expiresAt,
+            },
           });
-        const request: FileRequest = {
-          id: randomUUID(),
-          token: randomBytes(32).toString("base64url"),
-          path: target.relative,
-          createdBy: access.user.id,
-          createdAt: Date.now(),
-          expiresAt: input.expiresAt,
-          passwordHash,
-          note: input.note || null,
-          maxFileBytes: input.maxFileBytes,
-          maxFiles: input.maxFiles,
-          maxTotalBytes: input.maxTotalBytes,
-        };
-        await ctx.drive.fileRequests.create(request);
-        recordAudit({
-          action: "file_request.created",
-          actor: auditUser(access.user),
-          target: { type: "file_request", id: request.id, label: request.path },
-          details: {
-            passwordProtected: passwordHash !== null,
-            expiresAt: request.expiresAt,
-          },
-        });
-        return { token: request.token };
-      });
+          return { token: request.token };
+        },
+        // Hold the item so it cannot move or go to trash while its sharing record is created.
+        { within: [target.relative] },
+      );
     }),
   update: protectedProcedure
     .input(

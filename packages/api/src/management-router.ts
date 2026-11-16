@@ -59,39 +59,45 @@ export const managementRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const target = await safePath(input.path);
-      return mutateFiles([], { userId: ctx.access.user.id }, async () => {
-        const access = await getAccess(ctx.drive, ctx.access.user.id);
-        access.require(target.relative, "admin");
-        await requireExisting(target.relative);
-        const exists =
-          input.subject.type === "user"
-            ? await ctx.drive.getUser(input.subject.id)
-            : (await ctx.drive.listGroups()).some(
-                (group) => group.id === input.subject.id,
-              );
-        if (!exists)
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "The selected user or group no longer exists.",
-          });
-        const id = randomUUID();
-        await ctx.drive.saveGrant({
-          id,
-          path: target.relative,
-          subject: input.subject,
-          permission: input.permission,
-        });
-        recordAudit({
-          action: "grant.added",
-          actor: auditUser(access.user),
-          target: { type: "path", id: target.relative },
-          details: {
-            subjectType: input.subject.type,
-            subjectId: input.subject.id,
+      return mutateFiles(
+        [],
+        { userId: ctx.access.user.id },
+        async () => {
+          const access = await getAccess(ctx.drive, ctx.access.user.id);
+          access.require(target.relative, "admin");
+          await requireExisting(target.relative);
+          const exists =
+            input.subject.type === "user"
+              ? await ctx.drive.getUser(input.subject.id)
+              : (await ctx.drive.listGroups()).some(
+                  (group) => group.id === input.subject.id,
+                );
+          if (!exists)
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "The selected user or group no longer exists.",
+            });
+          const id = randomUUID();
+          await ctx.drive.saveGrant({
+            id,
+            path: target.relative,
+            subject: input.subject,
             permission: input.permission,
-          },
-        });
-      });
+          });
+          recordAudit({
+            action: "grant.added",
+            actor: auditUser(access.user),
+            target: { type: "path", id: target.relative },
+            details: {
+              subjectType: input.subject.type,
+              subjectId: input.subject.id,
+              permission: input.permission,
+            },
+          });
+        },
+        // Hold the item so it cannot move or go to trash while its sharing record is created.
+        { within: [target.relative] },
+      );
     }),
   revoke: protectedProcedure
     .input(z.object({ path: z.string(), id: z.string() }))

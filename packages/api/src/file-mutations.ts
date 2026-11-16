@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { randomUUID } from "node:crypto";
 import { getDataRoot } from "./data-root";
+import { createPathLocks, type HeldScope, type PathLocks } from "./path-locks";
 import { isWithinPath } from "./safe-path";
 
 /** `0` protects a collection and its membership but not its members' content (RFC 4918, section 7). */
@@ -18,8 +19,8 @@ export type FileLock = {
   timeoutSeconds: number;
   expiresAt: number;
 };
-/** Active locks by token. */
-type MutationState = { tail: Promise<void>; locks: Map<string, FileLock> };
+/** Who is changing what, and the active WebDAV locks by token. */
+type MutationState = { scopes: PathLocks; locks: Map<string, FileLock> };
 
 /** Locks never outlive a client that stops refreshing them by more than this. */
 export const maxLockSeconds = 60 * 60;
@@ -55,7 +56,7 @@ function state() {
   const root = getDataRoot();
   let current = states.get(root);
   if (!current) {
-    current = { tail: Promise.resolve(), locks: new Map() };
+    current = { scopes: createPathLocks(), locks: new Map() };
     states.set(root, current);
   }
   for (const [token, lock] of current.locks)
@@ -103,19 +104,43 @@ export function requireUnlocked(
   }
 }
 
-/** Serialize short filesystem commits, never the network transfer preceding an upload. */
+/** What a mutation holds besides the paths it changes. */
+export type MutationScope = {
+  /** Subtrees held without a WebDAV lock check, such as a folder in which a free name is chosen. */
+  within?: readonly string[];
+  /** Trash items held by id, or "all" for the whole trash. */
+  trash?: readonly string[] | "all";
+};
+
+/**
+ * Run a short filesystem commit, never the network transfer preceding an
+ * upload, while holding `paths` (and their subtrees) and `scope` exclusively.
+ * Commits on disjoint paths run concurrently; overlapping ones run one at a
+ * time in arrival order. WebDAV locks on `paths` are checked once the scope is
+ * held, so a LOCK cannot slip in between the check and the change. Callers
+ * re-check permissions inside `operation`.
+ */
 export async function mutateFiles<T>(
   paths: readonly string[],
   credentials: MutationCredentials,
   operation: () => Promise<T>,
+  scope: MutationScope = {},
 ): Promise<T> {
-  const current = state();
-  const previous = current.tail;
-  let release = () => {};
-  current.tail = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await previous;
+  const held: HeldScope[] = [
+    ...[...paths, ...(scope.within ?? [])].map((path) => ({
+      space: "drive",
+      path,
+    })),
+    ...(scope.trash === "all"
+      ? [{ space: "trash", path: "" }]
+      : (scope.trash ?? []).map((id) => ({ space: "trash", path: id }))),
+  ];
+  const [first, ...rest] = held;
+  if (!first)
+    throw new Error(
+      "mutateFiles was called without a scope, so it would not exclude any concurrent change. Name the paths or trash items the operation changes; nothing was changed.",
+    );
+  const release = await state().scopes.acquire([first, ...rest]);
   try {
     requireUnlocked(paths, credentials);
     return await operation();

@@ -51,35 +51,41 @@ export const sharesRouter = router({
       const passwordHash = input.password
         ? await Bun.password.hash(input.password)
         : null;
-      return mutateFiles([], { userId: ctx.access.user.id }, async () => {
-        const access = await getAccess(ctx.drive, ctx.access.user.id);
-        access.require(target.relative, "admin");
-        await requireExisting(target.relative);
-        const token = randomBytes(32).toString("base64url");
-        const id = randomUUID();
-        await ctx.drive.createShare({
-          id,
-          token,
-          path: target.relative,
-          createdBy: access.user.id,
-          createdAt: Date.now(),
-          expiresAt: input.expiresAt,
-          passwordHash,
-          downloadCount: 0,
-          maxDownloads: input.maxDownloads,
-          mode: input.mode,
-        });
-        recordAudit({
-          action: "share.created",
-          actor: auditUser(access.user),
-          target: { type: "share", id, label: target.relative },
-          details: {
-            passwordProtected: passwordHash !== null,
+      return mutateFiles(
+        [],
+        { userId: ctx.access.user.id },
+        async () => {
+          const access = await getAccess(ctx.drive, ctx.access.user.id);
+          access.require(target.relative, "admin");
+          await requireExisting(target.relative);
+          const token = randomBytes(32).toString("base64url");
+          const id = randomUUID();
+          await ctx.drive.createShare({
+            id,
+            token,
+            path: target.relative,
+            createdBy: access.user.id,
+            createdAt: Date.now(),
             expiresAt: input.expiresAt,
-          },
-        });
-        return { token };
-      });
+            passwordHash,
+            downloadCount: 0,
+            maxDownloads: input.maxDownloads,
+            mode: input.mode,
+          });
+          recordAudit({
+            action: "share.created",
+            actor: auditUser(access.user),
+            target: { type: "share", id, label: target.relative },
+            details: {
+              passwordProtected: passwordHash !== null,
+              expiresAt: input.expiresAt,
+            },
+          });
+          return { token };
+        },
+        // Hold the item so it cannot move or go to trash while its sharing record is created.
+        { within: [target.relative] },
+      );
     }),
   update: protectedProcedure
     .input(

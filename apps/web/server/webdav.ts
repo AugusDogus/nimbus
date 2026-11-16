@@ -19,6 +19,7 @@ import {
   requireUnlocked,
   unlockFile,
   type LockDepth,
+  type LockScope,
   type MutationCredentials,
 } from "@nimbus/api/file-mutations";
 import {
@@ -372,7 +373,7 @@ async function lock(
   if (info.namespace !== DAV || info.local !== "lockinfo")
     return textResponse(400, "A LOCK body must be a DAV:lockinfo element.");
   const scopeElement = child(info, DAV, "lockscope");
-  const scope =
+  const scope: LockScope | null =
     scopeElement && child(scopeElement, DAV, "shared")
       ? "shared"
       : scopeElement && child(scopeElement, DAV, "exclusive")
@@ -405,43 +406,49 @@ async function lock(
         )
         .join("")
     : "";
-  // Lock compatibility is decided by lockFile; only creating a file is a write.
-  return mutateFiles([], credentials, async () => {
-    (await authenticate(request)).require(target, "write");
-    const destination = await safePath(target);
-    let entry = await entryOrNull(target);
-    let created = false;
-    if (!entry) {
-      // Locking an unmapped URL creates an empty file (RFC 4918, section 7.3).
-      requireMutable(target);
-      requireUnlocked([target], credentials);
-      await writeFile(destination.absolute, "", { flag: "wx" });
-      // History left by a file removed outside Nimbus never attaches to a new one.
-      await FileVersions.discard(
-        httpDriveStore.versions,
-        getDataRoot(),
-        destination.relative,
-      );
-      created = true;
-      publishFileEvent({
-        path: destination.absolute,
-        event: "rename",
-        ts: Date.now(),
+  // Lock compatibility is decided by lockFile; only creating a file is a write. Holding the
+  // target keeps any conflicting change from running between that check and the lock.
+  return mutateFiles(
+    [],
+    credentials,
+    async () => {
+      (await authenticate(request)).require(target, "write");
+      const destination = await safePath(target);
+      let entry = await entryOrNull(target);
+      let created = false;
+      if (!entry) {
+        // Locking an unmapped URL creates an empty file (RFC 4918, section 7.3).
+        requireMutable(target);
+        requireUnlocked([target], credentials);
+        await writeFile(destination.absolute, "", { flag: "wx" });
+        // History left by a file removed outside Nimbus never attaches to a new one.
+        await FileVersions.discard(
+          httpDriveStore.versions,
+          getDataRoot(),
+          destination.relative,
+        );
+        created = true;
+        publishFileEvent({
+          path: destination.absolute,
+          event: "rename",
+          ts: Date.now(),
+        });
+        entry = await entryAt(target);
+      }
+      const granted = lockFile(target, credentials, {
+        scope,
+        depth,
+        owner,
+        timeoutSeconds,
       });
-      entry = await entryAt(target);
-    }
-    const granted = lockFile(target, credentials, {
-      scope,
-      depth,
-      owner,
-      timeoutSeconds,
-    });
-    return xmlResponse(
-      `<d:prop xmlns:d="DAV:">${lockDiscovery([granted], entry)}</d:prop>`,
-      created ? 201 : 200,
-      { "Lock-Token": `<${granted.token}>` },
-    );
-  });
+      return xmlResponse(
+        `<d:prop xmlns:d="DAV:">${lockDiscovery([granted], entry)}</d:prop>`,
+        created ? 201 : 200,
+        { "Lock-Token": `<${granted.token}>` },
+      );
+    },
+    { within: [target] },
+  );
 }
 
 function matchesETag(header: string, tag: string) {
