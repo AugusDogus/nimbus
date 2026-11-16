@@ -29,6 +29,7 @@ const { values: options } = parseArgs({
   options: {
     only: { type: "string" },
     tree: { type: "string", default: "200000" },
+    reconcile: { type: "string", default: "100000,1000000" },
     big: { type: "string", default: "100000" },
     out: { type: "string" },
     compare: { type: "string" },
@@ -866,6 +867,121 @@ const scenarios: Record<string, () => Promise<void>> = {
    * WebDAV client copying a folder would. The server side runs in its own process under an
    * 8 GB memory cap, so a runaway is killed alone; its cgroup peak is the number to watch.
    */
+  /**
+   * The search index's periodic pass that catches changes made while nothing watched. The
+   * search worker runs in its own process under an 8 GB cap; about 1% of the tree changes
+   * behind its back, then a pass runs while queries keep arriving.
+   */
+  async reconcile() {
+    for (const size of (options.reconcile ?? "").split(",").map(Number)) {
+      if (!Number.isFinite(size) || size <= 0) continue;
+      await requireMemory();
+      await rm(absolute("tree"), { recursive: true, force: true });
+      await writeTree("tree", size);
+      const child = Bun.spawn(
+        [
+          "systemd-run",
+          "--user",
+          "--scope",
+          "--quiet",
+          "-p",
+          "MemoryMax=8G",
+          "-p",
+          "MemorySwapMax=0",
+          "--",
+          "bun",
+          path.join(import.meta.dir, "reconcile-server.ts"),
+        ],
+        {
+          env: process.env,
+          stdin: "ignore",
+          stdout: "pipe",
+          stderr: "inherit",
+        },
+      );
+      let cgroupPeak = 0;
+      let sampler: ReturnType<typeof setInterval> | null = null;
+      let done: Record<string, unknown> | null = null;
+      const reader = child.stdout.getReader();
+      let buffered = "";
+      for (
+        let read = await reader.read();
+        !read.done;
+        read = await reader.read()
+      ) {
+        buffered += new TextDecoder().decode(read.value);
+        for (
+          let end = buffered.indexOf("\n");
+          end >= 0;
+          end = buffered.indexOf("\n")
+        ) {
+          const line = buffered.slice(0, end);
+          buffered = buffered.slice(end + 1);
+          if (!line.startsWith("{")) continue;
+          const message: unknown = JSON.parse(line);
+          if (typeof message !== "object" || message === null) continue;
+          const type: unknown = Reflect.get(message, "type");
+          if (type === "ready") {
+            // Peak memory of the whole process tree while the pass runs.
+            const cgroup =
+              /^0::(.*)$/m.exec(
+                readFileSync(`/proc/${child.pid}/cgroup`, "utf8"),
+              )?.[1] ?? "";
+            const memoryFile = `/sys/fs/cgroup${cgroup}/memory.current`;
+            sampler = setInterval(() => {
+              try {
+                cgroupPeak = Math.max(
+                  cgroupPeak,
+                  Number(readFileSync(memoryFile, "utf8")),
+                );
+              } catch {
+                // The scope ends with its process.
+              }
+            }, 20);
+          } else if (type === "done") {
+            if (sampler) clearInterval(sampler);
+            done = Object.fromEntries(Object.entries(message));
+          }
+        }
+      }
+      if (sampler) clearInterval(sampler);
+      const code = await child.exited;
+      const name = `reconcile ${size} files`;
+      const number = (key: string) => {
+        const value = done?.[key];
+        return typeof value === "number" ? value : -1;
+      };
+      record(`${name}: pass`, number("passMs"), "ms");
+      record(
+        `${name}: process tree peak during pass`,
+        cgroupPeak / 1024 / 1024,
+        "MB",
+      );
+      record(
+        `${name}: longest stall in the worker`,
+        number("longestStallMs"),
+        "ms",
+        "info",
+      );
+      record(`${name}: query p50 during pass`, number("queryP50Ms"), "ms");
+      record(`${name}: query max during pass`, number("queryMaxMs"), "ms");
+      record(
+        `${name}: queries answered during pass`,
+        number("queries"),
+        "queries",
+        "info",
+      );
+      record(
+        `${name}: matches a fresh crawl`,
+        done?.matchesFreshCrawl === true ? 1 : 0,
+        "yes",
+        "info",
+      );
+      record(`${name}: killed by the 8 GB cap`, code !== 0 ? 1 : 0, "runs");
+      await rm(absolute("tree"), { recursive: true, force: true });
+    }
+  },
+
   async burst() {
     const subscribers = 3;
     for (const count of [1_000, 5_000, 50_000]) {
