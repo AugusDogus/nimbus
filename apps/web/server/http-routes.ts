@@ -1,0 +1,110 @@
+import { pathSegments, route, type Route } from "./http-route";
+import * as auth from "./routes/auth";
+import * as backupFile from "./routes/backup-file";
+import * as backups from "./routes/backups";
+import { Discovery } from "./routes/discovery";
+import * as fileRequest from "./routes/file-request";
+import * as fileRequestUpload from "./routes/file-request-upload";
+import * as filesArchive from "./routes/files-archive";
+import * as filesContent from "./routes/files-content";
+import * as filesDownload from "./routes/files-download";
+import * as filesThumbnail from "./routes/files-thumbnail";
+import * as filesVersion from "./routes/files-version";
+import * as health from "./routes/health";
+import * as healthLive from "./routes/health-live";
+import * as mcp from "./routes/mcp";
+import * as mcpConnection from "./routes/mcp-connection";
+import * as mcpDownload from "./routes/mcp-download";
+import * as oauthAuthorize from "./routes/oauth-authorize";
+import * as oauthConsentDecision from "./routes/oauth-consent-decision";
+import * as oauthRegister from "./routes/oauth-register";
+import * as oauthRevoke from "./routes/oauth-revoke";
+import * as oauthToken from "./routes/oauth-token";
+import * as share from "./routes/share";
+import * as trpc from "./routes/trpc";
+import * as upload from "./routes/upload";
+
+/** The server's API, OAuth and discovery endpoints, matched in order. */
+const none = () => ({});
+const discovery = {
+  authorizationServer: {
+    GET: Discovery.authorizationServer,
+    OPTIONS: Discovery.preflight,
+  },
+  protectedResource: {
+    GET: Discovery.protectedResource,
+    OPTIONS: Discovery.preflight,
+  },
+};
+
+// Literal segments come before parameters that could also match them.
+const routes: Route[] = [
+  route("/api/auth/*", none, auth),
+  route("/api/backups", none, backups),
+  route("/api/backups/:name", ([name]) => ({ name }), backupFile),
+  route("/api/file-request/upload/*?", none, fileRequestUpload),
+  route("/api/file-request/:token", ([token]) => ({ token }), fileRequest),
+  route("/api/files/archive", none, filesArchive),
+  route("/api/files/content", none, filesContent),
+  route("/api/files/download", none, filesDownload),
+  route("/api/files/thumbnail", none, filesThumbnail),
+  route("/api/files/version", none, filesVersion),
+  route("/api/health", none, health),
+  route("/api/health/live", none, healthLive),
+  route("/api/mcp", none, mcp),
+  route("/api/mcp/connections/:id", ([id]) => ({ id }), mcpConnection),
+  route("/api/mcp/download", none, mcpDownload),
+  route("/api/share/:token", ([token]) => ({ token }), share),
+  route("/api/trpc/:procedures", none, trpc),
+  route("/api/upload/*?", none, upload),
+  route("/oauth/authorize", none, oauthAuthorize),
+  route("/oauth/consent/decision", none, oauthConsentDecision),
+  route("/oauth/register", none, oauthRegister),
+  route("/oauth/revoke", none, oauthRevoke),
+  route("/oauth/token", none, oauthToken),
+  route(
+    "/.well-known/oauth-authorization-server",
+    none,
+    discovery.authorizationServer,
+  ),
+  route(
+    "/.well-known/openid-configuration",
+    none,
+    discovery.authorizationServer,
+  ),
+  route(
+    "/.well-known/oauth-protected-resource",
+    none,
+    discovery.protectedResource,
+  ),
+  route(
+    "/.well-known/oauth-protected-resource/api/mcp",
+    none,
+    discovery.protectedResource,
+  ),
+];
+
+/** Path prefixes that belong to the server. Unknown paths under them are 404, never the app. */
+const serverPrefixes = ["/api/", "/oauth/", "/.well-known/"];
+
+export const HttpRoutes = {
+  /** Whether `pathname` belongs to a server endpoint rather than a browser page. */
+  owns(pathname: string) {
+    return serverPrefixes.some(
+      (prefix) => pathname.startsWith(prefix) || `${pathname}/` === prefix,
+    );
+  },
+  /**
+   * The handler for `pathname`, or null when no endpoint matches. A path with a malformed
+   * percent-encoding matches nothing.
+   */
+  find(pathname: string): ((request: Request) => Promise<Response>) | null {
+    const segments = pathSegments(pathname);
+    if (!segments) return null;
+    for (const candidate of routes) {
+      const handler = candidate.match(segments);
+      if (handler) return handler;
+    }
+    return null;
+  },
+} as const;

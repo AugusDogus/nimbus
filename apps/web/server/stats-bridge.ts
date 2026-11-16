@@ -1,5 +1,3 @@
-import "server-only";
-
 import { getDataRoot } from "@nimbus/api/data-root";
 import { deleteStats, setStats } from "@nimbus/api/stats-cache";
 

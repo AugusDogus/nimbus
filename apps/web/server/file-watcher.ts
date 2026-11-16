@@ -1,5 +1,3 @@
-import "server-only";
-
 import { getDataRoot } from "@nimbus/api/data-root";
 import { getParentDir } from "@nimbus/api/dir-list-cache";
 import { publishFileEvent } from "@nimbus/api/file-events";

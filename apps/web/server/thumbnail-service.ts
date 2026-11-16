@@ -1,5 +1,3 @@
-import "server-only";
-
 import path from "node:path";
 import sharp from "sharp";
 import { getConfigRoot } from "./storage-paths";

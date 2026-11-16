@@ -1,24 +1,23 @@
 import { gzipSync } from "node:zlib";
 import { driveStore } from "@/server/services";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import type { NextRequest } from "next/server";
 
 import { createContext } from "@nimbus/api/context";
-import { appRouter } from "@nimbus/api/routers";
 
 import { auth } from "@/lib/auth";
 import { ensureFileWatcher } from "@/server/file-watcher";
 import { preferencesStore } from "@/server/preferences";
+import { webRouter } from "@/server/web-router";
 
 ensureFileWatcher();
 
-// Next does not compress route handler responses. Large listings are mostly repeated JSON keys
+// The server does not compress responses on its own. Large listings are mostly repeated JSON keys
 // and paths: a 50,000-entry folder shrinks from 6.1 MB to 283 KB. Level 3 measured both smaller
 // and about three times faster than the default level. JSON query responses are complete
 // documents, so compressing the whole body adds no latency. Event streams stay uncompressed.
 const minimumCompressedBytes = 1024;
 
-async function compress(request: NextRequest, response: Response) {
+async function compress(request: Request, response: Response) {
   if (
     !response.body ||
     response.headers.has("content-encoding") ||
@@ -45,10 +44,10 @@ async function compress(request: NextRequest, response: Response) {
   });
 }
 
-const handler = async (req: NextRequest) => {
+const handler = async (req: Request) => {
   const response = await fetchRequestHandler({
     endpoint: "/api/trpc",
-    router: appRouter,
+    router: webRouter,
     req,
     createContext: () =>
       createContext({

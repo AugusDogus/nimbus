@@ -1,5 +1,3 @@
-import "server-only";
-
 import { TRPCError } from "@trpc/server";
 import { getDataRoot } from "@nimbus/api/data-root";
 import {

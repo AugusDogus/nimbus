@@ -1,4 +1,4 @@
-/** Liveness: the HTTP server and Next handler respond. Touches no storage. */
+/** Liveness: the HTTP server responds. Touches no storage. */
 export function GET() {
   return Response.json(
     { status: "ok" },

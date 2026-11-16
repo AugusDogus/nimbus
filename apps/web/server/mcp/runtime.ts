@@ -1,4 +1,3 @@
-import "server-only";
 import { auth } from "@/lib/auth";
 import { db } from "../db";
 import { readMcpConfig } from "./config";

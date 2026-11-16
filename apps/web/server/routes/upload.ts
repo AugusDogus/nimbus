@@ -2,7 +2,7 @@ import type { Server } from "@tus/server";
 import { httpDriveStore, httpError, requestAccess } from "@/server/http-files";
 import { tusFailure } from "@/server/tus-failure";
 import { uploadStaging } from "@/server/upload-publish";
-import { createUploadServer } from "../upload-server";
+import { createUploadServer } from "./upload-server";
 
 let server: Server | undefined;
 

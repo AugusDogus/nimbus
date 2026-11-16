@@ -24,6 +24,7 @@ import { AuditRetention, createAuditSink, purgeAuditEvents } from "./audit-log";
 import { ClientIp, clientIpHeader, TrustedProxies } from "./client-ip";
 import { mailConfig } from "./mail";
 import { nonceHeader, SecurityHeaders } from "./security-headers";
+import { HttpRoutes } from "./http-routes";
 import { backups, backupsToKeep } from "./backup";
 
 const port = Number(process.env.PORT ?? "3000");
@@ -103,6 +104,36 @@ const server = createServer((incoming, outgoing) => {
   );
 });
 
+function webRequest(incoming: IncomingMessage, url: URL) {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(incoming.headers)) {
+    if (Array.isArray(value))
+      for (const item of value) headers.append(key, item);
+    else if (value !== undefined) headers.set(key, value);
+  }
+  const method = incoming.method ?? "GET";
+  return new Request(url, {
+    method,
+    headers,
+    ...(method === "GET" || method === "HEAD"
+      ? {}
+      : { body: streamBody(incoming), duplex: "half" }),
+  });
+}
+
+async function send(response: Response, outgoing: ServerResponse) {
+  outgoing.statusCode = response.status;
+  response.headers.forEach((value, key) => outgoing.setHeader(key, value));
+  if (response.body) await pipeline(responseChunks(response.body), outgoing);
+  else outgoing.end();
+}
+
+// The MCP consent page grants access with one click, so no OAuth response may be framed.
+const unframeable = {
+  "X-Frame-Options": "DENY",
+  "Content-Security-Policy": "frame-ancestors 'none'",
+};
+
 async function handleRequest(
   incoming: IncomingMessage,
   outgoing: ServerResponse,
@@ -110,8 +141,25 @@ async function handleRequest(
   try {
     const url = new URL(incoming.url ?? "/", origin);
     for (const [name, value] of commonHeaders) outgoing.setHeader(name, value);
+    if (url.pathname.startsWith("/oauth/"))
+      for (const [name, value] of Object.entries(unframeable))
+        outgoing.setHeader(name, value);
+    if (HttpRoutes.owns(url.pathname) && url.pathname !== "/oauth/consent") {
+      const handler = HttpRoutes.find(url.pathname);
+      if (handler)
+        await send(await handler(webRequest(incoming, url)), outgoing);
+      else
+        outgoing
+          .writeHead(404, { "Content-Type": "text/plain; charset=utf-8" })
+          .end(`Nothing is served at ${url.pathname}. Check the address.`);
+      return;
+    }
     if (url.pathname !== "/dav" && !url.pathname.startsWith("/dav/")) {
-      if (SecurityHeaders.isDocument(url.pathname)) {
+      // Until it moves to the server, the consent page keeps only frame-ancestors, as before.
+      if (
+        SecurityHeaders.isDocument(url.pathname) &&
+        url.pathname !== "/oauth/consent"
+      ) {
         // Next.js reads the nonce from the request policy and applies it to its scripts.
         const nonce = SecurityHeaders.nonce();
         const headers = SecurityHeaders.document(nonce, securityMode);
@@ -133,25 +181,7 @@ async function handleRequest(
         );
       return;
     }
-    const headers = new Headers();
-    for (const [key, value] of Object.entries(incoming.headers)) {
-      if (Array.isArray(value))
-        for (const item of value) headers.append(key, item);
-      else if (value !== undefined) headers.set(key, value);
-    }
-    const method = incoming.method ?? "GET";
-    const init = {
-      method,
-      headers,
-      ...(method === "GET" || method === "HEAD"
-        ? {}
-        : { body: streamBody(incoming), duplex: "half" }),
-    };
-    const response = await handleWebDAV(new Request(url, init));
-    outgoing.statusCode = response.status;
-    response.headers.forEach((value, key) => outgoing.setHeader(key, value));
-    if (response.body) await pipeline(responseChunks(response.body), outgoing);
-    else outgoing.end();
+    await send(await handleWebDAV(webRequest(incoming, url)), outgoing);
   } catch (error) {
     if (outgoing.destroyed) return;
     // Query strings can carry credentials, such as MCP download link tokens.
