@@ -16,7 +16,12 @@ import os from "node:os";
 import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
 import { createTestDriveStore } from "@nimbus/api/testing";
-import { serveFile, serveZip, stillNamed } from "./file-response";
+import {
+  serveFile,
+  serveStoredFile,
+  serveZip,
+  stillNamed,
+} from "./file-response";
 
 let root: string;
 let previousRoot: string | undefined;
@@ -242,4 +247,31 @@ test("zero-copy is chosen only while the path names the opened file, unchanged",
       await handle.close();
     }
   }
+});
+
+test("serves a stored version payload with its length, its download name and ranges", async () => {
+  const payload = path.join(root, ".nimbus/versions/payload");
+  await mkdir(path.dirname(payload), { recursive: true });
+  await writeFile(payload, "0123456789");
+  const whole = await serveStoredFile(get(), payload, "a (2026-11-16).txt");
+  expect(whole.status).toBe(200);
+  expect(whole.headers.get("content-length")).toBe("10");
+  expect(whole.headers.get("content-type")).toBe("application/octet-stream");
+  expect(whole.headers.get("content-disposition")).toBe(
+    "attachment; filename*=UTF-8''a%20(2026-11-16).txt",
+  );
+  expect(await whole.text()).toBe("0123456789");
+  const range = await serveStoredFile(
+    get({ range: "bytes=2-4" }),
+    payload,
+    "a.txt",
+  );
+  expect(range.status).toBe(206);
+  expect(range.headers.get("content-range")).toBe("bytes 2-4/10");
+  expect(range.headers.get("content-length")).toBe("3");
+  expect(await range.text()).toBe("234");
+  expect(
+    (await serveStoredFile(get({ range: "bytes=20-" }), payload, "a.txt"))
+      .status,
+  ).toBe(416);
 });

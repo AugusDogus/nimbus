@@ -146,6 +146,38 @@ export async function serveFile(
 }
 
 /**
+ * Serve a file that Nimbus never changes once it is written, such as a version
+ * payload, or one byte range of it, as the attachment `filename`. Nothing
+ * replaces it in place, so it goes out zero-copy from its path.
+ */
+export async function serveStoredFile(
+  request: Request,
+  absolute: string,
+  filename: string,
+) {
+  const stats = await lstat(absolute).catch((error: unknown) => {
+    if (isFsError(error, "ENOENT"))
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "That version no longer exists. Refresh the version list.",
+      });
+    throw error;
+  });
+  if (!stats.isFile())
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "That version no longer exists. Refresh the version list.",
+    });
+  const response = fileResponse(request, absolute, stats, false, filename);
+  if (response.kind === "headers-only" || response.length === 0)
+    return new Response(null, response.init);
+  return new Response(
+    Bun.file(absolute).slice(response.start, response.end + 1),
+    response.init,
+  );
+}
+
+/**
  * Whether `absolute` still names the file the headers were built from: the
  * same device and inode, with the same size and modification and change
  * times. A replacement, truncation or write since then fails the check, and
@@ -180,8 +212,8 @@ function fileResponse(
   absolute: string,
   stats: Stats,
   inline: boolean,
+  filename = path.basename(absolute),
 ): FileResponse {
-  const filename = path.basename(absolute);
   const contentType = FileKind.previewContentType(FileKind.of(filename));
   const etag = fileETag(stats);
   const headers = new Headers({
