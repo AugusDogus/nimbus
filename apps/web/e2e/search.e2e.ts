@@ -63,3 +63,40 @@ test("suggests matches while typing and keeps the index current", async ({
     page.locator(`[data-entry-path="${folder}"]`).filter({ visible: true }),
   ).toBeVisible();
 });
+
+test("finds words across folders and loads every match", async ({
+  page,
+  context,
+}) => {
+  const token = randomUUID().slice(0, 8);
+  const folder = `layers-${token}`;
+  await (await client(context)).files.createFolder.mutate({ name: folder });
+  const year = path.join(await dataRoot(), folder, "2024");
+  await mkdir(year);
+  for (let i = 0; i < 205; i++)
+    await writeFile(path.join(year, `invoice-${token}-${i}.txt`), "x");
+
+  await page.goto("/");
+  const box = page.getByRole("combobox", { name: "Search files" });
+  const suggestions = page.getByRole("listbox", { name: "Search suggestions" });
+  // The year is only in the folder; the token only in the names.
+  const first = suggestions.getByRole("option", {
+    name: new RegExp(`invoice-${token}-\\d+\\.txt`),
+  });
+  await expect(async () => {
+    await box.fill("");
+    await box.fill(`2024 ${token}`);
+    await expect(first.first()).toBeVisible({ timeout: 2_000 });
+  }).toPass();
+  await expect(first.first().locator("mark").first()).toHaveText(token);
+  await expect(first.first().locator("mark").last()).toHaveText("2024");
+  await expect(
+    suggestions.getByRole("option", { name: /Show all 205 results/ }),
+  ).toBeVisible();
+
+  await box.press("Enter");
+  const status = page.getByRole("status").filter({ hasText: "matches" });
+  await expect(status).toHaveText("Showing 200 of 205 matches.");
+  await page.getByRole("button", { name: "Show 5 more", exact: true }).click();
+  await expect(status).toHaveText("205 matches.");
+});

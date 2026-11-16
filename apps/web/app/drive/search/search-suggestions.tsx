@@ -1,13 +1,13 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { FileText, Folder } from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { PreviewDialog } from "../files/preview-dialog";
 import { fileHref, type FileEntry } from "../files/types";
 import { Highlighted, parentLabel } from "./highlight";
+import { useSearch } from "./use-search";
 
 const SUGGESTIONS = 8;
+const count = new Intl.NumberFormat();
 
 function useDebounced<T>(value: T, delayMs: number) {
   const [debounced, setDebounced] = useState(value);
@@ -44,18 +44,8 @@ export default function SearchSuggestions({
     entry: FileEntry;
     files: FileEntry[];
   } | null>(null);
-  const results = useQuery({
-    queryKey: ["catalog", "search", query, SUGGESTIONS],
-    queryFn: ({ signal }) =>
-      trpcClient.catalog.search.query(
-        { query, path: "", limit: SUGGESTIONS },
-        { signal },
-      ),
-    enabled: query.length > 0,
-    placeholderData: keepPreviousData,
-    staleTime: 5_000,
-  });
-  const entries = query ? (results.data?.entries ?? []) : [];
+  const results = useSearch(query, SUGGESTIONS);
+  const entries = results.entries;
   const expanded = open && value.trim().length > 0;
   const optionId = (index: number) => `${id}-${index}`;
 
@@ -162,10 +152,18 @@ export default function SearchSuggestions({
               />
               <span className="min-w-0">
                 <span className="block truncate text-sm">
-                  <Highlighted text={entry.name} query={query} />
+                  <Highlighted
+                    text={entry.name}
+                    ranges={entry.highlight.name}
+                  />
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {parentLabel(entry.path)}
+                  <Highlighted
+                    text={parentLabel(entry.path)}
+                    ranges={
+                      entry.path.includes("/") ? entry.highlight.folder : []
+                    }
+                  />
                 </span>
               </span>
             </div>
@@ -178,9 +176,11 @@ export default function SearchSuggestions({
           onClick={showAll}
           className="cursor-default rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         >
-          {query && results.isFetched && entries.length === 0
+          {query && results.settled && entries.length === 0
             ? "No matching names. Press Enter to search again."
-            : `Show all results for “${value.trim()}”`}
+            : results.total && results.total.count > entries.length
+              ? `Show all ${count.format(results.total.count)}${results.total.exact ? "" : "+"} results for “${value.trim()}”`
+              : `Show all results for “${value.trim()}”`}
         </div>
       </div>
       {preview && (

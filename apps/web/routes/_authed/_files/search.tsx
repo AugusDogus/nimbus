@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LibraryPage } from "@/app/drive/library-page";
+import { SearchResultsPage } from "@/app/drive/search/search-results-page";
 import { SearchParams } from "@/client/search-params";
 
 export const Route = createFileRoute("/_authed/_files/search")({
@@ -8,6 +8,6 @@ export const Route = createFileRoute("/_authed/_files/search")({
   }),
   component: function SearchPage() {
     const { q } = Route.useSearch();
-    return <LibraryPage kind="search" query={q?.trim() ?? ""} />;
+    return <SearchResultsPage query={q?.trim() ?? ""} />;
   },
 });
