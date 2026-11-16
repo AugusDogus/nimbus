@@ -4,7 +4,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { UploadProgress } from "@/components/upload-progress";
 

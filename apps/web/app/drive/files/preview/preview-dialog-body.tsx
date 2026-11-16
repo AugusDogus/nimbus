@@ -1,6 +1,6 @@
 import { ChevronLeft } from "lucide-react";
 import { useRef, useState, type PointerEvent } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   Dialog,
   DialogContent,
