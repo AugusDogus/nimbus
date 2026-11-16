@@ -185,9 +185,7 @@ function scheduler(
 
 export const Backup = { create, list, file, scheduler } as const;
 
-declare global {
-  var nimbusBackups: ReturnType<typeof scheduler> | undefined;
-}
+let scheduled: ReturnType<typeof scheduler> | null = null;
 
 /** Completed backups to keep, from NIMBUS_BACKUP_KEEP (default 7). */
 export function backupsToKeep(value = process.env.NIMBUS_BACKUP_KEEP) {
@@ -200,12 +198,9 @@ export function backupsToKeep(value = process.env.NIMBUS_BACKUP_KEEP) {
   return keep;
 }
 
-/**
- * The process-wide daily backup job. The custom server and Next's route
- * bundles load this module separately, so the instance lives on globalThis.
- */
+/** The process-wide daily backup job, shared by the scheduler and Back up now. */
 export function backups() {
-  globalThis.nimbusBackups ??= scheduler(
+  scheduled ??= scheduler(
     () => ({
       databaseUrl: getDatabaseUrl(),
       directory: path.join(getConfigRoot(), "backups"),
@@ -213,5 +208,5 @@ export function backups() {
     }),
     24 * 60 * 60 * 1000,
   );
-  return globalThis.nimbusBackups;
+  return scheduled;
 }

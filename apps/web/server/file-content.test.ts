@@ -11,7 +11,10 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
-import { lockFile } from "@nimbus/api/file-mutations";
+import {
+  lockFile,
+  forgetFileMutationsForTest,
+} from "@nimbus/api/file-mutations";
 import { FileVersions } from "@nimbus/api/file-versions";
 import { createTestDriveStore } from "@nimbus/api/testing";
 import { fileETag, saveFileContent } from "./file-content";
@@ -30,7 +33,7 @@ beforeEach(async () => {
   await writeFile(path.join(root, "docs/notes.txt"), "first");
 });
 afterEach(async () => {
-  globalThis.nimbusFileMutations?.delete(root);
+  forgetFileMutationsForTest(root);
   process.env.NIMBUS_DATA_ROOT = previousRoot;
   await rm(root, { recursive: true, force: true });
 });

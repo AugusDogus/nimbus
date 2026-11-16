@@ -16,6 +16,7 @@ import {
   mutateFiles,
   refreshLock,
   unlockFile,
+  forgetFileMutationsForTest,
 } from "./file-mutations";
 import { moveItem } from "./file-operations";
 import { appRouter } from "./routers";
@@ -46,7 +47,7 @@ describe("filesystem mutation coordination", () => {
     await writeFile(path.join(root, "docs/second.txt"), "second");
   });
   afterEach(async () => {
-    globalThis.nimbusFileMutations?.delete(root);
+    forgetFileMutationsForTest(root);
     await rm(root, { recursive: true, force: true });
     if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
     else process.env.NIMBUS_DATA_ROOT = previousRoot;

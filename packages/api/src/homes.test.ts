@@ -6,6 +6,7 @@ import { appRouter } from "./routers";
 import { Homes } from "./homes";
 import { createTestDriveStore } from "./testing";
 import { FileListing } from "./file-listing";
+import { forgetFileMutationsForTest } from "./file-mutations";
 
 describe("home folders", () => {
   let root: string;
@@ -28,7 +29,7 @@ describe("home folders", () => {
     memory = createTestDriveStore();
   });
   afterEach(async () => {
-    globalThis.nimbusFileMutations?.delete(root);
+    forgetFileMutationsForTest(root);
     await rm(root, { recursive: true, force: true });
     if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
     else process.env.NIMBUS_DATA_ROOT = previousRoot;

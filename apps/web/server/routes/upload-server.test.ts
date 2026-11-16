@@ -7,6 +7,7 @@ import { isApiError } from "@nimbus/api/safe-path";
 import { createTestDriveStore } from "@nimbus/api/testing";
 import { UploadStore } from "@/server/upload-store";
 import { createUploadServer } from "./upload-server";
+import { forgetFileMutationsForTest } from "@nimbus/api/file-mutations";
 
 const base64 = (value: string) => Buffer.from(value).toString("base64");
 
@@ -47,7 +48,7 @@ describe("signed-in tus uploads", () => {
     });
   });
   afterEach(async () => {
-    globalThis.nimbusFileMutations?.delete(root);
+    forgetFileMutationsForTest(root);
     await rm(root, { recursive: true, force: true });
     if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
     else process.env.NIMBUS_DATA_ROOT = previousRoot;

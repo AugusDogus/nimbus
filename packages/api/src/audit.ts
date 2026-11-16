@@ -118,17 +118,13 @@ type AuditState = {
   flushing: Promise<void> | null;
 };
 
-const globalForAudit = globalThis as typeof globalThis & {
-  __nimbusAudit?: AuditState;
-};
-// Next.js route bundles and the custom server load separate module copies in one process.
-const state: AuditState = (globalForAudit.__nimbusAudit ??= {
+const state: AuditState = {
   requests: new AsyncLocalStorage<AuditRequest>(),
   sink: null,
   queue: [],
   timer: null,
   flushing: null,
-});
+};
 
 const flushDelayMs = 250;
 const retryDelayMs = 5_000;

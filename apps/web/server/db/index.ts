@@ -21,12 +21,6 @@ export function openDatabase(filename: string) {
 const stateDirectory = getConfigRoot();
 mkdirSync(stateDirectory, { recursive: true });
 
-declare global {
-  var nimbusDatabase: ReturnType<typeof openDatabase> | undefined;
-}
-const opened =
-  globalThis.nimbusDatabase ?? openDatabase(databaseFile(getDatabaseUrl()));
-// Next bundles route handlers separately from the custom server; share one connection.
-globalThis.nimbusDatabase = opened;
+const opened = openDatabase(databaseFile(getDatabaseUrl()));
 export const client = opened.sqlite;
 export const db: Database = opened.db;

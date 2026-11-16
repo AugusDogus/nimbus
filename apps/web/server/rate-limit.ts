@@ -33,6 +33,9 @@ const decide = (rule: RateLimitRule, tat: number | undefined, now: number) => {
     : ({ allowed: true, next } as const);
 };
 
+/** Limiters by name, for `RateLimiter.shared`. */
+const registry = new Map<string, RateLimiter>();
+
 export const RateLimiter = {
   create(rule: RateLimitRule, maxKeys = 50_000): RateLimiter {
     const arrivals = new Map<string, number>();
@@ -65,13 +68,8 @@ export const RateLimiter = {
       },
     };
   },
-  /** One limiter per name per process, shared by the custom server and Next.js bundles. */
+  /** One limiter per name per process, so every route counting the same thing shares it. */
   shared(name: string, rule: RateLimitRule): RateLimiter {
-    const registry = ((
-      globalThis as typeof globalThis & {
-        __nimbusRateLimiters?: Map<string, RateLimiter>;
-      }
-    ).__nimbusRateLimiters ??= new Map<string, RateLimiter>());
     const existing = registry.get(name);
     if (existing) return existing;
     const limiter = RateLimiter.create(rule);

@@ -43,16 +43,13 @@ function lockProtects(lock: FileLock, path: string) {
   return path !== "" && parentOf(path) === lock.path;
 }
 
-// Next bundles API handlers separately from the custom server. Keep one coordinator per
-// mounted drive in this process so browser mutations respect WebDAV locks too.
-declare global {
-  var nimbusFileMutations: Map<string, MutationState> | undefined;
-}
+/**
+ * One coordinator per data root, shared by the browser API, WebDAV and MCP, so every change
+ * respects the same WebDAV locks. Keyed by root because tests point the process at a new
+ * data root per test.
+ */
+const states = new Map<string, MutationState>();
 function state() {
-  const states = (globalThis.nimbusFileMutations ??= new Map<
-    string,
-    MutationState
-  >());
   const root = getDataRoot();
   let current = states.get(root);
   if (!current) {
@@ -62,6 +59,11 @@ function state() {
   for (const [token, lock] of current.locks)
     if (lock.expiresAt <= Date.now()) current.locks.delete(token);
   return current;
+}
+
+/** Drop the coordinator of a data root a test has finished with. */
+export function forgetFileMutationsForTest(root: string) {
+  states.delete(root);
 }
 
 export class FileLockedError extends TRPCError {

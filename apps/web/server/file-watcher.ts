@@ -7,12 +7,10 @@ import {
 } from "./search-bridge";
 import { startFileWatch, type FileWatchHandle } from "./watch.worker";
 
-declare global {
-  var __nimbusFileWatcher: FileWatchHandle | undefined;
-}
+let watching: FileWatchHandle | null = null;
 
 export const ensureFileWatcher = () => {
-  if (globalThis.__nimbusFileWatcher) return;
+  if (watching) return;
   ensureSearchIndex();
   const root = getDataRoot();
   const configuredDebounce = Number(
@@ -24,7 +22,7 @@ export const ensureFileWatcher = () => {
       : 300;
   // fs.watch already delivers asynchronous notifications. Import its helper into
   // the server bundle so Next does not copy a worker entry without its imports.
-  globalThis.__nimbusFileWatcher = startFileWatch(
+  watching = startFileWatch(
     root,
     debounceMs,
     (event) => {

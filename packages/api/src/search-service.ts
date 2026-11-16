@@ -20,18 +20,15 @@ export type SearchService = {
   usage: () => Promise<number>;
 };
 
-// Next bundles API handlers separately from the custom server; one process-wide
-// service, like the file event emitter.
-declare global {
-  var __nimbusSearchService: SearchService | undefined;
-}
+/** Provided by the web server's worker bridge, or by tests. */
+let provided: SearchService | null = null;
 
 export const provideSearchService = (service: SearchService) => {
-  globalThis.__nimbusSearchService = service;
+  provided = service;
 };
 
 const runningService = (): SearchService => {
-  const service = globalThis.__nimbusSearchService;
+  const service = provided;
   if (!service)
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",

@@ -30,9 +30,8 @@ type BridgeState = {
   nextId: number;
 };
 
-declare global {
-  var __nimbusSearchBridge: BridgeState | undefined;
-}
+/** The running worker, or null before the first use and after it crashes. */
+let running: BridgeState | null = null;
 
 function start(): BridgeState {
   const worker = new Worker(new URL("./search.worker.ts", import.meta.url), {
@@ -96,13 +95,13 @@ function start(): BridgeState {
       );
     }
     state.pending.clear();
-    globalThis.__nimbusSearchBridge = undefined;
+    running = null;
   };
   send({ type: "start", root: getDataRoot() });
   return state;
 }
 
-const bridge = () => (globalThis.__nimbusSearchBridge ??= start());
+const bridge = () => (running ??= start());
 
 /** Register a request the worker answers by id; it fails after `timeoutMs`. */
 function track(
@@ -152,11 +151,11 @@ export function ensureSearchIndex() {
 /** The watcher lost events, so walk the drive again to catch up. */
 export function requestSearchRescan() {
   const message: SearchInbound = { type: "rescan" };
-  globalThis.__nimbusSearchBridge?.worker.postMessage(message);
+  running?.worker.postMessage(message);
 }
 
 /** Forward a watcher event so the index re-checks that path on disk. */
 export function notifySearchChange(absolutePath: string) {
   const message: SearchInbound = { type: "changed", path: absolutePath };
-  globalThis.__nimbusSearchBridge?.worker.postMessage(message);
+  running?.worker.postMessage(message);
 }

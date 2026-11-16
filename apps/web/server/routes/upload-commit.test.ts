@@ -10,7 +10,10 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
-import { lockFile } from "@nimbus/api/file-mutations";
+import {
+  lockFile,
+  forgetFileMutationsForTest,
+} from "@nimbus/api/file-mutations";
 import { FileVersions } from "@nimbus/api/file-versions";
 import { createTestDriveStore } from "@nimbus/api/testing";
 import { UploadStore } from "@/server/upload-store";
@@ -51,7 +54,7 @@ describe("committing finished uploads", () => {
     await writeFile(path.join(root, "docs/notes.txt"), "original");
   });
   afterEach(async () => {
-    globalThis.nimbusFileMutations?.delete(root);
+    forgetFileMutationsForTest(root);
     await rm(root, { recursive: true, force: true });
     if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
     else process.env.NIMBUS_DATA_ROOT = previousRoot;

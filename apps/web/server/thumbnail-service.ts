@@ -8,13 +8,11 @@ import {
   type ThumbnailRenderer,
 } from "./thumbnails";
 
-declare global {
-  var __nimbusThumbnailer: ReturnType<typeof createThumbnailer> | undefined;
-}
+let shared: ReturnType<typeof createThumbnailer> | null = null;
 
 /** One process-wide thumbnailer so the concurrency bound covers every request. */
 export function thumbnailer() {
-  if (!globalThis.__nimbusThumbnailer) {
+  if (!shared) {
     // Parallelism comes from the job limit; one libvips thread per job keeps
     // a folder of thousands of images from saturating every core.
     sharp.concurrency(1);
@@ -37,10 +35,10 @@ export function thumbnailer() {
       console.warn(
         `Nimbus thumbnails: ${missing.join(", ")} not found on PATH. Those files show generic icons; previews and downloads are unaffected. The Docker image includes them.`,
       );
-    globalThis.__nimbusThumbnailer = createThumbnailer({
+    shared = createThumbnailer({
       cacheDirectory: path.join(getConfigRoot(), "cache", "thumbnails"),
       renderers,
     });
   }
-  return globalThis.__nimbusThumbnailer;
+  return shared;
 }

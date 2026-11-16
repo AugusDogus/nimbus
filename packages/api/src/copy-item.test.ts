@@ -13,7 +13,7 @@ import path from "node:path";
 import { getAccess } from "./access";
 import type { DriveStore } from "./drive-store";
 import { copyItem, type CopyOptions } from "./file-operations";
-import { lockFile } from "./file-mutations";
+import { lockFile, forgetFileMutationsForTest } from "./file-mutations";
 import { appRouter } from "./routers";
 import { createTestDriveStore } from "./testing";
 
@@ -57,7 +57,7 @@ describe("copying files and folders", () => {
     await mkdir(path.join(root, "archive"));
   });
   afterEach(async () => {
-    globalThis.nimbusFileMutations?.delete(root);
+    forgetFileMutationsForTest(root);
     await rm(root, { recursive: true, force: true });
     if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
     else process.env.NIMBUS_DATA_ROOT = previousRoot;

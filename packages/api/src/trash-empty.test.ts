@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { appRouter } from "./routers";
 import { createTestDriveStore } from "./testing";
+import { forgetFileMutationsForTest } from "./file-mutations";
 
 describe("emptying trash", () => {
   let root: string;
@@ -36,7 +37,7 @@ describe("emptying trash", () => {
     });
   });
   afterEach(async () => {
-    globalThis.nimbusFileMutations?.delete(root);
+    forgetFileMutationsForTest(root);
     await rm(root, { recursive: true, force: true });
     if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
     else process.env.NIMBUS_DATA_ROOT = previousRoot;

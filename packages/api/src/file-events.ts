@@ -16,15 +16,9 @@ export type FileDelta = {
 
 type FileEventListener = (event: FileEvent) => void;
 
-const globalForEvents = globalThis as typeof globalThis & {
-  __nimbusFileEvents?: EventEmitter;
-};
-
-const fileEvents = globalForEvents.__nimbusFileEvents ?? new EventEmitter();
-if (!globalForEvents.__nimbusFileEvents) {
-  globalForEvents.__nimbusFileEvents = fileEvents;
-  fileEvents.setMaxListeners(0);
-}
+const fileEvents = new EventEmitter();
+// Every live-update subscription listens; there is no meaningful limit.
+fileEvents.setMaxListeners(0);
 
 export const publishFileEvent = (event: FileEvent) => {
   fileEvents.emit("file-change", event);

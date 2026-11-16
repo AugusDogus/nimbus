@@ -13,6 +13,7 @@ import { getAccess } from "./access";
 import { copyItem, moveItem } from "./file-operations";
 import { FileVersions } from "./file-versions";
 import { createTestDriveStore } from "./testing";
+import { forgetFileMutationsForTest } from "./file-mutations";
 
 describe("moving and copying onto existing destinations", () => {
   let root: string;
@@ -46,7 +47,7 @@ describe("moving and copying onto existing destinations", () => {
     await writeFile(path.join(root, "draft.tmp"), "edited");
   });
   afterEach(async () => {
-    globalThis.nimbusFileMutations?.delete(root);
+    forgetFileMutationsForTest(root);
     await rm(root, { recursive: true, force: true });
     if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
     else process.env.NIMBUS_DATA_ROOT = previousRoot;
