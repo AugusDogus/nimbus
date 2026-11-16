@@ -12,7 +12,16 @@ export type FileEntry = {
   size: number;
 };
 
-export async function entryAt(requested: string): Promise<FileEntry> {
+/** An entry as read from disk, with the creation time WebDAV reports. */
+export type StatedEntry = FileEntry & {
+  /** Birth time, or the modification time on filesystems that do not record it. */
+  createdMs: number;
+};
+
+const createdMs = (stats: { birthtimeMs: number; mtimeMs: number }) =>
+  stats.birthtimeMs || stats.mtimeMs;
+
+export async function entryAt(requested: string): Promise<StatedEntry> {
   const target = await requireExisting(requested);
   return {
     name: target.relative.split("/").pop() || "My Drive",
@@ -20,6 +29,7 @@ export async function entryAt(requested: string): Promise<FileEntry> {
     type: target.stats.isDirectory() ? "dir" : "file",
     mtime: target.stats.mtimeMs,
     size: target.stats.isDirectory() ? 0 : target.stats.size,
+    createdMs: createdMs(target.stats),
   };
 }
 
@@ -39,7 +49,7 @@ const statBatch = 256;
 export async function readDirectory(
   requested: string,
   access: Pick<Access, "canBrowse">,
-): Promise<FileEntry[]> {
+): Promise<StatedEntry[]> {
   const target = await safePath(requested);
   const children = (await readdir(target.absolute, { withFileTypes: true }))
     .filter(
@@ -51,7 +61,7 @@ export async function readDirectory(
       path: target.relative ? `${target.relative}/${entry.name}` : entry.name,
     }))
     .filter((child) => access.canBrowse(child.path));
-  const results: FileEntry[] = [];
+  const results: StatedEntry[] = [];
   for (let start = 0; start < children.length; start += statBatch) {
     const batch = await Promise.all(
       children.slice(start, start + statBatch).map(async (child) => {
@@ -63,6 +73,7 @@ export async function readDirectory(
               type: "dir",
               mtime: stats.mtimeMs,
               size: 0,
+              createdMs: createdMs(stats),
             } as const;
           if (stats.isFile())
             return {
@@ -70,6 +81,7 @@ export async function readDirectory(
               type: "file",
               mtime: stats.mtimeMs,
               size: stats.size,
+              createdMs: createdMs(stats),
             } as const;
           return null;
         } catch (error) {

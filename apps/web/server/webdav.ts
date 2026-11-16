@@ -6,7 +6,7 @@ import { getDataRoot } from "@nimbus/api/data-root";
 import {
   entryAt,
   readDirectory,
-  type FileEntry,
+  type StatedEntry,
 } from "@nimbus/api/file-browser";
 import { commitStagedFile, fileTag, stageFile } from "@nimbus/api/file-content";
 import { publishFileEvent } from "@nimbus/api/file-events";
@@ -273,7 +273,7 @@ async function propfind(request: Request, access: Access, target: string) {
   if (!parsed.ok) return textResponse(400, parsed.message);
   if (!access.canBrowse(target)) throw new TRPCError({ code: "FORBIDDEN" });
   const entry = await entryAt(target);
-  const entries: FileEntry[] =
+  const entries: StatedEntry[] =
     entry.type === "dir" && depth === "1"
       ? [entry, ...(await readDirectory(target, access))]
       : [entry];

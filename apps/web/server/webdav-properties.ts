@@ -3,13 +3,11 @@
  * properties clients store, and the PROPFIND and PROPPATCH request formats (RFC 4918,
  * sections 9.1, 9.2 and 15; RFC 4331 for quota).
  */
-import { lstat } from "node:fs/promises";
 import type { DavProperty, DavPropertyName } from "@nimbus/api/drive-store";
-import type { FileEntry } from "@nimbus/api/file-browser";
+import type { FileEntry, StatedEntry } from "@nimbus/api/file-browser";
 import { fileTag } from "@nimbus/api/file-content";
 import type { FileLock } from "@nimbus/api/file-mutations";
 import type { FilesystemCapacity } from "@nimbus/api/filesystem-capacity";
-import { safePath } from "@nimbus/api/file-operations";
 import {
   DAV,
   childElements,
@@ -83,7 +81,7 @@ export const lockDiscovery = (
 
 /** Inner XML of a live property, or null when it is not defined for the resource. */
 async function liveValue(
-  entry: FileEntry,
+  entry: StatedEntry,
   name: LiveName,
   context: PropfindContext,
 ): Promise<string | null> {
@@ -100,11 +98,8 @@ async function liveValue(
         : null;
     case "getlastmodified":
       return new Date(entry.mtime).toUTCString();
-    case "creationdate": {
-      // Some filesystems do not record birth time; report the modification time instead.
-      const stats = await lstat((await safePath(entry.path)).absolute);
-      return new Date(stats.birthtimeMs || stats.mtimeMs).toISOString();
-    }
+    case "creationdate":
+      return new Date(entry.createdMs).toISOString();
     case "getetag":
       return escapeXml(fileTag(entry));
     case "supportedlock":
@@ -175,7 +170,7 @@ const sameName = (a: XmlName, b: XmlName) =>
 
 /** One DAV:response element for a resource. */
 export async function propfindResponse(
-  entry: FileEntry,
+  entry: StatedEntry,
   request: PropfindRequest,
   dead: readonly DavProperty[],
   context: PropfindContext,
