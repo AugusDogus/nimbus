@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
+import { z } from "zod";
 import { action, client, test } from "./helpers";
 
 test("file requests accept anonymous uploads into one folder without exposing it", async ({ page, context, browser, isMobile }, testInfo) => {
@@ -43,7 +44,7 @@ test("file requests accept anonymous uploads into one folder without exposing it
 
     // Uploaders hold no read access: no listing in details, no download route.
     const details = await anonymous.request.get(`/api/file-request/${token}`);
-    expect(Object.keys(await details.json()).sort()).toEqual(["expiresAt", "folder", "maxFileBytes", "note", "remainingFiles"]);
+    expect(Object.keys(z.record(z.string(), z.unknown()).parse(await details.json())).sort()).toEqual(["expiresAt", "folder", "maxFileBytes", "note", "remainingFiles"]);
     expect((await anonymous.request.get(`/api/share/${token}`)).status()).toBe(404);
     // Without the unlock cookie nothing can be created.
     const outsider = await browser.newContext({ storageState: { cookies: [], origins: [] } });

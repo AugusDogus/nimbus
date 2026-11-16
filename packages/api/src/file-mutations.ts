@@ -48,7 +48,7 @@ declare global {
   var nimbusFileMutations: Map<string, MutationState> | undefined;
 }
 function state() {
-  const states = (globalThis.nimbusFileMutations ??= new Map());
+  const states = (globalThis.nimbusFileMutations ??= new Map<string, MutationState>());
   const root = getDataRoot();
   let current = states.get(root);
   if (!current) {

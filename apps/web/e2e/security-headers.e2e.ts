@@ -1,6 +1,13 @@
 import { expect } from "@playwright/test";
 import { test } from "./helpers";
 
+declare global {
+  interface Window {
+    /** Exposed by the test below to collect Content-Security-Policy violations. */
+    reportViolation?: (text: string) => Promise<void>;
+  }
+}
+
 test("pages are served with an enforced Content-Security-Policy and hardening headers", async ({ page, request }) => {
   const response = await request.get("/login");
   const headers = response.headers();
@@ -26,7 +33,7 @@ test("pages are served with an enforced Content-Security-Policy and hardening he
   await page.exposeFunction("reportViolation", (text: string) => violations.push(text));
   await page.addInitScript(() => {
     document.addEventListener("securitypolicyviolation", (event) => {
-      void (window as unknown as { reportViolation: (text: string) => void }).reportViolation(`${event.violatedDirective} ${event.blockedURI}`);
+      void window.reportViolation?.(`${event.violatedDirective} ${event.blockedURI}`);
     });
   });
   for (const path of ["/", "/settings/account", "/settings/appearance", "/settings/admin", "/settings/admin/audit", "/shared", "/trash"]) {

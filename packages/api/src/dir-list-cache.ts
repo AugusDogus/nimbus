@@ -88,9 +88,7 @@ const deleteDirEntry = (relativePath: string) => {
 
 const evictOldest = () => {
   while (dirListCache.entries.size > CACHE_MAX_ENTRIES) {
-    const oldestKey = dirListCache.entries.keys().next().value as
-      | string
-      | undefined;
+    const oldestKey = dirListCache.entries.keys().next().value;
     if (!oldestKey) {
       break;
     }

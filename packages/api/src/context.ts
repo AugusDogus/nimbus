@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { DriveStore } from "./drive-store";
 
 export type AuthApi = {
@@ -8,12 +9,14 @@ export type AuthLike = {
   api: AuthApi;
 };
 
-export type UserPreferences = {
-  view: "list" | "grid";
-  sortField: "name" | "type" | "modified" | "size";
-  sortDirection: "asc" | "desc";
-  groupByType: boolean;
-};
+/** File browser preferences, validated wherever they enter: API input and stored rows. */
+export const UserPreferences = z.object({
+  view: z.enum(["list", "grid"]),
+  sortField: z.enum(["name", "type", "modified", "size"]),
+  sortDirection: z.enum(["asc", "desc"]),
+  groupByType: z.boolean(),
+});
+export type UserPreferences = z.infer<typeof UserPreferences>;
 
 export type PreferencesStore = {
   getUserPreferences: (userId: string) => Promise<UserPreferences | null>;

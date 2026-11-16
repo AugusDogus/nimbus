@@ -2,7 +2,7 @@ import "server-only";
 
 import { eq } from "drizzle-orm";
 
-import type { PreferencesStore, UserPreferences } from "@nimbus/api/context";
+import { UserPreferences, type PreferencesStore } from "@nimbus/api/context";
 
 import { db } from "./db";
 import { userPreferences } from "./db/schema";
@@ -27,12 +27,13 @@ export const preferencesStore: PreferencesStore = {
       return null;
     }
 
-    return {
-      view: row.view as UserPreferences["view"],
-      sortField: row.sortField as UserPreferences["sortField"],
-      sortDirection: row.sortDirection as UserPreferences["sortDirection"],
+    // Columns are plain text; only values the API accepted are ever written.
+    return UserPreferences.parse({
+      view: row.view,
+      sortField: row.sortField,
+      sortDirection: row.sortDirection,
       groupByType: row.groupByType,
-    };
+    });
   },
   async setUserPreferences(userId, preferences) {
     await db

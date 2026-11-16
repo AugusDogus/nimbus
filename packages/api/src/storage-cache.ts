@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { getDataRoot } from "./data-root";
 import { statPath } from "./fs-utils";
+import { isFsError } from "./safe-path";
 
 type StorageCacheState = {
   usedBytes: number | null;
@@ -147,8 +148,7 @@ const applyDelta = async (event: { path: string; event: string }) => {
       storageCache.usedBytes - previousSize + nextSize,
     );
   } catch (error) {
-    const cause = error as { code?: string };
-    if (cause.code === "ENOENT") {
+    if (isFsError(error, "ENOENT")) {
       const previous = storageCache.fileSizes.get(absolute);
       if (previous !== undefined) {
         storageCache.usedBytes = Math.max(

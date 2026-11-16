@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { getDataRoot } from "@nimbus/api/data-root";
 import { statPath } from "@nimbus/api/fs-utils";
+import { isFsError } from "@nimbus/api/safe-path";
 
 type StatRequest = { type: "stat-request"; path: string };
 type WarmUpRequest = { type: "warm-up"; root: string };
@@ -75,8 +76,7 @@ const statEntry = async (absolutePath: string) => {
       mtime: stats.mtimeMs,
     });
   } catch (error) {
-    const cause = error as { code?: string };
-    if (cause.code === "ENOENT") {
+    if (isFsError(error, "ENOENT")) {
       post({ type: "stat-deleted", relativePath: relative });
     }
   }

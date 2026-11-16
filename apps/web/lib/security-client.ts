@@ -6,6 +6,8 @@ import type { nimbusSecurity } from "./auth-security";
 const nimbusSecurityClient = () =>
   ({
     id: "nimbus-security",
+    // Better Auth's documented type carrier: the client reads only its type, never the value.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     $InferServerPlugin: {} as ReturnType<typeof nimbusSecurity>,
   }) satisfies BetterAuthClientPlugin;
 

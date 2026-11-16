@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { expect, type Browser, type Page } from "@playwright/test";
+import { z } from "zod";
 import { client, login, origin, password, test } from "./helpers";
 
 /** RFC 6238 code for a base32 secret, so the test can act as an authenticator app. */
@@ -23,9 +24,9 @@ async function createMember(page: Page) {
     data: { name: "Sam Rivera", email, password, role: "user" },
   });
   expect(created.ok()).toBe(true);
-  const id: unknown = (await created.json()).user?.id;
-  if (typeof id !== "string") throw new Error("The created account did not include an ID.");
-  return { email, id };
+  const body = z.object({ user: z.object({ id: z.string() }) }).safeParse(await created.json());
+  if (!body.success) throw new Error("The created account did not include an ID.");
+  return { email, id: body.data.user.id };
 }
 
 async function memberPage(browser: Browser, page: Page) {

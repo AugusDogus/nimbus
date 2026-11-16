@@ -82,9 +82,7 @@ const getParentDir = (relativePath: string) => {
 
 const evictOldest = () => {
   while (listCache.entries.size > LIST_CACHE_MAX_ENTRIES) {
-    const oldestKey = listCache.entries.keys().next().value as
-      | string
-      | undefined;
+    const oldestKey = listCache.entries.keys().next().value;
     if (!oldestKey) {
       break;
     }

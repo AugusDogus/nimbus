@@ -48,24 +48,26 @@ type FiltersRowProps = {
   updatePreferences: (partial: Partial<UserPreferences>) => void;
 };
 
-type SortValue =
-  `${UserPreferences["sortField"]}-${UserPreferences["sortDirection"]}`;
 type SortOption = {
-  value: SortValue;
+  field: UserPreferences["sortField"];
+  direction: UserPreferences["sortDirection"];
   label: string;
   icon: LucideIcon;
 };
 
 const sortOptions: SortOption[] = [
-  { value: "name-asc", label: "Name (A to Z)", icon: ArrowDownAZ },
-  { value: "name-desc", label: "Name (Z to A)", icon: ArrowUpAZ },
-  { value: "modified-desc", label: "Modified (Newest)", icon: Calendar },
-  { value: "modified-asc", label: "Modified (Oldest)", icon: Calendar },
-  { value: "size-desc", label: "Size (Largest)", icon: Weight },
-  { value: "size-asc", label: "Size (Smallest)", icon: Weight },
-  { value: "type-asc", label: "Type (A to Z)", icon: FileText },
-  { value: "type-desc", label: "Type (Z to A)", icon: FileText },
+  { field: "name", direction: "asc", label: "Name (A to Z)", icon: ArrowDownAZ },
+  { field: "name", direction: "desc", label: "Name (Z to A)", icon: ArrowUpAZ },
+  { field: "modified", direction: "desc", label: "Modified (Newest)", icon: Calendar },
+  { field: "modified", direction: "asc", label: "Modified (Oldest)", icon: Calendar },
+  { field: "size", direction: "desc", label: "Size (Largest)", icon: Weight },
+  { field: "size", direction: "asc", label: "Size (Smallest)", icon: Weight },
+  { field: "type", direction: "asc", label: "Type (A to Z)", icon: FileText },
+  { field: "type", direction: "desc", label: "Type (Z to A)", icon: FileText },
 ];
+
+const sortValue = (option: Pick<SortOption, "field" | "direction">) =>
+  `${option.field}-${option.direction}`;
 
 export function FiltersRow({
   prefs,
@@ -74,9 +76,13 @@ export function FiltersRow({
 }: FiltersRowProps) {
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
-  const sortValue = `${prefs.sortField}-${prefs.sortDirection}` as SortValue;
+  const selectedValue = sortValue({
+    field: prefs.sortField,
+    direction: prefs.sortDirection,
+  });
   const selectedSort =
-    sortOptions.find((option) => option.value === sortValue) ?? sortOptions[0];
+    sortOptions.find((option) => sortValue(option) === selectedValue) ??
+    sortOptions[0];
 
   return (
     <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -104,22 +110,18 @@ export function FiltersRow({
               Sort by
             </p>
             {sortOptions.map((option) => (
-              <DrawerClose key={option.value} asChild>
+              <DrawerClose key={sortValue(option)} asChild>
                 <DrawerActionItem
                   onClick={() => {
-                    const [field, direction] = option.value.split("-") as [
-                      typeof prefs.sortField,
-                      typeof prefs.sortDirection,
-                    ];
                     updatePreferences({
-                      sortField: field,
-                      sortDirection: direction,
+                      sortField: option.field,
+                      sortDirection: option.direction,
                     });
                   }}
                 >
                   <option.icon className="size-5 text-muted-foreground" />
                   <span className="flex-1 text-left">{option.label}</span>
-                  {option.value === sortValue && (
+                  {sortValue(option) === selectedValue && (
                     <Check className="size-4 text-primary" />
                   )}
                 </DrawerActionItem>
@@ -141,13 +143,16 @@ export function FiltersRow({
 
       {/* Desktop: inline controls */}
       <Select
-        value={selectedSort.value}
+        value={sortValue(selectedSort)}
         onValueChange={(value) => {
-          const [field, direction] = value.split("-") as [
-            typeof prefs.sortField,
-            typeof prefs.sortDirection,
-          ];
-          updatePreferences({ sortField: field, sortDirection: direction });
+          const option = sortOptions.find(
+            (candidate) => sortValue(candidate) === value,
+          );
+          if (option)
+            updatePreferences({
+              sortField: option.field,
+              sortDirection: option.direction,
+            });
         }}
       >
         <SelectTrigger
@@ -162,7 +167,7 @@ export function FiltersRow({
         </SelectTrigger>
         <SelectContent>
           {sortOptions.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
+            <SelectItem key={sortValue(option)} value={sortValue(option)}>
               <option.icon className="size-4" />
               {option.label}
             </SelectItem>

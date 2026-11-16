@@ -1,9 +1,15 @@
 import { describe, expect, it } from "bun:test";
+import type * as StatsCache from "./stats-cache";
+
+// The limits are read at import, so each test imports a fresh copy, which TypeScript cannot type.
+const isStatsCache = (module: unknown): module is typeof StatsCache =>
+  typeof module === "object" && module !== null && "getStats" in module && "resetStatsCacheForTest" in module;
 
 const loadStatsCache = async () => {
   process.env.NIMBUS_STATS_CACHE_MAX = "1";
   process.env.NIMBUS_STATS_CACHE_TTL_MS = "5";
-  const module = await import(`./stats-cache.ts?test=${Date.now()}`);
+  const module: unknown = await import(`./stats-cache.ts?test=${Date.now()}`);
+  if (!isStatsCache(module)) throw new Error("stats-cache.ts no longer exports its cache functions.");
   module.resetStatsCacheForTest();
   return module;
 };

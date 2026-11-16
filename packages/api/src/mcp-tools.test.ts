@@ -178,9 +178,7 @@ describe("MCP tools", () => {
     await value("grant_permission", { path: "docs", subject: { type: "user", email: "reader@example.test" }, permission: "write" });
     const listed = await value("list_permissions", { path: "docs" });
     expect(listed).toMatchObject({ grants: [{ subject: { type: "user", name: "Reader", email: "reader@example.test" }, permission: "write" }] });
-    const grants = listed.grants;
-    if (!Array.isArray(grants)) throw new Error("Expected grants");
-    const [grant] = grants;
+    const [grant] = z.object({ grants: z.array(z.object({ grantId: z.string() })) }).parse(listed).grants;
     await value("revoke_permission", { path: "docs", grantId: grant.grantId });
     expect(await value("list_permissions", { path: "docs" })).toMatchObject({ grants: [] });
     expect(await failure("grant_permission", { path: "docs", subject: { type: "user", email: "nobody@example.test" }, permission: "read" })).toContain("No active Nimbus user");

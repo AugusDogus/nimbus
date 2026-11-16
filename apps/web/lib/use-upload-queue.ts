@@ -7,6 +7,13 @@ import type { ClashChoice, EntryKind, UploadClash } from "./upload-plan";
 import { createUploadQueue, type UploadSummary, type UploadTransport } from "./upload-queue";
 import type { CollectedUpload } from "./upload-sources";
 
+/** An existing folder is fine when recreating an upload's folder tree. */
+function isConflict(error: unknown) {
+  if (!(error instanceof TRPCClientError)) return false;
+  const data: unknown = error.data;
+  return typeof data === "object" && data !== null && "code" in data && data.code === "CONFLICT";
+}
+
 /** Small files send their bytes with the creation request, halving requests for large batches. */
 const inlineUploadLimit = 16 * 1024 * 1024;
 
@@ -102,7 +109,7 @@ async function createFolders(target: string, folders: readonly string[]) {
       try {
         await trpcClient.files.createFolder.mutate({ path: parent || undefined, name });
       } catch (error) {
-        if (!(error instanceof TRPCClientError && error.data?.code === "CONFLICT")) throw error;
+        if (!isConflict(error)) throw error;
       }
     }
   }

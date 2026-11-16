@@ -24,7 +24,7 @@ export const useFilePreferences = (
 ) => {
   const prefsQuery = useQuery<UserPreferences, Error>({
     queryKey: ["prefs"] as const,
-    queryFn: () => trpcClient.prefs.get.query() as Promise<UserPreferences>,
+    queryFn: () => trpcClient.prefs.get.query(),
     enabled,
     initialData,
   });

@@ -119,11 +119,12 @@ describe("saved themes", () => {
       dark: theme.id,
     };
     const style = { textContent: "" };
-    const run = (value: unknown) =>
+    const run = (value: unknown) => {
       runInNewContext(themeBootScript, {
         localStorage: { getItem: () => JSON.stringify(value) },
         document: { getElementById: () => style },
       });
+    };
     run(preferences);
     expect(style.textContent).toBe(ThemePreferences.css(preferences));
     run({

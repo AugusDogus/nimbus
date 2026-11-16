@@ -32,16 +32,9 @@ type Item = { id: number; file: File; status: ItemStatus };
 
 /** tus reports the server's reply body; that is the message worth showing. */
 function uploadError(error: unknown) {
-  if (
-    error instanceof Error &&
-    "originalResponse" in error &&
-    error.originalResponse &&
-    typeof error.originalResponse === "object" &&
-    "getBody" in error.originalResponse &&
-    typeof error.originalResponse.getBody === "function"
-  ) {
-    const body: unknown = error.originalResponse.getBody();
-    if (typeof body === "string" && body.trim()) return body.trim();
+  if (error instanceof tus.DetailedError && error.originalResponse) {
+    const body = error.originalResponse.getBody();
+    if (body.trim()) return body.trim();
   }
   return "The upload was interrupted. Check your connection and add the file again; it resumes where it stopped.";
 }

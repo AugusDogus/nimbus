@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient, type Client } from "@libsql/client";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 import { flushAudit, resetAuditForTest, setAuditSink, type RecordedAuditEvent } from "@nimbus/api/audit";
@@ -45,8 +46,7 @@ describe("MCP OAuth flow", () => {
       }),
     );
     expect(response.status).toBe(201);
-    const body: { client_id: string } = await response.json();
-    return body.client_id;
+    return z.object({ client_id: z.string() }).parse(await response.json()).client_id;
   };
 
   const pkce = () => {
@@ -86,7 +86,9 @@ describe("MCP OAuth flow", () => {
     const { verifier, challenge } = pkce();
     const response = await exchange(clientId, await approve(clientId, challenge, form), verifier);
     expect(response.status).toBe(200);
-    const tokens: { access_token: string; refresh_token: string; scope: string } = await response.json();
+    const tokens = z
+      .object({ access_token: z.string(), refresh_token: z.string(), scope: z.string() })
+      .parse(await response.json());
     return { clientId, ...tokens };
   };
 
@@ -162,6 +164,7 @@ describe("MCP OAuth flow", () => {
     const { challenge } = pkce();
     const code = await approve(clientId, challenge);
     const wrong = await exchange(clientId, code, pkce().verifier);
+    // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
     expect(await wrong.json()).toMatchObject({ error: "invalid_grant", error_description: expect.stringContaining("PKCE") });
   });
 
@@ -169,7 +172,7 @@ describe("MCP OAuth flow", () => {
     const clientId = await register();
     const { verifier, challenge } = pkce();
     const code = await approve(clientId, challenge);
-    const first: { access_token: string } = await (await exchange(clientId, code, verifier)).json();
+    const first = z.object({ access_token: z.string() }).parse(await (await exchange(clientId, code, verifier)).json());
     expect((await exchange(clientId, code, verifier)).status).toBe(400);
     expect(await bearer(first.access_token)).toMatchObject({ kind: "rejected" });
   });
@@ -179,10 +182,11 @@ describe("MCP OAuth flow", () => {
     const refresh = (token: string) => handleToken(ctx, post("/oauth/token", { grant_type: "refresh_token", client_id: tokens.clientId, refresh_token: token }));
     const rotated = await refresh(tokens.refresh_token);
     expect(rotated.status).toBe(200);
-    const next: { access_token: string; refresh_token: string } = await rotated.json();
+    const next = z.object({ access_token: z.string(), refresh_token: z.string() }).parse(await rotated.json());
     expect((await refresh(tokens.refresh_token)).status).toBe(400);
     expect(await bearer(next.access_token)).toMatchObject({ kind: "authenticated" });
     now += 60_000;
+    // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
     expect(await (await refresh(tokens.refresh_token)).json()).toMatchObject({ error_description: expect.stringContaining("revoked") });
     expect(await bearer(next.access_token)).toMatchObject({ kind: "rejected" });
   });
@@ -196,6 +200,7 @@ describe("MCP OAuth flow", () => {
   it("rejects expired access tokens", async () => {
     const tokens = await connect();
     now += 60 * 60 * 1000;
+    // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
     expect(await bearer(tokens.access_token)).toMatchObject({ kind: "rejected", message: expect.stringContaining("expired") });
   });
 
@@ -204,6 +209,7 @@ describe("MCP OAuth flow", () => {
     session = { userId: "member", sessionId: "session-2" };
     const tokens = await connect();
     await ctx.db.update(schema.user).set({ banned: true }).where(eq(schema.user.id, "member"));
+    // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
     expect(await bearer(tokens.access_token)).toMatchObject({ kind: "rejected", message: expect.stringContaining("disabled") });
   });
 
@@ -213,6 +219,7 @@ describe("MCP OAuth flow", () => {
     if (!connection) throw new Error("Expected a connection");
     expect(await revokeConnection(ctx.db, "someone-else", connection.id, now)).toBe(false);
     expect(await revokeConnection(ctx.db, "owner", connection.id, now)).toBe(true);
+    // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
     expect(await bearer(first.access_token)).toMatchObject({ kind: "rejected", message: expect.stringContaining("revoked") });
     const second = await connect();
     expect((await handleRevoke(ctx, post("/oauth/revoke", { token: second.refresh_token, client_id: second.clientId }))).status).toBe(200);

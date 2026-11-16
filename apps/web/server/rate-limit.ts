@@ -61,7 +61,7 @@ export const RateLimiter = {
   },
   /** One limiter per name per process, shared by the custom server and Next.js bundles. */
   shared(name: string, rule: RateLimitRule): RateLimiter {
-    const registry = ((globalThis as typeof globalThis & { __nimbusRateLimiters?: Map<string, RateLimiter> }).__nimbusRateLimiters ??= new Map());
+    const registry = ((globalThis as typeof globalThis & { __nimbusRateLimiters?: Map<string, RateLimiter> }).__nimbusRateLimiters ??= new Map<string, RateLimiter>());
     const existing = registry.get(name);
     if (existing) return existing;
     const limiter = RateLimiter.create(rule);

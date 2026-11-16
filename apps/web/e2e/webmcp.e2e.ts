@@ -2,6 +2,13 @@ import { randomUUID } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
 import { test } from "./helpers";
 
+declare global {
+  interface Window {
+    /** The in-browser agent stand-in that installModelContext adds in these tests only. */
+    agent?: { names: () => string[]; call: (name: string, input: object) => Promise<unknown> };
+  }
+}
+
 /**
  * A minimal stand-in for the WebMCP draft API (document.modelContext): tools
  * register with an AbortSignal that unregisters them, and the test plays the
@@ -26,15 +33,16 @@ const installModelContext = () => {
       call: async (name: string, input: object) => {
         const tool = tools.get(name);
         if (!tool) throw new Error(`No tool ${name}`);
-        return JSON.parse(JSON.stringify(await tool.execute(input, { signal: new AbortController().signal })));
+        const result: unknown = JSON.parse(JSON.stringify(await tool.execute(input, { signal: new AbortController().signal })));
+        return result;
       },
     },
   });
 };
 
-const toolNames = (page: Page) => page.evaluate(() => Reflect.get(window, "agent").names());
+const toolNames = (page: Page) => page.evaluate(() => window.agent?.names());
 const callTool = (page: Page, name: string, input: object) =>
-  page.evaluate(([tool, args]) => Reflect.get(window, "agent").call(tool, args), [name, input] as const);
+  page.evaluate(([tool, args]) => window.agent?.call(tool, args), [name, input] as const);
 
 test("the folder view offers page tools to in-browser agents that act through the page", async ({ page }) => {
   await page.addInitScript(installModelContext);

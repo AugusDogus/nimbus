@@ -73,6 +73,7 @@ describe("drive workflows", () => {
       expect(events.map(({ action, actor, target }) => ({ action, actor, target: target?.id }))).toEqual([
         { action: "grant.added", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: "docs" },
         { action: "grant.removed", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: "docs" },
+        // oxlint-disable-next-line typescript/no-unsafe-assignment -- bun-types declares asymmetric matchers as returning any
         { action: "share.created", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: expect.any(String) },
         { action: "trash.moved", actor: { type: "user", id: "user-1", label: "owner@example.test" }, target: "private.txt" },
       ]);

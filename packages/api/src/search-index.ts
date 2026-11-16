@@ -281,7 +281,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     }
     nextFoldedStarts[used] = bytes;
     const nextFolded = Buffer.alloc(bytes);
-    const rawParts: string[] = new Array(used);
+    const rawParts = new Array<string>(used);
     for (let slot = 0; slot < used; slot++) {
       const id = order[slot];
       const delta = deltaNames.get(id);

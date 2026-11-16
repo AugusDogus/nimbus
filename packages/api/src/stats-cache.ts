@@ -51,9 +51,7 @@ const shouldIgnorePath = (value: string) => {
 
 const evictOldest = () => {
   while (statsCache.entries.size > STATS_CACHE_MAX_ENTRIES) {
-    const oldestKey = statsCache.entries.keys().next().value as
-      | string
-      | undefined;
+    const oldestKey = statsCache.entries.keys().next().value;
     if (!oldestKey) {
       break;
     }

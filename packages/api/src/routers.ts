@@ -4,7 +4,7 @@ import { mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
-import type { UserPreferences } from "./context";
+import { UserPreferences } from "./context";
 import { getDataRoot } from "./data-root";
 import { getDirEntries, setDirEntries } from "./dir-list-cache";
 import { statPath } from "./fs-utils";
@@ -50,13 +50,6 @@ const fileEventSchema = z.object({
   ts: z.number(),
 });
 
-const preferencesSchema = z.object({
-  view: z.enum(["list", "grid"]),
-  sortField: z.enum(["name", "type", "modified", "size"]),
-  sortDirection: z.enum(["asc", "desc"]),
-  groupByType: z.boolean(),
-});
-
 const defaultPreferences: UserPreferences = {
   view: "list",
   sortField: "name",
@@ -79,7 +72,7 @@ export const appRouter = router({
       return stored ?? defaultPreferences;
     }),
     set: protectedProcedure
-      .input(preferencesSchema)
+      .input(UserPreferences)
       .mutation(async ({ ctx, input }) => {
         const userId = ctx.access.user.id;
         return ctx.preferences.setUserPreferences(userId, input);

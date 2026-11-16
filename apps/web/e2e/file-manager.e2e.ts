@@ -249,7 +249,7 @@ test("rows keep their elements through hydration and across the breakpoint, so a
 
   const press = (type: "pointerdown" | "pointerup" | "click") =>
     page.evaluate((type) => {
-      const row = Reflect.get(window, "firstRow");
+      const row: unknown = Reflect.get(window, "firstRow");
       if (!(row instanceof HTMLElement)) throw new Error("The row was never shown.");
       const point = { bubbles: true, cancelable: true, clientX: 100, clientY: 100, pointerType: "touch", isPrimary: true };
       row.dispatchEvent(type === "click" ? new MouseEvent(type, point) : new PointerEvent(type, point));
