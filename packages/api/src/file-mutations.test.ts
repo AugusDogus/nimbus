@@ -248,3 +248,68 @@ describe("filesystem mutation coordination", () => {
     );
   });
 });
+
+/**
+ * On case-insensitive storage (SMB datasets, ext4 casefold, macOS hosts) differently cased
+ * paths name the same file, so locks and mutation scopes treat them as the same path.
+ */
+describe("paths that differ only in case", () => {
+  let root: string;
+  let previousRoot: string | undefined;
+  beforeEach(async () => {
+    previousRoot = process.env.NIMBUS_DATA_ROOT;
+    root = await mkdtemp("/var/tmp/nimbus-case-");
+    process.env.NIMBUS_DATA_ROOT = root;
+  });
+  afterEach(async () => {
+    forgetFileMutationsForTest(root);
+    await rm(root, { recursive: true, force: true });
+    if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
+    else process.env.NIMBUS_DATA_ROOT = previousRoot;
+  });
+
+  it("a WebDAV lock protects every spelling of its path", async () => {
+    lockFile("shared/Report.docx", { userId: "alice" });
+    for (const path of ["shared/report.docx", "SHARED/REPORT.DOCX"])
+      await expect(
+        mutateFiles([path], { userId: "bob" }, async () => "changed"),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(() =>
+      requireLockable("Shared/report.DOCX", { userId: "bob" }),
+    ).toThrow();
+    lockFile("Folder", { userId: "alice" });
+    await expect(
+      mutateFiles(["folder/inside.txt"], { userId: "bob" }, async () => 1),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("commits to differently cased paths run one at a time", async () => {
+    const order: string[] = [];
+    let release = () => {};
+    const first = mutateFiles(["docs/Plan.txt"], { userId: "alice" }, () => {
+      order.push("first started");
+      return new Promise<void>((resolve) => {
+        release = () => {
+          order.push("first finished");
+          resolve();
+        };
+      });
+    });
+    await Bun.sleep(5);
+    const second = mutateFiles(
+      ["DOCS/plan.txt"],
+      { userId: "bob" },
+      async () => {
+        order.push("second started");
+      },
+    );
+    await Bun.sleep(20);
+    release();
+    await Promise.all([first, second]);
+    expect(order).toEqual([
+      "first started",
+      "first finished",
+      "second started",
+    ]);
+  });
+});

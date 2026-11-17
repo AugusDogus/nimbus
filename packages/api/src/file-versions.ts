@@ -199,7 +199,10 @@ async function discard(
 }
 
 /** What committing content needs from the drive store: version records, and claims of vacant paths. */
-export type ContentDrive = Pick<DriveStore, "versions" | "claimVacant">;
+export type ContentDrive = Pick<
+  DriveStore,
+  "versions" | "claimVacant" | "caseVariants"
+>;
 
 export type ReplacementResult =
   | { kind: "created" }

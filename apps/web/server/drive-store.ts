@@ -469,6 +469,29 @@ export function createDriveStore(database: Database): DriveStore {
     },
     fileRequests: createFileRequestStore(database),
     versions: createFileVersionStore(database),
+    async caseVariants(path) {
+      const variants = new Set<string>();
+      for (const table of [grants, shares, fileRequests]) {
+        // The leading part of each path with as many characters as `path`, compared without
+        // case; small tables, so scanned rather than indexed.
+        const prefix = sql`substr(${table.path}, 1, ${path.length})`;
+        const rows = await database
+          .selectDistinct({ prefix: sql<string>`${prefix}` })
+          .from(table)
+          .where(
+            and(
+              sql`lower(${prefix}) = lower(${path})`,
+              sql`${prefix} <> ${path}`,
+              or(
+                sql`length(${table.path}) = ${path.length}`,
+                sql`substr(${table.path}, ${path.length + 1}, 1) = '/'`,
+              ),
+            ),
+          );
+        for (const row of rows) variants.add(row.prefix);
+      }
+      return [...variants];
+    },
     async claimVacant(path) {
       // Deletes only: a vacant path usually has no records, and these are index range scans.
       database.transaction((tx) => {

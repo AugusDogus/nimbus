@@ -158,6 +158,32 @@ describe("content created where removed content left records", () => {
     ).toEqual(["carol"]);
   });
 
+  test("records under another spelling of the new path are dropped when that spelling is vacant too", async () => {
+    // On case-insensitive storage "SHARED" opens what "Shared" names, so Carol's stale grant
+    // there would reach the new folder.
+    await abandon("Shared", "dir");
+    await drive.caller("owner").files.createFolder({ name: "SHARED" });
+    expect((await drive.access("carol")).can("Shared", "read")).toBe(false);
+    expect(await drive.store.getShare(shareId)).toBeNull();
+  });
+
+  test("records of an existing item under another spelling are kept on case-sensitive storage", async () => {
+    await mkdir(drive.absolute("Shared"));
+    await drive.grant("Shared", "carol", "read");
+    await drive.caller("owner").files.createFolder({ name: "SHARED" });
+    expect((await drive.access("carol")).can("Shared", "read")).toBe(true);
+  });
+
+  test("grants match the spelling they were given with", async () => {
+    // Documented behaviour: on case-insensitive storage another spelling reaches the same
+    // folder, but a grant never extends to it. Access fails closed.
+    await drive.write("Docs/plan.txt", "plan");
+    await drive.grant("Docs", "carol", "read");
+    const carol = await drive.access("carol");
+    expect(carol.can("Docs/plan.txt", "read")).toBe(true);
+    expect(carol.can("docs/plan.txt", "read")).toBe(false);
+  });
+
   test("existing content keeps its records: only a vacant path is claimed", async () => {
     await drive.write("kept.txt", "kept");
     await drive.grant("kept.txt", "carol", "read");

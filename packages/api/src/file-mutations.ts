@@ -29,19 +29,30 @@ export const maxLockSeconds = 60 * 60;
 const parentOf = (path: string) =>
   path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 
+/**
+ * A path as locks and mutation scopes compare it. On case-insensitive storage (SMB datasets,
+ * ext4 casefold, macOS hosts) `Report.docx` and `report.docx` name one file, so both are
+ * held and locked as one; on case-sensitive storage that only serializes a few more commits.
+ */
+const lockKey = (path: string) => path.normalize("NFC").toLowerCase();
+
+/** Whether `child` is `parent` or inside it, in any spelling. */
+const within = (parent: string, child: string) =>
+  isWithinPath(lockKey(parent), lockKey(child));
+
 /** Whether a lock's scope includes a resource, so its token may be used there. */
 export const lockCovers = (lock: FileLock, path: string) =>
-  lock.path === path ||
-  (lock.depth === "infinity" && isWithinPath(lock.path, path));
+  lockKey(lock.path) === lockKey(path) ||
+  (lock.depth === "infinity" && within(lock.path, path));
 
 /** Whether changing `path` alters something the lock protects (RFC 4918, sections 6 and 7). */
 function lockProtects(lock: FileLock, path: string) {
   // Moving or deleting an ancestor removes the locked resource.
-  if (isWithinPath(path, lock.path)) return true;
-  if (lock.depth === "infinity") return isWithinPath(lock.path, path);
+  if (within(path, lock.path)) return true;
+  if (lock.depth === "infinity") return within(lock.path, path);
   // A depth-0 collection lock protects its membership. Paths do not say whether a write
   // creates a member or changes one, so writes to every direct member are protected.
-  return path !== "" && parentOf(path) === lock.path;
+  return path !== "" && lockKey(parentOf(path)) === lockKey(lock.path);
 }
 
 /**
@@ -147,7 +158,7 @@ export async function mutateFiles<T>(
   const held: HeldScope[] = [
     ...[...paths, ...(scope.within ?? [])].map((path) => ({
       space: "drive",
-      path,
+      path: lockKey(path),
     })),
     ...(scope.trash === "all"
       ? [{ space: "trash", path: "" }]
@@ -194,7 +205,7 @@ export function requireLockable(
   for (const lock of state().locks.values()) {
     if (
       (lockCovers(lock, path) ||
-        (request.depth === "infinity" && isWithinPath(path, lock.path))) &&
+        (request.depth === "infinity" && within(path, lock.path))) &&
       (lock.scope === "exclusive" || request.scope === "exclusive")
     )
       throw new FileLockedError();
@@ -275,7 +286,7 @@ export function unlockFile(path: string, userId: string, token: string) {
 export function forgetFileLocks(path: string) {
   const current = state();
   for (const [token, lock] of current.locks)
-    if (isWithinPath(path, lock.path)) current.locks.delete(token);
+    if (within(path, lock.path)) current.locks.delete(token);
 }
 
 /** Active locks whose scope includes a resource. */

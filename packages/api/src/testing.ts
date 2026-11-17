@@ -293,6 +293,23 @@ export function createTestDriveStore() {
     },
     fileRequests,
     versions,
+    async caseVariants(path) {
+      const variants = new Set<string>();
+      const lower = path.toLowerCase();
+      for (const recorded of [
+        ...[...grants.values()].map((grant) => grant.path),
+        ...[...shares.values()].map((share) => share.path),
+      ]) {
+        const prefix = recorded.slice(0, path.length);
+        if (
+          prefix !== path &&
+          prefix.toLowerCase() === lower &&
+          (recorded.length === path.length || recorded[path.length] === "/")
+        )
+          variants.add(prefix);
+      }
+      return [...variants];
+    },
     async claimVacant(path) {
       take(path);
       await versions.removeAt(path);

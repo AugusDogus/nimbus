@@ -181,6 +181,12 @@ export type DriveStore = {
    * itself. Payloads of dropped history are swept by version cleanup.
    */
   claimVacant(path: string): Promise<void>;
+  /**
+   * Other spellings of `path`, differing only in ASCII letter case, at which grants, public
+   * links or file requests exist, at or above records below them. On case-insensitive storage
+   * these name the same item.
+   */
+  caseVariants(path: string): Promise<string[]>;
   fileRequests: FileRequestStore;
   versions: FileVersionStore;
 };
