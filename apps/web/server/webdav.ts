@@ -784,6 +784,14 @@ export async function handleWebDAV(request: Request): Promise<Response> {
         409,
         "The parent folder does not exist. Create it first.",
       );
+    // WebDAV's own status for a full disk (RFC 4918, section 11.5).
+    if (isFsError(error, "ENOSPC") || isFsError(error, "EDQUOT")) {
+      console.warn("Nimbus WebDAV request failed: the disk is full.", error);
+      return textResponse(
+        507,
+        "The server's disk is full. Nothing was saved. Free some space, or ask a server administrator to add storage, then try again.",
+      );
+    }
     return httpError(error);
   }
 }

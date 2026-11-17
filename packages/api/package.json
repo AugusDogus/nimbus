@@ -30,6 +30,7 @@
     "./file-versions": "./src/file-versions.ts",
     "./file-versions-testing": "./src/file-versions-testing.ts",
     "./vacant-path": "./src/vacant-path.ts",
+    "./filesystem-failure": "./src/filesystem-failure.ts",
     "./pending-changes": "./src/pending-changes.ts",
     "./drive-file": "./src/drive-file.ts",
     "./versions-router": "./src/versions-router.ts",

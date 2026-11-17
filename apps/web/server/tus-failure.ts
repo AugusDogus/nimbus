@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { httpError } from "./http-files";
+import { httpError } from "./http-error";
 
 const tusFailureSchema = z.object({
   status_code: z.number().int().min(400).max(599),

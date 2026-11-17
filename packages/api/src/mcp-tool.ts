@@ -4,7 +4,9 @@ import { getAccess } from "./access";
 import type { PreferencesStore } from "./context";
 import type { DriveStore } from "./drive-store";
 import type { McpScope } from "./mcp-scope";
+import { FilesystemFailure } from "./filesystem-failure";
 import { createCaller } from "./routers";
+import { PathError } from "./safe-path";
 
 /**
  * What one authenticated MCP request may act as. Tools call the same tRPC
@@ -107,12 +109,16 @@ const bareCodeMessages: Record<string, string> = {
 };
 
 /** Convert expected failures into messages for the agent; keep unexpected ones generic. */
-function failureMessage(error: unknown, toolName: string): string {
-  if (error instanceof z.ZodError)
-    return `The arguments do not match this tool's input schema: ${z.prettifyError(error)} Nothing was changed. Fix the arguments and call ${toolName} again.`;
+function failureMessage(thrown: unknown, toolName: string): string {
+  if (thrown instanceof z.ZodError)
+    return `The arguments do not match this tool's input schema: ${z.prettifyError(thrown)} Nothing was changed. Fix the arguments and call ${toolName} again.`;
+  // Filesystem errors also have a code and a message, but theirs names host paths.
+  const error = FilesystemFailure.toApiError(thrown) ?? thrown;
   const parsed = z
     .object({ code: z.string(), message: z.string() })
-    .safeParse(error);
+    .safeParse(
+      error instanceof TRPCError || error instanceof PathError ? error : null,
+    );
   if (parsed.success && parsed.data.code !== "INTERNAL_SERVER_ERROR") {
     if (parsed.data.code === "UNAUTHORIZED")
       return "This Nimbus account can no longer be used: it was disabled or removed. Nothing was changed. Ask a Nimbus administrator to restore access.";
