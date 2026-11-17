@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -267,4 +268,21 @@ test("watcher changes interleaved with a pass leave the index matching the disk"
   }
   await Promise.all([pass, ...watcherChanges]);
   expect(dump(index)).toEqual(await fresh());
+});
+
+test("keeps files it cannot state, and counts their folder as unreadable", async () => {
+  await mkdir(path.join(root, "locked"));
+  await writeFile(path.join(root, "locked", "kept.txt"), "kept");
+  const index = createSearchIndex();
+  await crawl(index, root);
+  const before = dump(index);
+  // Listable but not searchable: names can be read, but not stated.
+  await chmod(path.join(root, "locked"), 0o644);
+  try {
+    const report = await reconcile(index, root, direct);
+    expect(report.unreadable).toBe(1);
+    expect(dump(index)).toEqual(before);
+  } finally {
+    await chmod(path.join(root, "locked"), 0o755);
+  }
 });

@@ -1,6 +1,7 @@
 import type { Dirent } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
+import { isFsError } from "./safe-path";
 import type { SearchIndex } from "./search-index";
 
 const isPrivate = (name: string) => name.toLowerCase() === ".nimbus";
@@ -42,7 +43,7 @@ async function crawlInto(
     }
     // Added in listing order, not as stats finish, so equal matches rank the
     // same way after every crawl and a later page continues where one ended.
-    const sizes = await statFiles(directory, files);
+    const { sizes } = await statFiles(directory, files);
     for (const name of files) {
       const size = sizes.get(name);
       if (size !== undefined) index.addChild(id, name, "file", size);
@@ -99,15 +100,12 @@ export async function reconcile(
       try {
         entries = await readdir(directory, { withFileTypes: true });
       } catch (error) {
-        const vanished =
-          error instanceof Error &&
-          "code" in error &&
-          (error.code === "ENOENT" || error.code === "ENOTDIR");
-        if (vanished) index.removeId(id);
+        if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR"))
+          index.removeId(id);
         else report.unreadable++;
         return [];
       }
-      const stats = await statFiles(
+      const { sizes, unstated } = await statFiles(
         directory,
         entries
           .filter((entry) => entry.isFile() && !isPrivate(entry.name))
@@ -124,12 +122,17 @@ export async function reconcile(
           seen.add(entry.name);
           found.push([path.join(directory, entry.name), child]);
         } else if (entry.isFile()) {
-          const size = stats.get(entry.name);
-          if (size === undefined) continue;
+          const size = sizes.get(entry.name);
+          if (size === undefined) {
+            // Not stated, but not gone either: keep what was last seen.
+            if (unstated.has(entry.name)) seen.add(entry.name);
+            continue;
+          }
           index.addChild(id, entry.name, "file", size);
           seen.add(entry.name);
         }
       }
+      if (unstated.size) report.unreadable++;
       for (const child of index.childrenOf(id))
         if (!seen.has(child.name)) index.removeId(child.id);
       index.maybeCompact();
@@ -145,9 +148,14 @@ export async function reconcile(
   return report;
 }
 
-/** Sizes of the regular files among `names`, stated with bounded concurrency. Others are absent. */
+/**
+ * Sizes of the regular files among `names`, stated with bounded concurrency.
+ * Names that are gone or no longer files are in neither result; names that
+ * could not be stated for another reason (permissions, I/O) are `unstated`.
+ */
 async function statFiles(directory: string, names: readonly string[]) {
   const sizes = new Map<string, number>();
+  const unstated = new Set<string>();
   let cursor = 0;
   const statNext = async () => {
     for (let at = cursor++; at < names.length; at = cursor++) {
@@ -156,15 +164,17 @@ async function statFiles(directory: string, names: readonly string[]) {
       try {
         const stats = await lstat(path.join(directory, name));
         if (stats.isFile()) sizes.set(name, stats.size);
-      } catch {
-        // Removed since the folder was listed.
+      } catch (error) {
+        // Removed since the folder was listed, or not stated for another reason.
+        if (!isFsError(error, "ENOENT") && !isFsError(error, "ENOTDIR"))
+          unstated.add(name);
       }
     }
   };
   await Promise.all(
     Array.from({ length: Math.min(statConcurrency, names.length) }, statNext),
   );
-  return sizes;
+  return { sizes, unstated };
 }
 
 /** Relative "/"-separated path inside `root`, or null when outside or private. */
