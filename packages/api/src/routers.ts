@@ -39,6 +39,7 @@ import {
   publishFileEvent,
   iterateFileEvents,
   type FileDelta,
+  type FileUpdate,
 } from "./file-events";
 import { createCallerFactory, protectedProcedure, router } from "./index";
 
@@ -339,7 +340,15 @@ export const appRouter = router({
           await safePath(input.path ?? "");
         let sessionCheckedAt = Date.now();
 
-        for await (const [event] of iterateFileEvents(signal)) {
+        for await (const item of iterateFileEvents(signal)) {
+          if (item.kind === "overflow") {
+            // Too many changes at once for this client: it reloads instead of replaying them.
+            const ts = Date.now();
+            const update: FileUpdate = { kind: "resync", ts };
+            yield tracked(`${ts}:resync`, update);
+            continue;
+          }
+          const event = item.event;
           const parsed = fileEventSchema.safeParse(event);
           if (!parsed.success) continue;
           const fileEvent = parsed.data;
@@ -400,8 +409,8 @@ export const appRouter = router({
           };
 
           const id = `${delta.ts}:${delta.path}:${delta.action}`;
-
-          yield tracked(id, delta);
+          const update: FileUpdate = { kind: "delta", ...delta };
+          yield tracked(id, update);
         }
       }),
   }),
