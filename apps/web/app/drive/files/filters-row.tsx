@@ -130,7 +130,7 @@ export function FiltersRow({
               Sort by
             </p>
             <div
-              role="radiogroup"
+              role="group"
               aria-labelledby="sort-drawer-label"
               className="flex flex-col gap-1"
             >
@@ -139,8 +139,7 @@ export function FiltersRow({
                   key={sortValue(option)}
                   render={
                     <DrawerActionItem
-                      role="radio"
-                      aria-checked={sortValue(option) === selectedValue}
+                      aria-pressed={sortValue(option) === selectedValue}
                       onClick={() => {
                         updatePreferences({
                           sortField: option.field,

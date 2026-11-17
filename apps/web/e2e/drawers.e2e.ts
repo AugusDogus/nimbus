@@ -89,8 +89,12 @@ test("the sort drawer tells screen readers which choices are on", async ({
     .getByRole("button", { name: "Sort and filter options", exact: true })
     .click();
   const sort = page.getByRole("dialog", { name: "Sort & filter", exact: true });
-  const options = sort.getByRole("radiogroup", { name: "Sort by" });
-  await expect(options.getByRole("radio", { checked: true })).toHaveCount(1);
+  // Plain buttons, each applying its order and closing the drawer, with their state announced.
+  const options = sort.getByRole("group", { name: "Sort by" });
+  await expect(options.getByRole("button", { pressed: true })).toHaveText(
+    "Name (A to Z)",
+  );
+  await expect(options.getByRole("button", { pressed: false })).toHaveCount(7);
   await expect(
     sort.getByRole("button", { name: "Group by type", pressed: true }),
   ).toBeVisible();
