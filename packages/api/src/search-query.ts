@@ -44,6 +44,7 @@ import {
   type VisibleRange,
 } from "./search-scan";
 import { lowerSlot, type SearchWords, type Visibility } from "./search-words";
+import { plain } from "./search-text";
 
 export { foldName, foldQuery } from "./search-scan";
 export type {
@@ -259,6 +260,38 @@ type DeltaFuzzy = {
   keys: readonly (readonly number[])[];
 };
 
+/**
+ * The names-layer tier of `needle` in folded `name`, as typed or else
+ * without accents; null when it is not there. The same rules as the scan.
+ */
+function literalIn(name: string, needle: string, prefixOnly: boolean) {
+  const tierAt = (
+    text: string,
+    query: string,
+    at: number,
+    plainForm: boolean,
+  ) =>
+    at < 0 || (prefixOnly && at !== 0)
+      ? null
+      : Rank.literalTier(
+          text.length === query.length,
+          at,
+          text.charCodeAt(at - 1),
+          plainForm,
+        );
+  const asTyped = tierAt(name, needle, name.indexOf(needle), false);
+  if (asTyped !== null) return asTyped;
+  const plainNeedle = plain(needle);
+  if (plainNeedle !== needle) {
+    const inName = tierAt(name, plainNeedle, name.indexOf(plainNeedle), true);
+    if (inName !== null) return inName;
+  }
+  const plainName = plain(name);
+  return plainName === name
+    ? null
+    : tierAt(plainName, plainNeedle, plainName.indexOf(plainNeedle), true);
+}
+
 /** The layers over entries added since compaction, by the same rules as search-scan.ts. */
 function scanDelta(
   view: IndexView,
@@ -305,8 +338,7 @@ function scanDelta(
   };
   for (const [id, name] of view.delta) {
     if (!deltaVisible(view, id, rootId, grants)) continue;
-    const at = name.folded.indexOf(needle);
-    const literal = at >= 0 && (!prefixOnly || at === 0);
+    const literal = literalIn(name.folded, needle, prefixOnly);
     const inName = terms.length ? termBits(name.folded, terms) : 0;
     if (literal) counts.literal++;
     for (let term = 0; term < terms.length; term++)
@@ -317,19 +349,8 @@ function scanDelta(
     const offer = (rank: number) => {
       if (keep(rank)) add(rank);
     };
-    if (literal) {
-      offer(
-        Rank.of(
-          Rank.literalTier(
-            name.folded.length === needle.length,
-            at,
-            name.folded.charCodeAt(at - 1),
-          ),
-          boost,
-          length,
-          slots + id,
-        ),
-      );
+    if (literal !== null) {
+      offer(Rank.of(literal, boost, length, slots + id));
       continue;
     }
     const all = (1 << terms.length) - 1;

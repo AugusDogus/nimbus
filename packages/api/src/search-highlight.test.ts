@@ -23,8 +23,32 @@ test("marks single characters only where a name or folder starts", () => {
   });
 });
 
-test("marks nothing rather than the wrong letters when folding changes length", () => {
+test("marks the right letters when folding changes length", () => {
   expect(SearchHighlight.forPath("İstanbul notes.txt", ["notes"])).toEqual({
+    name: [[9, 14]],
+    folder: [],
+  });
+});
+
+test("marks accented letters for words typed without accents, and the reverse", () => {
+  expect(
+    SearchHighlight.forPath("Recettes/Crème brûlée.md", ["creme", "brulee"]),
+  ).toEqual({
+    name: [
+      [0, 5],
+      [6, 12],
+    ],
+    folder: [],
+  });
+  expect(SearchHighlight.forPath("Housing/Straße 12.pdf", ["strasse"])).toEqual(
+    { name: [[0, 6]], folder: [] },
+  );
+  expect(SearchHighlight.forPath("Menus/cafe.txt", ["café"])).toEqual({
+    name: [[0, 4]],
+    folder: [],
+  });
+  // Decomposed names keep no marks rather than misplaced ones.
+  expect(SearchHighlight.forPath("Cre\u0300me.md", ["creme"])).toEqual({
     name: [],
     folder: [],
   });

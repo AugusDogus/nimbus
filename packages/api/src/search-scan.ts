@@ -34,6 +34,14 @@ export type SearchLayout = {
   readonly slots: number;
   /** Distinct for every layout any index builds, so a page cursor can tell its layout. */
   readonly generation: number;
+  /**
+   * The plain (accent-free, search-text.ts) names of the slots whose plain
+   * name differs from their folded one, packed like `folded`: entry i is
+   * slot `plainSlot[i]`, in slot order. Usually a small share of the names.
+   */
+  readonly plain: Buffer;
+  readonly plainStarts: Int32Array;
+  readonly plainSlot: Int32Array;
   /** Word-to-name postings for these slots (search-words.ts): key i's slots, sorted. */
   readonly postingStart: Int32Array;
   readonly postingSlots: Int32Array;
@@ -67,17 +75,14 @@ export type ScanPlan = {
   after: number;
 };
 
+import { plain } from "./search-text";
+
 const SEPARATOR = "\0";
 
 const boundary = new Uint8Array(128);
 for (const char of " _-.()[]+,@#&'") boundary[char.charCodeAt(0)] = 1;
 
-/** NFC plus lowercase: what both names and queries are compared as. */
-export const foldName = (value: string) => value.normalize("NFC").toLowerCase();
-
-/** Queries are typed text; control characters can never match a name. */
-export const foldQuery = (value: string) =>
-  foldName(value.trim()).replace(/[\u0000-\u001f\u007f]/g, "");
+export { foldName, foldQuery } from "./search-text";
 
 /** Words of a folded query, split at spaces and "/", without bare punctuation. */
 export function queryTerms(needle: string) {
@@ -101,10 +106,20 @@ const TIER = 2 ** 48;
 const BOOST = 2 ** 44;
 const LENGTH = 2 ** 32;
 export const MAX_BOOST = 15;
-export const TIER_WORDS_IN_NAME = 4;
-export const TIER_WORDS_IN_PATH = 5;
-export const TIER_FUZZY_IN_NAME = 6;
-export const TIER_FUZZY_IN_PATH = 7;
+/**
+ * Tiers, best first. The whole query in a name takes 0-7: exact, prefix,
+ * word boundary, anywhere, each first as typed (accents included) and then
+ * read without accents. Then every word, in the name or with folders; then
+ * joined words read apart; then dates read in any format; then corrections.
+ */
+export const TIER_WORDS_IN_NAME = 8;
+export const TIER_WORDS_IN_PATH = 9;
+export const TIER_SPLIT_IN_NAME = 10;
+export const TIER_SPLIT_IN_PATH = 11;
+export const TIER_DATES_IN_NAME = 12;
+export const TIER_DATES_IN_PATH = 13;
+export const TIER_FUZZY_IN_NAME = 14;
+export const TIER_FUZZY_IN_PATH = 15;
 
 export const Rank = {
   of: (tier: number, boost: number, length: number, order: number) =>
@@ -115,20 +130,32 @@ export const Rank = {
   tier: (rank: number) => Math.floor(rank / TIER),
   /** A compacted slot, or the layout's slot count plus the id for a delta entry. */
   order: (rank: number) => rank % LENGTH,
-  /** Literal tier of a match at `at` in a name, preceded by character code `before`. */
-  literalTier: (exact: boolean, at: number, before: number) =>
-    exact ? 0 : at === 0 ? 1 : before < 128 && boundary[before] ? 2 : 3,
+  /**
+   * Tier of the whole query found at `at` in a name, preceded by character
+   * code `before`; `plain` when it was found only without accents.
+   */
+  literalTier: (exact: boolean, at: number, before: number, plain: boolean) =>
+    (exact ? 0 : at === 0 ? 1 : before < 128 && boundary[before] ? 2 : 3) * 2 +
+    (plain ? 1 : 0),
 } as const;
 
 /** Whether `name` holds `term`; single characters match only at its start. */
-export const nameHolds = (name: string, term: string) =>
+const holdsAsTyped = (name: string, term: string) =>
   term.length === 1 ? name.startsWith(term) : name.includes(term);
 
-/** Word bits of `terms` held by `name`. */
+/** Whether folded `name` holds folded `term`, as typed or without accents. */
+export const nameHolds = (name: string, term: string) =>
+  holdsAsTyped(name, term) || holdsAsTyped(plain(name), plain(term));
+
+/** Word bits of `terms` held by folded `name`, as typed or without accents. */
 export function termBits(name: string, terms: readonly string[]) {
   let bits = 0;
-  for (let i = 0; i < terms.length; i++)
-    if (nameHolds(name, terms[i] ?? "")) bits |= 1 << i;
+  const plainName = plain(name);
+  for (let i = 0; i < terms.length; i++) {
+    const term = terms[i] ?? "";
+    if (holdsAsTyped(name, term) || holdsAsTyped(plainName, plain(term)))
+      bits |= 1 << i;
+  }
   return bits;
 }
 
@@ -146,59 +173,113 @@ export type Stopped = () => boolean;
 /** Matches visited between checks of `stopped`. */
 const CHECK_EVERY = 1024;
 
+/** Names packed as UTF-8, each preceded by a NUL: entry i at `bytes[starts[i], starts[i + 1] - 1)`. */
+type PackedText = { bytes: Buffer; starts: Int32Array };
+
 /**
- * Call `visit(slot, at)` for each slot in `range` whose folded name holds
- * `pattern`. False when `stopped` ended it early.
+ * Call `visit(entry, at)` for each entry in `[first, end)` of `text` that
+ * holds `pattern`, `at` being the match's byte offset. False when `stopped`
+ * ended it early.
  */
-function scan(
+function scanText(
+  { bytes, starts }: PackedText,
+  first: number,
+  end: number,
+  pattern: Buffer,
+  prefixOnly: boolean,
+  visit: (entry: number, at: number) => void,
+  stopped: Stopped,
+) {
+  if (stopped()) return false;
+  if (first >= end) return true;
+  let budget = CHECK_EVERY;
+  const shift = prefixOnly ? 1 : 0;
+  const stop = starts[end] ?? bytes.length;
+  // `indexOf` has no end bound: a view ending at the range keeps a miss from
+  // scanning the rest of the drive, which this caller cannot see.
+  const haystack = bytes.subarray(0, stop);
+  let entry = first;
+  let position = haystack.indexOf(pattern, (starts[first] ?? 0) - shift);
+  while (position >= 0 && position + shift < stop) {
+    const at = position + shift;
+    // Gallop forward to the entry containing this match.
+    if ((starts[entry + 1] ?? 0) <= at) {
+      let step = 1;
+      while (entry + step < end && (starts[entry + step + 1] ?? 0) <= at)
+        step *= 2;
+      let low = entry + (step >> 1);
+      let high = Math.min(entry + step, end - 1);
+      while (low < high) {
+        const middle = (low + high + 1) >> 1;
+        if ((starts[middle] ?? 0) <= at) low = middle;
+        else high = middle - 1;
+      }
+      entry = low;
+    }
+    visit(entry, at);
+    if (--budget === 0) {
+      if (stopped()) return false;
+      budget = CHECK_EVERY;
+    }
+    position = haystack.indexOf(pattern, (starts[entry + 1] ?? 0) - shift);
+  }
+  return true;
+}
+
+/** Call `visit(slot, at)` for each slot in `range` whose folded name holds `pattern`. */
+const scan = (
   layout: SearchLayout,
   range: VisibleRange,
   pattern: Buffer,
   prefixOnly: boolean,
   visit: (slot: number, at: number) => void,
   stopped: Stopped,
-) {
-  if (stopped()) return false;
-  let budget = CHECK_EVERY;
-  const { folded, foldedStarts } = layout;
-  const shift = prefixOnly ? 1 : 0;
-  const stop = foldedStarts[range.end] ?? folded.length;
-  // `indexOf` has no end bound: a view ending at the range keeps a miss from
-  // scanning the rest of the drive, which this caller cannot see.
-  const haystack = folded.subarray(0, stop);
-  let slot = range.first;
-  let position = haystack.indexOf(
+) =>
+  scanText(
+    { bytes: layout.folded, starts: layout.foldedStarts },
+    range.first,
+    range.end,
     pattern,
-    (foldedStarts[range.first] ?? 0) - shift,
+    prefixOnly,
+    visit,
+    stopped,
   );
-  while (position >= 0 && position + shift < stop) {
-    const at = position + shift;
-    // Gallop forward to the slot containing this match.
-    if ((foldedStarts[slot + 1] ?? 0) <= at) {
-      let step = 1;
-      while (
-        slot + step < range.end &&
-        (foldedStarts[slot + step + 1] ?? 0) <= at
-      )
-        step *= 2;
-      let low = slot + (step >> 1);
-      let high = Math.min(slot + step, range.end - 1);
-      while (low < high) {
-        const middle = (low + high + 1) >> 1;
-        if ((foldedStarts[middle] ?? 0) <= at) low = middle;
-        else high = middle - 1;
-      }
-      slot = low;
-    }
-    visit(slot, at);
-    if (--budget === 0) {
-      if (stopped()) return false;
-      budget = CHECK_EVERY;
-    }
-    position = haystack.indexOf(pattern, (foldedStarts[slot + 1] ?? 0) - shift);
+
+/** The first plain-name entry at or after `slot`. */
+function plainEntry(layout: SearchLayout, slot: number) {
+  const { plainSlot } = layout;
+  let low = 0;
+  let high = plainSlot.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if ((plainSlot[middle] ?? 0) < slot) low = middle + 1;
+    else high = middle;
   }
-  return true;
+  return low;
 }
+
+/**
+ * Call `visit(slot, at, entry)` for each slot in `range` whose plain name
+ * (kept only where it differs from the folded one) holds `pattern`; `at`
+ * is the byte offset in the plain names.
+ */
+const scanPlain = (
+  layout: SearchLayout,
+  range: VisibleRange,
+  pattern: Buffer,
+  prefixOnly: boolean,
+  visit: (slot: number, at: number, entry: number) => void,
+  stopped: Stopped,
+) =>
+  scanText(
+    { bytes: layout.plain, starts: layout.plainStarts },
+    plainEntry(layout, range.first),
+    plainEntry(layout, range.end),
+    pattern,
+    prefixOnly,
+    (entry, at) => visit(layout.plainSlot[entry] ?? 0, at, entry),
+    stopped,
+  );
 
 const never: Stopped = () => false;
 
@@ -386,6 +467,26 @@ export function scanLayout(
   );
 }
 
+/** The folded name of `slot` has `needle`: at its start for one-character queries, else anywhere. */
+function foldedHas(
+  layout: SearchLayout,
+  slot: number,
+  needle: Buffer,
+  prefixOnly: boolean,
+) {
+  const start = layout.foldedStarts[slot] ?? 0;
+  const end = (layout.foldedStarts[slot + 1] ?? 1) - 1;
+  return prefixOnly
+    ? end - start >= needle.length &&
+        needle.compare(layout.folded, start, start + needle.length) === 0
+    : layout.folded.subarray(start, end).includes(needle);
+}
+
+/**
+ * The whole query in a name: as typed, then without accents (the query's
+ * plain form in names without accents, and in the plain form of names with
+ * them). Each name counts once, at its best.
+ */
 function names(
   layout: SearchLayout,
   plan: ScanPlan,
@@ -397,39 +498,110 @@ function names(
 ) {
   const { folded, foldedStarts, dead } = layout;
   const { needle } = plan;
+  const plainNeedle = plain(needle);
+  const accented = plainNeedle !== needle;
   const prefixOnly = needle.length === 1;
-  const pattern = Buffer.from(prefixOnly ? SEPARATOR + needle : needle);
-  const needleBytes = pattern.length - (prefixOnly ? 1 : 0);
+  const exact = Buffer.from(needle);
+  const loose = Buffer.from(plainNeedle);
+  const pattern = (bytes: Buffer) =>
+    prefixOnly ? Buffer.concat([Buffer.from(SEPARATOR), bytes]) : bytes;
+  const found = (slot: number, tier: (length: number) => number) => {
+    if (dead[slot]) return;
+    counts.literal++;
+    const length =
+      (foldedStarts[slot + 1] ?? 0) - (foldedStarts[slot] ?? 0) - 1;
+    if (marking) marks[slot] = (marks[slot] ?? 0) | LITERAL;
+    add(Rank.of(tier(length), boosts[slot] ?? 0, length, slot));
+  };
   for (const range of plan.ranges) {
-    const finished = scan(
+    const asTyped = scan(
       layout,
       range,
-      pattern,
+      pattern(exact),
       prefixOnly,
-      (slot, at) => {
-        if (dead[slot]) return;
-        counts.literal++;
-        const start = foldedStarts[slot] ?? 0;
-        const length = (foldedStarts[slot + 1] ?? 0) - start - 1;
-        if (marking) marks[slot] = (marks[slot] ?? 0) | LITERAL;
-        add(
-          Rank.of(
+      (slot, at) =>
+        found(slot, (length) =>
+          Rank.literalTier(
+            length === exact.length,
+            at - (foldedStarts[slot] ?? 0),
+            folded[at - 1] ?? 0,
+            false,
+          ),
+        ),
+      stopped,
+    );
+    if (!asTyped) return false;
+    // An accented query, read plain, in names as they are.
+    if (
+      accented &&
+      !scan(
+        layout,
+        range,
+        pattern(loose),
+        prefixOnly,
+        (slot, at) => {
+          if (foldedHas(layout, slot, exact, prefixOnly)) return;
+          found(slot, (length) =>
             Rank.literalTier(
-              length === needleBytes,
-              at - start,
+              length === loose.length,
+              at - (foldedStarts[slot] ?? 0),
               folded[at - 1] ?? 0,
+              true,
             ),
-            boosts[slot] ?? 0,
-            length,
-            slot,
+          );
+        },
+        stopped,
+      )
+    )
+      return false;
+    // The query read plain, in names that read differently plain.
+    const withoutAccents = scanPlain(
+      layout,
+      range,
+      pattern(loose),
+      prefixOnly,
+      (slot, at, entry) => {
+        if (
+          foldedHas(layout, slot, exact, prefixOnly) ||
+          (accented && foldedHas(layout, slot, loose, prefixOnly))
+        )
+          return;
+        const start = layout.plainStarts[entry] ?? 0;
+        const plainLength = (layout.plainStarts[entry + 1] ?? 0) - start - 1;
+        found(slot, () =>
+          Rank.literalTier(
+            plainLength === loose.length,
+            at - start,
+            layout.plain[at - 1] ?? 0,
+            true,
           ),
         );
       },
       stopped,
     );
-    if (!finished) return false;
+    if (!withoutAccents) return false;
   }
   return true;
+}
+
+/** Scan `range` for `term` as typed and without accents, calling `visit` once per match found. */
+function scanWord(
+  layout: SearchLayout,
+  range: VisibleRange,
+  term: string,
+  visit: (slot: number) => void,
+  stopped: Stopped,
+) {
+  const prefixOnly = term.length === 1;
+  const plainTerm = plain(term);
+  const pattern = (text: string) =>
+    Buffer.from(prefixOnly ? SEPARATOR + text : text);
+  return (
+    scan(layout, range, pattern(term), prefixOnly, visit, stopped) &&
+    (plainTerm === term ||
+      scan(layout, range, pattern(plainTerm), prefixOnly, visit, stopped)) &&
+    scanPlain(layout, range, pattern(plainTerm), prefixOnly, visit, stopped)
+  );
 }
 
 /**
@@ -493,13 +665,10 @@ function words(
       const bit = 1 << term;
       // Folders above the range show in every result's path, so they count as seen.
       if (outer & bit) counts.terms[term] = (counts.terms[term] ?? 0) + 1;
-      const text = terms[term] ?? "";
-      const prefixOnly = text.length === 1;
-      const finished = scan(
+      const finished = scanWord(
         layout,
         range,
-        Buffer.from(prefixOnly ? SEPARATOR + text : text),
-        prefixOnly,
+        terms[term] ?? "",
         (slot) => {
           const mark = marks[slot] ?? 0;
           if (!dead[slot] && (mark & bit) === 0)

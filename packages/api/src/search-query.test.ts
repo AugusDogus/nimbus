@@ -601,3 +601,70 @@ describe("what a caller sees never depends on names it may not read", () => {
       );
     });
 });
+
+describe("accents", () => {
+  const composed = "Résumé.pdf";
+  const decomposed = "Résumé.pdf";
+  function drive() {
+    const index = createSearchIndex();
+    for (const path of [
+      "Recettes/Crème brûlée.md",
+      "Menus/cafe.txt",
+      "Menus/café.txt",
+      "Travel/Zürich 2019/hotel.pdf",
+      `People/${composed}`,
+      `People/${decomposed}`,
+      "Documents/Straße 12 lease.pdf",
+    ])
+      index.add(path, "file");
+    return index;
+  }
+  const found = (
+    index: ReturnType<typeof createSearchIndex>,
+    query: string,
+    depth: "instant" | "full" = "full",
+  ) =>
+    index
+      .search({ query, root: "", limit: 50, scope: all, depth, now: 1 })
+      .hits.map((hit) => hit.path);
+
+  for (const compacted of [false, true])
+    describe(compacted ? "compacted" : "before compaction", () => {
+      const index = drive();
+      if (compacted) index.compact();
+
+      it("finds accented names typed without accents, while typing too", () => {
+        expect(found(index, "creme brulee", "instant")).toEqual([
+          "Recettes/Crème brûlée.md",
+        ]);
+        expect(found(index, "strasse")).toEqual([
+          "Documents/Straße 12 lease.pdf",
+        ]);
+        expect(found(index, "zurich hotel")).toEqual([
+          "Travel/Zürich 2019/hotel.pdf",
+        ]);
+      });
+
+      it("ranks the name as typed, accents included, first", () => {
+        expect(found(index, "café")).toEqual([
+          "Menus/café.txt",
+          "Menus/cafe.txt",
+        ]);
+        expect(found(index, "cafe")).toEqual([
+          "Menus/cafe.txt",
+          "Menus/café.txt",
+        ]);
+      });
+
+      it("keeps names that differ only in accents or composition apart, as on disk", () => {
+        expect(found(index, "resume").sort()).toEqual(
+          [`People/${composed}`, `People/${decomposed}`].sort(),
+        );
+        expect(found(index, "résumé")).toHaveLength(2);
+      });
+
+      it("corrects typos across accents", () => {
+        expect(found(index, "brulle")).toEqual(["Recettes/Crème brûlée.md"]);
+      });
+    });
+});

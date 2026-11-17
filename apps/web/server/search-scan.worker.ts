@@ -29,10 +29,12 @@ self.onmessage = (event: MessageEvent<ScanWorkerInbound>) => {
   switch (message.type) {
     case "layout": {
       // Structured cloning keeps the shared memory but not the Buffer type.
-      const { folded } = message.layout;
+      const asBuffer = (bytes: Uint8Array) =>
+        Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length);
       const layout: SearchLayout = {
         ...message.layout,
-        folded: Buffer.from(folded.buffer, folded.byteOffset, folded.length),
+        folded: asBuffer(message.layout.folded),
+        plain: asBuffer(message.layout.plain),
       };
       current = {
         generation: message.generation,

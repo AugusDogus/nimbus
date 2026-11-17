@@ -4,8 +4,9 @@
  * corrected to words that exist (`invioce` → `invoice`, `prjct` → `project`)
  * and expanded straight to the names that hold them.
  *
- * Words come from raw names split at anything that is not a letter and at
- * lower-to-upper case changes (`useConfigTable` gives `useconfigtable`,
+ * Words are folded and read without accents (search-text.ts), so `resume`
+ * and `résumé` are one word. They come from raw names split at anything that
+ * is not a letter and at lower-to-upper case changes (`useConfigTable` gives `useconfigtable`,
  * `use`, `config`, `table`). Short letter runs touching a digit are pieces
  * of ids and hashes (`x9hmb2`, `S01E02`); they are indexed as fragments,
  * keyed with a trailing NUL, so expansion still finds them but they are never
@@ -21,7 +22,10 @@
  * over their own slots. Names added since compaction are indexed by id on the
  * index's own thread; compaction merges them in without reading names again.
  */
-import { foldName } from "./search-scan";
+import { foldName, plain } from "./search-text";
+
+/** A word as the index keys it: folded and without accents. */
+const keyOf = (word: string) => plain(foldName(word));
 
 /** Shorter words are too ambiguous to correct. */
 const MIN_WORD = 3;
@@ -42,14 +46,14 @@ function keysOf(raw: string): string[] {
       (/\p{N}/u.test(raw[match.index - 1] ?? "") ||
         /\p{N}/u.test(raw[end] ?? ""))
     ) {
-      if (run.length >= MIN_WORD) keys.add(foldName(run) + FRAGMENT);
+      if (run.length >= MIN_WORD) keys.add(keyOf(run) + FRAGMENT);
       continue;
     }
-    if (run.length >= MIN_WORD) keys.add(foldName(run));
+    if (run.length >= MIN_WORD) keys.add(keyOf(run));
     const parts = run.split(/(?<=\p{Ll})(?=\p{Lu})/u);
     if (parts.length > 1)
       for (const part of parts)
-        if (part.length >= MIN_WORD) keys.add(foldName(part));
+        if (part.length >= MIN_WORD) keys.add(keyOf(part));
   }
   return [...keys];
 }
@@ -459,7 +463,8 @@ function create() {
      * names the caller may see: one typo away (two for words of eight letters
      * or more), or words it abbreviates. At most `limit`.
      */
-    corrections(term: string, visible: Visibility, limit: number): string[] {
+    corrections(typed: string, visible: Visibility, limit: number): string[] {
+      const term = plain(typed);
       if (term.length < MIN_WORD || !/^\p{L}+$/u.test(term)) return [];
       const typos = term.length >= 8 ? 2 : term.length >= 4 ? 1 : 0;
       const kindOf = (word: string): 1 | 2 | "abbreviation" | null => {
@@ -512,7 +517,8 @@ function create() {
     },
 
     /** The keys whose names hold `word`: itself, longer words starting with it, and their fragments. */
-    expand(word: string): Expansion {
+    expand(typed: string): Expansion {
+      const word = plain(typed);
       const result: Expansion = { base: [], delta: [] };
       const probe = Buffer.from(word);
       for (

@@ -1,4 +1,4 @@
-import { foldName } from "./search-query";
+import { plain, plainWithPositions } from "./search-text";
 
 /** Half-open [start, end) offsets into a displayed string, sorted and disjoint. */
 export type HighlightRanges = [number, number][];
@@ -10,25 +10,29 @@ export type SearchHighlight = {
 };
 
 /**
- * Each folded term's occurrences in `text`, as offsets into `text` itself.
- * Single characters match only at the start of `text` or after a "/", as
- * they do in search. Text whose case folding changes its length (such as
- * "İ") or that is not NFC gets no ranges rather than misplaced ones.
+ * Each folded term's occurrences in `text`, as offsets into `text` itself,
+ * found without accents (search-text.ts) so a match typed without them is
+ * marked on the accented letters. Single characters match only at the start
+ * of `text` or after a "/", as they do in search. Text that is not NFC gets
+ * no ranges rather than misplaced ones.
  */
 function rangesIn(text: string, terms: readonly string[]): HighlightRanges {
-  const folded = foldName(text);
-  if (folded.length !== text.length || text.normalize("NFC") !== text)
-    return [];
+  const read = plainWithPositions(text);
+  if (!read) return [];
   const found: HighlightRanges = [];
-  for (const term of terms) {
+  for (const typed of terms) {
+    const term = plain(typed);
     if (!term) continue;
     for (
-      let at = folded.indexOf(term);
+      let at = read.plain.indexOf(term);
       at >= 0;
-      at = folded.indexOf(term, at + term.length)
+      at = read.plain.indexOf(term, at + term.length)
     )
-      if (term.length > 1 || at === 0 || folded[at - 1] === "/")
-        found.push([at, at + term.length]);
+      if (term.length > 1 || at === 0 || read.plain[at - 1] === "/")
+        found.push([
+          read.from[at] ?? 0,
+          read.to[at + term.length - 1] ?? text.length,
+        ]);
   }
   found.sort((a, b) => a[0] - b[0]);
   const merged: HighlightRanges = [];

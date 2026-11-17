@@ -19,6 +19,7 @@
  */
 
 import { SearchWords } from "./search-words";
+import { plain } from "./search-text";
 import {
   createSearchState,
   foldName,
@@ -135,9 +136,15 @@ export function createSearchIndex(initialCapacity = 1024) {
     generation: nextGeneration++,
     postingStart: new Int32Array([0]),
     postingSlots: new Int32Array(0),
+    plain: Buffer.from(SEPARATOR),
+    plainStarts: new Int32Array([1]),
+    plainSlot: new Int32Array(0),
   };
   // Names for entries added since compaction.
-  const deltaNames = new Map<number, { raw: string; folded: string }>();
+  const deltaNames = new Map<
+    number,
+    { raw: string; folded: string; plain: string | null }
+  >();
   /** Which names hold each word, for the fuzzy layer (search-words.ts). */
   const words = SearchWords.create();
   /** The layout before the last compaction, for page cursors ranked in it. */
@@ -288,7 +295,13 @@ export function createSearchIndex(initialCapacity = 1024) {
     if (head !== NONE) previousSibling[head] = id;
     firstChild[parentId] = id;
     slotOf[id] = NONE;
-    deltaNames.set(id, { raw: name, folded: foldName(name) });
+    const foldedName = foldName(name);
+    const plainName = plain(foldedName);
+    deltaNames.set(id, {
+      raw: name,
+      folded: foldedName,
+      plain: plainName === foldedName ? null : plainName,
+    });
     words.add(id, name);
     const { slot } = probe(parentId, name);
     table[slot] = id;
@@ -377,6 +390,55 @@ export function createSearchIndex(initialCapacity = 1024) {
     slotId = order.subarray(0, used);
     subtreeEnd = ends;
     slots = used;
+    // Plain names, kept only where they differ: added ones carry theirs, and
+    // the rest are copied from the old layout, whose surviving slots keep
+    // their order.
+    const plainSlots: number[] = [];
+    const plainSources: (string | number)[] = [];
+    let plainBytes = 1;
+    let oldEntry = 0;
+    const oldPlainSlot = previousLayout.plainSlot;
+    for (let slot = 0; slot < used; slot++) {
+      const id = order[slot];
+      const delta = deltaNames.get(id);
+      if (delta) {
+        if (delta.plain === null) continue;
+        plainSlots.push(slot);
+        plainSources.push(delta.plain);
+        plainBytes += Buffer.byteLength(delta.plain) + 1;
+        continue;
+      }
+      const previous = slotOf[id];
+      while (
+        oldEntry < oldPlainSlot.length &&
+        (oldPlainSlot[oldEntry] ?? 0) < previous
+      )
+        oldEntry++;
+      if (oldPlainSlot[oldEntry] !== previous) continue;
+      plainSlots.push(slot);
+      plainSources.push(oldEntry);
+      plainBytes +=
+        (previousLayout.plainStarts[oldEntry + 1] ?? 0) -
+        (previousLayout.plainStarts[oldEntry] ?? 0);
+    }
+    const nextPlain = Buffer.from(new SharedArrayBuffer(plainBytes));
+    const nextPlainStarts = sharedInt32(plainSlots.length + 1);
+    let plainAt = 1;
+    plainSources.forEach((source, entry) => {
+      nextPlainStarts[entry] = plainAt;
+      plainAt +=
+        (typeof source === "string"
+          ? nextPlain.write(source, plainAt)
+          : previousLayout.plain.copy(
+              nextPlain,
+              plainAt,
+              previousLayout.plainStarts[source] ?? 0,
+              (previousLayout.plainStarts[source + 1] ?? 1) - 1,
+            )) + 1;
+    });
+    nextPlainStarts[plainSlots.length] = plainAt;
+    const nextPlainSlot = sharedInt32(plainSlots.length);
+    nextPlainSlot.set(plainSlots);
     const parentSlot = sharedInt32(used);
     for (let slot = 0; slot < used; slot++) {
       const id = order[slot];
@@ -399,6 +461,9 @@ export function createSearchIndex(initialCapacity = 1024) {
       generation: nextGeneration++,
       postingStart: words.base.postingStart,
       postingSlots: words.base.postingSlots,
+      plain: nextPlain,
+      plainStarts: nextPlainStarts,
+      plainSlot: nextPlainSlot,
     };
     slotOf = nextSlotOf;
     deltaNames.clear();

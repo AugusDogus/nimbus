@@ -45,6 +45,8 @@ describe("search scan pool", () => {
       "reprot",
       "alpah 2024",
       "rprt",
+      "cafe",
+      "cafe alpah",
     ];
     for (const query of queries)
       for (const scope of [
