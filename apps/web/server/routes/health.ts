@@ -1,11 +1,12 @@
 import { getDataRoot } from "@nimbus/api/data-root";
 import { client } from "@/server/db";
+import { DatabaseFiles } from "@/server/db/database-files";
 import { Readiness } from "@/server/health";
 import { getConfigRoot } from "@/server/storage-paths";
 
 const readiness = Readiness.cached(
   () => ({
-    query: async () => client.query("select 1").get(),
+    query: async () => DatabaseFiles.probeWrite(client),
     dataRoot: getDataRoot(),
     configRoot: getConfigRoot(),
     timeoutMs: 2000,
@@ -15,7 +16,7 @@ const readiness = Readiness.cached(
 let reported = "";
 
 /**
- * Readiness: the database answers and both storage roots accept writes.
+ * Readiness: the database, the data root, and the config root accept writes.
  * Callers are unauthenticated, so the response carries no details; failures
  * are logged once per change of state for the operator.
  */

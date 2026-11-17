@@ -1,7 +1,8 @@
 import path from "node:path";
 import { getDataRoot } from "@nimbus/api/data-root";
 import { Homes } from "@nimbus/api/homes";
-import { client, db } from "./db";
+import { client, databasePath, db } from "./db";
+import { DatabaseFiles } from "./db/database-files";
 import { upgradeDatabase } from "./db/migrate-database";
 import { createDriveStore } from "./drive-store";
 import { handleWebDAV } from "./webdav";
@@ -56,9 +57,13 @@ const securityMode = {
 };
 const commonHeaders = SecurityHeaders.common(securityMode);
 backupsToKeep();
+DatabaseFiles.requireWritable(client, databasePath);
 await upgradeDatabase(client, async () =>
   path.join(getConfigRoot(), "backups", (await backups().run()).name),
 );
+// The config root holds the database and its backups, so it is as private as they are.
+DatabaseFiles.restrictDirectory(getConfigRoot());
+DatabaseFiles.restrict(databasePath);
 setAuditSink(createAuditSink(db));
 const store = createDriveStore(db);
 const homesContainer = await Homes.prepare(store, homesPath);

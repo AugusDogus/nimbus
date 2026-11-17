@@ -60,6 +60,16 @@ test("readiness fails when a root is read-only", async () => {
   await chmod(readOnly, 0o700);
 });
 
+test("readiness fails when the data root itself is read-only, even though .nimbus accepts writes", async () => {
+  if (process.getuid?.() === 0) return; // root ignores permission bits
+  const data = path.join(root, "data");
+  await mkdir(path.join(data, ".nimbus"));
+  await chmod(data, 0o500);
+  const result = await Readiness.check(options());
+  await chmod(data, 0o700);
+  expect(result.failures.map((failure) => failure.check)).toEqual(["dataRoot"]);
+});
+
 test("readiness times out a hung dependency instead of hanging the probe", async () => {
   const result = await Readiness.check(
     options({ query: () => new Promise(() => {}), timeoutMs: 20 }),

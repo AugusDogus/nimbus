@@ -181,7 +181,7 @@ Set the deployment values in `apps/web/.env` before startup. For PDF and video t
 
 Startup fails with a message naming the problem when an optional integration is only partly configured, so a typo cannot silently turn email or single sign-on off.
 
-The reserved `<data root>/.nimbus` directory contains trash and temporary uploads. Without a separate config root, it also contains the database and thumbnail cache. Nimbus never exposes `.nimbus` through file browsing or sharing. Keep a separate config root outside the browsable data root. Symbolic links and special files are excluded. Nimbus needs read and write access to both roots; other local programs with access to those directories remain outside Nimbus's permission controls.
+The reserved `<data root>/.nimbus` directory contains trash and temporary uploads. Without a separate config root, it also contains the database and thumbnail cache. Nimbus never exposes `.nimbus` through file browsing or sharing. Keep a separate config root outside the browsable data root. Symbolic links and special files are excluded. Startup makes the config root owner-only (`700`) and the database and its journal files `600`, and stops with the fix when it cannot, for example because a restored file belongs to another user. Nimbus needs read and write access to both roots; other local programs with access to those directories remain outside Nimbus's permission controls.
 
 ## Settings
 

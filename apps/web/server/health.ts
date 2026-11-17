@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export type ReadinessCheck = "database" | "dataRoot" | "configRoot";
 export type ReadinessFailure = { check: ReadinessCheck; reason: string };
 export type ReadinessResult = { ready: boolean; failures: ReadinessFailure[] };
 export type ReadinessOptions = {
-  /** Runs a trivial statement; resolves when the database answers. */
+  /** Proves the database accepts writes; resolves when it does. */
   query: () => Promise<unknown>;
   dataRoot: string;
   configRoot: string;
@@ -44,8 +45,15 @@ async function check(options: ReadinessOptions): Promise<ReadinessResult> {
     ["database", options.query],
     [
       "dataRoot",
-      () =>
-        probeWritable(path.join(options.dataRoot, ".nimbus"), options.dataRoot),
+      // The root itself is checked with access(2), which reports permissions and read-only
+      // mounts: a probe file there would reach the file watcher and refresh every open view.
+      async () => {
+        await probeWritable(
+          path.join(options.dataRoot, ".nimbus"),
+          options.dataRoot,
+        );
+        await access(options.dataRoot, constants.W_OK);
+      },
     ],
     ["configRoot", () => probeWritable(options.configRoot, options.configRoot)],
   ];
