@@ -14,16 +14,25 @@
  * next page is the best matches ranked after it, read from the index as it is
  * then. Nothing is stored between pages, and no surviving match is repeated
  * or skipped. Compaction renumbers slots, so the index keeps the previous
- * layout's numbering to continue a cursor from just before one, ranked and
- * continued in that layout's order (compaction moves entries added since
- * the one before it, so the new order could put shown results after the
- * cursor). A cursor older than that, one more compaction on, or one ranked
- * with different history, restarts: its page
- * is the first page again, flagged `restarted`, and paging on from it skips
+ * layout's numbering, and a page continued across a compaction is ranked,
+ * and the rest of its session continued, in that layout's order: the new
+ * order places entries added before the compaction among their equals, which
+ * could put results already shown after the cursor. A cursor that is two
+ * compactions old, or one ranked with different history, for another
+ * request, from an earlier run, or unreadable, restarts: its page is the
+ * first page again, flagged `restarted`, and paging on from it skips
  * nothing. A restart costs what a first page costs, however deep the cursor.
  *
  * Nothing a caller sees depends on names outside the ranges it may read:
  * which layers run, which corrections are tried, every count and the order.
+ * Two things still depend, coarsely, on how much the whole drive changed:
+ * whether a later page restarts (after two compactions, each needing at
+ * least 20,000 changes anywhere or a quarter of the layout once that is
+ * larger, search-index.ts; or after a rebuild, which needs more removals
+ * than there are names), and how equally ranked results order (those
+ * added since the last compaction come after their compacted equals until
+ * the next one). Neither depends on any name, and sealed cursors are all one
+ * length (search-cursor.ts).
  */
 import {
   collector,
