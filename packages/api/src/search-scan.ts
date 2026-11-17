@@ -686,7 +686,8 @@ const keepCandidate = (count: number, slot: number) => {
  * The folders above `range`, each with the word bits it and every folder
  * above it hold (`bitsOf`). A candidate's walk up leaves the range at one of
  * these: any folder above a slot in the range but before it is above
- * `first` too.
+ * `first` too. Folders removed since compaction hold nothing: a piece of a
+ * split range can start inside one, and only removed names lie below it.
  */
 function foldersAbove(
   layout: SearchLayout,
@@ -700,7 +701,7 @@ function foldersAbove(
   let carried = 0;
   for (let i = chain.length - 1; i >= 0; i--) {
     const slot = chain[i] ?? 0;
-    carried |= bitsOf(slot);
+    if (!layout.dead[slot]) carried |= bitsOf(slot);
     above.set(slot, carried);
   }
   return above;

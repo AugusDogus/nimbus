@@ -86,6 +86,28 @@ describe("search scan pool", () => {
           }
   });
 
+  it("counts no word of a folder removed since compaction, wherever the scan is split", async () => {
+    const index = createSearchIndex();
+    // Most of the name bytes sit inside the folder that goes, so the scan is
+    // split inside it, with the removed folder above a piece.
+    for (let i = 0; i < 400; i++) index.add(`aaa/zebra/notes ${i}.txt`, "file");
+    index.add("bbb/zebre notes.txt", "file");
+    index.compact();
+    index.remove("aaa/zebra");
+    const request: SearchRequest = {
+      query: "zebra notes",
+      root: "",
+      limit: 25,
+      scope: { type: "all" },
+      depth: "full",
+      now: 1,
+    };
+    const here = index.search(request);
+    // No visible name holds "zebra", so the typo layer reads it as "zebre".
+    expect(here.hits.map((hit) => hit.path)).toEqual(["bbb/zebre notes.txt"]);
+    expect(await searchWithPool(() => index, request, pool, 0)).toEqual(here);
+  });
+
   it("answers from the current index when it changed during the scan", async () => {
     const { index } = tree(9);
     const request: SearchRequest = {
