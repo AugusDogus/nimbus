@@ -664,3 +664,28 @@ test("error toasts are announced at once and stay until closed", async ({
   await page.locator('[aria-label="Close toast"]').click();
   await expect(shown).toBeHidden();
 });
+
+test("the apply-to-all checkbox in the name clash dialog is named by its label and toggles from it", async ({
+  page,
+}) => {
+  const { folder } = await folderWithFiles(["a.txt", "b.txt"]);
+  await page.goto(`/browse/${folder}`);
+  await expect(entry(page, "a.txt").filter({ visible: true })).toBeVisible();
+  await page
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles([
+      { name: "a.txt", mimeType: "text/plain", buffer: Buffer.from("new a") },
+      { name: "b.txt", mimeType: "text/plain", buffer: Buffer.from("new b") },
+    ]);
+  const dialog = page.getByRole("dialog");
+  const all = dialog.getByRole("checkbox", {
+    name: "Apply to all 2 name clashes",
+  });
+  await expect(all).not.toBeChecked();
+  await dialog.getByText("Apply to all 2 name clashes").click();
+  await expect(all).toBeChecked();
+  await dialog.getByText("Apply to all 2 name clashes").click();
+  await expect(all).not.toBeChecked();
+  await dialog.getByRole("button", { name: "Skip", exact: true }).click();
+});
