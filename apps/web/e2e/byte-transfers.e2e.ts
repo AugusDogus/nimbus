@@ -312,9 +312,12 @@ test("WebDAV GET and HEAD do not reveal whether a path the user cannot read exis
   });
   expect(created.ok()).toBe(true);
   const secret = `secret-${randomUUID()}.txt`;
+  // The admin's own home, which the new account cannot read.
+  const home = (await (await client(context)).access.me.query()).home;
+  if (home === null) throw new Error("The administrator has no home folder.");
   expect(
     (
-      await request.put(`/dav/homes/admin/${secret}`, {
+      await request.put(`/dav/${home}/${secret}`, {
         headers: await davHeaders(context),
         data: "private",
       })
@@ -337,7 +340,7 @@ test("WebDAV GET and HEAD do not reveal whether a path the user cannot read exis
       for (const name of [secret, `missing-${randomUUID()}.txt`])
         expect(
           (
-            await member.request.fetch(`/dav/homes/admin/${name}`, {
+            await member.request.fetch(`/dav/${home}/${name}`, {
               method,
               headers,
             })
