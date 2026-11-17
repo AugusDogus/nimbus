@@ -256,3 +256,29 @@ export const SearchText = {
   queryDates,
   monthNamed,
 } as const;
+
+/** Ways a date key is commonly written, for marking it in names. */
+export function dateSpellings(key: string): string[] {
+  const year = key.slice(1, 5);
+  const month = key.slice(5, 7);
+  if (key.startsWith("M"))
+    return [
+      `${year}-${month}`,
+      `${year}.${month}`,
+      `${year}_${month}`,
+      `${month}-${year}`,
+    ];
+  const day = key.slice(7, 9);
+  return [
+    `${year}-${month}-${day}`,
+    `${year}.${month}.${day}`,
+    `${year}_${month}_${day}`,
+    `${year} ${month} ${day}`,
+    `${year}${month}${day}`,
+    `${day}-${month}-${year}`,
+    `${day}.${month}.${year}`,
+    `${day}/${month}/${year}`,
+    `${month}-${day}-${year}`,
+    `${month}/${day}/${year}`,
+  ];
+}

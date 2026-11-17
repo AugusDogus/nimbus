@@ -668,3 +668,85 @@ describe("accents", () => {
       });
     });
 });
+
+describe("dates", () => {
+  function drive() {
+    const index = createSearchIndex();
+    for (const path of [
+      "Scans/receipt 2024-03-15 costco.pdf",
+      "Photos/IMG_20240315_1015.jpg",
+      "Work/notes 2024.03.15.txt",
+      "Scans/visa 2024-04-03.pdf",
+      "Logs/20230704.log",
+      "Photos/2023-07-04 fireworks.jpg",
+      "Reports/report 2024.pdf",
+      "Scans/statement 2024-03.pdf",
+    ])
+      index.add(path, "file");
+    return index;
+  }
+  const found = (index: ReturnType<typeof createSearchIndex>, query: string) =>
+    index
+      .search({ query, root: "", limit: 50, scope: all, depth: "full", now: 1 })
+      .hits.map((hit) => hit.path);
+
+  for (const compacted of [false, true])
+    describe(compacted ? "compacted" : "before compaction", () => {
+      const index = drive();
+      if (compacted) index.compact();
+
+      it("finds a day written any way, below names with it as typed", () => {
+        expect(found(index, "15-03-2024").sort()).toEqual([
+          "Photos/IMG_20240315_1015.jpg",
+          "Scans/receipt 2024-03-15 costco.pdf",
+          "Work/notes 2024.03.15.txt",
+        ]);
+        expect(found(index, "20230704")).toEqual([
+          "Logs/20230704.log",
+          "Photos/2023-07-04 fireworks.jpg",
+        ]);
+        expect(found(index, "2024_03_15 costco")).toEqual([
+          "Scans/receipt 2024-03-15 costco.pdf",
+        ]);
+      });
+
+      it("reads an ambiguous day both ways", () => {
+        expect(found(index, "03-04-2024 visa")).toEqual([
+          "Scans/visa 2024-04-03.pdf",
+        ]);
+      });
+
+      it("finds a month, by number or by name next to a year", () => {
+        expect(found(index, "2024-03")[0]).toBe("Scans/statement 2024-03.pdf");
+        expect(found(index, "2024-03")).toHaveLength(4);
+        expect(found(index, "march 2024 costco")).toEqual([
+          "Scans/receipt 2024-03-15 costco.pdf",
+        ]);
+      });
+
+      it("leaves a bare year a plain number", () => {
+        expect(found(index, "2024").sort()).toEqual(
+          [
+            "Photos/IMG_20240315_1015.jpg",
+            "Reports/report 2024.pdf",
+            "Scans/receipt 2024-03-15 costco.pdf",
+            "Scans/statement 2024-03.pdf",
+            "Scans/visa 2024-04-03.pdf",
+            "Work/notes 2024.03.15.txt",
+          ].sort(),
+        );
+      });
+
+      it("marks the date as the name writes it", () => {
+        const { terms } = index.search({
+          query: "15-03-2024",
+          root: "",
+          limit: 50,
+          scope: all,
+          depth: "full",
+        });
+        for (const written of ["2024-03-15", "2024.03.15", "20240315"])
+          expect(terms).toContain(written);
+      });
+    });
+});

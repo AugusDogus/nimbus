@@ -34,6 +34,8 @@ import {
   ScanScratch,
   slotHolds,
   termBits,
+  TIER_DATES_IN_NAME,
+  TIER_DATES_IN_PATH,
   TIER_FUZZY_IN_NAME,
   TIER_FUZZY_IN_PATH,
   TIER_WORDS_IN_NAME,
@@ -44,7 +46,7 @@ import {
   type VisibleRange,
 } from "./search-scan";
 import { lowerSlot, type SearchWords, type Visibility } from "./search-words";
-import { plain } from "./search-text";
+import { dateSpellings, monthNamed, plain, queryDates } from "./search-text";
 
 export { foldName, foldQuery } from "./search-scan";
 export type {
@@ -252,6 +254,8 @@ function deltaVisible(
 /** The fuzzy layer's corrections as entries added since compaction see them. */
 type DeltaFuzzy = {
   terms: readonly string[];
+  /** Bits of the words whose other readings are typo corrections; the rest are dates. */
+  corrected: number;
   /** Per word, the corrections tried, for highlighting. */
   words: readonly (readonly string[])[];
   /** Per word, ids of delta names holding one of its corrections. */
@@ -323,9 +327,11 @@ function scanDelta(
       bits |= bitsOf(parent);
     return bits;
   };
-  const correctedBits = (id: number) => {
+  const typedBits = (id: number) =>
+    corrections ? termBits(view.foldedNameOf(id), corrections.terms) : 0;
+  const otherBits = (id: number) => {
     if (!corrections) return 0;
-    let bits = termBits(view.foldedNameOf(id), corrections.terms);
+    let bits = 0;
     const slot = view.slotOf(id);
     corrections.ids.forEach((ids, term) => {
       const held =
@@ -371,20 +377,36 @@ function scanDelta(
       continue;
     }
     if (!corrections) continue;
-    const fuzzyAll = (1 << corrections.terms.length) - 1;
-    const fuzzyInName = correctedBits(id);
-    if (
-      fuzzyInName !== 0 &&
-      above(id, fuzzyInName, fuzzyAll, correctedBits) === fuzzyAll
-    )
-      offer(
-        Rank.of(
-          fuzzyInName === fuzzyAll ? TIER_FUZZY_IN_NAME : TIER_FUZZY_IN_PATH,
-          boost,
-          length,
-          slots + id,
-        ),
-      );
+    const otherAll = (1 << corrections.terms.length) - 1;
+    let typed = typedBits(id);
+    let other = otherBits(id);
+    const otherInName = typed | other;
+    if (otherInName === 0) continue;
+    for (
+      let parent = view.parentOf(id);
+      (typed | other) !== otherAll && parent > ROOT;
+      parent = view.parentOf(parent)
+    ) {
+      typed |= typedBits(parent);
+      other |= otherBits(parent);
+    }
+    if ((typed | other) !== otherAll) continue;
+    const fuzzyMatch = (other & ~typed & corrections.corrected) !== 0;
+    const allInName = otherInName === otherAll;
+    offer(
+      Rank.of(
+        fuzzyMatch
+          ? allInName
+            ? TIER_FUZZY_IN_NAME
+            : TIER_FUZZY_IN_PATH
+          : allInName
+            ? TIER_DATES_IN_NAME
+            : TIER_DATES_IN_PATH,
+        boost,
+        length,
+        slots + id,
+      ),
+    );
   }
 }
 
@@ -554,30 +576,58 @@ export function prepareSearch(
         counts,
         corrections,
       );
-      // Words no visible name holds, corrected to words visible names hold.
+      // Other readings of the query's words: dates written any way, and
+      // words no visible name holds corrected to words visible names hold.
       if (plan.fuzzy === null && full && usable && allTerms.length) {
         const missing = allTerms.map((term, index) =>
           plan.terms.length
             ? (counts.terms[index] ?? 0) === 0
             : counts.literal === 0,
         );
+        const dates = allTerms.map((term, index) => {
+          const days = queryDates(term);
+          if (days.length) return days;
+          // A month named next to a year: "march 2024".
+          const month = monthNamed(term);
+          const year = [allTerms[index - 1], allTerms[index + 1]].find(
+            (word) => word !== undefined && /^(19|20)\d{2}$/.test(word),
+          );
+          return month !== null && year !== undefined
+            ? [`M${year}${String(month).padStart(2, "0")}`]
+            : [];
+        });
         const fixes = allTerms.map((term, index) =>
-          missing[index]
+          missing[index] && !dates[index]?.length
             ? view.words.corrections(term, visibility, MAX_CORRECTIONS)
             : [],
         );
-        if (fixes.some((list) => list.length)) {
-          const expansions = fixes.map((list) =>
+        const readings = allTerms.map((_, index) => [
+          ...(dates[index] ?? []),
+          ...(fixes[index] ?? []),
+        ]);
+        if (readings.some((list) => list.length)) {
+          const expansions = readings.map((list) =>
             list.map((word) => view.words.expand(word)),
           );
           const keys = expansions.map((list) => [
             ...new Set(list.flatMap((expansion) => expansion.base)),
           ]);
+          let corrected = 0;
+          fixes.forEach((list, index) => {
+            if (list.length) corrected |= 1 << index;
+          });
           return step(
-            { ...plan, fuzzy: { terms: allTerms, keys } },
+            { ...plan, fuzzy: { terms: allTerms, keys, corrected } },
             {
               terms: allTerms,
-              words: fixes,
+              corrected,
+              words: readings.map((list) =>
+                list.flatMap((word) =>
+                  word.startsWith("D") || word.startsWith("M")
+                    ? dateSpellings(word)
+                    : [word],
+                ),
+              ),
               keys,
               ids: expansions.map(
                 (list) =>

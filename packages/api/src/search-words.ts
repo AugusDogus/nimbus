@@ -22,7 +22,7 @@
  * over their own slots. Names added since compaction are indexed by id on the
  * index's own thread; compaction merges them in without reading names again.
  */
-import { foldName, plain } from "./search-text";
+import { datesIn, foldName, plain } from "./search-text";
 
 /** A word as the index keys it: folded and without accents. */
 const keyOf = (word: string) => plain(foldName(word));
@@ -35,7 +35,13 @@ const FRAGMENT = "\0";
 /** Visible names counted per candidate; enough to score, cheap to count. */
 export const COUNT_CAP = 32;
 
-/** Distinct index keys of a raw name: folded words, and fragments ending in NUL. */
+/** A date key (search-text.ts): `D` or `M` then digits; words are lowercase. */
+const isDate = (key: string) => /^[DM]\d/.test(key);
+
+/** Whether `key` can be offered as a correction: a word, not a fragment or a date. */
+const isWord = (key: string) => !key.endsWith(FRAGMENT) && !isDate(key);
+
+/** Distinct index keys of a raw name: folded words, fragments ending in NUL, and dates. */
 function keysOf(raw: string): string[] {
   const keys = new Set<string>();
   for (const match of raw.matchAll(/\p{L}+/gu)) {
@@ -55,12 +61,12 @@ function keysOf(raw: string): string[] {
       for (const part of parts)
         if (part.length >= MIN_WORD) keys.add(keyOf(part));
   }
+  if (/\d/.test(raw)) for (const date of datesIn(raw)) keys.add(date);
   return [...keys];
 }
 
 /** The words of a raw name a correction can be, without fragments. */
-const wordsOf = (raw: string) =>
-  keysOf(raw).filter((key) => !key.endsWith(FRAGMENT));
+const wordsOf = (raw: string) => keysOf(raw).filter(isWord);
 
 /** Rows reused by `distance`; words are short, so these rarely grow. */
 let rows = [new Int32Array(64), new Int32Array(64), new Int32Array(64)];
@@ -431,7 +437,7 @@ function create() {
       };
       for (let index = 0; index < count; index++) {
         const key = PackedKeys.at(keys, index);
-        if (key.endsWith(FRAGMENT)) continue;
+        if (!isWord(key)) continue;
         file(first, key[0] ?? "", key, index);
         file(second, key[1] ?? "", key, index);
       }
@@ -508,8 +514,7 @@ function create() {
             for (const index of base.bySecond.get(letter)?.get(length) ?? [])
               consider(PackedKeys.at(base.keys, index));
       }
-      for (const key of heads.keys())
-        if (!key.endsWith(FRAGMENT)) consider(key);
+      for (const key of heads.keys()) if (isWord(key)) consider(key);
       return [...found]
         .sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1))
         .slice(0, limit)

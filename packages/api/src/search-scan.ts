@@ -67,6 +67,8 @@ export type ScanPlan = {
   fuzzy: {
     terms: readonly string[];
     keys: readonly (readonly number[])[];
+    /** Bits of the words whose other readings are typo corrections; the rest are dates. */
+    corrected: number;
   } | null;
   ranges: readonly VisibleRange[];
   /** Flat [slot, boost, slot, boost, ...] pairs from the caller's history. */
@@ -738,7 +740,7 @@ export function slotHolds(
 function fuzzy(
   layout: SearchLayout,
   plan: ScanPlan,
-  { terms, keys }: NonNullable<ScanPlan["fuzzy"]>,
+  { terms, keys, corrected: correctedWords }: NonNullable<ScanPlan["fuzzy"]>,
   { boosts, marks, corrected }: ScanScratch,
   add: (rank: number) => void,
   stopped: Stopped,
@@ -746,10 +748,10 @@ function fuzzy(
   const { foldedStarts, parentSlot, dead, postingStart, postingSlots } = layout;
   const all = (1 << terms.length) - 1;
   // Word bits as typed, kept by the words pass (none for a one-word query,
-  // whose only word as typed is a names-layer match).
-  const typed = plan.terms.length ? TERM_BITS : 0;
-  const bitsAt = (slot: number) =>
-    (((marks[slot] ?? 0) & typed) | (corrected[slot] ?? 0)) & all;
+  // whose only word as typed is a names-layer match), and as read otherwise.
+  const typedMask = plan.terms.length ? TERM_BITS : 0;
+  const typedAt = (slot: number) => (marks[slot] ?? 0) & typedMask & all;
+  const otherAt = (slot: number) => (corrected[slot] ?? 0) & all;
   for (const range of plan.ranges) {
     if (stopped()) return false;
     corrected.fill(0, range.first, range.end);
@@ -771,28 +773,45 @@ function fuzzy(
         }
       }
     }
-    const above = foldersAbove(layout, range, (slot) => {
-      let bits = termBits(slotName(layout, slot), terms);
+    const typedAbove = foldersAbove(layout, range, (slot) =>
+      termBits(slotName(layout, slot), terms),
+    );
+    const otherAbove = foldersAbove(layout, range, (slot) => {
+      let bits = 0;
       for (let term = 0; term < keys.length; term++)
         if (slotHolds(layout, slot, keys[term] ?? [])) bits |= 1 << term;
       return bits;
     });
     for (let slot = range.first; slot < range.end; slot++) {
-      const inName = bitsAt(slot);
+      let typed = typedAt(slot);
+      let other = otherAt(slot);
+      const inName = typed | other;
       if (inName === 0 || dead[slot] || (marks[slot] ?? 0) & (FOUND | LITERAL))
         continue;
-      let bits = inName;
       let parent = parentSlot[slot] ?? -1;
-      while (bits !== all && parent >= range.first) {
-        bits |= bitsAt(parent);
+      while ((typed | other) !== all && parent >= range.first) {
+        typed |= typedAt(parent);
+        other |= otherAt(parent);
         parent = parentSlot[parent] ?? -1;
       }
-      if (bits !== all) bits |= above.get(parent) ?? 0;
-      if (bits !== all) continue;
+      if ((typed | other) !== all) {
+        typed |= typedAbove.get(parent) ?? 0;
+        other |= otherAbove.get(parent) ?? 0;
+      }
+      if ((typed | other) !== all) continue;
+      // A word met only through a typo correction makes it a fuzzy match;
+      // through dates read another way, a date match.
+      const fuzzyMatch = (other & ~typed & correctedWords) !== 0;
       const start = foldedStarts[slot] ?? 0;
       add(
         Rank.of(
-          inName === all ? TIER_FUZZY_IN_NAME : TIER_FUZZY_IN_PATH,
+          fuzzyMatch
+            ? inName === all
+              ? TIER_FUZZY_IN_NAME
+              : TIER_FUZZY_IN_PATH
+            : inName === all
+              ? TIER_DATES_IN_NAME
+              : TIER_DATES_IN_PATH,
           boosts[slot] ?? 0,
           (foldedStarts[slot + 1] ?? 0) - start - 1,
           slot,
