@@ -63,6 +63,20 @@ describe("last administrator", () => {
 });
 
 describe("registration", () => {
+  test("closed registration answers the same for existing and unknown addresses", async () => {
+    await t.createUser("first@example.test");
+    const attempt = async (email: string) => {
+      const response = await t.request("POST", "/sign-up/email", {
+        body: { email, password: t.password, name: "Someone" },
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    const existing = await attempt("first@example.test");
+    const unknown = await attempt("nobody@example.test");
+    expect(existing.status).toBe(403);
+    expect(existing).toEqual(unknown);
+  });
+
   test("sign-up is closed once an account exists", async () => {
     await t.createUser("first@example.test");
     const response = await t.request("POST", "/sign-up/email", {

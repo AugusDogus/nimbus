@@ -49,6 +49,12 @@ const adminChangeSchema = z.object({
 const includesAdmin = (role: string | string[]) =>
   (Array.isArray(role) ? role : role.split(",")).includes("admin");
 
+const registrationClosed = () =>
+  new APIError("FORBIDDEN", {
+    message:
+      "Registration is closed. Ask your server administrator to create an account.",
+  });
+
 export function createNimbusAuth({
   db,
   oidc: oidcConfig,
@@ -185,6 +191,16 @@ export function createNimbusAuth({
     },
     hooks: {
       before: createAuthMiddleware(async (context) => {
+        // Refused before Better Auth looks up the address, so the answer never reveals
+        // whether an account uses it.
+        if (context.path === "/sign-up/email") {
+          const [existing] = await db
+            .select({ id: user.id })
+            .from(user)
+            .limit(1);
+          if (existing) throw registrationClosed();
+          return;
+        }
         if (
           ![
             "/admin/set-role",
@@ -288,10 +304,7 @@ export function createNimbusAuth({
               .from(user)
               .limit(1);
             if (context?.path === "/sign-up/email" && existing)
-              throw new APIError("FORBIDDEN", {
-                message:
-                  "Registration is closed. Ask your server administrator to create an account.",
-              });
+              throw registrationClosed();
             if (isOidcCallback(context?.path ?? undefined)) {
               if (!existing)
                 throw new APIError("FORBIDDEN", {
