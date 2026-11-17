@@ -27,6 +27,7 @@ const drive = () => ({
     await store.removeAt(relative);
   },
   caseVariants: async () => [],
+  hasRecordsNear: async () => true,
 });
 const staged = async (content: string) => {
   const file = path.join(root, ".nimbus", "uploads", `${clock}.tmp`);

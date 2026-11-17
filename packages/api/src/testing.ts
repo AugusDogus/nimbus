@@ -295,6 +295,10 @@ export function createTestDriveStore() {
     },
     fileRequests,
     versions,
+    async hasRecordsNear() {
+      // Always worth a full claim here: the maps are small, and the claim checks every kind.
+      return true;
+    },
     async caseVariants(path) {
       const variants = new Set<string>();
       const lower = path.toLowerCase();

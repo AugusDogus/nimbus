@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { user } from "./auth-schema";
 
@@ -18,7 +19,12 @@ export const fileRequests = sqliteTable(
     maxFiles: integer("max_files"),
     maxTotalBytes: integer("max_total_bytes"),
   },
-  (table) => [index("nimbus_file_request_path").on(table.path)],
+  (table) => [
+    index("nimbus_file_request_path").on(table.path),
+    index("nimbus_file_request_path_nocase").on(
+      sql`${table.path} COLLATE NOCASE`,
+    ),
+  ],
 );
 
 /** One row per anonymous upload: a quota reservation until it finishes. */

@@ -198,6 +198,12 @@ export type DriveStore = {
    */
   claimVacant(path: string): Promise<void>;
   /**
+   * Whether `claimVacant` or `caseVariants` could find anything for `path`: links, grants or
+   * file requests at or under it in any ASCII letter case, or bookmarks, dead properties or
+   * history at or under it exactly. One cheap check, since most new paths have none.
+   */
+  hasRecordsNear(path: string): Promise<boolean>;
+  /**
    * Other spellings of `path`, differing only in ASCII letter case, at which grants, public
    * links or file requests exist, at or above records below them. On case-insensitive storage
    * these name the same item.

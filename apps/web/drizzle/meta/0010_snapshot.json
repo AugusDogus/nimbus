@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f0465003-7f0c-4dec-905b-5d7ebb667e89",
+  "id": "d95521a9-c588-4343-ab71-d4ecd57da07a",
   "prevId": "6dd243d9-c131-444c-b036-307c64ba56d2",
   "tables": {
     "nimbus_note": {
@@ -1003,6 +1003,13 @@
             "path"
           ],
           "isUnique": false
+        },
+        "nimbus_grant_path_nocase": {
+          "name": "nimbus_grant_path_nocase",
+          "columns": [
+            "\"path\" COLLATE NOCASE"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -1316,6 +1323,13 @@
           "name": "nimbus_share_path",
           "columns": [
             "path"
+          ],
+          "isUnique": false
+        },
+        "nimbus_share_path_nocase": {
+          "name": "nimbus_share_path_nocase",
+          "columns": [
+            "\"path\" COLLATE NOCASE"
           ],
           "isUnique": false
         }
@@ -1698,6 +1712,13 @@
           "name": "nimbus_file_request_path",
           "columns": [
             "path"
+          ],
+          "isUnique": false
+        },
+        "nimbus_file_request_path_nocase": {
+          "name": "nimbus_file_request_path_nocase",
+          "columns": [
+            "\"path\" COLLATE NOCASE"
           ],
           "isUnique": false
         }
@@ -2102,6 +2123,28 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {}
+    "indexes": {
+      "nimbus_grant_path_nocase": {
+        "columns": {
+          "\"path\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      },
+      "nimbus_share_path_nocase": {
+        "columns": {
+          "\"path\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      },
+      "nimbus_file_request_path_nocase": {
+        "columns": {
+          "\"path\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      }
+    }
   }
 }

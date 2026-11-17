@@ -2,7 +2,8 @@ import { Database as SQLite } from "bun:sqlite";
 import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import * as schema from "./schema";
 
-export type Database = BunSQLiteDatabase<typeof schema>;
+/** Drizzle over the database, with the underlying client for statements prepared once. */
+export type Database = BunSQLiteDatabase<typeof schema> & { $client: SQLite };
 
 /**
  * Open a SQLite database with Nimbus's connection settings. Queries run in

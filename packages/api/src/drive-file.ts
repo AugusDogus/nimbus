@@ -1,14 +1,18 @@
 import { TRPCError } from "@trpc/server";
-import { constants, existsSync, type Stats } from "node:fs";
+import {
+  constants,
+  createWriteStream,
+  existsSync,
+  readlinkSync,
+  type Stats,
+} from "node:fs";
 import {
   copyFile,
   lstat,
   open,
-  readlink,
   realpath,
   type FileHandle,
 } from "node:fs/promises";
-import { createWriteStream } from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { getDataRoot } from "./data-root";
@@ -59,7 +63,9 @@ async function opensPath(
   const relative = path.relative(dataRoot, absolute);
   if (descriptorPaths) {
     // A file renamed over or deleted since it was opened is reported with this suffix.
-    const opened = (await readlink(`/proc/self/fd/${handle.fd}`)).replace(
+    // A procfs lookup that never waits on storage, so it runs synchronously, sparing a
+    // thread-pool round trip on every open.
+    const opened = readlinkSync(`/proc/self/fd/${handle.fd}`).replace(
       / \(deleted\)$/,
       "",
     );
@@ -155,21 +161,6 @@ async function copyOpened(
   );
 }
 
-/**
- * Check that the folder at `absolute` is still the drive folder it was checked as, just before
- * renaming content into it. Renames go by name, so this narrows, but cannot close, the window
- * in which a folder swapped for a symlink would receive the content.
- */
-async function requireFolder(absolute: string, dataRoot = getDataRoot()) {
-  const opened = await openForReading(absolute, dataRoot);
-  await opened.handle.close();
-  if (!opened.stats.isDirectory())
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: "The destination folder no longer exists. Refresh the drive.",
-    });
-}
-
 /** Copy the regular file at `absolute` to `destination` without following a swapped-in symlink. */
 async function copy(absolute: string, destination: string, mode: number) {
   const opened = await openFile(absolute);
@@ -183,7 +174,6 @@ async function copy(absolute: string, destination: string, mode: number) {
 export const DriveFile = {
   openForReading,
   openFile,
-  requireFolder,
   copyOpened,
   copy,
   swapped,

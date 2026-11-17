@@ -45,6 +45,8 @@ export const grants = sqliteTable(
     ),
     // Renames, moves and trash rewrite records under a path prefix.
     index("nimbus_grant_path").on(table.path),
+    // Finds records under any spelling of a path Nimbus is about to create; see VacantPath.
+    index("nimbus_grant_path_nocase").on(sql`${table.path} COLLATE NOCASE`),
   ],
 );
 export const shares = sqliteTable(
@@ -65,7 +67,10 @@ export const shares = sqliteTable(
       .notNull()
       .default("download"),
   },
-  (table) => [index("nimbus_share_path").on(table.path)],
+  (table) => [
+    index("nimbus_share_path").on(table.path),
+    index("nimbus_share_path_nocase").on(sql`${table.path} COLLATE NOCASE`),
+  ],
 );
 export const trash = sqliteTable("nimbus_trash", {
   id: text("id").primaryKey(),

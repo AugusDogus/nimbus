@@ -142,6 +142,53 @@ function detach(tx: Transaction, path: string): DetachedAccess {
 }
 
 /**
+ * SELECTs of `columns` from `table` for rows at or under the path ?1, with ?2 = `?1/` and
+ * ?3 = `?1` + "0" (see `atOrUnder`): exactly, or, with NOCASE, in any ASCII letter case. The
+ * exact match and the descendants are separate SELECTs, so each is a search of a path index
+ * (the NOCASE ones from migration 0009); with OR, SQLite would scan the NOCASE index instead.
+ */
+const atOrUnderPath = (
+  columns: string,
+  table: string,
+  collation: "" | " COLLATE NOCASE",
+  extra = "",
+) => [
+  `SELECT ${columns} FROM ${table} WHERE path = ?1${collation}${extra}`,
+  `SELECT ${columns} FROM ${table} WHERE path >= ?2${collation} AND path < ?3${collation}${extra}`,
+];
+
+/** Tables of the access records whose other spellings `VacantPath.claim` also claims. */
+const caseFoldedTables = [
+  "nimbus_grant",
+  "nimbus_share",
+  "nimbus_file_request",
+];
+
+/** Whether any record may need claiming at a vacant path: indexed probes, stopping at one. */
+const recordsNear = [
+  ...caseFoldedTables.flatMap((table) =>
+    atOrUnderPath("1 AS found", table, " COLLATE NOCASE"),
+  ),
+  ...["nimbus_bookmark", "nimbus_dav_property", "nimbus_file_version"].flatMap(
+    (table) => atOrUnderPath("1 AS found", table, ""),
+  ),
+]
+  .join(" UNION ALL ")
+  .concat(" LIMIT 1");
+
+/** Other spellings of ?1 that grants, links or file requests are recorded at or under. */
+const caseVariants = caseFoldedTables
+  .flatMap((table) =>
+    atOrUnderPath(
+      "substr(path, 1, length(?1)) AS prefix",
+      table,
+      " COLLATE NOCASE",
+      " AND substr(path, 1, length(?1)) <> ?1",
+    ),
+  )
+  .join(" UNION ");
+
+/**
  * Move file history at or under `from` to the same relative location under `to`, first
  * dropping history left at `to` by content removed outside Nimbus. Payloads of dropped
  * records are swept by version cleanup a day later.
@@ -471,28 +518,18 @@ export function createDriveStore(database: Database): DriveStore {
     },
     fileRequests: createFileRequestStore(database),
     versions: createFileVersionStore(database),
+    async hasRecordsNear(path) {
+      return (
+        database.$client
+          .query<{ found: number }, [string, string, string]>(recordsNear)
+          .get(path, `${path}/`, `${path}0`) !== null
+      );
+    },
     async caseVariants(path) {
-      const variants = new Set<string>();
-      for (const table of [grants, shares, fileRequests]) {
-        // The leading part of each path with as many characters as `path`, compared without
-        // case; small tables, so scanned rather than indexed.
-        const prefix = sql`substr(${table.path}, 1, ${path.length})`;
-        const rows = await database
-          .selectDistinct({ prefix: sql<string>`${prefix}` })
-          .from(table)
-          .where(
-            and(
-              sql`lower(${prefix}) = lower(${path})`,
-              sql`${prefix} <> ${path}`,
-              or(
-                sql`length(${table.path}) = ${path.length}`,
-                sql`substr(${table.path}, ${path.length + 1}, 1) = '/'`,
-              ),
-            ),
-          );
-        for (const row of rows) variants.add(row.prefix);
-      }
-      return [...variants];
+      return database.$client
+        .query<{ prefix: string }, [string, string, string]>(caseVariants)
+        .all(path, `${path}/`, `${path}0`)
+        .map((row) => row.prefix);
     },
     async claimVacant(path) {
       // Deletes only: a vacant path usually has no records, and these are index range scans.

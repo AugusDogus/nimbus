@@ -202,7 +202,7 @@ async function discard(
 /** What committing content needs from the drive store: version records, and claims of vacant paths. */
 export type ContentDrive = Pick<
   DriveStore,
-  "versions" | "claimVacant" | "caseVariants"
+  "versions" | "claimVacant" | "caseVariants" | "hasRecordsNear"
 >;
 
 export type ReplacementResult =
@@ -251,14 +251,12 @@ async function commitReplacement({
       throw new Error(
         `${target} is not a regular file, so Nimbus did not replace it. Callers refuse folders and special files before committing; nothing was changed and the new content is still staged.`,
       );
-    await DriveFile.requireFolder(path.dirname(target), dataRoot);
     await rename(incoming, target);
     return { kind: "created" };
   }
   if (previous.size === BigInt(0)) {
     // An empty file, such as one created by a WebDAV LOCK before its PUT, has
     // nothing to keep; its earlier history stays with the path.
-    await DriveFile.requireFolder(path.dirname(target), dataRoot);
     await rename(incoming, target);
     return { kind: "replaced", version: null };
   }

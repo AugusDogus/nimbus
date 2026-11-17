@@ -37,10 +37,13 @@ async function vacant(absolute: string) {
 }
 
 async function claim(
-  drive: Pick<DriveStore, "claimVacant" | "caseVariants">,
+  drive: Pick<DriveStore, "claimVacant" | "caseVariants" | "hasRecordsNear">,
   target: { absolute: string; relative: string },
 ): Promise<VacantClaim> {
   if (!(await vacant(target.absolute))) return { kind: "occupied" };
+  // Most new paths have no records under any spelling: one indexed probe settles that.
+  if (!(await drive.hasRecordsNear(target.relative)))
+    return { kind: "claimed" };
   // On case-insensitive storage another spelling names the same new item, so records there
   // are claimed too, unless that spelling holds an item of its own (case-sensitive storage).
   // `absolute` is the data root joined with `relative`; callers may pass a root of their own.

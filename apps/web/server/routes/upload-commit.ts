@@ -46,7 +46,7 @@ export type UploadMetadata = z.infer<typeof UploadMetadata>;
 const join = (...segments: string[]) => segments.filter(Boolean).join("/");
 
 async function ensureFolders(
-  drive: Pick<ContentDrive, "claimVacant" | "caseVariants">,
+  drive: Pick<ContentDrive, "claimVacant" | "caseVariants" | "hasRecordsNear">,
   access: Access,
   base: string,
   folder: string,
