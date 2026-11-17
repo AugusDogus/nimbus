@@ -130,6 +130,24 @@ function resolve(
   };
 }
 
+/** Whether parsed XML nests elements deeper than `maxDepth`, walked with an explicit stack. */
+function tooDeep(parsed: unknown) {
+  const pending: { node: unknown; depth: number }[] = [
+    { node: parsed, depth: 0 },
+  ];
+  for (let item = pending.pop(); item; item = pending.pop()) {
+    if (item.depth > maxDepth) return true;
+    const { node } = item;
+    if (typeof node !== "object" || node === null || !("children" in node))
+      continue;
+    const { children } = node;
+    if (Array.isArray(children))
+      for (const child of children)
+        pending.push({ node: child, depth: item.depth + 1 });
+  }
+  return false;
+}
+
 /** Parse a request body. DOCTYPE declarations are refused, so entities never expand. */
 export function parseXml(
   text: string,
@@ -144,6 +162,10 @@ export function parseXml(
       error instanceof Error ? error.message : "it could not be parsed.",
     );
   }
+  // The recursive schema below would overflow the stack on deep input, so depth is checked
+  // first, without recursion.
+  if (tooDeep(parsed))
+    return invalid(`elements are nested more than ${maxDepth} levels deep.`);
   const raw = rawElement.safeParse(parsed);
   if (!raw.success) return invalid("it has no single root element.");
   try {

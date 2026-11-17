@@ -43,6 +43,13 @@ test("refuses entity declarations, undeclared prefixes, duplicate expanded attri
     expect(parseXml(text).ok).toBe(false);
 });
 
+test("refuses nesting deep enough to overflow a recursive check, without throwing", () => {
+  for (const levels of [6_000, 50_000])
+    expect(
+      parseXml("<a>".repeat(levels) + "</a>".repeat(levels)),
+    ).toMatchObject({ ok: false });
+});
+
 test("keeps mixed content, CDATA, and the inherited xml:lang when serializing a property", () => {
   const root = parse(
     `<D:prop xmlns:D="DAV:" xml:lang="fr"><x xmlns="http://ex/">a <b>bold</b> &amp; <![CDATA[<raw>]]></x></D:prop>`,
