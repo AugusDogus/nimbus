@@ -28,11 +28,4 @@ export const CallbackUrl = {
       ? value
       : DEFAULT;
   },
-  /** The sign-in page that returns to `target`, a path on this site, once signed in. */
-  signInPath(target: string): string {
-    const callback = CallbackUrl.parse(target);
-    return callback === DEFAULT
-      ? "/login"
-      : `/login?${new URLSearchParams({ callbackURL: callback })}`;
-  },
 } as const;

@@ -1,12 +1,12 @@
 import { createContext } from "@nimbus/api/context";
 import { auth } from "@/lib/auth";
-import { CallbackUrl } from "@/lib/callback-url";
 import { fileListRequest } from "@/lib/file-list-request";
 import { parseSignedIn } from "@/lib/session-query";
 import type { Bootstrap } from "@/client/bootstrap";
 import { preferencesStore } from "./preferences";
 import type { PageKind } from "./route-preloads";
 import { driveStore } from "./services";
+import { signInPath } from "./sign-in-path";
 import { createWebCaller } from "./web-router";
 
 /**
@@ -66,7 +66,7 @@ export const PageBootstrap = {
       const { pathname, search } = new URL(request.url);
       return {
         kind: "redirect",
-        location: CallbackUrl.signInPath(pathname + search),
+        location: signInPath(pathname + search),
       };
     }
     if (kind !== "files")
