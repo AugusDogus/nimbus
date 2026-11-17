@@ -184,17 +184,18 @@ function ToastIcon({ type }: { type: string | undefined }) {
 function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager();
 
-  // Like Nimbus's toasts before, there is no close button: toasts time out, swipe away, or close
-  // with Escape after F6 moves focus to them.
+  // Toasts that time out need no close button: they also swipe away, or close with Escape after
+  // F6 moves focus to them. One that stays until dismissed (timeout 0) has one.
   return toasts.map((toastItem) => (
     <Toast key={toastItem.id} toast={toastItem}>
       <ToastContent>
         <ToastIcon type={toastItem.type} />
-        <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <ToastTitle />
           <ToastDescription />
         </div>
         <ToastAction />
+        {toastItem.timeout === 0 && <ToastClose className="-my-1 -mr-2" />}
       </ToastContent>
     </Toast>
   ));

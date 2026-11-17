@@ -7,7 +7,19 @@ import { connectToasts } from "@/lib/toast";
 
 /** Connects `toast()` to the UI once its provider listens, which Base UI requires. */
 function ConnectToasts() {
-  useEffect(() => connectToasts((request) => toastManager.add(request)), []);
+  useEffect(
+    () =>
+      connectToasts((request) =>
+        toastManager.add(
+          // An error may be the only place that says what failed: it stays until closed, and
+          // screen readers announce it at once.
+          request.type === "error"
+            ? { ...request, timeout: 0, priority: "high" }
+            : request,
+        ),
+      ),
+    [],
+  );
   return null;
 }
 

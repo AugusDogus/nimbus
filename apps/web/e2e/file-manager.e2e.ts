@@ -591,8 +591,10 @@ test("files dropped outside an upload area never open in the tab, and leaving mi
 
 test("starring a selection changes nothing when the starred items cannot be read", async ({
   page,
+  isMobile,
   context,
 }) => {
+  test.skip(isMobile, "Selecting with modifier keys is a desktop interaction.");
   const { folder } = await folderWithFiles(["one.txt", "two.txt"]);
   await page.goto(`/browse/${folder}`);
   await entry(page, "one.txt")
@@ -612,7 +614,9 @@ test("starring a selection changes nothing when the starred items cannot be read
   );
   await bar(page).getByRole("button", { name: "Star", exact: true }).click();
   await expect(
-    page.getByText("Nothing was starred or unstarred", { exact: false }),
+    page
+      .getByRole("region", { name: "Notifications" })
+      .getByText("Nothing was starred or unstarred"),
   ).toBeVisible();
   const bookmarks = await (await client(context)).catalog.bookmarks.query();
   expect(
@@ -620,4 +624,43 @@ test("starring a selection changes nothing when the starred items cannot be read
       (bookmark) => bookmark.starred && bookmark.path.startsWith(`${folder}/`),
     ),
   ).toEqual([]);
+});
+
+test("error toasts are announced at once and stay until closed", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Selecting with modifier keys is a desktop interaction.");
+  const { folder } = await folderWithFiles(["one.txt", "two.txt"]);
+  await page.goto(`/browse/${folder}`);
+  await entry(page, "one.txt")
+    .filter({ visible: true })
+    .click({
+      modifiers: ["ControlOrMeta"],
+    });
+  await entry(page, "two.txt")
+    .filter({ visible: true })
+    .click({
+      modifiers: ["Shift"],
+    });
+  await page.route(
+    (url) => url.pathname.includes("catalog.bookmarks"),
+    (route) => route.fulfill({ status: 503, body: "Unavailable" }),
+  );
+  await bar(page).getByRole("button", { name: "Star", exact: true }).click();
+  const message = "Nothing was starred or unstarred";
+  await expect(
+    page.getByRole("alert").filter({ hasText: message }),
+  ).toBeAttached();
+  const shown = page
+    .getByRole("region", { name: "Notifications" })
+    .getByText(message);
+  await expect(shown).toBeVisible();
+  // Success toasts time out after 4 seconds; errors are often the only list of what failed.
+  await page.waitForTimeout(5_000);
+  await expect(shown).toBeVisible();
+  // Base UI keeps an urgent toast out of the accessibility tree until F6 focuses the
+  // notifications, since the alert above already announced it; pointer users click it.
+  await page.locator('[aria-label="Close toast"]').click();
+  await expect(shown).toBeHidden();
 });
