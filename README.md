@@ -110,7 +110,7 @@ The server runs as an unprivileged user, by default UID and GID 1000. Set `PUID`
 
 ### Published image
 
-The Docker workflow builds the Dockerfile for `linux/amd64` and `linux/arm64` on native runners for every PR, without publishing. Pushes to `main` and version tags such as `v1.2.3` publish a multi-platform image to GitHub Container Registry with signed build provenance. Each Bun stage uses the `oven/bun:1.4.4` base image pinned by its multi-platform digest.
+The CI workflow builds the Dockerfile for `linux/amd64` and `linux/arm64` on native runners only after every check passes for the same commit; pull requests build without publishing. Pushes to `main` and version tags such as `v1.2.3` that pass publish a multi-platform image to GitHub Container Registry with signed build provenance. Each Bun stage uses the `oven/bun:1.4.4` base image pinned by its multi-platform digest.
 
 - `ghcr.io/augusdogus/nimbus:1.2.3` is published from the `v1.2.3` tag.
 - `ghcr.io/augusdogus/nimbus:latest` tracks the most recently published stable release.
@@ -426,7 +426,7 @@ bun run test:e2e
 
 `bun run format` rewrites files with [oxfmt](https://oxc.rs/docs/guide/usage/formatter), configured in `.oxfmtrc.jsonc`. `bun run lint` runs [oxlint](https://oxc.rs/docs/guide/usage/linter) over the whole repository with the rules in `.oxlintrc.jsonc`, including type-aware rules that reject `any` flowing into typed code, non-null assertions, unchecked type assertions, and floating promises; warnings fail it. `bun run typecheck` checks each workspace and the root scripts with the native TypeScript 7 compiler, installed as `typescript7`. To skip the formatting commit in `git blame`, run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
 
-Unit tests cover path confinement, permissions, file operations, migrations, retention, and caches. Playwright tests use isolated temporary storage and accounts on port 3100, or `NIMBUS_E2E_PORT` when set, with desktop and mobile Chromium projects. Every browser test fails on Content-Security-Policy violations. Local tests use development mode, with Vite on the test port plus 10000 (or `NIMBUS_E2E_VITE_PORT`); with `CI=true`, tests use the production build, so run `bun run build` first. CI runs these checks and retains failed browser-test artifacts.
+Unit tests cover path confinement, permissions, file operations, migrations, retention, and caches. Playwright tests use isolated temporary storage and accounts on port 3100, or `NIMBUS_E2E_PORT` when set, with desktop and mobile Chromium projects. Every browser test fails on Content-Security-Policy violations. Local tests use development mode, with Vite on the test port plus 10000 (or `NIMBUS_E2E_VITE_PORT`); with `CI=true`, tests use the production build, so run `bun run build` first. CI runs these checks, then checks that public pages load no code of the signed-in app (`bun scripts/page-modules.ts`) and that no page's startup JavaScript exceeds its gzip budget in `scripts/first-load-js-budget.json` (`bun scripts/first-load-js.ts --budget scripts/first-load-js-budget.json`), and retains failed browser-test artifacts.
 
 See [the web app README](apps/web/README.md) for the code layout and database development commands.
 

@@ -1,0 +1,20 @@
+{
+  "/": 269000,
+  "/browse/$": 269000,
+  "/login": 124000,
+  "/r/$token": 172000,
+  "/recent": 249000,
+  "/reset-password": 124000,
+  "/s/$token": 156000,
+  "/search": 250000,
+  "/settings/account": 226000,
+  "/settings/admin": 246000,
+  "/settings/admin/audit": 214000,
+  "/settings/appearance": 220000,
+  "/settings/mcp": 197000,
+  "/settings/webdav": 199000,
+  "/shared": 257000,
+  "/signup": 124000,
+  "/starred": 249000,
+  "/trash": 233000
+}

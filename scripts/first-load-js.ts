@@ -13,6 +13,10 @@
 //   bun scripts/first-load-js.ts --json out.json     also write the numbers
 //   bun scripts/first-load-js.ts --compare base.json compare with a saved run
 //   bun scripts/first-load-js.ts --dist <dir>        measure another build directory
+//   bun scripts/first-load-js.ts --budget <file>     fail when a page exceeds its gzip budget
+//   bun scripts/first-load-js.ts --write-budget <file>
+//                                                    set each budget to the current gzip size
+//                                                    plus 5%, rounded up to the next 1000 bytes
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
@@ -194,6 +198,39 @@ function parseSaved(value: unknown): RouteSize[] {
   });
 }
 
+/** Headroom a new budget allows over the measured gzip size. */
+const budgetMargin = 0.05;
+
+function parseBudget(value: unknown): Map<string, number> {
+  if (!isRecord(value))
+    fail("The budget file is not an object of route sizes.");
+  const budget = new Map<string, number>();
+  for (const [route, bytes] of Object.entries(value)) {
+    if (typeof bytes !== "number" || !Number.isInteger(bytes) || bytes < 1)
+      fail(`The budget for ${route} is not a positive whole number of bytes.`);
+    budget.set(route, bytes);
+  }
+  return budget;
+}
+
+/** Each route's gzip size against its budget; problems are returned, not thrown. */
+function overBudget(current: RouteSize[], budget: Map<string, number>) {
+  const problems: string[] = [];
+  for (const row of current) {
+    const limit = budget.get(row.route);
+    if (limit === undefined)
+      problems.push(`${row.route} has no budget (now ${row.gzip} bytes gzip).`);
+    else if (row.gzip > limit)
+      problems.push(
+        `${row.route} loads ${row.gzip} bytes gzip at startup, over its budget of ${limit} by ${row.gzip - limit}.`,
+      );
+  }
+  for (const route of budget.keys())
+    if (!current.some((row) => row.route === route))
+      problems.push(`${route} has a budget but is no longer a page.`);
+  return problems;
+}
+
 const kb = (bytes: number) => (bytes / 1000).toFixed(1);
 const delta = (bytes: number) =>
   `${bytes > 0 ? "+" : ""}${(bytes / 1000).toFixed(1)}`;
@@ -202,6 +239,31 @@ const current = await measure();
 const jsonPath = option("--json");
 if (jsonPath)
   await writeFile(jsonPath, `${JSON.stringify(current, null, 2)}\n`);
+
+const writeBudgetPath = option("--write-budget");
+if (writeBudgetPath) {
+  const budget = Object.fromEntries(
+    current.map((row) => [
+      row.route,
+      Math.ceil((row.gzip * (1 + budgetMargin)) / 1000) * 1000,
+    ]),
+  );
+  await writeFile(writeBudgetPath, `${JSON.stringify(budget, null, 2)}\n`);
+}
+
+const budgetPath = option("--budget");
+if (budgetPath) {
+  const problems = overBudget(
+    current,
+    parseBudget(JSON.parse(await readFile(budgetPath, "utf8"))),
+  );
+  if (problems.length) {
+    console.error(
+      `First-load JavaScript is over budget:\n${problems.map((problem) => `- ${problem}`).join("\n")}\nKeep code that pages do not need at startup behind import(). If the growth is intended, review it and run \`bun scripts/first-load-js.ts --write-budget ${budgetPath}\`.`,
+    );
+    process.exitCode = 1;
+  }
+}
 
 const comparePath = option("--compare");
 if (comparePath) {

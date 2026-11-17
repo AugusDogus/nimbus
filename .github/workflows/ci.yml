@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ["v*"]
 
 permissions:
   contents: read
@@ -15,13 +16,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       # Bun runs the Playwright CLI with the first node on PATH. Playwright 1.58 hangs while
       # extracting browsers under Node 26, so pin an LTS release.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           package-manager-cache: false
@@ -31,6 +32,9 @@ jobs:
       - run: bun run typecheck
       - run: bun test
       - run: bun run build
+      # Public pages must load no module of the signed-in app.
+      - run: bun scripts/page-modules.ts
+      - run: bun scripts/first-load-js.ts --budget scripts/first-load-js-budget.json
       - name: Build Litmus 0.18
         run: |
           pkg-config --exists expat || { sudo apt-get update && sudo apt-get install -y --no-install-recommends libexpat1-dev; }
@@ -48,9 +52,44 @@ jobs:
           LITMUS_DIR: ${{ runner.temp }}/litmus/litmus-0.18
       - run: bun playwright install --with-deps chromium
       - run: bun run test:e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
           name: playwright-results
           path: test-results/
           retention-days: 7
+
+  # Images are built and published only after every check above passes for the same commit.
+  image:
+    needs: verify
+    concurrency:
+      group: docker-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+      packages: write
+      # Keyless signing of the provenance attestations on published images.
+      id-token: write
+    # Docker's reusable builder runs each platform on a native runner (ubuntu-26.04 and
+    # ubuntu-26.04-arm), pushes by digest, and merges one multi-platform manifest.
+    uses: docker/github-builder/.github/workflows/build.yml@a31d2311da4d55e21b978c1c52bab82ba97d51ee # v1.19.0
+    with:
+      output: image
+      context: .
+      file: ./Dockerfile
+      platforms: linux/amd64,linux/arm64
+      push: ${{ github.event_name == 'push' }}
+      cache: true
+      cache-mode: max
+      cache-scope: nimbus
+      meta-images: ghcr.io/${{ github.repository }}
+      meta-tags: |
+        type=ref,event=pr
+        type=edge,branch=main
+        type=semver,pattern={{version}}
+      set-meta-labels: true
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
