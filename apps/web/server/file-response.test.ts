@@ -366,8 +366,17 @@ test("finished downloads do not keep their descriptors open", async () => {
         expect((await response.arrayBuffer()).byteLength).toBe(1 << 20);
       }),
     );
-    // Large files go out zero-copy, holding a bounded number of descriptors briefly.
-    expect(openDescriptors(large)).toBeLessThanOrEqual(1024);
+    // Large files go out zero-copy, holding a bounded number of descriptors briefly,
+    // even when many requests decide at once.
+    const burst = await Promise.all(
+      Array.from({ length: 700 }, () =>
+        serveFile(get(), "docs/large.bin", access),
+      ),
+    );
+    await Promise.all(burst.map((response) => response.body?.cancel()));
+    // Cancelled streams close their descriptors asynchronously.
+    await Bun.sleep(100);
+    expect(openDescriptors(large)).toBeLessThanOrEqual(512);
     await Bun.sleep(1500);
     expect(openDescriptors(large)).toBe(0);
   } finally {

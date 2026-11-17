@@ -160,21 +160,22 @@ export async function serveFile(
         headers,
       });
     }
-    if (
-      heldDescriptors < maxHeldDescriptors &&
-      (await stillNamed(absolute, stats))
-    ) {
-      const body = Bun.file(`/proc/self/fd/${handle.fd}`).slice(
-        response.start,
-        response.end + 1,
-      );
+    if (heldDescriptors < maxHeldDescriptors) {
+      // The slot is taken before the check awaits, so concurrent downloads cannot all pass it.
       heldDescriptors++;
-      // Unreferenced: an open hold never keeps the process alive on its own.
-      setTimeout(() => {
-        heldDescriptors--;
-        void handle.close();
-      }, descriptorHoldMs).unref();
-      return new Response(body, response.init);
+      if (await stillNamed(absolute, stats)) {
+        const body = Bun.file(`/proc/self/fd/${handle.fd}`).slice(
+          response.start,
+          response.end + 1,
+        );
+        // Unreferenced: an open hold never keeps the process alive on its own.
+        setTimeout(() => {
+          heldDescriptors--;
+          void handle.close();
+        }, descriptorHoldMs).unref();
+        return new Response(body, response.init);
+      }
+      heldDescriptors--;
     }
     const stream = handle.createReadStream({
       start: response.start,
