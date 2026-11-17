@@ -155,6 +155,14 @@ async function development(vite: string): Promise<AppShell> {
       );
     return response.text();
   };
+  // Vite serves each stylesheet as a module; `?direct` asks for plain CSS.
+  const stylesheets = (nonce: string) =>
+    ["/app/globals.css", "/app/fonts.css"]
+      .map(
+        (href) =>
+          `<link rel="stylesheet" href="${href}?direct" nonce="${nonce}">`,
+      )
+      .join("");
   return {
     route: (pathname) => routes.match(pathname),
     html: async (nonce, _pathname, content) =>
@@ -164,16 +172,16 @@ async function development(vite: string): Promise<AppShell> {
         bootstrapTag(nonce, content.data),
         content.skeleton,
       ),
+    // Pages the server renders link the styles their markup needs, which Vite would otherwise
+    // add only once their code runs.
     publicHtml: async (name, nonce, head, markup) =>
-      compose(await page(`${name}.html`), nonce, head, markup),
-    // Vite serves each stylesheet as a module; `?direct` asks for plain CSS.
-    stylesheets: async (nonce) =>
-      ["/app/globals.css", "/app/fonts.css"]
-        .map(
-          (href) =>
-            `<link rel="stylesheet" href="${href}?direct" nonce="${nonce}">`,
-        )
-        .join(""),
+      compose(
+        await page(`${name}.html`),
+        nonce,
+        `${stylesheets(nonce)}${head}`,
+        markup,
+      ),
+    stylesheets: async (nonce) => stylesheets(nonce),
     file: async (request, pathname) => {
       const url = new URL(request.url);
       const headers = new Headers(request.headers);
