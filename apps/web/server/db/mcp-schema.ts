@@ -69,9 +69,14 @@ export const mcpTokens = sqliteTable(
     redirectUri: text("redirect_uri"),
     codeChallenge: text("code_challenge"),
     createdAt: integer("created_at").notNull(),
+    /** Tokens issued by redeeming a code or rotating a refresh token: that credential's hash. */
+    parentHash: text("parent_hash"),
+    /** Access tokens: when one first authenticated a request. */
+    usedAt: integer("used_at"),
   },
   (table) => [
     index("nimbus_mcp_token_grant").on(table.grantId),
     index("nimbus_mcp_token_expiry").on(table.expiresAt),
+    index("nimbus_mcp_token_parent").on(table.parentHash),
   ],
 );

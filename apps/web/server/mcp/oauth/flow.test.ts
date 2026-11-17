@@ -307,7 +307,6 @@ describe("MCP OAuth flow", () => {
     const next = z
       .object({ access_token: z.string(), refresh_token: z.string() })
       .parse(await rotated.json());
-    expect((await refresh(tokens.refresh_token)).status).toBe(400);
     expect(await bearer(next.access_token)).toMatchObject({
       kind: "authenticated",
     });
@@ -316,6 +315,72 @@ describe("MCP OAuth flow", () => {
       error_description: containing("revoked"),
     });
     expect(await bearer(next.access_token)).toMatchObject({ kind: "rejected" });
+  });
+
+  const pair = z.object({
+    access_token: z.string(),
+    refresh_token: z.string(),
+  });
+  const refreshWith = (clientId: string, token: string) =>
+    handleToken(
+      ctx,
+      post("/oauth/token", {
+        grant_type: "refresh_token",
+        client_id: clientId,
+        refresh_token: token,
+      }),
+    );
+
+  it("lets a client retry a refresh whose answer it never received", async () => {
+    const tokens = await connect();
+    const lost = pair.parse(
+      await (await refreshWith(tokens.clientId, tokens.refresh_token)).json(),
+    );
+    now += 10_000;
+    const retried = await refreshWith(tokens.clientId, tokens.refresh_token);
+    expect(retried.status).toBe(200);
+    const fresh = pair.parse(await retried.json());
+    expect(await bearer(fresh.access_token)).toMatchObject({
+      kind: "authenticated",
+    });
+    // The answer the client never received no longer works.
+    expect(await bearer(lost.access_token)).toMatchObject({ kind: "rejected" });
+    expect(
+      (await refreshWith(tokens.clientId, lost.refresh_token)).status,
+    ).toBe(400);
+    expect(
+      (await refreshWith(tokens.clientId, fresh.refresh_token)).status,
+    ).toBe(200);
+  });
+
+  it("disconnects the client when a refresh token is replayed after its successor was used", async () => {
+    for (const useSuccessor of ["access", "refresh"] as const) {
+      const tokens = await connect();
+      // Someone else holds the refresh token and rotates it first.
+      const stolen = pair.parse(
+        await (await refreshWith(tokens.clientId, tokens.refresh_token)).json(),
+      );
+      if (useSuccessor === "access")
+        expect(await bearer(stolen.access_token)).toMatchObject({
+          kind: "authenticated",
+        });
+      else
+        expect(
+          (await refreshWith(tokens.clientId, stolen.refresh_token)).status,
+        ).toBe(200);
+      now += 10_000;
+      const replayed = await refreshWith(tokens.clientId, tokens.refresh_token);
+      expect(await replayed.json()).toMatchObject({
+        error: "invalid_grant",
+        error_description: containing("revoked"),
+      });
+      expect(await bearer(stolen.access_token)).toMatchObject({
+        kind: "rejected",
+      });
+      expect(
+        (await refreshWith(tokens.clientId, stolen.refresh_token)).status,
+      ).toBe(400);
+    }
   });
 
   it("refuses to refresh tokens for a different resource", async () => {

@@ -19,7 +19,11 @@ export const AUTHORIZATION_CODE_TTL_MS = 60 * 1000;
 export const AUTHORIZATION_CODE_REPLAY_WINDOW_MS = 10 * 60 * 1000;
 export const ACCESS_TOKEN_TTL_MS = 60 * 60 * 1000;
 export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-/** A rotated refresh token replayed within this window is a client retry, not theft. */
+/**
+ * A rotated refresh token presented again within this window may be a client retrying an
+ * answer it lost: it gets a new pair if nothing used the tokens from the first answer.
+ * If something did, or the window has passed, two parties hold it and the connection is revoked.
+ */
 export const REFRESH_REUSE_GRACE_MS = 30 * 1000;
 
 export const hashToken = (secret: string) =>

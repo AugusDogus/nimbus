@@ -62,6 +62,7 @@ async function loadToken(db: Database, secret: string) {
       clientId: mcpGrants.clientId,
       revokedAt: mcpGrants.revokedAt,
       lastUsedAt: mcpGrants.lastUsedAt,
+      usedAt: mcpTokens.usedAt,
       banned: user.banned,
     })
     .from(mcpTokens)
@@ -108,6 +109,7 @@ async function rotate(
           scope,
           expiresAt: now + ACCESS_TOKEN_TTL_MS,
           createdAt: now,
+          parentHash: row.hash,
         },
         {
           hash: refresh.hash,
@@ -116,6 +118,66 @@ async function rotate(
           scope,
           expiresAt: now + REFRESH_TOKEN_TTL_MS,
           createdAt: now,
+          parentHash: row.hash,
+        },
+      ])
+      .run();
+    return true;
+  });
+  return committed
+    ? { accessToken: access.secret, refreshToken: refresh.secret, scope }
+    : null;
+}
+
+/**
+ * A client retrying a refresh whose answer it never received presents the rotated token
+ * again. If nothing has used the tokens that rotation issued, they are replaced with a new
+ * pair: the client gets working tokens, and anyone else who received the first answer is
+ * cut off. Null when any of them was used: then two parties hold the refresh token.
+ */
+async function retryRotation(
+  ctx: OAuthContext,
+  row: TokenRow,
+  scopes: McpScope[],
+): Promise<Issued | null> {
+  const now = ctx.now();
+  const access = mintSecret(TokenPrefix.accessToken);
+  const refresh = mintSecret(TokenPrefix.refreshToken);
+  const scope = McpScope.format(scopes);
+  // Synchronous, so no request can use a successor between the check and the swap.
+  const committed = ctx.db.transaction((tx) => {
+    const successors = tx
+      .select({ consumedAt: mcpTokens.consumedAt, usedAt: mcpTokens.usedAt })
+      .from(mcpTokens)
+      .where(eq(mcpTokens.parentHash, row.hash))
+      .all();
+    if (
+      successors.length === 0 ||
+      successors.some(
+        (next) => next.consumedAt !== null || next.usedAt !== null,
+      )
+    )
+      return false;
+    tx.delete(mcpTokens).where(eq(mcpTokens.parentHash, row.hash)).run();
+    tx.insert(mcpTokens)
+      .values([
+        {
+          hash: access.hash,
+          kind: "access_token",
+          grantId: row.grantId,
+          scope,
+          expiresAt: now + ACCESS_TOKEN_TTL_MS,
+          createdAt: now,
+          parentHash: row.hash,
+        },
+        {
+          hash: refresh.hash,
+          kind: "refresh_token",
+          grantId: row.grantId,
+          scope,
+          expiresAt: now + REFRESH_TOKEN_TTL_MS,
+          createdAt: now,
+          parentHash: row.hash,
         },
       ])
       .run();
@@ -248,26 +310,25 @@ async function refresh(
     : null;
   if (!row || row.kind !== "refresh_token")
     return { ok: false, error: invalidGrant("The refresh token is invalid.") };
-  if (row.consumedAt !== null) {
-    if (
-      row.clientId === client.clientId &&
-      now - row.consumedAt > REFRESH_REUSE_GRACE_MS
-    ) {
-      // An old refresh token reappearing means two parties hold it.
-      await revokeGrant(ctx.db, row.grantId, now);
-      return {
-        ok: false,
-        error: invalidGrant(
-          "This refresh token was already used, so this connection was revoked to protect the account. Authorize the client again.",
-        ),
-      };
-    }
+  const reused = async () => {
+    // A rotated refresh token reappearing means two parties hold it.
+    await revokeGrant(ctx.db, row.grantId, now);
     return {
       ok: false,
       error: invalidGrant(
-        "The refresh token was already used. Use the newest one.",
+        "This refresh token was already used, so this connection was revoked to protect the account. Authorize the client again.",
       ),
-    };
+    } as const;
+  };
+  if (row.consumedAt !== null) {
+    if (row.clientId !== client.clientId)
+      return {
+        ok: false,
+        error: invalidGrant(
+          "The refresh token was already used. Use the newest one.",
+        ),
+      };
+    if (now - row.consumedAt > REFRESH_REUSE_GRACE_MS) return reused();
   }
   const live = liveGrantError(row, client, now, "refresh token");
   if (live) return { ok: false, error: live };
@@ -300,6 +361,11 @@ async function refresh(
         ),
       };
     scopes = parsed.scopes;
+  }
+  if (row.consumedAt !== null) {
+    // Within the grace window: a retry of a lost answer, or a replay.
+    const retried = await retryRotation(ctx, row, scopes);
+    return retried ? { ok: true, value: retried } : reused();
   }
   const issued = await rotate(ctx, row, scopes);
   return issued
@@ -476,6 +542,12 @@ export async function authenticateBearer(
       message:
         "This Nimbus account is disabled. Ask a Nimbus administrator to restore access.",
     };
+  // Marks the token used once, so a replayed refresh can tell it was received.
+  if (row.usedAt === null)
+    await ctx.db
+      .update(mcpTokens)
+      .set({ usedAt: now })
+      .where(eq(mcpTokens.hash, row.hash));
   if (
     row.lastUsedAt === null ||
     row.lastUsedAt <= now - LAST_USED_RESOLUTION_MS
