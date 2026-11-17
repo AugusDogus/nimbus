@@ -88,4 +88,12 @@ describe("emptying trash", () => {
     });
     expect(await caller().trash.list()).toHaveLength(1);
   });
+
+  it("takes at most 5,000 ids per request", async () => {
+    const ids = Array.from({ length: 5_001 }, () => crypto.randomUUID());
+    await expect(caller().trash.empty({ ids })).rejects.toThrow();
+    expect(await caller().trash.empty({ ids: ids.slice(1) })).toEqual({
+      deleted: 0,
+    });
+  });
 });

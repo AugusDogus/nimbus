@@ -204,7 +204,8 @@ export const trashRouter = router({
     }),
   /** Deletes the items listed, as shown when the caller confirmed. */
   empty: protectedProcedure
-    .input(z.object({ ids: z.array(z.uuid()).max(100_000) }))
+    // The client sends a large trash in batches of this size.
+    .input(z.object({ ids: z.array(z.uuid()).max(5_000) }))
     .mutation(({ ctx, input }) => emptyTrash(ctx.drive, ctx.access, input.ids)),
 });
 

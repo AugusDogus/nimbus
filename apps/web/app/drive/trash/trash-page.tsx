@@ -16,6 +16,31 @@ import {
 /** `all` lists the items the dialog counts, which are all that emptying deletes. */
 type Deletion = { kind: "item"; id: string } | { kind: "all"; ids: string[] };
 
+/** Ids per request: 5,000 ids are about 200 KB, well under the 1 MB limit on tRPC bodies. */
+const emptyBatch = 5_000;
+
+/** Permanently delete the confirmed items, a batch at a time, saying how far it got on failure. */
+async function emptyConfirmed(ids: readonly string[]) {
+  let deleted = 0;
+  for (let start = 0; start < ids.length; start += emptyBatch) {
+    try {
+      const batch = ids.slice(start, start + emptyBatch);
+      deleted += (await trpcClient.trash.empty.mutate({ ids: batch })).deleted;
+    } catch (error) {
+      // Earlier batches are gone; show what is left.
+      if (start > 0)
+        void queryClient.invalidateQueries({ queryKey: ["trash"] });
+      const reason =
+        error instanceof Error ? error.message : "The server did not say why.";
+      throw new Error(
+        start === 0
+          ? reason
+          : `Deleted ${deleted.toLocaleString()} of ${ids.length.toLocaleString()} items, then stopped: ${reason} The rest are still in trash; empty it again to delete them.`,
+      );
+    }
+  }
+}
+
 export function TrashPage() {
   const trash = useQuery({
     queryKey: ["trash"],
@@ -151,9 +176,7 @@ export function TrashPage() {
                   );
                 if (deleting?.kind === "all")
                   // Only what the dialog counted, never items trashed since.
-                  void perform(() =>
-                    trpcClient.trash.empty.mutate({ ids: deleting.ids }),
-                  );
+                  void perform(() => emptyConfirmed(deleting.ids));
               }}
             >
               {deleting?.kind === "all" ? "Empty trash" : "Delete permanently"}
