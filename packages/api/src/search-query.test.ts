@@ -805,6 +805,19 @@ describe("fuzzy layer", () => {
       });
     });
 
+  it("counts an exact name added since compaction as holding the word", () => {
+    for (const compacted of [false, true]) {
+      const index = createSearchIndex();
+      index.add("visible/invoice", "file");
+      index.add("visible/invnice", "file");
+      if (compacted) index.compact();
+      expect({ compacted, found: hits(index, "invoice") }).toEqual({
+        compacted,
+        found: ["name visible/invoice"],
+      });
+    }
+  });
+
   it("stays out of the way while any name the caller may see holds the word", () => {
     const index = createSearchIndex();
     for (let i = 0; i < 10; i++) index.add(`notes/note-${i}.txt`, "file");

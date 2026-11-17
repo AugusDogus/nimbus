@@ -424,7 +424,7 @@ function scanDelta(
     if (!deltaVisible(view, id, rootId, grants)) continue;
     const literal = literalIn(name.folded, needle, prefixOnly);
     const inName = terms.length ? termBits(name.folded, terms) : 0;
-    if (literal) counts.literal++;
+    if (literal !== null) counts.literal++;
     for (let term = 0; term < terms.length; term++)
       if (inName & (1 << term))
         counts.terms[term] = (counts.terms[term] ?? 0) + 1;
