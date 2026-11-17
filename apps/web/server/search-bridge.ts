@@ -145,6 +145,10 @@ export function createSearchBridge(options: SearchBridgeOptions) {
               "The search index restarted. Your files are unaffected; search again in a moment.",
           }),
         );
+      // Bun closes a worker on an uncaught error, with the scan workers it
+      // started; end it here too, so a failure that leaves it running never
+      // keeps a second index alongside the next worker's.
+      worker.terminate();
       running = null;
     };
     worker.postMessage({ type: "start", root: options.root() });

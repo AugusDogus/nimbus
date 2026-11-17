@@ -137,6 +137,17 @@ describe("search bridge", () => {
     expect(await second).toEqual(answer);
   });
 
+  it("ends a worker that failed, fails what it held, and starts a fresh one", async () => {
+    const { service, workers } = bridge({});
+    const pending = service.search(request, { caller: "a" });
+    workers[0]?.port.onerror?.(new ErrorEvent("error", { message: "boom" }));
+    expect(await code(pending)).toBe("INTERNAL_SERVER_ERROR");
+    expect(workers[0]?.terminated).toBe(1);
+    service.search(request, { caller: "a" }).catch(() => undefined);
+    expect(workers).toHaveLength(2);
+    expect(workers[1]?.searches()).toHaveLength(1);
+  });
+
   it("limits how often one caller may search", async () => {
     const { service, workers } = bridge({
       perCaller: 100,
