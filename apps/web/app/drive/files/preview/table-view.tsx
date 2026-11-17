@@ -2,6 +2,9 @@ import { useMemo } from "react";
 import { parseDelimited } from "./delimited-text";
 
 const MAX_ROWS = 1000;
+const MAX_COLUMNS = 100;
+/** Rows shown shrink for wide tables, so one preview never renders more cells than this. */
+const MAX_CELLS = 20_000;
 
 export default function TableView({
   text,
@@ -10,12 +13,15 @@ export default function TableView({
   text: string;
   delimiter: "," | "\t";
 }) {
-  const { rows, truncated } = useMemo(
-    () => parseDelimited(text, delimiter, MAX_ROWS + 1),
+  const { rows, truncated, wide } = useMemo(
+    () => parseDelimited(text, delimiter, MAX_ROWS + 1, MAX_COLUMNS),
     [text, delimiter],
   );
   const [header = [], ...body] = rows;
-  const shown = body.slice(0, MAX_ROWS);
+  const columns = rows.reduce((widest, row) => Math.max(widest, row.length), 1);
+  const rowLimit = Math.min(MAX_ROWS, Math.floor(MAX_CELLS / columns));
+  const shown = body.slice(0, rowLimit);
+  const moreRows = truncated || body.length > rowLimit;
   return (
     <div>
       <table className="w-max min-w-full border-collapse text-left text-sm">
@@ -44,10 +50,16 @@ export default function TableView({
           ))}
         </tbody>
       </table>
-      {(truncated || body.length > MAX_ROWS) && (
+      {(moreRows || wide) && (
         <p className="p-3 text-xs text-muted-foreground">
-          Showing the first {MAX_ROWS.toLocaleString()} rows. Use Show source or
-          download the file to see the rest.
+          Showing the first{" "}
+          {[
+            moreRows && `${rowLimit.toLocaleString()} rows`,
+            wide && `${MAX_COLUMNS.toLocaleString()} columns`,
+          ]
+            .filter(Boolean)
+            .join(" and ")}
+          . Use Show source or download the file to see the rest.
         </p>
       )}
     </div>
