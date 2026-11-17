@@ -18,11 +18,15 @@ type Chunk = {
   file: string;
   facade: string | null;
   imports: string[];
+  dynamicImports: string[];
   modules: string[];
   bytes: number;
 };
 type Groups = Map<string, Set<string>>;
-type State = { initial: Map<string, Set<string>>; extra: number };
+/** A grouping's startup files per page and the most bytes it adds to any page, or why not. */
+type State =
+  | { kind: "valid"; initial: Map<string, Set<string>>; extra: number }
+  | { kind: "rejected"; reason: string };
 const protectedRoutes = new Set([
   "/login",
   "/signup",
@@ -37,21 +41,28 @@ const hash = (files: Set<string>) =>
     .digest("hex")
     .slice(0, 8);
 
-/** Whether following imports from some group leads back to it. */
-function hasCycle(dependencies: Map<string, Set<string>>) {
+/** A cycle of groups that import each other, or null when following imports never loops. */
+function findCycle(dependencies: Map<string, Set<string>>): string[] | null {
   const done = new Set<string>();
-  const active = new Set<string>();
-  const visit = (group: string): boolean => {
-    if (done.has(group)) return false;
-    if (active.has(group)) return true;
-    active.add(group);
-    for (const dependency of dependencies.get(group) ?? [])
-      if (visit(dependency)) return true;
-    active.delete(group);
+  const path: string[] = [];
+  const visit = (group: string): string[] | null => {
+    if (done.has(group)) return null;
+    const start = path.indexOf(group);
+    if (start !== -1) return [...path.slice(start), group];
+    path.push(group);
+    for (const dependency of dependencies.get(group) ?? []) {
+      const cycle = visit(dependency);
+      if (cycle) return cycle;
+    }
+    path.pop();
     done.add(group);
-    return false;
+    return null;
   };
-  return [...dependencies.keys()].some(visit);
+  for (const group of dependencies.keys()) {
+    const cycle = visit(group);
+    if (cycle) return cycle;
+  }
+  return null;
 }
 
 function planGroups(
@@ -76,7 +87,8 @@ function planGroups(
     if (relative.startsWith("routes/") && relative.endsWith(suffix))
       routeEntries.set(relative.slice(0, -suffix.length), chunk.file);
   }
-  const closure = (file: string, into: Set<string>) => {
+  /** Adds the files `file` loads to `into`: by static import, and also by `import()` if `later`. */
+  const closure = (file: string, into: Set<string>, later = false) => {
     if (into.has(file)) return;
     const chunk = byFile.get(file);
     if (!chunk)
@@ -85,7 +97,10 @@ function planGroups(
       );
     into.add(file);
     for (const imported of chunk.imports)
-      if (byFile.has(imported)) closure(imported, into);
+      if (byFile.has(imported)) closure(imported, into, later);
+    if (later)
+      for (const imported of chunk.dynamicImports)
+        if (byFile.has(imported)) closure(imported, into, later);
   };
   const pages = new Map<string, Set<string>>();
   for (const route of routeEntries.keys()) {
@@ -111,24 +126,34 @@ function planGroups(
       files,
     );
   }
-  // Other HTML entries, such as the public share page, are protected pages of their own.
+  // Other HTML entries, sign-in and the public share and upload pages, are protected pages of
+  // their own twice over: what they load at startup, and everything they can load later, so
+  // neither grows and no file they ever fetch holds code of another page.
   for (const chunk of chunks) {
     if (
       !chunk.facade?.endsWith(".html") ||
       chunk.facade === path.join(root, "index.html")
     )
       continue;
-    const files = new Set<string>();
-    closure(chunk.file, files);
     const name = "entry:" + path.relative(root, chunk.facade);
-    pages.set(name, files);
+    const startup = new Set<string>();
+    closure(chunk.file, startup);
+    const everything = new Set<string>();
+    closure(chunk.file, everything, true);
+    pages.set(name, startup);
+    pages.set(`${name} later`, everything);
     protectedPages.add(name);
+    protectedPages.add(`${name} later`);
   }
   const browse = pages.get("/browse/$");
   if (!browse)
     throw new Error(
       "Chunk probe has no /browse/$ component entry. Check TanStack Router splitting.",
     );
+  // The entry's own imports start before any route's, and route code imports the entry, so the
+  // two never share a group even when the same pages load both.
+  const entryFiles = new Set<string>();
+  closure(entry.file, entryFiles);
   let groups: Groups = new Map();
   for (const chunk of chunks) {
     const consumers = [...pages]
@@ -138,12 +163,12 @@ function planGroups(
     const key =
       chunk.facade || consumers.length === 0
         ? "facade:" + chunk.file
-        : "pages:" + consumers.join(",");
+        : `pages:${entryFiles.has(chunk.file) ? "entry:" : ""}${consumers.join(",")}`;
     const files = groups.get(key) ?? new Set<string>();
     files.add(chunk.file);
     groups.set(key, files);
   }
-  const simulate = (candidate: Groups): State | null => {
+  const simulate = (candidate: Groups): State => {
     const owner = new Map<string, string>();
     for (const [group, files] of candidate)
       for (const file of files) owner.set(file, group);
@@ -158,7 +183,12 @@ function planGroups(
       dependencies.set(group, deps);
     }
     // Groups that import each other in a cycle can run a module before the one it needs.
-    if (hasCycle(dependencies)) return null;
+    const cycle = findCycle(dependencies);
+    if (cycle)
+      return {
+        kind: "rejected",
+        reason: `import each other in a cycle: ${cycle.join(" -> ")}`,
+      };
     const initial = new Map<string, Set<string>>();
     let extra = 0;
     for (const [page, files] of pages) {
@@ -181,11 +211,15 @@ function planGroups(
       for (const group of seen)
         for (const file of candidate.get(group) ?? [])
           if (!files.has(file)) added += byFile.get(file)?.bytes ?? 0;
-      if (protectedPages.has(page) && added > 0) return null;
+      if (protectedPages.has(page) && added > 0)
+        return {
+          kind: "rejected",
+          reason: `add ${added} bytes to the protected page ${page}`,
+        };
       extra = Math.max(extra, added);
       initial.set(page, seen);
     }
-    return { initial, extra };
+    return { kind: "valid", initial, extra };
   };
   const scoreBefore = (
     a: [number, number, string, string],
@@ -200,9 +234,9 @@ function planGroups(
           : compare(a[3], b[3]) < 0;
   for (;;) {
     const current = simulate(groups);
-    if (!current)
+    if (current.kind === "rejected")
       throw new Error(
-        "Initial page groups add modules to a protected route or import each other in a cycle. Check the chunk probe output.",
+        `The initial startup chunk groups ${current.reason}. Nothing was built; check the chunk probe output in node_modules/.cache.`,
       );
     const initial = current.initial.get("/browse/$") ?? new Set<string>();
     const eligible = [...initial]
@@ -227,9 +261,9 @@ function planGroups(
           ]),
         );
         const state = simulate(candidate);
-        const count = state?.initial.get("/browse/$")?.size;
+        if (state.kind === "rejected") continue;
+        const count = state.initial.get("/browse/$")?.size;
         if (
-          !state ||
           count === undefined ||
           state.extra > budget ||
           count >= initial.size
@@ -296,6 +330,33 @@ export function startupChunkGroups(
       name: "nimbus-startup-chunk-plan",
       apply: "build",
       generateBundle(_options, bundle) {
+        // Which modules each file holds, for checking what a page loads; see
+        // scripts/page-modules.ts.
+        const layout = Object.values(bundle).flatMap((output) =>
+          output.type === "chunk"
+            ? [
+                {
+                  file: output.fileName,
+                  facade: output.facadeModuleId
+                    ? path.relative(root, output.facadeModuleId)
+                    : null,
+                  imports: output.imports,
+                  dynamicImports: output.dynamicImports,
+                  modules: Object.keys(output.modules).map((id) =>
+                    path.relative(root, id),
+                  ),
+                },
+              ]
+            : [],
+        );
+        mkdirSync(path.dirname(planFile), { recursive: true });
+        writeFileSync(
+          path.join(
+            path.dirname(planFile),
+            `nimbus-chunk-modules-${probe ? "probe" : "build"}.json`,
+          ),
+          JSON.stringify(layout) + "\n",
+        );
         if (!probe) return;
         const chunks: Chunk[] = [];
         for (const output of Object.values(bundle))
@@ -304,10 +365,10 @@ export function startupChunkGroups(
               file: output.fileName,
               facade: output.facadeModuleId,
               imports: output.imports,
+              dynamicImports: output.dynamicImports,
               modules: Object.keys(output.modules),
               bytes: Buffer.byteLength(output.code),
             });
-        mkdirSync(path.dirname(planFile), { recursive: true });
         writeFileSync(
           planFile,
           JSON.stringify(planGroups(chunks, root, extraRawBudget), null, 2) +
