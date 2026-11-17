@@ -52,8 +52,15 @@ function countsAsTransfer(
   );
 }
 
-/** Let later ranges of a counted file response continue its transfer without counting. */
+/** Transfers one browser can continue at once, across a folder link's files. */
+const continuableTransfers = 16;
+
+/**
+ * Let later ranges of a counted file response continue its transfer without counting. The
+ * proof joins those of the browser's other recent transfers on this link in one cookie.
+ */
 function allowContinuation(
+  request: Request,
   response: Response,
   share: Pick<Share, "token">,
   relative: string,
@@ -62,7 +69,10 @@ function allowContinuation(
   if (etag)
     response.headers.append(
       "Set-Cookie",
-      UnlockCookie.issue(continuationScope(share, relative, etag)),
+      UnlockCookie.issue(continuationScope(share, relative, etag), {
+        request,
+        count: continuableTransfers - 1,
+      }),
     );
 }
 

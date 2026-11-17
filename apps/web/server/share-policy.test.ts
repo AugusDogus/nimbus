@@ -62,7 +62,7 @@ test("ranges count unless they continue a transfer this browser already made", (
 
   // A counted transfer lets the same browser resume or seek within the same file version.
   const counted = response(200, { ETag: '"1-1000"' });
-  SharePolicy.allowContinuation(counted, share, "docs/a.txt");
+  SharePolicy.allowContinuation(get(), counted, share, "docs/a.txt");
   const cookie = counted.headers.get("set-cookie")?.split(";")[0] ?? "";
   expect(cookie).toStartWith("nimbus-transfer=");
   expect(counts(get({ cookie }), range(100))).toBe(false);
@@ -86,6 +86,29 @@ test("ranges count unless they continue a transfer this browser already made", (
       }),
     ),
   ).toBe(true);
+});
+
+test("downloading another file of the link keeps the earlier transfer continuable", () => {
+  process.env.BETTER_AUTH_SECRET ??= "test-secret-test-secret-test-secret";
+  const tagged = (etag: string) => response(200, { ETag: etag });
+  const range = (etag: string) =>
+    response(206, { "Content-Range": "bytes 100-999/1000", ETag: etag });
+  let cookie = "";
+  for (const [name, etag] of [
+    ["docs/a.txt", '"a"'],
+    ["docs/b.txt", '"b"'],
+  ] as const) {
+    const counted = tagged(etag);
+    SharePolicy.allowContinuation(get({ cookie }), counted, share, name);
+    cookie = counted.headers.get("set-cookie")?.split(";")[0] ?? "";
+  }
+  for (const [name, etag] of [
+    ["docs/a.txt", '"a"'],
+    ["docs/b.txt", '"b"'],
+  ] as const)
+    expect(
+      SharePolicy.countsAsTransfer(get({ cookie }), range(etag), share, name),
+    ).toBe(false);
 });
 
 test("view-only links serve inline previews and refuse attachments", () => {

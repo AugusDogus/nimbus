@@ -77,7 +77,7 @@ export async function GET(request: Request, context: Context) {
         // Atomic: of two requests for the last download, only one claims it.
         if (!(await httpDriveStore.claimDownload(share.id))) return exhausted();
         if (entry.type === "file")
-          SharePolicy.allowContinuation(response, share, relative);
+          SharePolicy.allowContinuation(request, response, share, relative);
       } else if (
         // Only a range continuing a counted transfer is served once downloads are used up.
         response.status !== 206 &&
