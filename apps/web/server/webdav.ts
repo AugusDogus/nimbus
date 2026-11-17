@@ -39,6 +39,7 @@ import { ClientIp } from "./client-ip";
 import { serveFile } from "./file-response";
 import { httpDriveStore, httpError } from "./http-files";
 import { RateLimiter } from "./rate-limit";
+import { RequestBody } from "./request-body";
 import {
   evaluateIfHeader,
   parseIfHeader,
@@ -649,8 +650,8 @@ export async function handleWebDAV(request: Request): Promise<Response> {
       return new Response(null, { status: 204 });
     }
     if (method === "MKCOL") {
-      const body = await request.arrayBuffer();
-      if (body.byteLength > 0)
+      // Any body is refused, so none is buffered: reading stops at the first byte.
+      if ((await RequestBody.read(request, 0)).kind === "too_large")
         return textResponse(415, "MKCOL does not accept a request body.");
       return await mutateFiles([target], credentials, async () => {
         (await authenticate(request)).require(target, "write");

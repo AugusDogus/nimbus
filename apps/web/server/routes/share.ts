@@ -2,6 +2,7 @@ import { entryAt, readDirectory } from "@nimbus/api/file-browser";
 import { serveFile, serveZip } from "@/server/file-response";
 import { httpDriveStore, httpError } from "@/server/http-files";
 import { RateLimiter } from "@/server/rate-limit";
+import { RequestBody } from "@/server/request-body";
 import {
   SharePasswordAttempts,
   getPublicShare,
@@ -105,9 +106,12 @@ export async function POST(request: Request, context: Context) {
     const allowed = SharePasswordAttempts.check(token, request);
     if (!allowed.allowed)
       return RateLimiter.response(allowed, "wrong passwords for this link");
+    const read = await RequestBody.read(request, RequestBody.smallJsonBytes);
+    if (read.kind === "too_large")
+      return RequestBody.tooLargeResponse(read.maxBytes);
     let body: unknown;
     try {
-      body = await request.json();
+      body = JSON.parse(new TextDecoder().decode(read.bytes));
     } catch {
       return Response.json(
         { error: "Send the share password as JSON." },

@@ -26,8 +26,14 @@ import * as oauthToken from "./routes/oauth-token";
 import * as share from "./routes/share";
 import * as trpc from "./routes/trpc";
 import * as upload from "./routes/upload";
+import { RequestBody } from "./request-body";
 
 const none = () => ({});
+// Uploads stream to disk and file saves stream under their own cap; these endpoints buffer
+// JSON, so their bodies are capped before they are read. Sign-in and passkey payloads are a
+// few KB. tRPC batches at most 16 small mutations from the file browser.
+const authBodyBytes = 64 * 1024;
+const trpcBodyBytes = 1024 * 1024;
 const discovery = {
   authorizationServer: {
     GET: Discovery.authorizationServer,
@@ -44,8 +50,14 @@ type PageContext = { shell: AppShell; mode: SecurityMode };
 
 // Literal segments come before parameters that could also match them.
 const routes = ({ shell, mode }: PageContext): Route[] => [
-  route("/api/auth/*", none, auth),
-  route("/api/backups", none, backups),
+  route("/api/auth/*", none, {
+    GET: RequestBody.capped(authBodyBytes, auth.GET),
+    POST: RequestBody.capped(authBodyBytes, auth.POST),
+  }),
+  route("/api/backups", none, {
+    GET: backups.GET,
+    POST: RequestBody.capped(RequestBody.smallJsonBytes, backups.POST),
+  }),
   route("/api/backups/:name", ([name]) => ({ name }), backupFile),
   route("/api/file-request/upload/*?", none, fileRequestUpload),
   route("/api/file-request/:token", ([token]) => ({ token }), fileRequest),
@@ -60,7 +72,10 @@ const routes = ({ shell, mode }: PageContext): Route[] => [
   route("/api/mcp/connections/:id", ([id]) => ({ id }), mcpConnection),
   route("/api/mcp/download", none, mcpDownload),
   route("/api/share/:token", ([token]) => ({ token }), share),
-  route("/api/trpc/:procedures", none, trpc),
+  route("/api/trpc/:procedures", none, {
+    GET: RequestBody.capped(trpcBodyBytes, trpc.GET),
+    POST: RequestBody.capped(trpcBodyBytes, trpc.POST),
+  }),
   route("/api/upload/*?", none, upload),
   route("/oauth/authorize", none, oauthAuthorize),
   route("/oauth/consent", none, {

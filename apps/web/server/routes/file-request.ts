@@ -9,6 +9,7 @@ import {
   Uploader,
 } from "@/server/file-request-access";
 import { RateLimiter } from "@/server/rate-limit";
+import { RequestBody } from "@/server/request-body";
 
 type Context = { params: Promise<{ token: string }> };
 const noStore = { "Cache-Control": "no-store" };
@@ -55,9 +56,12 @@ export async function POST(request: Request, context: Context) {
     const attempt = FileRequestPasswordAttempts.check(token, request);
     if (!attempt.allowed)
       return RateLimiter.response(attempt, "wrong passwords for this link");
+    const read = await RequestBody.read(request, RequestBody.smallJsonBytes);
+    if (read.kind === "too_large")
+      return RequestBody.tooLargeResponse(read.maxBytes);
     let body: unknown;
     try {
-      body = await request.json();
+      body = JSON.parse(new TextDecoder().decode(read.bytes));
     } catch {
       return Response.json(
         { error: "Send the password as JSON." },

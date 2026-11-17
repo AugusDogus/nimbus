@@ -5,7 +5,11 @@ import {
   resolveArchiveRoots,
 } from "@/server/routes/archive-entries";
 import { httpError, requestAccess } from "@/server/http-files";
+import { RequestBody } from "@/server/request-body";
 import { zipStream } from "@/server/zip-stream";
+
+// About 50,000 selected paths of typical length.
+const archiveFormBytes = 16 * 1024 * 1024;
 
 /** Stream one ZIP of several files and folders. A form POST carries the paths, so selections of any size fit. */
 export async function POST(request: Request) {
@@ -16,11 +20,13 @@ export async function POST(request: Request) {
         code: "FORBIDDEN",
         message: "Start downloads from Nimbus itself.",
       });
-    const form = await request.formData();
+    const access = await requestAccess(request);
+    const limited = await RequestBody.buffered(request, archiveFormBytes);
+    if (limited.kind === "too_large") return limited.response;
+    const form = await limited.request.formData();
     const paths = form
       .getAll("path")
       .filter((value): value is string => typeof value === "string");
-    const access = await requestAccess(request);
     const roots = await resolveArchiveRoots(paths, access);
     return new Response(
       zipStream(
