@@ -177,6 +177,46 @@ else
         ).toHaveLength(1);
       });
 
+      test(`${folder}: restoring a version of a file in the mount works`, async () => {
+        const relative = `${folder}/restored.txt`;
+        await writeFile(path.join(root, relative), "original");
+        const put = async (body: string) => {
+          const staged = await stageFile(body, path.join(root, relative));
+          try {
+            await commitStagedFile(
+              {
+                userId: "user-1",
+                drive: memory.store,
+                authorize: () => getAccess(memory.store, "user-1"),
+              },
+              relative,
+              staged,
+              () => true,
+            );
+          } finally {
+            await staged.discard();
+          }
+        };
+        await put("edited");
+        const [version] = await FileVersions.history(
+          memory.store.versions,
+          relative,
+        );
+        if (!version) throw new Error("Saving did not keep a version.");
+        expect(
+          await FileVersions.restore({
+            drive: memory.store,
+            dataRoot: root,
+            path: relative,
+            id: version.id,
+            archivedBy: "user-1",
+          }),
+        ).toMatchObject({ kind: "replaced" });
+        expect(await readFile(path.join(root, relative), "utf8")).toBe(
+          "original",
+        );
+      });
+
       test(`${folder}: COPY into the mount works`, async () => {
         await writeFile(path.join(root, "source.txt"), "copied");
         const access = await getAccess(memory.store, "user-1");

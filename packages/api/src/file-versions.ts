@@ -13,6 +13,7 @@ import path from "node:path";
 import type { DriveStore } from "./drive-store";
 import { isFsError } from "./safe-path";
 import { DriveFile } from "./drive-file";
+import { Staging } from "./staging";
 import { VacantPath } from "./vacant-path";
 
 /**
@@ -332,8 +333,11 @@ async function restore({
 }) {
   const found = await find(drive.versions, relative, id);
   if (!found) return { kind: "not-found" } as const;
-  const staging = path.join(dataRoot, ".nimbus", "uploads");
-  await mkdir(staging, { recursive: true });
+  // Staged where the file lives, which may be a folder mounted inside the drive.
+  const staging = await Staging.directoryFor(
+    dataRoot,
+    path.join(dataRoot, relative),
+  );
   const incoming = path.join(staging, `${randomUUID()}.restore`);
   try {
     // Never link: the live file must not share an inode with its own history.
