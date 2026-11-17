@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useHydrated } from "@/lib/use-hydrated";
+import { useServerField } from "@/lib/use-server-field";
 import { useLocalTime } from "@/lib/use-local-time";
 import { useQuery } from "@tanstack/react-query";
 import * as z from "zod/mini";
@@ -26,6 +28,9 @@ function Expiry({ time }: { time: number }) {
 export function PublicShare({ token }: { token: string }) {
   const [path, setPath] = useState("");
   const [password, setPassword] = useState("");
+  // What was typed or autofilled before the page's code ran.
+  const passwordField = useServerField(setPassword);
+  const hydrated = useHydrated();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const endpoint = shareEndpoint(token);
@@ -102,6 +107,7 @@ export function PublicShare({ token }: { token: string }) {
           </p>
           <Label htmlFor="share-password">Password</Label>
           <Input
+            ref={passwordField}
             id="share-password"
             type="password"
             required
@@ -114,7 +120,8 @@ export function PublicShare({ token }: { token: string }) {
               {error}
             </p>
           )}
-          <Button type="submit" disabled={busy}>
+          {/* Before hydration a click would submit the form natively and reload the page. */}
+          <Button type="submit" disabled={!hydrated || busy}>
             Unlock
           </Button>
         </form>

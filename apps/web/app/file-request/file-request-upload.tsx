@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useHydrated } from "@/lib/use-hydrated";
+import { useServerField } from "@/lib/use-server-field";
 import { useQuery } from "@tanstack/react-query";
 import * as z from "zod/mini";
 import { Check, CircleAlert, Upload as UploadIcon } from "lucide-react";
@@ -48,6 +50,9 @@ export function FileRequestUpload({ token }: { token: string }) {
   const [items, setItems] = useState<Item[]>([]);
   const [dragging, setDragging] = useState(false);
   const [password, setPassword] = useState("");
+  // What was typed or autofilled before the page's code ran.
+  const passwordField = useServerField(setPassword);
+  const hydrated = useHydrated();
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -205,6 +210,7 @@ export function FileRequestUpload({ token }: { token: string }) {
           </p>
           <Label htmlFor="request-password">Password</Label>
           <Input
+            ref={passwordField}
             id="request-password"
             type="password"
             required
@@ -217,7 +223,8 @@ export function FileRequestUpload({ token }: { token: string }) {
               {unlockError}
             </p>
           )}
-          <Button type="submit" disabled={busy}>
+          {/* Before hydration a click would submit the form natively and reload the page. */}
+          <Button type="submit" disabled={!hydrated || busy}>
             Unlock
           </Button>
         </form>
