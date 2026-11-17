@@ -13,6 +13,7 @@ import { accessFor } from "./access";
 import { applyChange, crawl, indexedPath, reconcile } from "./search-crawler";
 import { createSearchIndex } from "./search-index";
 import { provideSearchService, searchEntries } from "./search-service";
+import { crawlingSearchService } from "./testing";
 
 let root: string;
 let previousRoot: string | undefined;
@@ -228,6 +229,42 @@ describe("searchEntries", () => {
     expect(result.entries.map((entry) => entry.path)).toEqual([
       "docs/deep/notes.txt",
     ]);
+  });
+
+  it("restarts a cursor another user's search returned, or one it cannot open", async () => {
+    const twin = accessFor(
+      {
+        id: "twin",
+        name: "Twin",
+        email: "t@example.test",
+        role: "user",
+        banned: false,
+      },
+      [
+        {
+          id: "t",
+          path: "docs/deep",
+          permission: "read",
+          subject: { type: "user", id: "twin" },
+        },
+      ],
+    );
+    for (let file = 0; file < 6; file++)
+      await writeFile(path.join(root, `docs/deep/notes-${file}.txt`), "");
+    provideSearchService(crawlingSearchService(root));
+    const page = (access: typeof reader, cursor?: string) =>
+      searchEntries(access, "", "notes", 2, { depth: "full", cursor });
+    const first = await page(reader);
+    const cursor = first.next ?? undefined;
+    expect(cursor).toBeDefined();
+    expect((await page(reader, cursor)).restarted).toBe(false);
+    // Same grants and the same (empty) history, but not the same caller.
+    const replayed = await page(twin, cursor);
+    expect(replayed.restarted).toBe(true);
+    expect(replayed.entries).toEqual((await page(twin)).entries);
+    const unopenable = await page(reader, "not-a-cursor");
+    expect(unopenable.restarted).toBe(true);
+    expect(unopenable.entries).toEqual(first.entries);
   });
 
   it("asks the index only for the caller's grants", async () => {

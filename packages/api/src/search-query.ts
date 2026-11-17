@@ -97,7 +97,10 @@ export type SearchRequest = {
   depth?: SearchDepth;
   /** Ranks the caller's recent and frequent opens first within each layer. */
   history?: readonly HistoryEntry[];
-  /** Continue after the page that returned this `next`. */
+  /**
+   * Continue after the page that returned this `next`. Text no page returned
+   * (or one for another request, or from an earlier run) restarts the search.
+   */
   cursor?: string;
   /** The clock history decays against, in ms; defaults to now. A continued page keeps its first page's. */
   now?: number;
@@ -202,7 +205,8 @@ const historyDigest = (history: readonly HistoryEntry[]) =>
 
 /**
  * Where a page ended: the layout it was ranked in, its last rank, how many
- * came before, and the clock and history its ranks were computed with. Also
+ * came before, and the clock and history its ranks were computed with, for
+ * the request it answered (query, folder, depth and scope). Also
  * which words the typo layer corrected (bits of the query's words) and a
  * digest of every other reading tried, so later pages read the query the
  * same way however the names it was decided on change.
@@ -213,17 +217,18 @@ type Cursor = {
   shown: number;
   now: number;
   history: number;
+  request: number;
   missing: number;
   readings: number;
 };
 
 const Cursor = {
   format: (cursor: Cursor) =>
-    `${cursor.generation}-${cursor.after}-${cursor.shown}-${cursor.now}-${cursor.history}-${cursor.missing}-${cursor.readings}`,
+    `${cursor.generation}-${cursor.after}-${cursor.shown}-${cursor.now}-${cursor.history}-${cursor.request}-${cursor.missing}-${cursor.readings}`,
   /** Null for text that no page returned; such a search restarts. */
   parse(text: string): Cursor | null {
     const parts =
-      /^(\d{1,15})-(\d{1,16})-(\d{1,9})-(\d{1,15})-(\d{1,10})-(\d{1,2})-(\d{1,10})$/.exec(
+      /^(\d{1,15})-(\d{1,16})-(\d{1,9})-(\d{1,15})-(\d{1,10})-(\d{1,10})-(\d{1,2})-(\d{1,10})$/.exec(
         text,
       );
     if (!parts) return null;
@@ -233,11 +238,23 @@ const Cursor = {
       shown: Number(parts[3]),
       now: Number(parts[4]),
       history: Number(parts[5]),
-      missing: Number(parts[6]),
-      readings: Number(parts[7]),
+      request: Number(parts[6]),
+      missing: Number(parts[7]),
+      readings: Number(parts[8]),
     };
   },
 } as const;
+
+/** What a page's results depend on in its request, besides the cursor and history. */
+const requestDigest = (request: SearchRequest) =>
+  digestOf([
+    request.query,
+    request.root,
+    request.depth ?? "instant",
+    ...(request.scope.type === "all"
+      ? ["\0all"]
+      : ["\0grants", ...[...request.scope.paths].sort()]),
+  ]);
 
 /** How a page reads the query's words beyond as typed; see `Cursor`. */
 type Readings = { missing: number; readings: number };
@@ -565,7 +582,10 @@ function prepare(
   // Continue a page: after its last rank within its layout; through the
   // previous layout's numbering just after a compaction; otherwise from the
   // first result again.
-  const parsed = cursor === "unusable" ? null : cursor;
+  const asked = requestDigest(request);
+  // A cursor for another request, or ranked with other history, restarts.
+  const parsed =
+    cursor === "unusable" || cursor?.request !== asked ? null : cursor;
   const sameHistory = parsed !== null && parsed.history === digest;
   const previous = view.previous;
   const mode =
@@ -799,6 +819,7 @@ function prepare(
                 shown: before + hits.length,
                 now,
                 history: digest,
+                request: asked,
                 ...pageReadings,
               })
             : null,

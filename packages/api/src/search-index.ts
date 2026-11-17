@@ -18,6 +18,7 @@
  * the drive's storage usage and any folder's total is one lookup.
  */
 
+import { randomInt } from "node:crypto";
 import { SearchWords } from "./search-words";
 import { plain } from "./search-text";
 import {
@@ -96,8 +97,12 @@ const hashName = (parentId: number, name: string) => {
   return hash >>> 0;
 };
 
-/** Layout generations, distinct across every index this process builds. */
-let nextGeneration = 1;
+/**
+ * Layout generations, distinct across every index this process builds. They
+ * start at random, so a page cursor from an earlier run of the search worker
+ * never names one of this run's layouts.
+ */
+let nextGeneration = randomInt(1, 2 ** 47);
 
 export function createSearchIndex(initialCapacity = 1024) {
   let count = 1;

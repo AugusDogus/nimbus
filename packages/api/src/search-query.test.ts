@@ -474,17 +474,78 @@ describe("paging", () => {
     expect(second.hits).toEqual(fresh.hits);
   });
 
+  it("restarts a cursor passed with another query, root, depth or scope", () => {
+    const index = createSearchIndex();
+    for (let file = 0; file < 20; file++) {
+      index.add(`a/note-${file}`, "file");
+      index.add(`a/memo-${file}`, "file");
+    }
+    index.compact();
+    const request: SearchRequest = {
+      query: "note",
+      root: "",
+      limit: 5,
+      scope: all,
+      depth: "full",
+      now: 1,
+    };
+    const cursor = index.search(request).next ?? undefined;
+    for (const other of [
+      { query: "memo" },
+      { root: "a" },
+      { depth: "instant" },
+      { scope: { type: "grants", paths: ["a"] } },
+    ] as const) {
+      const fresh = { ...request, ...other };
+      const page = index.search({ ...fresh, cursor });
+      expect({ other, restarted: page.restarted }).toEqual({
+        other,
+        restarted: true,
+      });
+      expect(page.hits).toEqual(index.search(fresh).hits);
+    }
+  });
+
+  it("restarts a cursor from before the index was built again", () => {
+    // Two runs of the search worker, as two processes: the same code loaded
+    // afresh each time, building the same layouts in the same order. The
+    // second gets the cursor of the first and says whether its page restarted.
+    const run = (cursor: string) => {
+      const script = `
+        import { createSearchIndex } from ${JSON.stringify(`${import.meta.dir}/search-index.ts`)};
+        const index = createSearchIndex();
+        for (let file = 0; file < 20; file++) index.add("a/note-" + file, "file");
+        index.compact();
+        const page = index.search({ query: "note", root: "", limit: 5, scope: { type: "all" }, depth: "full", now: 1, cursor: process.argv[1] || undefined });
+        console.log(JSON.stringify({ next: page.next, restarted: page.restarted }));
+      `;
+      const done = Bun.spawnSync(["bun", "-e", script, cursor]);
+      const printed: unknown = JSON.parse(done.stdout.toString());
+      if (
+        typeof printed !== "object" ||
+        printed === null ||
+        !("next" in printed) ||
+        !("restarted" in printed)
+      )
+        throw new Error(`Unexpected output: ${done.stderr.toString()}`);
+      return { next: printed.next, restarted: printed.restarted };
+    };
+    const first = run("");
+    expect(typeof first.next).toBe("string");
+    expect(run(String(first.next)).restarted).toBe(true);
+  });
+
   it("starts over for a cursor no page returned", () => {
     const index = drive();
-    expect(
-      index.search({
-        query: "notes",
-        root: "",
-        limit: 50,
-        scope: all,
-        cursor: "not-a-cursor",
-      }).hits,
-    ).toHaveLength(3);
+    const page = index.search({
+      query: "notes",
+      root: "",
+      limit: 50,
+      scope: all,
+      cursor: "not-a-cursor",
+    });
+    expect(page.hits).toHaveLength(3);
+    expect(page.restarted).toBe(true);
   });
 });
 

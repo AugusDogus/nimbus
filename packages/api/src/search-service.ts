@@ -98,10 +98,12 @@ export async function searchEntries(
         ? { type: "all" }
         : { type: "grants", paths: access.grants.map((grant) => grant.path) },
       depth: options.depth,
+      // A cursor that cannot be opened is passed on as text no page
+      // returned, so the search restarts and says so.
       cursor:
         options.cursor === undefined
           ? undefined
-          : (SearchCursor.open(options.cursor) ?? undefined),
+          : (SearchCursor.open(options.cursor, access.user.id) ?? ""),
       history: options.history,
     },
     options.signal,
@@ -127,7 +129,10 @@ export async function searchEntries(
     entries: entries.filter((entry) => entry !== null),
     truncated: answer.truncated,
     total: answer.total,
-    next: answer.next === null ? null : SearchCursor.seal(answer.next),
+    next:
+      answer.next === null
+        ? null
+        : SearchCursor.seal(answer.next, access.user.id),
     restarted: answer.restarted,
     complete: answer.complete,
   };
