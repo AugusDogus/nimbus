@@ -540,3 +540,51 @@ test("entries of the previous folder take no actions while the next one loads", 
   ).toBeVisible();
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
 });
+
+test("files dropped outside an upload area never open in the tab, and leaving mid-upload asks first", async ({
+  page,
+}) => {
+  const { folder } = await folderWithFiles(["kept.txt"]);
+  await page.goto(`/browse/${folder}`);
+  await expect(entry(page, "kept.txt").filter({ visible: true })).toBeVisible();
+  // The browser opens a dropped file unless the page cancels dragover and drop. Synthetic
+  // events never navigate, so check that the page cancels them everywhere.
+  const cancelled = await page.evaluate(() =>
+    ["header", "[data-slot=sidebar]", "body"].map((selector) => {
+      const target = document.querySelector(selector) ?? document.body;
+      const data = new DataTransfer();
+      data.items.add(new File(["x"], "dropped.txt"));
+      const over = new DragEvent("dragover", {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: data,
+      });
+      const drop = new DragEvent("drop", {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: data,
+      });
+      return !target.dispatchEvent(over) && !target.dispatchEvent(drop);
+    }),
+  );
+  expect(cancelled).toEqual([true, true, true]);
+
+  // An upload that is still sending.
+  await page.route("**/api/upload**", () => {});
+  await page
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({
+      name: "slow.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("slow"),
+    });
+  await expect(page.getByText("Uploading 1 file")).toBeVisible();
+  // Browsers ask only on pages the user has interacted with.
+  await page.locator("header").click({ position: { x: 5, y: 5 } });
+  const asked = page.waitForEvent("dialog");
+  await page.close({ runBeforeUnload: true });
+  const dialog = await asked;
+  expect(dialog.type()).toBe("beforeunload");
+  await dialog.accept();
+});

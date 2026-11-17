@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { TRPCClientError } from "@trpc/client";
 import { toast } from "@/lib/toast";
 import { coalesce } from "@/lib/coalesce";
+import { useLeaveWarning } from "@/lib/use-file-drop-guard";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { fetchFileList } from "./file-list";
 import type { ClashChoice, EntryKind, UploadClash } from "./upload-plan";
@@ -181,6 +188,16 @@ export function useUploadQueue() {
   });
   const [prompt, setPrompt] = useState<ClashPrompt | null>(null);
   useEffect(() => () => queue.dispose(), [queue]);
+  // Leaving the page ends running uploads, so ask first while any are queued or sending.
+  const busy = useSyncExternalStore(
+    queue.subscribe,
+    () => {
+      const { queued, active } = queue.getSnapshot().summary;
+      return queued + active > 0;
+    },
+    () => false,
+  );
+  useLeaveWarning(busy);
 
   /** Ask about each clash in turn, unless the user applies one choice to the rest. */
   const decide = useCallback(async (clashes: readonly UploadClash[]) => {

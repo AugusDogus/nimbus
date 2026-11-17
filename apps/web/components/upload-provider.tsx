@@ -1,5 +1,6 @@
 import { lazyComponent } from "@/components/lazy-component";
 import { createContext, useContext, type ReactNode } from "react";
+import { useFileDropGuard } from "@/lib/use-file-drop-guard";
 import { useUploadQueue } from "@/lib/use-upload-queue";
 
 // Only needed when an upload's name is taken; it loads then, not with every page.
@@ -17,6 +18,7 @@ const UploadContext = createContext<ReturnType<typeof useUploadQueue> | null>(
  */
 export function UploadProvider({ children }: { children: ReactNode }) {
   const upload = useUploadQueue();
+  useFileDropGuard();
   return (
     <UploadContext.Provider value={upload}>
       {children}

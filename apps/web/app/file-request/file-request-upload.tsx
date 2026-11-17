@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useFileDropGuard, useLeaveWarning } from "@/lib/use-file-drop-guard";
 import { useHydrated } from "@/lib/use-hydrated";
 import { useServerField } from "@/lib/use-server-field";
 import { useQuery } from "@tanstack/react-query";
@@ -167,6 +168,8 @@ export function FileRequestUpload({ token }: { token: string }) {
   const uploading = items.some(
     (item) => item.status.kind === "uploading" || item.status.kind === "queued",
   );
+  useFileDropGuard();
+  useLeaveWarning(uploading);
 
   return (
     <div className="mx-auto min-h-dvh max-w-3xl px-4 pb-12">
