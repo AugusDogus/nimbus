@@ -148,6 +148,7 @@ export function FilesPageClient() {
           <WebMcpFileTools
             currentPath={currentPath}
             entries={sortedEntries}
+            loading={listQuery.isPending || shownPath !== currentPath}
             openFolder={(path) => void navigate({ href: fileHref(path) })}
             openDialog={onDialog}
             createFolder={actions.createFolder}

@@ -7,6 +7,8 @@ import { FileEntry } from "./types";
 export type FileToolsPage = {
   currentPath: string;
   entries: FileEntry[];
+  /** The folder is still loading; `entries` belong to the folder being left. */
+  loading: boolean;
   openFolder: (path: string) => void;
   openDialog: (dialog: EntryDialog) => void;
   createFolder: (name: string) => Promise<void>;
@@ -63,6 +65,10 @@ export async function registerFileTools(
       ? undefined
       : page().entries.find((entry) => entry.path === path);
   };
+  const loading = () =>
+    fail(
+      "The folder is still loading, so its items are not listed yet. Try again in a moment.",
+    );
   const notInFolder = () =>
     fail(
       "No item with that path is in the open folder. Call nimbus.list_folder for current paths, or open its folder first.",
@@ -72,6 +78,7 @@ export async function registerFileTools(
     input: Record<string, unknown>,
     allowed: (entry: FileEntry) => string | null,
   ) => {
+    if (page().loading) return loading();
     const entry = entryAt(input);
     if (!entry) return notInFolder();
     const refusal = allowed(entry);
@@ -97,6 +104,7 @@ export async function registerFileTools(
         annotations: { readOnlyHint: true, untrustedContentHint: true },
         execute: () => {
           const { currentPath, entries } = page();
+          if (page().loading) return loading();
           return {
             ok: true,
             folder: currentPath,

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
-import { test } from "./helpers";
+import { client, test } from "./helpers";
 
 declare global {
   interface Window {
@@ -152,4 +152,41 @@ test("browsers without WebMCP never download the page tools", async ({
   expect(bodies.filter((body) => body.includes("nimbus.start_rename"))).toEqual(
     [],
   );
+});
+
+test("page tools refuse to act on the folder being left while the next one loads", async ({
+  page,
+  context,
+}) => {
+  const folder = `agent-loading-${randomUUID().slice(0, 8)}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: folder });
+  await page.addInitScript(installModelContext);
+  await page.goto("/");
+  await expect.poll(() => toolNames(page)).toContain("nimbus.list_folder");
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(
+    (url) =>
+      url.pathname.includes("files.list") &&
+      decodeURIComponent(url.search).includes(folder),
+    async (route) => {
+      await held;
+      await route.continue();
+    },
+  );
+  await callTool(page, "nimbus.open_folder", { path: folder });
+  await expect(page).toHaveURL(`/browse/${folder}`);
+  for (const [tool, input] of [
+    ["nimbus.list_folder", {}],
+    ["nimbus.start_rename", { path: "alpha.txt" }],
+  ] as const)
+    expect(await callTool(page, tool, input), tool).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("still loading"),
+    });
+  release();
+  await expect
+    .poll(() => callTool(page, "nimbus.list_folder", {}))
+    .toMatchObject({ ok: true, folder });
 });
