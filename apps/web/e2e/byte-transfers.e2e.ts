@@ -382,6 +382,8 @@ test("folder archives are only built for requests from Nimbus itself", async ({
     }),
   ).toBe(403);
   expect(await post({ "Sec-Fetch-Site": "cross-site" })).toBe(403);
-  // Browsers without fetch metadata still send Origin on a form POST.
+  // Browsers without fetch metadata still send Origin on a form POST. A page can make its
+  // own Origin "null" with a no-referrer policy, so that proves nothing either.
   expect(await post({ Origin: "https://evil.example" })).toBe(403);
+  expect(await post({ Origin: "null" })).toBe(403);
 });

@@ -16,18 +16,20 @@ const archiveFormBytes = 16 * 1024 * 1024;
 export async function POST(request: Request) {
   try {
     // A form POST authenticated by cookie: refuse it unless it comes from Nimbus's own pages.
-    // SameSite=Lax cookies still reach a POST from a sibling subdomain ("same-site"). Browsers
-    // without fetch metadata still send Origin; Nimbus pages send "null" (no-referrer policy).
+    // SameSite=Lax cookies still reach a POST from a sibling subdomain ("same-site"). Nimbus
+    // pages send Origin "null" (no-referrer policy), which any page can also produce, so only
+    // fetch metadata proves the origin then. Every current browser sends it.
     const site = request.headers.get("sec-fetch-site");
     const from = request.headers.get("origin");
     if (
       site !== null
         ? site !== "same-origin" && site !== "none"
-        : from !== null && from !== "null" && !allowedOrigins.has(from)
+        : from !== null && !allowedOrigins.has(from)
     )
       throw new TRPCError({
         code: "FORBIDDEN",
-        message: "Start downloads from Nimbus itself. Nothing was downloaded.",
+        message:
+          "Start downloads from Nimbus itself, in a current browser. Nothing was downloaded.",
       });
     const access = await requestAccess(request);
     const limited = await RequestBody.buffered(request, archiveFormBytes);
