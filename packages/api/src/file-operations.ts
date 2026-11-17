@@ -244,6 +244,8 @@ async function moveUnlocked(
 /** Copy a file or folder tree into a staging path, skipping descendants the user cannot read. */
 // A clone shares extents on copy-on-write filesystems and falls back to a byte copy elsewhere.
 const copyMode = constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE;
+/** Files of one folder copied at once. */
+const copyConcurrency = 16;
 
 async function stageCopy(
   access: Access,
@@ -261,6 +263,7 @@ async function stageCopy(
   while (pending.length) {
     const directory = pending.shift();
     if (directory === undefined) break;
+    const files: { from: string; to: string }[] = [];
     for (const entry of await readDirectory(directory, access)) {
       if (!access.can(entry.path, "read")) continue;
       const destination = path.join(
@@ -270,14 +273,22 @@ async function stageCopy(
       if (entry.type === "dir") {
         await mkdir(destination);
         pending.push(entry.path);
-      } else {
+      } else
+        files.push({
+          from: path.join(getDataRoot(), entry.path),
+          to: destination,
+        });
+    }
+    // Each file is opened and checked before it is copied; copying several at once keeps
+    // that from slowing large folders down.
+    let next = 0;
+    const copyNext = async () => {
+      for (let index = next++; index < files.length; index = next++) {
+        const file = files[index];
+        if (!file) continue;
         try {
           // Listed as a plain file, but opened without following a symlink swapped in since.
-          await DriveFile.copy(
-            path.join(getDataRoot(), entry.path),
-            destination,
-            copyMode,
-          );
+          await DriveFile.copy(file.from, file.to, copyMode);
         } catch (error) {
           // Entries removed or replaced by a symlink while copying are skipped, like a
           // listing taken at that moment.
@@ -288,7 +299,10 @@ async function stageCopy(
             throw error;
         }
       }
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(copyConcurrency, files.length) }, copyNext),
+    );
   }
 }
 
