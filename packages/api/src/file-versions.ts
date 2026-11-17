@@ -19,9 +19,9 @@ import { VacantPath } from "./vacant-path";
  * File versioning.
  *
  * When a file is replaced, its previous content is kept under
- * `<data root>/.nimbus/versions` on the same filesystem, by hardlink where
- * possible and by reflink otherwise, so preserving a version never copies the
- * file's bytes on filesystems that support either.
+ * `<data root>/.nimbus/versions` on the same filesystem, by reflink where
+ * possible and otherwise by hardlink when the file has not been written for a
+ * minute, so preserving a version rarely copies the file's bytes (see `preserve`).
  *
  * History belongs to a file's path, like its links, grants and stars. Renames,
  * moves, trash and restore through Nimbus relocate it in the same transaction
@@ -116,16 +116,44 @@ const isUnsupported = (error: unknown) =>
   unsupported.some((code) => isFsError(error, code));
 
 /**
- * Make `destination` hold `source`'s current content without copying bytes
- * where the filesystem allows: a hardlink when the inode has no other names
- * (so no other path can edit it in place), else a reflink, else a full copy.
- * The file is opened without following symlinks first, and a hardlink, made by
- * name, must name the inode that was opened.
+ * A file not written for this long is taken to have no writer left, so its inode may become a
+ * version by hardlink. A program that keeps a file open but idle for longer, then writes to it,
+ * would still change that version; reflinks, preferred where the filesystem has them, never do.
  */
-async function preserve(dataRoot: string, source: string, destination: string) {
+const quietBeforeLinkMs = 60 * 1000;
+
+/**
+ * Make `destination` hold `source`'s current content without copying bytes
+ * where the filesystem allows. A reflink comes first: it shares extents but is
+ * a separate inode, so a program still writing to the old file through an open
+ * descriptor never changes the version. Without reflinks, a hardlink is used
+ * when the inode has no other names (so no other path can edit it in place)
+ * and has not been written recently (so no writer is likely to still hold it
+ * open); otherwise the bytes are copied. The file is opened without following
+ * symlinks first, and a hardlink, made by name, must name the opened inode.
+ */
+async function preserve(
+  dataRoot: string,
+  source: string,
+  destination: string,
+  now: number,
+) {
   const opened = await DriveFile.openFile(source, dataRoot);
   try {
-    if (opened.stats.nlink === 1) {
+    try {
+      await DriveFile.copyOpened(
+        opened,
+        destination,
+        constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE_FORCE,
+      );
+      return "reflink" as const;
+    } catch (error) {
+      if (!isUnsupported(error)) throw error;
+    }
+    if (
+      opened.stats.nlink === 1 &&
+      opened.stats.mtimeMs < now - quietBeforeLinkMs
+    ) {
       try {
         await link(source, destination);
         const linked = await lstat(destination);
@@ -136,16 +164,6 @@ async function preserve(dataRoot: string, source: string, destination: string) {
       } catch (error) {
         if (!isUnsupported(error)) throw error;
       }
-    }
-    try {
-      await DriveFile.copyOpened(
-        opened,
-        destination,
-        constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE_FORCE,
-      );
-      return "reflink" as const;
-    } catch (error) {
-      if (!isUnsupported(error)) throw error;
     }
     await DriveFile.copyOpened(opened, destination, constants.COPYFILE_EXCL);
     return "copy" as const;
@@ -251,7 +269,7 @@ async function commitReplacement({
   };
   const payload = payloadPath(dataRoot, version.id);
   await mkdir(path.dirname(payload), { recursive: true });
-  await preserve(dataRoot, target, payload);
+  await preserve(dataRoot, target, payload, Date.now());
   if (!sameContent(previous, await fileStats(target))) {
     // Another program changed the file while it was being preserved.
     await rm(payload, { force: true });

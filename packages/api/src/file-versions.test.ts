@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   mkdir,
   mkdtemp,
+  open,
   readdir,
   readFile,
   rename,
@@ -61,6 +62,9 @@ afterEach(async () => {
 
 test("replacing a file keeps its previous content as a version without copying it", async () => {
   expect(await save("notes.txt", "first")).toEqual({ kind: "created" });
+  // Not written for a while, so no writer is likely to hold it open (on tmpfs, without reflinks).
+  const quiet = new Date(Date.now() - 5 * 60 * 1000);
+  await utimes(at("notes.txt"), quiet, quiet);
   const original = await stat(at("notes.txt"));
   const result = await save("notes.txt", "second");
   expect(await readFile(at("notes.txt"), "utf8")).toBe("second");
@@ -259,3 +263,29 @@ test("moving a file over another keeps the destination's history and discards th
       .sort(),
   ).toEqual(["report.txt", "report.txt"]);
 });
+
+for (const [filesystem, parent] of [
+  ["a copy-on-write filesystem (/var/tmp)", "/var/tmp"],
+  ["a filesystem without reflinks (tmpfs)", os.tmpdir()],
+] as const)
+  test(`a saved version stays as it was when another program keeps writing to the old file, on ${filesystem}`, async () => {
+    const otherRoot = await mkdtemp(path.join(parent, "nimbus-versions-"));
+    const previousRoot = root;
+    root = otherRoot;
+    try {
+      await writeFile(at("log.txt"), "first line\n");
+      // A program on the host still has the file open for writing when it is replaced.
+      const writer = await open(at("log.txt"), "a");
+      try {
+        await save("log.txt", "replacement");
+        await writer.write("written after the save\n");
+        await writer.sync();
+      } finally {
+        await writer.close();
+      }
+      expect(await contents("log.txt")).toEqual(["first line\n"]);
+    } finally {
+      root = previousRoot;
+      await rm(otherRoot, { recursive: true, force: true });
+    }
+  });
