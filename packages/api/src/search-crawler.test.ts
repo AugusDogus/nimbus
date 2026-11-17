@@ -10,7 +10,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { accessFor } from "./access";
-import { applyChange, crawl, indexedPath } from "./search-crawler";
+import { applyChange, crawl, indexedPath, reconcile } from "./search-crawler";
 import { createSearchIndex } from "./search-index";
 import { provideSearchService, searchEntries } from "./search-service";
 
@@ -89,6 +89,22 @@ describe("search crawler", () => {
     expect(indexedPath(root, path.join(root, "a/b.txt"))).toBe("a/b.txt");
   });
 
+  it("skips the names browsing hides: backslashes and control characters", async () => {
+    await writeFile(path.join(root, "docs/notes\\draft.txt"), "");
+    await writeFile(path.join(root, "docs/notes\x01.txt"), "");
+    await mkdir(path.join(root, "docs/notes\\folder"));
+    await writeFile(path.join(root, "docs/notes\\folder/notes-inside.txt"), "");
+    const index = createSearchIndex();
+    await crawl(index, root);
+    expect(names(index, "notes")).toEqual(["docs/deep/notes.txt"]);
+    await writeFile(path.join(root, "docs/notes\x02.txt"), "");
+    await applyChange(index, root, path.join(root, "docs/notes\x02.txt"));
+    await applyChange(index, root, path.join(root, "docs/notes\\folder"));
+    expect(names(index, "notes")).toEqual(["docs/deep/notes.txt"]);
+    await reconcile(index, root, (work) => work());
+    expect(names(index, "notes")).toEqual(["docs/deep/notes.txt"]);
+  });
+
   it("applies changes to names that start with two dots", async () => {
     const index = createSearchIndex();
     await crawl(index, root);
@@ -147,6 +163,36 @@ describe("searchEntries", () => {
       "docs/deep/notes.txt",
     ]);
     expect(result.entries[0]).toMatchObject({ type: "file", size: 0 });
+  });
+
+  it("drops hits it cannot state instead of failing the search", async () => {
+    await writeFile(path.join(root, "docs/deep/notes\\draft.txt"), "");
+    await mkdir(path.join(root, "outside"));
+    await writeFile(path.join(root, "outside/notes.txt"), "");
+    await symlink(
+      path.join(root, "outside"),
+      path.join(root, "docs/deep/linked"),
+    );
+    provideSearchService({
+      usage: async () => 0,
+      search: async () => ({
+        hits: [
+          { path: "docs/deep/notes\\draft.txt", type: "file", match: "name" },
+          { path: "docs/deep/linked/notes.txt", type: "file", match: "name" },
+          { path: "docs/deep/notes.txt", type: "file", match: "name" },
+        ],
+        truncated: false,
+        total: 3,
+        next: null,
+        restarted: false,
+        terms: ["notes"],
+        complete: true,
+      }),
+    });
+    const result = await searchEntries(reader, "", "notes", 50);
+    expect(result.entries.map((entry) => entry.path)).toEqual([
+      "docs/deep/notes.txt",
+    ]);
   });
 
   it("asks the index only for the caller's grants", async () => {

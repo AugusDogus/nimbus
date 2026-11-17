@@ -67,6 +67,16 @@ export type SearchEntry = FileEntry & {
 };
 
 /**
+ * Why a hit could not be stated from disk: gone, a path Nimbus refuses (a
+ * symlink above it, a name it cannot serve), or a filesystem error.
+ */
+const unstatable = (error: unknown) =>
+  isApiError(error, "NOT_FOUND") ||
+  isApiError(error, "BAD_REQUEST") ||
+  isApiError(error, "FORBIDDEN") ||
+  (error instanceof Error && "syscall" in error);
+
+/**
  * Filename search for one caller. The index already limits results to the
  * caller's grants; every hit is re-checked here and stated from disk, so a
  * stale index can never reveal a path the caller cannot read.
@@ -106,8 +116,9 @@ export async function searchEntries(
           highlight: SearchHighlight.forPath(hit.path, answer.terms),
         };
       } catch (error) {
-        // Removed since it was indexed; the watcher will drop it shortly.
-        if (isApiError(error, "NOT_FOUND")) return null;
+        // Removed or changed since it was indexed (the watcher will catch up),
+        // or a path Nimbus cannot serve: one hit, not the whole search.
+        if (unstatable(error)) return null;
         throw error;
       }
     }),

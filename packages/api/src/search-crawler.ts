@@ -4,13 +4,19 @@ import path from "node:path";
 import { isFsError } from "./safe-path";
 import type { SearchIndex } from "./search-index";
 
-const isPrivate = (name: string) => name.toLowerCase() === ".nimbus";
+/**
+ * Names browsing hides because `safePath` refuses them (file-browser.ts):
+ * Nimbus's private folder, and names with control characters or backslashes.
+ */
+const unservableName = (name: string) =>
+  name.toLowerCase() === ".nimbus" || /[\x00-\x1f\\]/.test(name);
 
 /** Files stated at once per folder: bounded so a huge folder cannot flood the filesystem. */
 const statConcurrency = 64;
 
 /**
- * Same visibility rules as browsing: no `.nimbus`, symlinks or special files.
+ * Same visibility rules as browsing: no `.nimbus`, names with control
+ * characters or backslashes, symlinks or special files.
  * Files are stated with lstat for their size, which also confirms they are
  * still regular files.
  */
@@ -35,7 +41,7 @@ async function crawlInto(
     }
     const files: string[] = [];
     for (const entry of entries) {
-      if (isPrivate(entry.name)) continue;
+      if (unservableName(entry.name)) continue;
       if (entry.isDirectory()) {
         const child = index.addChild(id, entry.name, "dir");
         if (child >= 0) pending.push([path.join(directory, entry.name), child]);
@@ -108,14 +114,14 @@ export async function reconcile(
       const { sizes, unstated } = await statFiles(
         directory,
         entries
-          .filter((entry) => entry.isFile() && !isPrivate(entry.name))
+          .filter((entry) => entry.isFile() && !unservableName(entry.name))
           .map((entry) => entry.name),
       );
       const started = performance.now();
       const seen = new Set<string>();
       const found: [string, number][] = [];
       for (const entry of entries) {
-        if (isPrivate(entry.name)) continue;
+        if (unservableName(entry.name)) continue;
         if (entry.isDirectory()) {
           const child = index.addChild(id, entry.name, "dir");
           if (child < 0) continue;
@@ -177,7 +183,7 @@ async function statFiles(directory: string, names: readonly string[]) {
   return { sizes, unstated };
 }
 
-/** Relative "/"-separated path inside `root`, or null when outside or private. */
+/** Relative "/"-separated path inside `root`, or null when outside, private or unservable. */
 export function indexedPath(root: string, absolute: string) {
   const relative = path.relative(root, absolute);
   if (
@@ -188,7 +194,7 @@ export function indexedPath(root: string, absolute: string) {
   )
     return null;
   const segments = relative.split(path.sep);
-  return segments.some(isPrivate) ? null : segments.join("/");
+  return segments.some(unservableName) ? null : segments.join("/");
 }
 
 export async function crawl(
