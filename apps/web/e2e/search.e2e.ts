@@ -139,9 +139,13 @@ test("drops a trashed result loaded by Show more and updates the count", async (
   const status = page.getByRole("status").filter({ hasText: "matches" });
   await expect(async () => {
     await page.goto(`/search?q=report-${token}`);
-    await expect(status).toHaveText("Showing 200 of 230 matches.", {
-      timeout: 2_000,
-    });
+    // The count can read "or more" until every layer has answered.
+    await expect(status).toHaveText(
+      /^Showing 200 of 230( or more)? matches\.$/,
+      {
+        timeout: 2_000,
+      },
+    );
   }).toPass();
   await page.getByRole("button", { name: "Show 30 more", exact: true }).click();
   await expect(status).toHaveText("230 matches.");

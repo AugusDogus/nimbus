@@ -502,6 +502,7 @@ test("Tab reaches an entry on screen after scrolling a long folder", async ({
 
 test("entries of the previous folder take no actions while the next one loads", async ({
   page,
+  isMobile,
 }) => {
   const { folder, directory } = await folderWithFiles(["report.txt"]);
   await mkdir(path.join(directory, "next"));
@@ -512,9 +513,12 @@ test("entries of the previous folder take no actions while the next one loads", 
   await expect(preview).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(preview).toBeHidden();
-  // Select the file, then open the subfolder, whose listing is held back.
-  await report.click({ modifiers: ["ControlOrMeta"] });
-  await expect(bar(page)).toBeVisible();
+  // Select the file (with a modifier key on desktop), then open the subfolder, whose listing is
+  // held back.
+  if (!isMobile) {
+    await report.click({ modifiers: ["ControlOrMeta"] });
+    await expect(bar(page)).toBeVisible();
+  }
   let release = () => {};
   const held = new Promise<void>((resolve) => (release = resolve));
   await page.route(
