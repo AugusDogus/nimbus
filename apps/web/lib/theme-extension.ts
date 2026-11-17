@@ -70,11 +70,14 @@ function read(bytes: Uint8Array): ThemeResult<VsCodeTheme[]> {
           !/\.jsonc?$/i.test(entry.name)
         )
           return false;
-        expandedBytes += entry.originalSize;
-        if (
-          entry.originalSize > maxJsonBytes ||
-          expandedBytes > 8 * maxJsonBytes
-        )
+        // The sizes come from the archive itself. fflate copies a stored entry's `size` bytes
+        // and inflates into a buffer of `originalSize`, so both count. Entries may share one
+        // payload; counting every entry's bytes bounds that too.
+        if (entry.compression === 0 && entry.size !== entry.originalSize)
+          throw new Error("The extension archive is damaged.");
+        const bytes = Math.max(entry.size, entry.originalSize);
+        expandedBytes += bytes;
+        if (bytes > maxJsonBytes || expandedBytes > 8 * maxJsonBytes)
           throw new Error(
             "The extension’s theme files exceed the import size limit.",
           );
