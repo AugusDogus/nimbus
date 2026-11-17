@@ -124,7 +124,7 @@ function DrawerContent({
           data-swipe-axis={swipeAxis}
           data-snap-points={hasSnapPoints ? "" : undefined}
           className={cn(
-            "group/drawer-popup bg-background relative flex h-auto max-h-[80vh] w-full flex-col rounded-t-lg border-t outline-none [transform:translateY(var(--drawer-swipe-movement-y))] transition-transform duration-500 data-swiping:duration-0 data-swiping:select-none data-starting-style:[transform:translateY(100%)] data-ending-style:[transform:translateY(100%)] data-ending-style:duration-[calc(var(--drawer-swipe-strength)*400ms)] motion-reduce:transition-none",
+            "group/drawer-popup bg-background relative flex h-auto max-h-[calc(100dvh-6rem)] w-full flex-col rounded-t-lg border-t outline-none [transform:translateY(var(--drawer-swipe-movement-y))] transition-transform duration-500 data-swiping:duration-0 data-swiping:select-none data-starting-style:[transform:translateY(100%)] data-ending-style:[transform:translateY(100%)] data-ending-style:duration-[calc(var(--drawer-swipe-strength)*400ms)] motion-reduce:transition-none",
             // The background continues below the sheet, so pulling it up never shows a gap.
             "after:bg-inherit after:absolute after:inset-x-0 after:top-full after:h-[200%]",
             easing,
@@ -133,9 +133,10 @@ function DrawerContent({
           {...props}
         >
           {showSwipeHandle && <DrawerSwipeHandle />}
+          {/* Scrolls when its actions outgrow a short screen or large text. */}
           <DrawerPrimitive.Content
             data-slot="drawer-content"
-            className="flex min-h-0 flex-1 flex-col overflow-hidden overscroll-contain rounded-[inherit] select-text group-data-swiping/drawer-popup:select-none"
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain rounded-[inherit] select-text group-data-swiping/drawer-popup:select-none"
           >
             {children}
           </DrawerPrimitive.Content>
@@ -150,7 +151,7 @@ function DrawerHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="drawer-header"
       className={cn(
-        "flex flex-col gap-0.5 p-4 text-center md:gap-1.5 md:text-left",
+        "flex shrink-0 flex-col gap-0.5 p-4 text-center md:gap-1.5 md:text-left",
         className,
       )}
       {...props}
@@ -162,7 +163,7 @@ function DrawerFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="drawer-footer"
-      className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+      className={cn("mt-auto flex shrink-0 flex-col gap-2 p-4", className)}
       {...props}
     />
   );
