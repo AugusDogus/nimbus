@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import type { Access } from "./access";
 import { entryAt, type FileEntry } from "./file-browser";
 import { isApiError } from "./safe-path";
+import { SearchCursor } from "./search-cursor";
 import { SearchHighlight } from "./search-highlight";
 import type {
   HistoryEntry,
@@ -87,7 +88,10 @@ export async function searchEntries(
         ? { type: "all" }
         : { type: "grants", paths: access.grants.map((grant) => grant.path) },
       depth: options.depth,
-      cursor: options.cursor,
+      cursor:
+        options.cursor === undefined
+          ? undefined
+          : (SearchCursor.open(options.cursor) ?? undefined),
       history: options.history,
     },
     options.signal,
@@ -112,7 +116,7 @@ export async function searchEntries(
     entries: entries.filter((entry) => entry !== null),
     truncated: answer.truncated,
     total: answer.total,
-    next: answer.next,
+    next: answer.next === null ? null : SearchCursor.seal(answer.next),
     restarted: answer.restarted,
     complete: answer.complete,
   };

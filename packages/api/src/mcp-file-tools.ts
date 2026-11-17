@@ -116,7 +116,7 @@ const search = defineTool({
     cursor: z
       .string()
       .regex(
-        /^[\d-]{1,64}$/,
+        /^[\w-]{1,200}$/,
         "Pass a cursor exactly as a previous call returned it.",
       )
       .optional()

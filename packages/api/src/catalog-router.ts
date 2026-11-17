@@ -1,9 +1,11 @@
+import path from "node:path";
 import { permissionFor } from "./access";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { entryAt } from "./file-browser";
 import type { Bookmark } from "./drive-store";
 import type { HistoryEntry } from "./search-index";
+import { MAX_SEALED_CURSOR } from "./search-cursor";
 import { searchEntries } from "./search-service";
 import { safePath } from "./file-operations";
 import { isApiError } from "./safe-path";
@@ -52,10 +54,26 @@ export const catalogRouter = router({
         /** "instant" for names only while typing; "full" adds the words layer and paging. */
         depth: z.enum(["instant", "full"]).default("full"),
         /** `next` from the previous page. */
-        cursor: z.string().max(64).optional(),
+        cursor: z.string().max(MAX_SEALED_CURSOR).optional(),
       }),
     )
     .query(async ({ ctx, input, signal }) => {
+      // Resolving a path looks at the disk (for symlinks), which would tell a
+      // caller about folders it may not read. Search finds nothing there, so
+      // answer that first, from the path as written.
+      const written = path.posix
+        .normalize(input.path)
+        .replace(/^(\.\/|\/)+|\/+$/g, "");
+      const relative = written === "." ? "" : written;
+      if (!relative.startsWith("..") && !ctx.access.canBrowse(relative))
+        return {
+          entries: [],
+          truncated: false,
+          total: 0,
+          next: null,
+          restarted: false,
+          complete: true,
+        };
       const target = await safePath(input.path);
       const result = await searchEntries(
         ctx.access,

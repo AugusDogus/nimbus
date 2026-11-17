@@ -5,6 +5,7 @@ import {
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -424,6 +425,27 @@ describe("drive workflows", () => {
     await writeFile(path.join(root, "private.txt"), "new content");
     expect(await memory.store.getShare(link.token)).toBeNull();
   });
+  it("searches under a folder the caller may not read without looking at it", async () => {
+    await caller().access.grant({
+      path: "docs",
+      subject: { type: "user", id: "reader" },
+      permission: "read",
+    });
+    await mkdir(path.join(root, "vault"));
+    await symlink(root, path.join(root, "vault", "link"));
+    for (const folder of ["vault/link/inner", "vault/missing", "nowhere"])
+      expect(
+        await caller("reader").catalog.search({
+          query: "report",
+          path: folder,
+        }),
+      ).toMatchObject({ entries: [], total: 0 });
+    // The owner still gets the usual answer for a symlink in the path.
+    await expect(
+      caller().catalog.search({ query: "report", path: "vault/link/inner" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   it("searches only accessible files and keeps password hashes out of API responses", async () => {
     await caller().access.grant({
       path: "docs",
