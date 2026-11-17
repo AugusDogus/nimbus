@@ -279,7 +279,7 @@ test("keeps sorting controls and the final row reachable while scrolling", async
   await expect(sort).toBeInViewport({ ratio: 1 });
   await sort.click();
   await page
-    .getByRole(isMobile ? "button" : "option", {
+    .getByRole(isMobile ? "radio" : "option", {
       name: "Name (Z to A)",
       exact: true,
     })
@@ -292,7 +292,7 @@ test("keeps sorting controls and the final row reachable while scrolling", async
     .toBe("desc");
   await sort.click();
   await page
-    .getByRole(isMobile ? "button" : "option", {
+    .getByRole(isMobile ? "radio" : "option", {
       name: "Name (A to Z)",
       exact: true,
     })
@@ -324,7 +324,7 @@ test("keeps sorting controls and the final row reachable while scrolling", async
   await expect(sort).toBeInViewport({ ratio: 1 });
   await sort.click();
   await page
-    .getByRole(isMobile ? "button" : "option", {
+    .getByRole(isMobile ? "radio" : "option", {
       name: "Name (A to Z)",
       exact: true,
     })

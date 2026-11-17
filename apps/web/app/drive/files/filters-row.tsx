@@ -123,39 +123,53 @@ export function FiltersRow({
             </DrawerDescription>
           </DrawerHeader>
           <div className="flex flex-col gap-1 px-4 pb-6">
-            <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">
+            <p
+              id="sort-drawer-label"
+              className="px-3 pb-1 text-xs font-medium text-muted-foreground"
+            >
               Sort by
             </p>
-            {sortOptions.map((option) => (
-              <DrawerClose
-                key={sortValue(option)}
-                render={
-                  <DrawerActionItem
-                    onClick={() => {
-                      updatePreferences({
-                        sortField: option.field,
-                        sortDirection: option.direction,
-                      });
-                    }}
-                  />
-                }
-              >
-                <option.icon className="size-5 text-muted-foreground" />
-                <span className="flex-1 text-left">{option.label}</span>
-                {sortValue(option) === selectedValue && (
-                  <Check className="size-4 text-primary" />
-                )}
-              </DrawerClose>
-            ))}
+            <div
+              role="radiogroup"
+              aria-labelledby="sort-drawer-label"
+              className="flex flex-col gap-1"
+            >
+              {sortOptions.map((option) => (
+                <DrawerClose
+                  key={sortValue(option)}
+                  render={
+                    <DrawerActionItem
+                      role="radio"
+                      aria-checked={sortValue(option) === selectedValue}
+                      onClick={() => {
+                        updatePreferences({
+                          sortField: option.field,
+                          sortDirection: option.direction,
+                        });
+                      }}
+                    />
+                  }
+                >
+                  <option.icon className="size-5 text-muted-foreground" />
+                  <span className="flex-1 text-left">{option.label}</span>
+                  {sortValue(option) === selectedValue && (
+                    <Check aria-hidden className="size-4 text-primary" />
+                  )}
+                </DrawerClose>
+              ))}
+            </div>
             <div className="my-2 h-px bg-border" />
             <DrawerActionItem
+              aria-pressed={prefs.groupByType}
               onClick={() =>
                 updatePreferences({ groupByType: !prefs.groupByType })
               }
             >
               <Layers className="size-5 text-muted-foreground" />
               <span className="flex-1 text-left">Group by type</span>
-              {prefs.groupByType && <Check className="size-4 text-primary" />}
+              {prefs.groupByType && (
+                <Check aria-hidden className="size-4 text-primary" />
+              )}
             </DrawerActionItem>
           </div>
         </DrawerContent>

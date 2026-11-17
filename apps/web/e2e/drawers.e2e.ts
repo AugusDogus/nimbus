@@ -69,3 +69,29 @@ for (const size of [
       ),
     ).toBe(true);
   });
+
+test("the sort drawer tells screen readers which choices are on", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "Drawers replace menus on touch screens only.");
+  await (
+    await client(context)
+  ).prefs.set.mutate({
+    view: "list",
+    sortField: "name",
+    sortDirection: "asc",
+    groupByType: true,
+  });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Sort and filter options", exact: true })
+    .click();
+  const sort = page.getByRole("dialog", { name: "Sort & filter", exact: true });
+  const options = sort.getByRole("radiogroup", { name: "Sort by" });
+  await expect(options.getByRole("radio", { checked: true })).toHaveCount(1);
+  await expect(
+    sort.getByRole("button", { name: "Group by type", pressed: true }),
+  ).toBeVisible();
+});
