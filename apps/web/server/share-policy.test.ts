@@ -98,4 +98,8 @@ test("view-only links serve inline previews and refuse attachments", () => {
   expect(SharePolicy.permitsResponse("view", inline)).toBe(true);
   expect(SharePolicy.permitsResponse("view", attachment)).toBe(false);
   expect(SharePolicy.permitsResponse("download", attachment)).toBe(true);
+  // Answers without content, such as a revalidated preview, carry no disposition.
+  for (const status of [304, 412, 416])
+    expect(SharePolicy.permitsResponse("view", response(status))).toBe(true);
+  expect(SharePolicy.permitsResponse("view", response(206))).toBe(false);
 });

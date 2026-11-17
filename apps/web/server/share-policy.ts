@@ -73,6 +73,8 @@ function allowContinuation(
 function permitsResponse(mode: ShareMode, response: Response) {
   return (
     mode === "download" ||
+    // No content is sent, such as a 304 revalidating a preview the browser already has.
+    (response.status !== 200 && response.status !== 206) ||
     (response.headers.get("content-disposition") ?? "").startsWith("inline")
   );
 }
