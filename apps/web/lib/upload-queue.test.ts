@@ -157,4 +157,29 @@ describe("upload queue", () => {
     expect(queue.getSnapshot().summary.total).toBe(5000);
     expect(performance.now() - started).toBeLessThan(100);
   });
+
+  it("runs 50,000 uploads in time linear in their number", async () => {
+    let publications = 0;
+    const done = Promise.withResolvers<UploadSummary>();
+    const queue = createUploadQueue({
+      // Each upload finishes as soon as it starts, so the queue's own work is what is measured.
+      transport: (_request, events) => {
+        queueMicrotask(events.success);
+        return { abort: async () => {} };
+      },
+      onIdle: done.resolve,
+    });
+    queue.subscribe(() => publications++);
+    const requests = Array.from({ length: 50_000 }, (_, index) =>
+      request(`file ${index}`),
+    );
+    const started = performance.now();
+    queue.enqueue(requests);
+    const summary = await done.promise;
+    const elapsed = performance.now() - started;
+    expect(summary).toMatchObject({ total: 50_000, done: 50_000 });
+    // Snapshots copy every item, so they are published on a timer, not once per upload.
+    expect(publications).toBeLessThan(100);
+    expect(elapsed).toBeLessThan(1000);
+  });
 });

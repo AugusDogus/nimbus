@@ -106,13 +106,28 @@ export function createUploadQueue({
   const index = new Map<number, number>();
   const running = new Map<number, { abort(): Promise<void> }>();
   let nextId = 1;
+  // Every item before `cursor` has left the queue, so starting the next upload never rescans
+  // the items that already finished.
+  let cursor = 0;
+  const requeue = (position: number) => {
+    cursor = Math.min(cursor, position);
+  };
+  // A snapshot copies every item, so it is built when read after a change, and listeners hear
+  // of changes at most once per interval: a large batch costs time linear in its size.
   let snapshot: UploadSnapshot = { items: [], summary: emptySummary };
+  let changed = false;
+  const current = () => {
+    if (changed) {
+      changed = false;
+      snapshot = { items: items.slice(), summary: summarize(items) };
+    }
+    return snapshot;
+  };
   let timer: ReturnType<typeof setTimeout> | null = null;
   const listeners = new Set<() => void>();
 
   const publish = () => {
     timer = null;
-    snapshot = { items: items.slice(), summary: summarize(items) };
     for (const listener of listeners) listener();
   };
   const schedule = (immediate = false) => {
@@ -128,6 +143,7 @@ export function createUploadQueue({
     const item = position === undefined ? undefined : items[position];
     if (position === undefined || !item) return;
     items[position] = { ...item, status };
+    changed = true;
   };
 
   let idleReported = true;
@@ -135,10 +151,11 @@ export function createUploadQueue({
     running.delete(id);
     update(id, status);
     pump();
-    schedule(true);
-    if (running.size === 0 && !idleReported) {
+    const idle = running.size === 0;
+    schedule(idle);
+    if (idle && !idleReported) {
       idleReported = true;
-      onIdle?.(snapshot.summary);
+      onIdle?.(current().summary);
     }
   };
   const wake = () => {
@@ -148,9 +165,10 @@ export function createUploadQueue({
   };
 
   function pump() {
-    for (const item of items) {
-      if (running.size >= concurrency) return;
-      if (item.status.kind !== "queued") continue;
+    while (running.size < concurrency && cursor < items.length) {
+      const item = items[cursor];
+      cursor++;
+      if (item?.status.kind !== "queued") continue;
       const { id, request } = item;
       update(id, { kind: "uploading", sent: 0 });
       let settled = false;
@@ -203,13 +221,14 @@ export function createUploadQueue({
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    getSnapshot: () => snapshot,
+    getSnapshot: current,
     enqueue(requests: readonly UploadRequest[]) {
       for (const request of requests) {
         const id = nextId++;
         index.set(id, items.length);
         items.push({ id, request, status: { kind: "queued" } });
       }
+      changed = true;
       wake();
     },
     cancel,
@@ -232,11 +251,15 @@ export function createUploadQueue({
       )
         return;
       update(id, { kind: "queued" });
+      if (position !== undefined) requeue(position);
       wake();
     },
     retryFailed() {
-      for (const item of items)
-        if (item.status.kind === "failed") update(item.id, { kind: "queued" });
+      items.forEach((item, position) => {
+        if (item.status.kind !== "failed") return;
+        update(item.id, { kind: "queued" });
+        requeue(position);
+      });
       wake();
     },
     /** Forget finished, failed, and cancelled items. Running and queued uploads stay. */
@@ -247,6 +270,8 @@ export function createUploadQueue({
       );
       index.clear();
       items.forEach((item, position) => index.set(item.id, position));
+      cursor = 0;
+      changed = true;
       schedule(true);
     },
     /** Abort everything without callbacks, for teardown. */
