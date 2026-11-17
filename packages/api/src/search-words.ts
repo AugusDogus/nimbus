@@ -184,15 +184,21 @@ export type BasePostings = {
   readonly keys: readonly string[];
   readonly postingStart: Int32Array;
   readonly postingSlots: Int32Array;
-  /** Key indices of real words (not fragments), by word length. */
-  readonly byLength: ReadonlyMap<number, Int32Array>;
+  /**
+   * Key indices of real words (not fragments) by first letter, and by second
+   * letter, then by length: a typo or abbreviation keeps one of a word's
+   * first two letters in one of those places, so only these are compared.
+   */
+  readonly byFirst: ReadonlyMap<string, ReadonlyMap<number, Int32Array>>;
+  readonly bySecond: ReadonlyMap<string, ReadonlyMap<number, Int32Array>>;
 };
 
 const emptyBase = (): BasePostings => ({
   keys: [],
   postingStart: new Int32Array(new SharedArrayBuffer(4)),
   postingSlots: new Int32Array(new SharedArrayBuffer(0)),
-  byLength: new Map(),
+  byFirst: new Map(),
+  bySecond: new Map(),
 });
 
 /** How a caller's visibility is asked about while choosing corrections. */
@@ -246,10 +252,28 @@ function create() {
     compact(oldSlotId: Int32Array, slotOf: Int32Array) {
       const newSlot = (id: number) =>
         id >= 0 && id < slotOf.length ? (slotOf[id] ?? -1) : -1;
-      const keys = [...new Set([...base.keys, ...delta.keys()])].sort();
+      // Both key lists are sorted: merge them rather than sort the union.
+      const added = [...delta.keys()].sort();
+      const keys: string[] = [];
+      for (let a = 0, b = 0; a < base.keys.length || b < added.length;) {
+        const fromBase = base.keys[a];
+        const fromDelta = added[b];
+        if (
+          fromBase !== undefined &&
+          (fromDelta === undefined || fromBase <= fromDelta)
+        ) {
+          if (fromBase === fromDelta) b++;
+          keys.push(fromBase);
+          a++;
+        } else if (fromDelta !== undefined) {
+          keys.push(fromDelta);
+          b++;
+        }
+      }
       let bound = base.postingSlots.length;
       for (const ids of delta.values()) bound += ids.length;
-      const slots = new Int32Array(bound);
+      // Sized for every posting, live or not; the dead share is small.
+      const slots = new Int32Array(new SharedArrayBuffer(bound * 4));
       const starts = new Int32Array(
         new SharedArrayBuffer((keys.length + 1) * 4),
       );
@@ -272,43 +296,66 @@ function create() {
             if (slot >= 0) merged.push(slot);
           }
         }
-        const added: number[] = [];
+        const fresh: number[] = [];
         for (const id of delta.get(key) ?? []) {
           const slot = newSlot(id);
-          if (slot >= 0) added.push(slot);
+          if (slot >= 0) fresh.push(slot);
         }
-        added.sort((a, b) => a - b);
+        fresh.sort((a, b) => a - b);
         let a = 0;
         let b = 0;
-        while (a < merged.length || b < added.length) {
+        while (a < merged.length || b < fresh.length) {
           const next =
-            b >= added.length ||
-            (a < merged.length && (merged[a] ?? 0) <= (added[b] ?? 0))
+            b >= fresh.length ||
+            (a < merged.length && (merged[a] ?? 0) <= (fresh[b] ?? 0))
               ? merged[a++]
-              : added[b++];
+              : fresh[b++];
           slots[used++] = next ?? 0;
         }
       }
       starts[keys.length] = used;
-      const postingSlots = new Int32Array(new SharedArrayBuffer(used * 4));
-      postingSlots.set(slots.subarray(0, used));
+      const postingSlots = slots.subarray(0, used);
       // Keys whose every name is gone take no part in corrections.
-      const lengths = new Map<number, number[]>();
+      const first = new Map<string, Map<number, number[]>>();
+      const second = new Map<string, Map<number, number[]>>();
+      const file = (
+        buckets: Map<string, Map<number, number[]>>,
+        letter: string,
+        key: string,
+        index: number,
+      ) => {
+        let byLength = buckets.get(letter);
+        if (!byLength)
+          buckets.set(letter, (byLength = new Map<number, number[]>()));
+        let list = byLength.get(key.length);
+        if (!list) byLength.set(key.length, (list = []));
+        list.push(index);
+      };
       for (let index = 0; index < keys.length; index++) {
         const key = keys[index] ?? "";
         if (key.endsWith(FRAGMENT) || starts[index] === starts[index + 1])
           continue;
-        let list = lengths.get(key.length);
-        if (!list) lengths.set(key.length, (list = []));
-        list.push(index);
+        file(first, key[0] ?? "", key, index);
+        file(second, key[1] ?? "", key, index);
       }
+      const freeze = (buckets: Map<string, Map<number, number[]>>) =>
+        new Map(
+          [...buckets].map(([letter, byLength]) => [
+            letter,
+            new Map(
+              [...byLength].map(([length, list]) => [
+                length,
+                Int32Array.from(list),
+              ]),
+            ),
+          ]),
+        );
       base = {
         keys,
         postingStart: starts,
         postingSlots,
-        byLength: new Map(
-          [...lengths].map(([length, list]) => [length, Int32Array.from(list)]),
-        ),
+        byFirst: freeze(first),
+        bySecond: freeze(second),
       };
       delta = new Map();
     },
@@ -346,10 +393,22 @@ function create() {
         const names = visibleCount(word, visible, COUNT_CAP);
         if (names > 0) found.set(word, score(term, word, kind, names));
       };
-      const longest = Math.max(term.length + typos, term.length * 3);
-      for (let length = term.length - typos; length <= longest; length++)
-        for (const index of base.byLength.get(length) ?? [])
-          consider(base.keys[index] ?? "");
+      const letters = [...new Set([term[0] ?? "", term[1] ?? ""])];
+      for (
+        let length = term.length - typos;
+        length <= term.length * 3;
+        length++
+      ) {
+        // Abbreviations keep the first letter; typos one of the first two.
+        const typo = length <= term.length + typos;
+        for (const letter of typo ? letters : [term[0] ?? ""])
+          for (const index of base.byFirst.get(letter)?.get(length) ?? [])
+            consider(base.keys[index] ?? "");
+        if (typo)
+          for (const letter of letters)
+            for (const index of base.bySecond.get(letter)?.get(length) ?? [])
+              consider(base.keys[index] ?? "");
+      }
       for (const key of delta.keys())
         if (!key.endsWith(FRAGMENT)) consider(key);
       return [...found]
