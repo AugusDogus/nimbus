@@ -1,3 +1,5 @@
+import { RequestBody } from "../../request-body";
+
 /** Token, registration and consent bodies are tiny; reading stops once a body passes this. */
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -54,38 +56,15 @@ export const preflight = (methods: string) =>
     },
   });
 
-const tooLarge: Parsed<never> = {
-  ok: false,
-  error: protocolError(
-    413,
-    "invalid_request",
-    "The request body is too large.",
-  ),
-};
-
 /**
  * The request body as text, read until it passes 64 KiB and no further. A chunked body
  * has no Content-Length, so the limit is enforced while streaming, not after buffering.
  */
 export async function readBody(request: Request): Promise<Parsed<string>> {
-  if (Number(request.headers.get("content-length") ?? "0") > MAX_BODY_BYTES)
-    return tooLarge;
-  if (!request.body) return { ok: true, value: "" };
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_BODY_BYTES) {
-        void reader.cancel().catch(() => {});
-        return tooLarge;
-      }
-      chunks.push(value);
-    }
-  } catch {
+  const body = await RequestBody.read(request, MAX_BODY_BYTES).catch(
+    () => null,
+  );
+  if (body === null)
     return {
       ok: false,
       error: protocolError(
@@ -94,8 +73,16 @@ export async function readBody(request: Request): Promise<Parsed<string>> {
         "The request body could not be read.",
       ),
     };
-  }
-  return { ok: true, value: Buffer.concat(chunks).toString("utf8") };
+  if (body.kind === "too_large")
+    return {
+      ok: false,
+      error: protocolError(
+        413,
+        "invalid_request",
+        "The request body is too large.",
+      ),
+    };
+  return { ok: true, value: Buffer.from(body.bytes).toString("utf8") };
 }
 
 const mediaType = (request: Request) =>
