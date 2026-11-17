@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  appendFile,
   copyFile,
   mkdir,
   readFile,
@@ -95,6 +96,41 @@ async function existingFolder(dataRoot: string, absolute: string) {
   }
 }
 
+/**
+ * Drive folders, relative to the data root, that stage their own writes without being mount
+ * points, such as btrfs subvolumes. Mount points are listed by the kernel; these are not, so
+ * each is recorded, one per line, the first time it stages a write.
+ */
+const placesFile = (dataRoot: string) =>
+  path.join(dataRoot, ".nimbus", "staging-places");
+const recordedPlaces = new Map<string, Set<string>>();
+
+async function readPlaces(dataRoot: string) {
+  let places = recordedPlaces.get(dataRoot);
+  if (places) return places;
+  places = new Set();
+  try {
+    for (const line of (await readFile(placesFile(dataRoot), "utf8")).split(
+      "\n",
+    ))
+      if (line) places.add(line);
+  } catch (error) {
+    if (!isFsError(error, "ENOENT")) throw error;
+  }
+  recordedPlaces.set(dataRoot, places);
+  return places;
+}
+
+async function recordPlace(dataRoot: string, top: string) {
+  const relative = path.relative(dataRoot, top);
+  const places = await readPlaces(dataRoot);
+  if (places.has(relative)) return;
+  if (((await mountPoints()) ?? []).includes(await realpath(top))) return;
+  await mkdir(path.dirname(placesFile(dataRoot)), { recursive: true });
+  await appendFile(placesFile(dataRoot), `${relative}\n`);
+  places.add(relative);
+}
+
 /** The staging folder for renames into the folder holding `target`, an absolute drive path. */
 async function directoryFor(dataRoot: string, target: string) {
   const folder = await existingFolder(dataRoot, path.dirname(target));
@@ -109,6 +145,7 @@ async function directoryFor(dataRoot: string, target: string) {
       samePlace(await placeOf(path.dirname(top)), place)
     )
       top = path.dirname(top);
+    if (top !== dataRoot) await recordPlace(dataRoot, top);
   }
   const directory = rootStaging(top);
   await mkdir(directory, { recursive: true });
@@ -146,20 +183,40 @@ async function onFilesystemOf(
 }
 
 /**
- * Every staging folder that may exist: the data root's and one in each folder mounted inside
- * the drive. Staging in a btrfs subvolume that is not a mount point is not listed.
+ * Every staging folder that may exist: the data root's, one in each folder mounted inside the
+ * drive, and one in each other place recorded when it first staged a write.
  */
 async function directories(dataRoot: string) {
   const real = await realpath(dataRoot);
-  const mounted = ((await mountPoints()) ?? []).filter(
-    (point) => point !== real && within(real, point),
+  const mounted = ((await mountPoints()) ?? [])
+    .filter((point) => point !== real && within(real, point))
+    .map((point) => path.join(dataRoot, path.relative(real, point)));
+  const recorded = [...(await readPlaces(dataRoot))].map((relative) =>
+    path.join(dataRoot, relative),
   );
-  return [
-    rootStaging(dataRoot),
-    ...mounted.map((point) =>
-      rootStaging(path.join(dataRoot, path.relative(real, point))),
-    ),
-  ];
+  return [...new Set([dataRoot, ...mounted, ...recorded].map(rootStaging))];
 }
 
-export const Staging = { directoryFor, onFilesystemOf, directories } as const;
+/** Staged paths a copy or other writer in this process is still filling. */
+const held = new Set<string>();
+
+/**
+ * Mark `staged` as in use until the returned function is called, so maintenance leaves it
+ * alone however long the writer takes. Abandoned staging, left by a crash, is never held.
+ */
+function hold(staged: string) {
+  held.add(staged);
+  return () => {
+    held.delete(staged);
+  };
+}
+
+const isHeld = (staged: string) => held.has(staged);
+
+export const Staging = {
+  directoryFor,
+  onFilesystemOf,
+  directories,
+  hold,
+  isHeld,
+} as const;

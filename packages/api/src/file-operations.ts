@@ -305,6 +305,8 @@ export async function copyItem(
   );
   const staging = path.join(stagingDirectory, `${randomUUID()}.copy`);
   const trashId = randomUUID();
+  // However long the copy takes, maintenance must not clean its staging meanwhile.
+  const release = Staging.hold(staging);
   try {
     await stageCopy(access, source, staging, options.depth ?? "infinity");
     return await mutateFiles(
@@ -359,6 +361,7 @@ export async function copyItem(
     );
   } finally {
     await rm(staging, { recursive: true, force: true });
+    release();
   }
 }
 

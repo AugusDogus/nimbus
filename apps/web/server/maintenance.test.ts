@@ -8,11 +8,11 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import type { DriveStore, TrashItem } from "@nimbus/api/drive-store";
 import { createTestFileRequestStore } from "@nimbus/api/file-request-testing";
 import { createTestFileVersionStore } from "@nimbus/api/file-versions-testing";
+import { Staging } from "@nimbus/api/staging";
 import { cleanExpiredData } from "./maintenance";
 
 const day = 24 * 60 * 60 * 1000;
@@ -37,7 +37,7 @@ const store: Pick<
 };
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "nimbus-retention-"));
+  root = await mkdtemp("/var/tmp/nimbus-retention-");
   trash = [];
 });
 afterEach(async () => {
@@ -115,4 +115,45 @@ test("retention cleans thumbnails in config while keeping uploads under data", a
   expect(await readdir(thumbnails)).toEqual([]);
   expect(await readdir(path.join(root, ".nimbus/uploads"))).toEqual(["recent"]);
   expect(await readdir(config)).toContain("db.sqlite");
+});
+
+test("retention removes abandoned copy staging folders but not one a copy is filling", async () => {
+  const staging = path.join(root, ".nimbus/uploads");
+  const old = new Date(now - 2 * day);
+  for (const name of ["abandoned.copy", "filling.copy"]) {
+    await mkdir(path.join(staging, name, "inner"), { recursive: true });
+    await writeFile(path.join(staging, name, "inner/file.txt"), "copied");
+    await utimes(path.join(staging, name), old, old);
+  }
+  const release = Staging.hold(path.join(staging, "filling.copy"));
+  try {
+    await cleanExpiredData(store, root, now, path.join(root, "config"));
+  } finally {
+    release();
+  }
+  expect(await readdir(staging)).toEqual(["filling.copy"]);
+});
+
+test("retention cleans staging inside a btrfs subvolume that is not a mount point", async () => {
+  const subvolume = path.join(root, "subvolume");
+  const created = Bun.spawnSync(["btrfs", "subvolume", "create", subvolume], {
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  // Only where the data root is on btrfs and the btrfs tool is installed.
+  if (created.exitCode !== 0) return;
+  try {
+    const staging = await Staging.directoryFor(
+      root,
+      path.join(subvolume, "file.txt"),
+    );
+    expect(staging).toBe(path.join(subvolume, ".nimbus/uploads"));
+    const abandoned = path.join(staging, "abandoned.staged");
+    await writeFile(abandoned, "left by a crash");
+    await utimes(abandoned, new Date(now - 2 * day), new Date(now - 2 * day));
+    await cleanExpiredData(store, root, now, path.join(root, "config"));
+    expect(await readdir(staging)).toEqual([]);
+  } finally {
+    await rm(path.join(subvolume, ".nimbus"), { recursive: true, force: true });
+  }
 });

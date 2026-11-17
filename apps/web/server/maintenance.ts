@@ -25,6 +25,13 @@ async function cleanFiles(
     throw error;
   }
   for (const entry of entries) {
+    if (groupUploads && entry.isDirectory() && entry.name.endsWith(".copy")) {
+      // A folder copy's staging tree, left behind if Nimbus stopped while copying.
+      const folder = path.join(directory, entry.name);
+      if (!Staging.isHeld(folder) && (await lstat(folder)).mtimeMs < cutoff)
+        await rm(folder, { recursive: true, force: true });
+      continue;
+    }
     if (!entry.isFile()) continue;
     const key = groupUploads
       ? entry.name.replace(/\.(json|done(?:\.tmp)?)$/, "")
