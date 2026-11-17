@@ -93,7 +93,9 @@ export function createNimbusAuth({
     const pending = pendingGroups.get(key);
     pendingGroups.delete(key);
     if (!pending || pending.expires < Date.now()) return;
-    // The provider is the source of truth for membership in groups it names.
+    // The provider is the source of truth for all of this person's group memberships:
+    // groups it names are joined and every other membership is removed, so access ends
+    // when the provider drops someone from a group. Groups are never created here.
     const matched = pending.groups.length
       ? await db
           .select({ id: groups.id })

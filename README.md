@@ -233,7 +233,7 @@ Nimbus does not send email verification messages. Registration is closed, so eve
 
 Nimbus can sign people in through one OpenID Connect provider such as Authentik, Keycloak, Authelia, or Microsoft Entra ID. Registration stays closed: a provider identity signs in to the Nimbus account with the same email address, and only when the provider marks that address as verified. Other identities are refused with a message to ask an administrator. Set `NIMBUS_OIDC_AUTO_PROVISION=true` to create member accounts for them instead; new accounts start with only their own home folder. The administrator account must exist before single sign-on can provision accounts. Two-factor authentication applies to password sign-in; enforce multi-factor sign-in for single sign-on at your provider.
 
-With `NIMBUS_OIDC_GROUPS_CLAIM` set, every single sign-on sign-in makes the provider the source of truth for that person's membership in Nimbus groups whose names match the claim exactly. Matching memberships are added and other memberships of that person are removed. Groups are never created automatically. The claim must be in the ID token; request the matching scope from your provider if needed.
+With `NIMBUS_OIDC_GROUPS_CLAIM` set, every single sign-on sign-in makes the provider the source of truth for all of that person's Nimbus group memberships. They join the Nimbus groups whose names match the claim exactly and leave every other group, including groups an administrator added them to. Groups are never created automatically. The claim must be in the ID token; request the matching scope from your provider if needed.
 
 ### Rate limits
 
