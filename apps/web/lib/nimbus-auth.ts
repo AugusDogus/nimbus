@@ -161,6 +161,16 @@ export function createNimbusAuth({
       provider: "sqlite",
     }),
     trustedOrigins,
+    // Nimbus has no UI for these. Two take session tokens, which never reach the browser
+    // (Nimbus revokes sessions by ID), and the rest link, unlink or hand out provider tokens.
+    disabledPaths: [
+      "/link-social",
+      "/unlink-account",
+      "/revoke-session",
+      "/admin/revoke-user-session",
+      "/get-access-token",
+      "/refresh-token",
+    ],
     advanced: {
       // The custom server derives this header from the socket and NIMBUS_TRUSTED_PROXIES.
       ipAddress: { ipAddressHeaders: [clientIpHeader] },

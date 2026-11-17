@@ -203,3 +203,50 @@ describe("audit labels", () => {
     ]);
   });
 });
+
+describe("account endpoints", () => {
+  test("endpoints Nimbus does not use, which need session tokens or move provider tokens, are off", async () => {
+    const admin = await t.createUser("first@example.test");
+    for (const endpoint of [
+      "/link-social",
+      "/unlink-account",
+      "/revoke-session",
+      "/admin/revoke-user-session",
+      "/get-access-token",
+      "/refresh-token",
+    ]) {
+      const response = await t.request("POST", endpoint, {
+        cookie: admin.cookie,
+        body: {},
+      });
+      expect({ endpoint, status: response.status }).toEqual({
+        endpoint,
+        status: 404,
+      });
+    }
+  });
+
+  test("a role change through update-user is audited as a role change", async () => {
+    const admin = await t.createUser("first@example.test");
+    const member = await t.createUser("member@example.test", {
+      as: admin.cookie,
+    });
+    const response = await t.request("POST", "/admin/update-user", {
+      cookie: admin.cookie,
+      body: { userId: member.id, data: { role: "admin" } },
+    });
+    expect(response.status).toBe(200);
+    const events = await t.auditEvents();
+    expect(
+      events.find(
+        (event) =>
+          event.action === "account.role_changed" &&
+          event.target?.id === member.id,
+      ),
+    ).toMatchObject({
+      actor: { type: "user", id: admin.id },
+      target: { label: "member@example.test" },
+      details: { role: "admin" },
+    });
+  });
+});

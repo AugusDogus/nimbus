@@ -15,6 +15,12 @@ const body = z
     email: z.string().max(320).optional(),
     userId: z.string().max(200).optional(),
     role: z.union([z.string(), z.array(z.string())]).optional(),
+    data: z
+      .object({
+        role: z.union([z.string(), z.array(z.string())]).optional(),
+      })
+      .loose()
+      .optional(),
   })
   .loose();
 const userShape = z.object({ id: z.string(), email: z.string() });
@@ -118,11 +124,17 @@ export const nimbusAudit = () =>
               recordAudit({ action: "auth.password_reset_requested", actor });
               return;
             }
-            const action = actions[path];
+            const role = input.success
+              ? (input.data.role ?? input.data.data?.role)
+              : undefined;
+            // update-user can change the role too; record it as the role change it is.
+            const action =
+              path === "/admin/update-user" && role !== undefined
+                ? "account.role_changed"
+                : actions[path];
             if (!action || failed) return;
             const details: AuditDetails = {};
-            if (input.success && input.data.role !== undefined)
-              details.role = [input.data.role].flat().join(",");
+            if (role !== undefined) details.role = [role].flat().join(",");
             const userId = input.success ? input.data.userId : undefined;
             const createdUser = z
               .object({ user: userShape })
