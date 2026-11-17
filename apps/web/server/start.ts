@@ -26,7 +26,8 @@ import { PageSkeleton } from "./page-skeleton";
 import { PublicPages } from "./public-pages";
 import { backups, backupsToKeep } from "./backup";
 import { readMcpConfig } from "./mcp/config";
-import { getConfigRoot } from "./storage-paths";
+import { getConfigRoot, requireDataRoot } from "./storage-paths";
+import { ensureFileWatcher } from "./file-watcher";
 
 const port = Number(process.env.PORT ?? "3000");
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -62,6 +63,7 @@ const securityMode = {
 };
 const commonHeaders = SecurityHeaders.common(securityMode);
 backupsToKeep();
+requireDataRoot();
 DatabaseFiles.requireWritable(client, databasePath);
 await upgradeDatabase(client, async () =>
   path.join(getConfigRoot(), "backups", (await backups().run()).name),
@@ -83,6 +85,8 @@ if (homesContainer.created)
 for (const home of await Homes.backfill(store))
   if (home.kind === "failed") console.error(home.message);
   else console.info(`Nimbus created the home folder ${home.path}.`);
+// Live updates and search follow the data root from here on, now that it is known to exist.
+ensureFileWatcher();
 const shell = await AppShell.start(securityMode);
 const routes = HttpRoutes.create({ shell, mode: securityMode });
 // Aborted at shutdown, which ends live event streams so the server can drain.

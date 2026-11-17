@@ -53,3 +53,11 @@ test("an invalid NIMBUS_HOMES_PATH stops startup with a message naming it", asyn
   expect(code).not.toBe(0);
   expect(stderr).toContain("NIMBUS_HOMES_PATH must be");
 });
+
+test("a missing data root stops startup with a message naming it", async () => {
+  const missing = path.join(workspace, "missing");
+  const { code, stderr } = await start({ NIMBUS_DATA_ROOT: missing });
+  expect(code).not.toBe(0);
+  expect(stderr).toContain(`NIMBUS_DATA_ROOT is ${missing}`);
+  expect(stderr).not.toContain("no such file or directory");
+});

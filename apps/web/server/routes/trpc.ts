@@ -5,11 +5,8 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { createContext } from "@nimbus/api/context";
 
 import { auth } from "@/lib/auth";
-import { ensureFileWatcher } from "@/server/file-watcher";
 import { preferencesStore } from "@/server/preferences";
 import { webRouter } from "@/server/web-router";
-
-ensureFileWatcher();
 
 // The server does not compress responses on its own. A 50,000-entry listing, sent as columns,
 // shrinks from 2 MB to 141 KB. Level 3 measured both smaller and about three times faster than

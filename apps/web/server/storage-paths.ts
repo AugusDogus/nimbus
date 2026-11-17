@@ -1,4 +1,10 @@
-import { existsSync, realpathSync } from "node:fs";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import path from "node:path";
 import { getDataRoot } from "@nimbus/api/data-root";
 
@@ -37,6 +43,41 @@ function checkConfigRoot(dataRoot: string, root: string) {
     throw new Error(
       `NIMBUS_CONFIG_ROOT (${root}) is the filesystem root or contains the data root (${dataRoot}). Point it at a separate directory used only by Nimbus, such as /config. Nothing was changed.`,
     );
+}
+
+/**
+ * Stop startup unless the data root is a folder Nimbus can write to. Checked before anything
+ * reads or watches it, so a missing volume or a mistyped path is named instead of surfacing as
+ * a raw ENOENT from whichever part touches it first.
+ */
+export function requireDataRoot(root = getDataRoot()) {
+  const fix =
+    "Create the folder or mount the volume there, make it writable by the user Nimbus runs as, then restart. No files or settings were changed.";
+  let isDirectory: boolean;
+  try {
+    isDirectory = statSync(root).isDirectory();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    )
+      throw new Error(
+        `Nimbus did not start because its data root does not exist. NIMBUS_DATA_ROOT is ${root}. ${fix}`,
+      );
+    throw error;
+  }
+  if (!isDirectory)
+    throw new Error(
+      `Nimbus did not start because its data root is not a folder. NIMBUS_DATA_ROOT is ${root}. ${fix}`,
+    );
+  try {
+    accessSync(root, constants.W_OK);
+  } catch {
+    throw new Error(
+      `Nimbus did not start because it cannot write to its data root. NIMBUS_DATA_ROOT is ${root}. ${fix}`,
+    );
+  }
 }
 
 /**
