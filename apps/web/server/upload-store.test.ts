@@ -62,6 +62,13 @@ test("retry recovers an interrupted publication without creating another file", 
   expect((await readdir(root)).sort()).toEqual([".nimbus", "uploaded.txt"]);
 });
 
+test("a finished upload remembers where it was published", async () => {
+  await writeFile(path.join(store.directory, "upload"), "bytes");
+  expect(await store.publishedTo("upload")).toBeNull();
+  await store.publish("upload", destination);
+  expect(await store.publishedTo("upload")).toBe(destination);
+});
+
 test("failed completion marker remains retryable", async () => {
   await writeFile(path.join(store.directory, "upload"), "original bytes");
   const temporary = path.join(store.directory, "upload.done.tmp");

@@ -40,7 +40,8 @@ export type PublishConflict =
 
 export type PublishResult =
   | { kind: "published"; path: string; replaced: boolean }
-  | { kind: "already-published" };
+  /** Published by an earlier attempt, at `path` when its marker names a place in the drive. */
+  | { kind: "already-published"; path: string | null };
 
 /**
  * Put a staged upload at `destination`, replacing the file there. This is the
@@ -103,7 +104,17 @@ export async function publishUpload({
       code: "BAD_REQUEST",
       message: "Upload destination must be a folder.",
     });
-  if (await store.isFinished(uploadId)) return { kind: "already-published" };
+  const published = await store.publishedTo(uploadId);
+  if (published !== null) {
+    const relative = path.relative(getDataRoot(), published);
+    return {
+      kind: "already-published",
+      path:
+        relative && !relative.startsWith("..") && !path.isAbsolute(relative)
+          ? relative.split(path.sep).join("/")
+          : null,
+    };
+  }
   for (let index = 0; ; index++) {
     const destination = await safePath(
       [folder, numberedName(filename, index, true)].filter(Boolean).join("/"),

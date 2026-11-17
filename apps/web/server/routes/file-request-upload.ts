@@ -92,12 +92,13 @@ async function getServer() {
                   });
               },
             });
-            if (result.kind === "published")
-              await httpDriveStore.fileRequests.finishUpload(
-                id,
-                result.path,
-                Date.now(),
-              );
+            // Also after a crash between publishing and recording it, so the ledger always
+            // counts a published file. Recording a finished upload again changes nothing.
+            await httpDriveStore.fileRequests.finishUpload(
+              id,
+              result.path ?? fileNameSchema.parse(filename),
+              Date.now(),
+            );
             return { kind: "published" };
           },
           { within: [folder] },

@@ -27,6 +27,16 @@ export class UploadStore extends FileStore {
     }
   }
 
+  /** Where a finished upload was published, as its marker recorded, or null if unfinished. */
+  async publishedTo(id: string) {
+    try {
+      return await readFile(path.join(this.directory, `${id}.done`), "utf8");
+    } catch (error) {
+      if (isFsError(error, "ENOENT")) return null;
+      throw error;
+    }
+  }
+
   override async getUpload(id: string) {
     const upload = await super.getUpload(id);
     // Published files may be edited by other programs. Keep the tus offset fixed
