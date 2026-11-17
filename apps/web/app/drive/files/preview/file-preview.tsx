@@ -174,6 +174,7 @@ function TextPreview({
               text,
               size,
               truncated: false,
+              encoding: "utf-8",
               etag,
             })
           }
@@ -205,7 +206,10 @@ function TextPreview({
       </Unavailable>
     );
   const editBase =
-    editPath !== undefined && !data.truncated && data.etag !== null
+    editPath !== undefined &&
+    !data.truncated &&
+    data.encoding === "utf-8" &&
+    data.etag !== null
       ? { text: data.text, etag: data.etag }
       : null;
   const view =
@@ -231,6 +235,12 @@ function TextPreview({
           <p className="text-pretty">
             Showing the first {TEXT_LIMIT / 1024 / 1024} MB. Download the file
             to see all of it.
+          </p>
+        )}
+        {data.encoding === "other" && (
+          <p className="text-pretty">
+            This file is not UTF-8 text, so some characters show as �. It can’t
+            be edited here, because saving would change those characters.
           </p>
         )}
         <div className="ml-auto flex gap-2">

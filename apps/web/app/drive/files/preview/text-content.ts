@@ -7,6 +7,11 @@ export type TextContent =
       size: number;
       /** True when only the first `TEXT_LIMIT` bytes were loaded. */
       truncated: boolean;
+      /**
+       * `other` when the bytes are not valid UTF-8. The text then shows replacement
+       * characters, and saving it would replace the original bytes, so it is read-only.
+       */
+      encoding: "utf-8" | "other";
       etag: string | null;
     }
   | { type: "binary"; size: number };
@@ -33,7 +38,14 @@ export const TextContent = {
       response.status === 416 &&
       response.headers.get("content-range") === "bytes */0"
     )
-      return { type: "text", text: "", size: 0, truncated: false, etag };
+      return {
+        type: "text",
+        text: "",
+        size: 0,
+        truncated: false,
+        encoding: "utf-8",
+        etag,
+      };
     if (!response.ok)
       throw new Error(
         response.status === 404
@@ -44,8 +56,30 @@ export const TextContent = {
     const size = totalSize(response, bytes.byteLength);
     if (looksBinary(bytes)) return { type: "binary", size };
     const truncated = size > bytes.byteLength;
-    // Streaming mode holds back a multi-byte character cut by the range.
-    const text = new TextDecoder().decode(bytes, { stream: truncated });
-    return { type: "text", text, size, truncated, etag };
+    const decode = (fatal: boolean) =>
+      // Streaming mode holds back a multi-byte character cut by the range. A byte order mark
+      // stays in the text, so saving writes it back.
+      new TextDecoder("utf-8", { fatal, ignoreBOM: true }).decode(bytes, {
+        stream: truncated,
+      });
+    try {
+      return {
+        type: "text",
+        text: decode(true),
+        size,
+        truncated,
+        encoding: "utf-8",
+        etag,
+      };
+    } catch {
+      return {
+        type: "text",
+        text: decode(false),
+        size,
+        truncated,
+        encoding: "other",
+        etag,
+      };
+    }
   },
 } as const;

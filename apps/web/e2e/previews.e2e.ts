@@ -190,6 +190,23 @@ test("keeps an edit tied to the version it started from after the tab regains fo
   expect(await readFile(file, "utf8")).toBe("newest");
 });
 
+test("shows text that is not UTF-8 as read-only", async ({ page, context }) => {
+  const folder = `editing-latin1-${randomUUID()}`;
+  await (await client(context)).files.createFolder.mutate({ name: folder });
+  const bytes = Buffer.from([0x63, 0x61, 0x66, 0xe9]);
+  await writeFile(path.join(await dataRoot(), folder, "legacy.txt"), bytes);
+  await page.goto(`/browse/${folder}`);
+  await page
+    .locator('[data-entry-name="legacy.txt"]')
+    .filter({ visible: true })
+    .click();
+  const preview = page.getByRole("dialog", { name: "legacy.txt", exact: true });
+  await expect(preview.getByText("This file is not UTF-8 text")).toBeVisible();
+  await expect(
+    preview.getByRole("button", { name: "Edit", exact: true }),
+  ).toHaveCount(0);
+});
+
 test("keeps text typed while a save is in flight", async ({
   page,
   context,
