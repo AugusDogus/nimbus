@@ -39,7 +39,7 @@ describe("signed-in tus uploads", () => {
     const memory = createTestDriveStore();
     server = createUploadServer({
       store: new UploadStore({ directory: path.join(root, ".nimbus/uploads") }),
-      versions: memory.store.versions,
+      drive: memory.store,
       access: () => getAccess(memory.store, "user-1"),
       fail: (error) => ({
         status_code: isApiError(error, "NOT_FOUND") ? 404 : 500,

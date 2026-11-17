@@ -53,7 +53,7 @@ export const versionsRouter = router({
           access.require(target.relative, "write");
           await requireFile(target.relative);
           const result = await FileVersions.restore({
-            store: ctx.drive.versions,
+            drive: ctx.drive,
             dataRoot: getDataRoot(),
             path: target.relative,
             id: input.id,

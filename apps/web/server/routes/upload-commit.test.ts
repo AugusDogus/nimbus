@@ -37,7 +37,7 @@ describe("committing finished uploads", () => {
   ) =>
     commitUpload(
       store,
-      memory.store.versions,
+      memory.store,
       await stage(body),
       UploadMetadata.parse({ targetPath: "docs", owner: userId, ...metadata }),
       () => getAccess(memory.store, userId),

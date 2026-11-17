@@ -105,7 +105,7 @@ else
         await writeFile(path.join(store.directory, id), body);
         return commitUpload(
           store,
-          memory.store.versions,
+          memory.store,
           id,
           UploadMetadata.parse({
             targetPath: folder,
@@ -156,7 +156,7 @@ else
             return await commitStagedFile(
               {
                 userId: "user-1",
-                versions: memory.store.versions,
+                drive: memory.store,
                 authorize: () => getAccess(memory.store, "user-1"),
               },
               relative,

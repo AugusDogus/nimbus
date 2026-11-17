@@ -289,6 +289,10 @@ export function createTestDriveStore() {
     async discardPath(path) {
       take(path);
     },
+    async claimVacant(path) {
+      take(path);
+      await versions.removeAt(path);
+    },
     async movePath(from, to) {
       take(to);
       versions.relocate(from, to);

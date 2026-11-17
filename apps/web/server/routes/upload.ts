@@ -10,7 +10,7 @@ async function getServer() {
   if (server) return server;
   server = createUploadServer({
     store: await uploadStaging(),
-    versions: httpDriveStore.versions,
+    drive: httpDriveStore,
     access: requestAccess,
     fail: tusFailure,
   });

@@ -1,7 +1,7 @@
 import { Server } from "@tus/server";
 import { TRPCError } from "@trpc/server";
 import type { Access } from "@nimbus/api/access";
-import type { FileVersionStore } from "@nimbus/api/file-versions";
+import type { ContentDrive } from "@nimbus/api/file-versions";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { createUploadFinisher } from "@/server/upload-publish";
 import type { UploadStore } from "@/server/upload-store";
@@ -22,13 +22,13 @@ export type TusFailure = { status_code: number; body: string };
  */
 export function createUploadServer({
   store,
-  versions,
+  drive,
   access,
   fail,
 }: {
   store: UploadStore;
-  /** Keeps the previous content when an upload replaces a file. */
-  versions: FileVersionStore;
+  /** Keeps the previous content when an upload replaces a file, and claims new paths. */
+  drive: ContentDrive;
   access: (request: Request) => Promise<Access>;
   fail: (error: unknown) => TusFailure;
 }) {
@@ -46,9 +46,7 @@ export function createUploadServer({
           message:
             "This upload's stored details are invalid. Start a new upload.",
         });
-      await commitUpload(store, versions, id, parsed.data, () =>
-        access(request),
-      );
+      await commitUpload(store, drive, id, parsed.data, () => access(request));
     });
 
   return new Server({

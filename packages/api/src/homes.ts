@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import type { DriveStore, DriveUser, SharedPaths } from "./drive-store";
 import { fileNameSchema } from "./file-name";
 import { mutateFiles } from "./file-mutations";
+import { VacantPath } from "./vacant-path";
 import {
   isFsError,
   isWithinPath,
@@ -231,6 +232,9 @@ function provisionUnlocked(
         const name = attempt === 1 ? base : `${base}-${attempt}`;
         if (taken.has(name)) continue;
         const target = await resolveSafePath(`${container}/${name}`);
+        // Records left by content removed outside Nimbus never attach to the new home.
+        if ((await VacantPath.claim(store, target)).kind === "occupied")
+          continue;
         try {
           await mkdir(target.absolute);
           created = target.relative;

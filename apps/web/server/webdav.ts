@@ -36,9 +36,9 @@ import {
   trashItem,
 } from "@nimbus/api/file-operations";
 import { FilesystemCapacity } from "@nimbus/api/filesystem-capacity";
-import { FileVersions } from "@nimbus/api/file-versions";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
 import { anonymousActor, recordAudit } from "@nimbus/api/audit";
+import { VacantPath } from "@nimbus/api/vacant-path";
 import { ClientIp } from "./client-ip";
 import { serveFile } from "./file-response";
 import { httpDriveStore, httpError } from "./http-files";
@@ -445,13 +445,9 @@ async function lock(
         // Locking an unmapped URL creates an empty file (RFC 4918, section 7.3).
         requireMutable(target);
         requireUnlocked([target], credentials);
+        // Records left by content removed outside Nimbus never attach to the new file.
+        await VacantPath.claim(httpDriveStore, destination);
         await writeFile(destination.absolute, "", { flag: "wx" });
-        // History left by a file removed outside Nimbus never attaches to a new one.
-        await FileVersions.discard(
-          httpDriveStore.versions,
-          getDataRoot(),
-          destination.relative,
-        );
         created = true;
         publishFileEvent({
           path: destination.absolute,
@@ -515,7 +511,7 @@ async function putFile(
     const outcome = await commitStagedFile(
       {
         ...credentials,
-        versions: httpDriveStore.versions,
+        drive: httpDriveStore,
         authorize: () => authenticate(request),
       },
       requested,
@@ -656,11 +652,18 @@ async function mutation(
     return await mutateFiles([target], credentials, async () => {
       (await authenticate(request)).require(target, "write");
       const destination = await safePath(target);
+      const taken = () =>
+        textResponse(405, "An item with this name already exists.");
+      // Records left by content removed outside Nimbus never attach to the new folder.
+      if (
+        (await VacantPath.claim(httpDriveStore, destination)).kind ===
+        "occupied"
+      )
+        return taken();
       try {
         await mkdir(destination.absolute);
       } catch (error) {
-        if (isFsError(error, "EEXIST"))
-          return textResponse(405, "An item with this name already exists.");
+        if (isFsError(error, "EEXIST")) return taken();
         throw error;
       }
       publishFileEvent({

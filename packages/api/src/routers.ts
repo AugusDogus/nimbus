@@ -33,6 +33,7 @@ import { versionsRouter } from "./versions-router";
 import { catalogRouter } from "./catalog-router";
 import { FilesystemCapacity } from "./filesystem-capacity";
 import { driveUsage } from "./search-service";
+import { VacantPath } from "./vacant-path";
 
 import {
   publishFileEvent,
@@ -220,15 +221,19 @@ export const appRouter = router({
                 code: "BAD_REQUEST",
                 message: "Choose a folder as the destination.",
               });
+            const taken = () =>
+              new TRPCError({
+                code: "CONFLICT",
+                message:
+                  "An item with that name already exists. Choose another name.",
+              });
+            // Records left by content removed outside Nimbus never attach to the folder.
+            if ((await VacantPath.claim(ctx.drive, target)).kind === "occupied")
+              throw taken();
             try {
               await mkdir(target.absolute);
             } catch (error) {
-              if (isFsError(error, "EEXIST"))
-                throw new TRPCError({
-                  code: "CONFLICT",
-                  message:
-                    "An item with that name already exists. Choose another name.",
-                });
+              if (isFsError(error, "EEXIST")) throw taken();
               throw error;
             }
             publishFileEvent({

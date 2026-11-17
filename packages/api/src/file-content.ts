@@ -7,7 +7,7 @@ import { getDataRoot } from "./data-root";
 import { entryAt, type FileEntry } from "./file-browser";
 import { publishFileEvent } from "./file-events";
 import { mutateFiles } from "./file-mutations";
-import { FileVersions, type FileVersionStore } from "./file-versions";
+import { FileVersions, type ContentDrive } from "./file-versions";
 import { requireExisting, safePath } from "./file-operations";
 import { isApiError } from "./safe-path";
 import { Staging } from "./staging";
@@ -163,8 +163,8 @@ export async function commitStagedFile(
     userId: string;
     lockTokens?: readonly string[];
     authorize: () => Promise<Access>;
-    /** Keeps the replaced content as a version. */
-    versions: FileVersionStore;
+    /** Keeps the replaced content as a version, and claims the path for a new file. */
+    drive: ContentDrive;
   },
   requested: string,
   staged: StagedFile,
@@ -203,7 +203,7 @@ export async function commitStagedFile(
       try {
         // The single commit point for staged content: a replaced file's content is kept as a version.
         await FileVersions.commitReplacement({
-          store: credentials.versions,
+          drive: credentials.drive,
           dataRoot: getDataRoot(),
           path: target.relative,
           incoming: incoming.path,

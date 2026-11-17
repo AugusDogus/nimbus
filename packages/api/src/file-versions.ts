@@ -10,7 +10,9 @@ import {
   rm,
 } from "node:fs/promises";
 import path from "node:path";
+import type { DriveStore } from "./drive-store";
 import { isFsError } from "./safe-path";
+import { VacantPath } from "./vacant-path";
 
 /**
  * File versioning.
@@ -166,6 +168,9 @@ async function discard(
   await removePayloads(dataRoot, await store.removeAt(location));
 }
 
+/** What committing content needs from the drive store: version records, and claims of vacant paths. */
+export type ContentDrive = Pick<DriveStore, "versions" | "claimVacant">;
+
 export type ReplacementResult =
   | { kind: "created" }
   /** `version` is null when the previous content was empty and not worth keeping. */
@@ -184,26 +189,35 @@ export type ReplacementResult =
  * preserving fails, nothing is replaced and `incoming` is left where it was.
  */
 async function commitReplacement({
-  store,
+  drive,
   dataRoot,
   path: relative,
   incoming,
   archivedBy,
   now = Date.now(),
 }: {
-  store: FileVersionStore;
+  /** Version records, and the claim of a vacant path when the file is new. */
+  drive: ContentDrive;
   dataRoot: string;
   path: string;
   incoming: string;
   archivedBy: string | null;
   now?: number;
 }): Promise<ReplacementResult> {
+  const store = drive.versions;
   const target = path.join(dataRoot, relative);
   const previous = await fileStats(target);
   if (!previous) {
+    // Records left by content removed outside Nimbus never attach to a new file.
+    const claim = await VacantPath.claim(drive, {
+      absolute: target,
+      relative,
+    });
+    if (claim.kind === "occupied")
+      throw new Error(
+        `${target} is not a regular file, so Nimbus did not replace it. Callers refuse folders and special files before committing; nothing was changed and the new content is still staged.`,
+      );
     await rename(incoming, target);
-    // History left by a file removed outside Nimbus never attaches to a new one.
-    await discard(store, dataRoot, relative);
     return { kind: "created" };
   }
   if (previous.size === BigInt(0)) {
@@ -261,19 +275,19 @@ async function find(store: FileVersionStore, relative: string, id: string) {
  * version. The restored version stays in history.
  */
 async function restore({
-  store,
+  drive,
   dataRoot,
   path: relative,
   id,
   archivedBy,
 }: {
-  store: FileVersionStore;
+  drive: ContentDrive;
   dataRoot: string;
   path: string;
   id: string;
   archivedBy: string | null;
 }) {
-  const found = await find(store, relative, id);
+  const found = await find(drive.versions, relative, id);
   if (!found) return { kind: "not-found" } as const;
   const staging = path.join(dataRoot, ".nimbus", "uploads");
   await mkdir(staging, { recursive: true });
@@ -286,7 +300,7 @@ async function restore({
       constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
     );
     return await commitReplacement({
-      store,
+      drive,
       dataRoot,
       path: relative,
       incoming,

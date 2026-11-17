@@ -34,7 +34,7 @@ describe("file content", () => {
         {
           userId: id,
           authorize: () => access(id),
-          versions: memory.store.versions,
+          drive: memory.store,
         },
         requested,
         staged,

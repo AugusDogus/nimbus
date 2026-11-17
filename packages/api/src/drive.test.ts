@@ -214,7 +214,7 @@ describe("drive workflows", () => {
       await caller().fileRequests.revoke({ id: request.id });
       await writeFile(path.join(root, "incoming.txt"), "second draft");
       await FileVersions.commitReplacement({
-        store: memory.store.versions,
+        drive: memory.store,
         dataRoot: root,
         path: "docs/report.txt",
         incoming: path.join(root, "incoming.txt"),

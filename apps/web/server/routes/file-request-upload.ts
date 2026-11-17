@@ -79,7 +79,7 @@ async function getServer() {
               return { kind: "moved", to: current.path };
             const result = await publishUpload({
               store,
-              versions: httpDriveStore.versions,
+              drive: httpDriveStore,
               uploadId: id,
               filename: fileNameSchema.parse(filename),
               folder: current.path,

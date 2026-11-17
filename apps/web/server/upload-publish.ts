@@ -7,11 +7,12 @@ import {
   requireUnlocked,
   type MutationCredentials,
 } from "@nimbus/api/file-mutations";
-import { FileVersions, type FileVersionStore } from "@nimbus/api/file-versions";
+import { FileVersions, type ContentDrive } from "@nimbus/api/file-versions";
 import type { FileRequestStore } from "@nimbus/api/file-request";
 import { numberedName } from "@nimbus/api/numbered-name";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
+import { VacantPath } from "@nimbus/api/vacant-path";
 import { UploadStore } from "./upload-store";
 
 /** Staged tus uploads expire, with their reservations, after this long. */
@@ -92,14 +93,14 @@ export async function recordPublishedUpload(
  */
 async function replaceWithUpload(
   store: UploadStore,
-  versions: FileVersionStore,
+  drive: ContentDrive,
   uploadId: string,
   destination: { absolute: string; relative: string },
   conflict: Extract<PublishConflict, { kind: "replace" }>,
 ) {
   await store.replace(uploadId, destination.absolute, (incoming) =>
     FileVersions.commitReplacement({
-      store: versions,
+      drive,
       dataRoot: getDataRoot(),
       path: destination.relative,
       incoming,
@@ -121,7 +122,7 @@ async function replaceWithUpload(
  */
 export async function publishUpload({
   store,
-  versions,
+  drive,
   uploadId,
   filename,
   folder,
@@ -130,7 +131,8 @@ export async function publishUpload({
   requireWrite,
 }: {
   store: UploadStore;
-  versions: FileVersionStore;
+  /** Keeps a replaced file's content as a version, and claims new paths. */
+  drive: ContentDrive;
   uploadId: string;
   filename: string;
   folder: string;
@@ -167,12 +169,16 @@ export async function publishUpload({
           code: "CONFLICT",
           message: `A folder named “${filename}” already exists here. Uploads cannot replace folders; rename the file or keep both.`,
         });
-      await replaceWithUpload(store, versions, uploadId, destination, conflict);
+      await replaceWithUpload(store, drive, uploadId, destination, conflict);
       return { kind: "published", path: destination.relative, replaced: true };
     }
-    if (
-      existing &&
-      !(await store.isPublishedAt(uploadId, destination.absolute))
+    if (existing) {
+      // Taken, unless an earlier attempt published this upload there before failing.
+      if (!(await store.isPublishedAt(uploadId, destination.absolute)))
+        continue;
+    } else if (
+      // Records left by content removed outside Nimbus never attach to the new file.
+      (await VacantPath.claim(drive, destination)).kind === "occupied"
     )
       continue;
     try {
@@ -181,8 +187,6 @@ export async function publishUpload({
       if (isFsError(error, "EEXIST")) continue;
       throw error;
     }
-    // History left by a file removed outside Nimbus never attaches to a new one.
-    await FileVersions.discard(versions, getDataRoot(), destination.relative);
     publishFileEvent({
       path: destination.absolute,
       event: "rename",

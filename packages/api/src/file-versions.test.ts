@@ -19,6 +19,13 @@ let root: string;
 let store: ReturnType<typeof createTestFileVersionStore>;
 let clock = 1_000;
 const at = (relative: string) => path.join(root, relative);
+/** The version store, plus claims of vacant paths as the drive store makes them. */
+const drive = () => ({
+  versions: store,
+  claimVacant: async (relative: string) => {
+    await store.removeAt(relative);
+  },
+});
 const staged = async (content: string) => {
   const file = path.join(root, ".nimbus", "uploads", `${clock}.tmp`);
   await mkdir(path.dirname(file), { recursive: true });
@@ -27,7 +34,7 @@ const staged = async (content: string) => {
 };
 const save = async (relative: string, content: string) =>
   FileVersions.commitReplacement({
-    store,
+    drive: drive(),
     dataRoot: root,
     path: relative,
     incoming: await staged(content),
@@ -121,7 +128,7 @@ test("restoring a version keeps the current content as a new version", async () 
   const [first] = await FileVersions.history(store, "report.txt");
   if (!first) throw new Error("Expected a version.");
   const result = await FileVersions.restore({
-    store,
+    drive: drive(),
     dataRoot: root,
     path: "report.txt",
     id: first.id,
@@ -138,7 +145,7 @@ test("restoring a version keeps the current content as a new version", async () 
   }
   expect(
     await FileVersions.restore({
-      store,
+      drive: drive(),
       dataRoot: root,
       path: "report.txt",
       id: "00000000-0000-4000-8000-000000000000",
@@ -236,7 +243,7 @@ test("moving a file over another keeps the destination's history and discards th
   await save("draft.txt", "draft v1");
   await save("draft.txt", "draft v2");
   const result = await FileVersions.commitReplacement({
-    store,
+    drive: drive(),
     dataRoot: root,
     path: "report.txt",
     incoming: at("draft.txt"),

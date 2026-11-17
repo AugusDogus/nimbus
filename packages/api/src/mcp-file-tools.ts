@@ -336,7 +336,7 @@ const writeText = defineTool({
         {
           userId: context.userId,
           authorize: access,
-          versions: context.drive.versions,
+          drive: context.drive,
         },
         target.relative,
         staged,

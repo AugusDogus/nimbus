@@ -23,6 +23,7 @@ import {
   resolveSafePath,
 } from "./safe-path";
 import { Staging } from "./staging";
+import { VacantPath } from "./vacant-path";
 
 export async function safePath(requested: string) {
   try {
@@ -174,7 +175,7 @@ async function moveUnlocked(
       await store.discardPath(source.relative);
       // The replaced content is kept as a version of the destination.
       await FileVersions.commitReplacement({
-        store: store.versions,
+        drive: store,
         dataRoot: getDataRoot(),
         path: target.relative,
         incoming: source.absolute,
@@ -311,20 +312,17 @@ export async function copyItem(
           if (replacement.kind === "content")
             // The replaced content is kept as a version of the destination.
             await FileVersions.commitReplacement({
-              store: store.versions,
+              drive: store,
               dataRoot: getDataRoot(),
               path: target.relative,
               incoming: staging,
               archivedBy: current.user.id,
             });
           else {
+            // Records left by content removed outside Nimbus never attach to the copy.
+            if ((await VacantPath.claim(store, target)).kind === "occupied")
+              await requireUnused(target.absolute);
             await rename(staging, target.absolute);
-            // History left by content removed outside Nimbus never attaches to the copy.
-            await FileVersions.discard(
-              store.versions,
-              getDataRoot(),
-              target.relative,
-            );
           }
         } catch (error) {
           await undoReplacement(store, current, replacement);

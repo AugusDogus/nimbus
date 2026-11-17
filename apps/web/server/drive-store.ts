@@ -445,6 +445,20 @@ export function createDriveStore(database: Database): DriveStore {
         detach(tx, path);
       });
     },
+    async claimVacant(path) {
+      // Deletes only: a vacant path usually has no records, and these are index range scans.
+      database.transaction((tx) => {
+        for (const table of [
+          grants,
+          shares,
+          bookmarks,
+          davProperties,
+          fileRequests,
+          fileVersions,
+        ])
+          tx.delete(table).where(atOrUnder(table.path, path)).run();
+      });
+    },
     async movePath(from, to) {
       database.transaction((tx) => {
         detach(tx, to);

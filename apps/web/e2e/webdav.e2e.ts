@@ -1,7 +1,20 @@
 import { randomUUID } from "node:crypto";
+import { readFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { expect } from "@playwright/test";
+import { z } from "zod";
 import { test } from "./helpers";
-import { adminEmail, client, origin } from "./helpers";
+import { adminEmail, client, origin, port } from "./helpers";
+
+async function dataRoot() {
+  const manifest: unknown = JSON.parse(
+    await readFile(path.join(os.tmpdir(), `nimbus-e2e-${port}.json`), "utf8"),
+  );
+  return z
+    .object({ dataRoot: z.string().startsWith(os.tmpdir()) })
+    .parse(manifest).dataRoot;
+}
 
 test("WebDAV app passwords support file operations and stop working after revocation", async ({
   page,
@@ -183,4 +196,56 @@ test("WebDAV app passwords support file operations and stop working after revoca
     path: testInfo.outputPath("settings.png"),
     fullPage: true,
   });
+});
+
+test("WebDAV MKCOL and LOCK never revive the public links of content removed outside Nimbus", async ({
+  context,
+  request,
+}) => {
+  const rpc = await client(context);
+  const { token } = await rpc.appPasswords.create.mutate({
+    name: `Vacant ${randomUUID()}`,
+  });
+  const headers = {
+    Authorization: `Basic ${Buffer.from(`${adminEmail}:${token}`).toString("base64")}`,
+  };
+  const folder = `vacant-${randomUUID()}`;
+  await rpc.files.createFolder.mutate({ name: folder });
+  await rpc.files.createFolder.mutate({ path: folder, name: "old" });
+  const linked = await rpc.shares.create.mutate({
+    path: `${folder}/old`,
+    expiresAt: null,
+  });
+  const lockedName = `${folder}/locked.txt`;
+  expect(
+    (
+      await request.put(`/dav/${lockedName}`, { headers, data: "shared" })
+    ).status(),
+  ).toBe(201);
+  const lockedLink = await rpc.shares.create.mutate({
+    path: lockedName,
+    expiresAt: null,
+  });
+  // Another program, such as an SMB client, deletes both.
+  const root = await dataRoot();
+  await rm(path.join(root, folder, "old"), { recursive: true });
+  await rm(path.join(root, lockedName));
+
+  expect(
+    (
+      await request.fetch(`/dav/${folder}/old`, { method: "MKCOL", headers })
+    ).status(),
+  ).toBe(201);
+  expect(
+    (
+      await request.fetch(`/dav/${lockedName}`, {
+        method: "LOCK",
+        headers: { ...headers, "Content-Type": "application/xml" },
+        data: '<?xml version="1.0"?><d:lockinfo xmlns:d="DAV:"><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockinfo>',
+      })
+    ).status(),
+  ).toBe(201);
+  const live = (await rpc.shares.list.query()).map((share) => share.token);
+  expect(live).not.toContain(linked.token);
+  expect(live).not.toContain(lockedLink.token);
 });

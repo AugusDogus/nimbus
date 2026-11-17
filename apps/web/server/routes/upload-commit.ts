@@ -2,12 +2,13 @@ import { TRPCError } from "@trpc/server";
 import { mkdir } from "node:fs/promises";
 import { z } from "zod";
 import type { Access } from "@nimbus/api/access";
-import type { FileVersionStore } from "@nimbus/api/file-versions";
+import type { ContentDrive } from "@nimbus/api/file-versions";
 import { publishFileEvent } from "@nimbus/api/file-events";
 import { mutateFiles, requireUnlocked } from "@nimbus/api/file-mutations";
 import { fileNameSchema } from "@nimbus/api/file-name";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
+import { VacantPath } from "@nimbus/api/vacant-path";
 import { publishUpload, type PublishResult } from "@/server/upload-publish";
 import type { UploadStore } from "@/server/upload-store";
 
@@ -45,6 +46,7 @@ export type UploadMetadata = z.infer<typeof UploadMetadata>;
 const join = (...segments: string[]) => segments.filter(Boolean).join("/");
 
 async function ensureFolders(
+  drive: Pick<ContentDrive, "claimVacant">,
   access: Access,
   base: string,
   folder: string,
@@ -66,6 +68,8 @@ async function ensureFolders(
     }
     access.require(target.relative, "write");
     requireUnlocked([target.relative], { userId });
+    // Records left by content removed outside Nimbus never attach to the new folder.
+    await VacantPath.claim(drive, target);
     try {
       await mkdir(target.absolute);
     } catch (error) {
@@ -86,7 +90,7 @@ async function ensureFolders(
  */
 export async function commitUpload(
   store: UploadStore,
-  versions: FileVersionStore,
+  drive: ContentDrive,
   id: string,
   metadata: UploadMetadata,
   authorize: () => Promise<Access>,
@@ -112,6 +116,7 @@ export async function commitUpload(
           message: "Upload destination must be a folder.",
         });
       const folder = await ensureFolders(
+        drive,
         access,
         target.relative,
         metadata.folder,
@@ -119,7 +124,7 @@ export async function commitUpload(
       );
       return publishUpload({
         store,
-        versions,
+        drive,
         uploadId: id,
         filename: metadata.filename,
         folder,

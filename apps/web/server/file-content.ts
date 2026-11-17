@@ -96,7 +96,7 @@ export async function saveFileContent({
       {
         userId: access.user.id,
         authorize: () => getAccess(store, access.user.id),
-        versions: store.versions,
+        drive: store,
       },
       target.relative,
       staged,
