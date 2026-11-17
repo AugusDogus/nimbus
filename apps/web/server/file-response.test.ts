@@ -64,15 +64,69 @@ test("serves whole files, single ranges and HEAD with matching lengths", async (
     access,
   );
   expect(await suffix.text()).toBe("789");
-  const bad = await serveFile(
-    get({ range: "bytes=9-2" }),
+  const beyond = await serveFile(
+    get({ range: "bytes=20-" }),
     "docs/a.txt",
     access,
   );
-  expect(bad.status).toBe(416);
+  expect(beyond.status).toBe(416);
   const head = await serveFile(get({}, "HEAD"), "docs/a.txt", access);
   expect(head.headers.get("content-length")).toBe("10");
   expect(head.body).toBeNull();
+});
+
+test("ranges it does not serve are ignored, and the whole file is sent", async () => {
+  const access = await admin();
+  for (const range of ["bytes=9-2", "bytes=0-1,4-5", "bytes=x-", "items=0-1"]) {
+    const response = await serveFile(get({ range }), "docs/a.txt", access);
+    expect({ range, status: response.status }).toEqual({ range, status: 200 });
+    expect(await response.text()).toBe("0123456789");
+  }
+});
+
+test("conditional requests answer 304 or 412 from the file's validators", async () => {
+  const access = await admin();
+  const first = await serveFile(get(), "docs/a.txt", access);
+  const etag = first.headers.get("etag") ?? "";
+  const modified = first.headers.get("last-modified") ?? "";
+  await first.body?.cancel();
+  const status = async (headers: Record<string, string>, method = "GET") => {
+    const response = await serveFile(
+      get(headers, method),
+      "docs/a.txt",
+      access,
+    );
+    await response.body?.cancel();
+    return response.status;
+  };
+  expect(await status({ "if-none-match": etag })).toBe(304);
+  expect(await status({ "if-none-match": `W/${etag}` })).toBe(304);
+  expect(await status({ "if-none-match": "*" }, "HEAD")).toBe(304);
+  expect(await status({ "if-none-match": '"other"' })).toBe(200);
+  expect(await status({ "if-modified-since": modified })).toBe(304);
+  expect(await status({ "if-modified-since": new Date(0).toUTCString() })).toBe(
+    200,
+  );
+  // If-None-Match takes precedence over If-Modified-Since.
+  expect(
+    await status({ "if-none-match": '"other"', "if-modified-since": modified }),
+  ).toBe(200);
+  expect(await status({ "if-match": '"other"' })).toBe(412);
+  expect(await status({ "if-match": `${etag}, "x"` })).toBe(200);
+  expect(await status({ "if-match": "*" })).toBe(200);
+  // If-Match uses strong comparison.
+  expect(await status({ "if-match": `W/${etag}` })).toBe(412);
+  expect(
+    await status({ "if-unmodified-since": new Date(0).toUTCString() }),
+  ).toBe(412);
+  expect(await status({ "if-unmodified-since": modified })).toBe(200);
+  const notModified = await serveFile(
+    get({ "if-none-match": etag }),
+    "docs/a.txt",
+    access,
+  );
+  expect(notModified.headers.get("etag")).toBe(etag);
+  expect(notModified.body).toBeNull();
 });
 
 test("a file replaced after its response starts is served whole, with its own length", async () => {

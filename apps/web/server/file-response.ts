@@ -249,7 +249,65 @@ type FileResponse =
       length: number;
     };
 
-/** Status and headers for a file response, honouring a single byte range. */
+/** Entity tags listed in an If-Match or If-None-Match header. */
+const listedTags = (header: string) =>
+  header.split(",").map((tag) => tag.trim());
+const weak = (tag: string) => tag.replace(/^W\//, "");
+
+/**
+ * The precondition status for a GET or HEAD (RFC 9110, section 13.2.2), or null to serve it.
+ * Last-Modified has whole seconds, so dates compare against the modification time's second.
+ */
+function precondition(request: Request, etag: string, stats: Stats) {
+  const modified = Math.floor(stats.mtimeMs / 1000) * 1000;
+  const date = (name: string) => {
+    const value = Date.parse(request.headers.get(name) ?? "");
+    return Number.isFinite(value) ? value : null;
+  };
+  const ifMatch = request.headers.get("if-match");
+  if (ifMatch !== null) {
+    const tags = listedTags(ifMatch);
+    // Strong comparison: a weak tag never matches.
+    if (!tags.includes("*") && !tags.includes(etag)) return 412;
+  } else {
+    const since = date("if-unmodified-since");
+    if (since !== null && modified > since) return 412;
+  }
+  const ifNoneMatch = request.headers.get("if-none-match");
+  if (ifNoneMatch !== null) {
+    const tags = listedTags(ifNoneMatch);
+    if (tags.includes("*") || tags.some((tag) => weak(tag) === etag))
+      return 304;
+  } else {
+    const since = date("if-modified-since");
+    if (since !== null && modified <= since) return 304;
+  }
+  return null;
+}
+
+/**
+ * The single byte range to send, "unsatisfiable", or null to send the whole file. Ranges this
+ * server does not serve (several ranges, an unknown unit, malformed or inverted ones) are
+ * ignored, as RFC 9110 section 14.2 allows, so the client gets the whole file.
+ */
+function byteRange(header: string, size: number) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (!match[1] && !match[2])) return null;
+  if (!match[1]) {
+    const suffix = Number(match[2]);
+    if (!Number.isSafeInteger(suffix)) return null;
+    if (suffix === 0 || size === 0) return "unsatisfiable" as const;
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+  const start = Number(match[1]);
+  const last = match[2] ? Number(match[2]) : size - 1;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(last)) return null;
+  if (match[2] && last < start) return null;
+  if (start >= size) return "unsatisfiable" as const;
+  return { start, end: Math.min(last, size - 1) };
+}
+
+/** Status and headers for a file response, honouring preconditions and a single byte range. */
 function fileResponse(
   request: Request,
   absolute: string,
@@ -259,47 +317,47 @@ function fileResponse(
 ): FileResponse {
   const contentType = FileKind.previewContentType(FileKind.of(filename));
   const etag = fileETag(stats);
+  const validators = {
+    ETag: etag,
+    "Last-Modified": stats.mtime.toUTCString(),
+    "Cache-Control": "private, no-store",
+  };
+  const failed = precondition(request, etag, stats);
+  if (failed !== null)
+    return {
+      kind: "headers-only",
+      init: { status: failed, headers: validators },
+    };
   const headers = new Headers({
     "Content-Type": inline ? contentType : "application/octet-stream",
     "Content-Disposition": `${inline && contentType !== "application/octet-stream" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(filename)}`,
     "Accept-Ranges": "bytes",
     "X-Content-Type-Options": "nosniff",
-    "Cache-Control": "private, no-store",
     "Content-Security-Policy": "sandbox; default-src 'none'",
-    "Last-Modified": stats.mtime.toUTCString(),
-    ETag: etag,
+    ...validators,
   });
   let start = 0;
   let end = stats.size - 1;
   let status = 200;
-  const range = request.headers.get("range");
+  const rangeHeader = request.headers.get("range");
   const ifRange = request.headers.get("if-range");
   const rangeMatches =
     !ifRange ||
     ifRange === etag ||
     (Number.isFinite(Date.parse(ifRange)) &&
       stats.mtimeMs < Date.parse(ifRange) + 1000);
-  const unsatisfiable = {
-    kind: "headers-only",
-    init: {
-      status: 416,
-      headers: { "Content-Range": `bytes */${stats.size}`, ETag: etag },
-    },
-  } as const;
-  if (range && rangeMatches) {
-    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
-    if (!match || (!match[1] && !match[2])) return unsatisfiable;
-    if (match[1]) {
-      start = Number(match[1]);
-      end = match[2] ? Math.min(Number(match[2]), end) : end;
-    } else start = Math.max(0, stats.size - Number(match[2]));
-    if (
-      !Number.isSafeInteger(start) ||
-      !Number.isSafeInteger(end) ||
-      start > end ||
-      start < 0
-    )
-      return unsatisfiable;
+  const range =
+    rangeHeader && rangeMatches ? byteRange(rangeHeader, stats.size) : null;
+  if (range === "unsatisfiable")
+    return {
+      kind: "headers-only",
+      init: {
+        status: 416,
+        headers: { "Content-Range": `bytes */${stats.size}`, ETag: etag },
+      },
+    };
+  if (range) {
+    ({ start, end } = range);
     status = 206;
     headers.set("Content-Range", `bytes ${start}-${end}/${stats.size}`);
   }
