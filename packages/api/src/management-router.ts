@@ -202,9 +202,10 @@ export const trashRouter = router({
       await getOwnedTrash(ctx.drive, ctx.access, input.id);
       await purgeItem(ctx.drive, ctx.access, input.id);
     }),
-  empty: protectedProcedure.mutation(({ ctx }) =>
-    emptyTrash(ctx.drive, ctx.access),
-  ),
+  /** Deletes the items listed, as shown when the caller confirmed. */
+  empty: protectedProcedure
+    .input(z.object({ ids: z.array(z.uuid()).max(100_000) }))
+    .mutation(({ ctx, input }) => emptyTrash(ctx.drive, ctx.access, input.ids)),
 });
 
 export const appPasswordsRouter = router({

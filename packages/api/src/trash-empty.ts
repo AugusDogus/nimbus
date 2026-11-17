@@ -10,18 +10,25 @@ import { FileVersions } from "./file-versions";
 import { PendingChanges } from "./pending-changes";
 
 /**
- * Permanently delete every trash item the caller can manage: their own items, or all items for
- * server administrators. Holds the whole trash, so a concurrent trash, restore or purge cannot race it.
+ * Permanently delete the trash items in `ids` that the caller can manage: their own items, or all
+ * items for server administrators. `ids` are the items the caller was shown and confirmed, so an
+ * item trashed since is kept; ids already gone or not the caller's are ignored. Holds the whole
+ * trash, so a concurrent trash, restore or purge cannot race it.
  */
-export async function emptyTrash(store: DriveStore, access: Access) {
+export async function emptyTrash(
+  store: DriveStore,
+  access: Access,
+  ids: readonly string[],
+) {
   return mutateFiles(
     [],
     { userId: access.user.id },
     async () => {
       const current = await getAccess(store, access.user.id);
-      const items = await store.listTrash(
-        current.isAdmin ? null : current.user.id,
-      );
+      const confirmed = new Set(ids);
+      const items = (
+        await store.listTrash(current.isAdmin ? null : current.user.id)
+      ).filter((item) => confirmed.has(item.id));
       const trashDirectory = path.join(getDataRoot(), ".nimbus", "trash");
       let deleted = 0;
       for (const item of items) {

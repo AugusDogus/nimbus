@@ -13,7 +13,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-type Deletion = { kind: "item"; id: string } | { kind: "all"; count: number };
+/** `all` lists the items the dialog counts, which are all that emptying deletes. */
+type Deletion =
+  | { kind: "item"; id: string }
+  | { kind: "all"; ids: string[] };
 
 export function TrashPage() {
   const trash = useQuery({
@@ -60,7 +63,10 @@ export function TrashPage() {
             variant="outline"
             disabled={busy}
             onClick={() =>
-              setDeleting({ kind: "all", count: trash.data.length })
+              setDeleting({
+                kind: "all",
+                ids: trash.data.map((item) => item.id),
+              })
             }
           >
             Empty trash
@@ -126,7 +132,7 @@ export function TrashPage() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {deleting?.kind === "all"
-                ? `${deleting.count === 1 ? "1 item" : `${deleting.count} items`} and ${deleting.count === 1 ? "its" : "their"} contents will be permanently deleted${capabilities.data?.isAdmin ? ", including items other people deleted" : ""}. This cannot be undone.`
+                ? `${deleting.ids.length === 1 ? "1 item" : `${deleting.ids.length} items`} and ${deleting.ids.length === 1 ? "its" : "their"} contents will be permanently deleted${capabilities.data?.isAdmin ? ", including items other people deleted" : ""}. This cannot be undone.`
                 : "This item and its contents cannot be recovered."}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -146,7 +152,10 @@ export function TrashPage() {
                     trpcClient.trash.purge.mutate({ id: deleting.id }),
                   );
                 if (deleting?.kind === "all")
-                  void perform(() => trpcClient.trash.empty.mutate());
+                  // Only what the dialog counted, never items trashed since.
+                  void perform(() =>
+                    trpcClient.trash.empty.mutate({ ids: deleting.ids }),
+                  );
               }}
             >
               {deleting?.kind === "all" ? "Empty trash" : "Delete permanently"}

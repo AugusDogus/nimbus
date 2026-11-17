@@ -21,6 +21,8 @@ describe("emptying trash", () => {
         setUserPreferences: async (_id, value) => value,
       },
     });
+  const ids = async (id = "user-1") =>
+    (await caller(id).trash.list()).map((item) => item.id);
   beforeEach(async () => {
     previousRoot = process.env.NIMBUS_DATA_ROOT;
     root = await mkdtemp(path.join(os.tmpdir(), "nimbus-trash-"));
@@ -47,7 +49,9 @@ describe("emptying trash", () => {
   it("permanently deletes only the caller's items for ordinary users", async () => {
     await caller().files.delete({ path: "shared/admin.txt" });
     await caller("reader").files.delete({ path: "shared/reader.txt" });
-    expect(await caller("reader").trash.empty()).toEqual({ deleted: 1 });
+    expect(
+      await caller("reader").trash.empty({ ids: await ids("reader") }),
+    ).toEqual({ deleted: 1 });
     expect(await caller("reader").trash.list()).toEqual([]);
     expect((await caller().trash.list()).map((item) => item.path)).toEqual([
       "shared/admin.txt",
@@ -58,9 +62,30 @@ describe("emptying trash", () => {
   it("permanently deletes everyone's items for administrators, including folders", async () => {
     await caller().files.delete({ path: "shared/folder" });
     await caller("reader").files.delete({ path: "shared/reader.txt" });
-    expect(await caller().trash.empty()).toEqual({ deleted: 2 });
+    expect(await caller().trash.empty({ ids: await ids() })).toEqual({
+      deleted: 2,
+    });
     expect(await caller().trash.list()).toEqual([]);
     expect(await readdir(path.join(root, ".nimbus/trash"))).toEqual([]);
-    expect(await caller().trash.empty()).toEqual({ deleted: 0 });
+    expect(await caller().trash.empty({ ids: [] })).toEqual({ deleted: 0 });
+  });
+
+  it("deletes only the items the caller was shown, never ones trashed since", async () => {
+    await caller().files.delete({ path: "shared/admin.txt" });
+    const shown = await ids();
+    // Someone else trashes a folder after the list was loaded.
+    await caller("reader").files.delete({ path: "shared/folder" });
+    expect(await caller().trash.empty({ ids: shown })).toEqual({ deleted: 1 });
+    expect((await caller().trash.list()).map((item) => item.path)).toEqual([
+      "shared/folder",
+    ]);
+  });
+
+  it("ignores ids of items the caller may not manage", async () => {
+    await caller().files.delete({ path: "shared/admin.txt" });
+    expect(await caller("reader").trash.empty({ ids: await ids() })).toEqual({
+      deleted: 0,
+    });
+    expect(await caller().trash.list()).toHaveLength(1);
   });
 });

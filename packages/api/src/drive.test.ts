@@ -229,7 +229,9 @@ describe("drive workflows", () => {
         id: version.id,
       });
       await caller().files.delete({ path: "private.txt" });
-      await caller().trash.empty();
+      await caller().trash.empty({
+        ids: (await caller().trash.list()).map((item) => item.id),
+      });
       await flushAudit();
       expect(
         events.map(({ action, target }) => ({
