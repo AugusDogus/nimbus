@@ -298,11 +298,14 @@ describe("paging", () => {
       depth: "full",
       now: 1,
     };
-    const { all: seen, restarted } = pages(index, request, () => {
+    // A restarted page is the first page again, so the layout moves on twice
+    // before the second page only; paging on from there must skip nothing.
+    const { all: seen, restarted } = pages(index, request, (page) => {
+      if (page !== 1) return;
       index.compact();
       index.compact();
     });
-    expect(restarted).toBeGreaterThan(0);
+    expect(restarted).toBe(1);
     expect([...new Set(seen.flat())].sort()).toEqual(
       index
         .search({ ...request, limit: 1000 })
@@ -338,6 +341,39 @@ describe("paging", () => {
     });
     expect(second.restarted).toBe(true);
     expect(second.hits.map((hit) => hit.path)).toContain("a/note-9");
+  });
+
+  it("restarts with the first page only, however deep the cursor was", () => {
+    const index = createSearchIndex();
+    for (let file = 0; file < 100; file++) index.add(`a/note-${file}`, "file");
+    index.compact();
+    const request: SearchRequest = {
+      query: "note",
+      root: "",
+      limit: 4,
+      scope: all,
+      depth: "full",
+      now: 1,
+    };
+    let cursor: string | undefined;
+    for (let page = 0; page < 10; page++)
+      cursor = index.search({ ...request, cursor }).next ?? undefined;
+    // An open since the last page ranks differently, so the cursor cannot continue.
+    const history: HistoryEntry[] = [
+      { path: "a/note-50", openedAt: 1, visits: 3, starred: false },
+    ];
+    const restarted = index.search({ ...request, history, cursor });
+    const fresh = index.search({ ...request, history, limit: 8 });
+    expect(restarted.restarted).toBe(true);
+    expect(restarted.total).toBe(100);
+    expect(restarted.hits).toEqual(fresh.hits.slice(0, 4));
+    const after = index.search({
+      ...request,
+      history,
+      cursor: restarted.next ?? undefined,
+    });
+    expect(after.restarted).toBe(false);
+    expect(after.hits).toEqual(fresh.hits.slice(4, 8));
   });
 
   it("starts over for a cursor no page returned", () => {

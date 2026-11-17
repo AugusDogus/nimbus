@@ -14,8 +14,8 @@ import { isWithinPath } from "./safe-path";
 import { createTestFileRequestStore } from "./file-request-testing";
 import { createTestFileVersionStore } from "./file-versions-testing";
 import { FileVersions } from "./file-versions";
-import { crawl } from "./search-crawler";
-import { createSearchIndex } from "./search-index";
+import { crawl, reconcile } from "./search-crawler";
+import { createSearchIndex, type SearchIndex } from "./search-index";
 import type { SearchService } from "./search-service";
 
 export function createTestDriveStore() {
@@ -333,18 +333,29 @@ export function createTestDriveStore() {
   };
 }
 
-/** Crawls `root` on every query, so tests always search the current disk. */
+/**
+ * One index of `root`, brought in line with the disk before every query, as
+ * the search worker keeps its own: tests always search the current disk, and
+ * a page's cursor continues on the next query.
+ */
 export function crawlingSearchService(root: string): SearchService {
+  let built: Promise<SearchIndex> | null = null;
+  const current = async () => {
+    if (!built) {
+      const index = createSearchIndex();
+      built = crawl(index, root).then(() => index);
+      return built;
+    }
+    const index = await built;
+    await reconcile(index, root, (work) => work());
+    return index;
+  };
   return {
     async search(request) {
-      const index = createSearchIndex();
-      await crawl(index, root);
-      return { ...index.search(request), complete: true };
+      return { ...(await current()).search(request), complete: true };
     },
     async usage() {
-      const index = createSearchIndex();
-      await crawl(index, root);
-      return index.bytesAt("") ?? 0;
+      return (await current()).bytesAt("") ?? 0;
     },
   };
 }

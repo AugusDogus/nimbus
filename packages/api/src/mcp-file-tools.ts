@@ -130,7 +130,7 @@ const search = defineTool({
     restarted: z
       .boolean()
       .describe(
-        "True when the drive changed too much since the previous page to continue it: this page starts again from the first match, so drop entries you already have. No match is skipped either way.",
+        "True when the previous page could not be continued (the drive changed a lot, your recent opens changed, or the cursor is from before a restart): this is the first page again, so replace the entries you have with it and page on from its nextCursor. No match is skipped either way.",
       ),
     truncated: z.boolean(),
     complete: z.boolean(),

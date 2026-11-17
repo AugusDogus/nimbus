@@ -14,10 +14,10 @@
  * next page is the best matches ranked after it, read from the index as it is
  * then. Nothing is stored between pages, and no surviving match is repeated
  * or skipped. Compaction renumbers slots, so the index keeps the previous
- * layout's numbering to translate a cursor from just before one; a cursor
- * older than that, or one ranked with different history, gets every result
- * up to the end of its next page again instead, so nothing is skipped and the
- * caller drops the repeats.
+ * layout's numbering to translate a cursor from just before one. A cursor
+ * older than that, or one ranked with different history, restarts: its page
+ * is the first page again, flagged `restarted`, and paging on from it skips
+ * nothing. A restart costs what a first page costs, however deep the cursor.
  *
  * Nothing a caller sees depends on names outside the ranges it may read:
  * which layers run, which corrections are tried, every count and the order.
@@ -117,9 +117,9 @@ export type SearchResult = {
   /** Pass as `cursor` for the next page; null on the last one. */
   next: string | null;
   /**
-   * The drive changed too much since the previous page to continue it, so
-   * this page starts again from the first result: it repeats results
-   * already returned, and skips none.
+   * The previous page could not be continued (see the module comment), so
+   * this is the first page again: callers replace what they show with it,
+   * and paging on from its `next` skips nothing.
    */
   restarted: boolean;
   /** Folded words that matched, for highlighting. Never sent to clients as-is. */
@@ -523,8 +523,8 @@ export function prepareSearch(
   const ranges = view.visibleRanges(rootId, granted);
 
   // Continue a page: after its last rank within its layout; through the
-  // previous layout's numbering just after a compaction; otherwise by
-  // returning everything up to the end of this page again.
+  // previous layout's numbering just after a compaction; otherwise from the
+  // first result again.
   const cursor = Cursor.parse(request.cursor);
   const sameHistory = cursor !== null && cursor.history === digest;
   const previous = view.previous;
@@ -539,7 +539,7 @@ export function prepareSearch(
   const shown = cursor?.shown ?? 0;
   const now = cursor?.now ?? request.now ?? Date.now();
   const before = mode === "continue" || mode === "translate" ? shown : 0;
-  const want = (mode === "again" ? shown : 0) + limit;
+  const want = limit;
   const after = cursor && mode === "continue" ? cursor.after : -1;
   /** For "translate": whether a rank in this layout came after the cursor in the previous one. */
   const keep: ((rank: number) => boolean) | null =
