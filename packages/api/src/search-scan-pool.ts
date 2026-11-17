@@ -290,7 +290,7 @@ export async function searchWithPool(
   const before = index.changes;
   let prepared = index.prepareSearch(request);
   while (!prepared.done) {
-    const { layout, plan, limit, translate } = prepared;
+    const { layout, plan, limit, translate, stopped } = prepared;
     // A cursor from the previous layout filters in a way workers cannot.
     if (
       !pool ||
@@ -299,7 +299,7 @@ export async function searchWithPool(
       !isShared(layout)
     ) {
       prepared = prepared.finish(
-        index.scanHere(layout, plan, limit, translate),
+        index.scanHere(layout, plan, limit, translate, stopped),
       );
       continue;
     }

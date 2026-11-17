@@ -32,6 +32,15 @@ const MIN_WORD = 3;
 /** Corrections are at least this long: shorter words are mostly fragments. */
 const MIN_CORRECTION = 4;
 const FRAGMENT = "\0";
+/**
+ * Longer query words are not corrected: nobody mistypes a word this long
+ * into one that exists, and comparing it with every word of about its
+ * length would take long. A bound on the query alone, so what a caller gets
+ * never depends on names it cannot read.
+ */
+const MAX_CORRECTED = 40;
+/** Candidate words compared between checks of a search's stop signal. */
+const STOP_CHECK_EVERY = 256;
 /** Visible names counted per candidate; enough to score, cheap to count. */
 export const COUNT_CAP = 32;
 
@@ -118,24 +127,30 @@ let rows = [new Int32Array(64), new Int32Array(64), new Int32Array(64)];
 
 /**
  * Edit distance with adjacent transpositions (optimal string alignment),
- * or `limit + 1` once it must exceed `limit`.
+ * or `limit + 1` once it must exceed `limit`. Only cells within `limit` of
+ * the diagonal can stay within it, so only those are computed: the cost
+ * grows with the words' length, not its square.
  */
 function distance(a: string, b: string, limit: number) {
-  if (Math.abs(a.length - b.length) > limit) return limit + 1;
-  if ((rows[0]?.length ?? 0) <= b.length)
-    rows = rows.map(() => new Int32Array(b.length * 2 + 1));
+  const far = limit + 1;
+  if (Math.abs(a.length - b.length) > limit) return far;
+  if ((rows[0]?.length ?? 0) <= b.length + 1)
+    rows = rows.map(() => new Int32Array(b.length * 2 + 2));
   let [previous2, previous, current] = rows;
-  if (!previous2 || !previous || !current) return limit + 1;
-  for (let j = 0; j <= b.length; j++) previous[j] = j;
+  if (!previous2 || !previous || !current) return far;
+  for (let j = 0; j <= b.length + 1; j++) previous[j] = Math.min(j, far);
   for (let i = 1; i <= a.length; i++) {
-    current[0] = i;
-    let best = i;
-    for (let j = 1; j <= b.length; j++) {
+    const from = Math.max(1, i - limit);
+    const to = Math.min(b.length, i + limit);
+    // The cells beside the band read as out of reach.
+    current[from - 1] = from === 1 ? Math.min(i, far) : far;
+    let best = far;
+    for (let j = from; j <= to; j++) {
       const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
       let value = Math.min(
-        (previous[j] ?? 0) + 1,
-        (current[j - 1] ?? 0) + 1,
-        (previous[j - 1] ?? 0) + cost,
+        (previous[j] ?? far) + 1,
+        (current[j - 1] ?? far) + 1,
+        (previous[j - 1] ?? far) + cost,
       );
       if (
         i > 1 &&
@@ -143,14 +158,15 @@ function distance(a: string, b: string, limit: number) {
         a.charCodeAt(i - 1) === b.charCodeAt(j - 2) &&
         a.charCodeAt(i - 2) === b.charCodeAt(j - 1)
       )
-        value = Math.min(value, (previous2[j - 2] ?? 0) + 1);
-      current[j] = value;
+        value = Math.min(value, (previous2[j - 2] ?? far) + 1);
+      current[j] = Math.min(value, far);
       if (value < best) best = value;
     }
-    if (best > limit) return limit + 1;
+    current[to + 1] = far;
+    if (best > limit) return far;
     [previous2, previous, current] = [previous, current, previous2];
   }
-  return previous[b.length] ?? limit + 1;
+  return previous[b.length] ?? far;
 }
 
 /** Whether `b` is `a` with two neighbouring letters swapped: the commonest typo. */
@@ -514,9 +530,19 @@ function create() {
      * names the caller may see: one typo away (two for words of eight letters
      * or more), or words it abbreviates. At most `limit`.
      */
-    corrections(typed: string, visible: Visibility, limit: number): string[] {
+    corrections(
+      typed: string,
+      visible: Visibility,
+      limit: number,
+      stopped: () => boolean = () => false,
+    ): string[] {
       const term = plain(typed);
-      if (term.length < MIN_WORD || !/^\p{L}+$/u.test(term)) return [];
+      if (
+        term.length < MIN_WORD ||
+        term.length > MAX_CORRECTED ||
+        !/^\p{L}+$/u.test(term)
+      )
+        return [];
       const typos = term.length >= 8 ? 2 : term.length >= 4 ? 1 : 0;
       const kindOf = (word: string): 1 | 2 | "abbreviation" | null => {
         if (word.length < MIN_CORRECTION || word.includes(term)) return null;
@@ -536,8 +562,15 @@ function create() {
         return null;
       };
       const found = new Map<string, number>();
+      // Checked every so many words; once stopped, the caller abandons the search.
+      let budget = STOP_CHECK_EVERY;
+      let halted = false;
       const consider = (word: string) => {
-        if (found.has(word)) return;
+        if (--budget === 0) {
+          budget = STOP_CHECK_EVERY;
+          halted ||= stopped();
+        }
+        if (halted || found.has(word)) return;
         const kind = kindOf(word);
         if (kind === null) return;
         const names = visibleCount(word, visible, COUNT_CAP);
@@ -587,4 +620,4 @@ function create() {
 
 export type SearchWords = ReturnType<typeof create>;
 
-export const SearchWords = { create, keysOf, wordsOf } as const;
+export const SearchWords = { create, keysOf, wordsOf, distance } as const;

@@ -34,6 +34,7 @@ import {
   type SearchResult,
   type VisibleRange,
   type ScanPlan,
+  type Stopped,
 } from "./search-query";
 
 export {
@@ -699,8 +700,9 @@ export function createSearchIndex(initialCapacity = 1024) {
       plan: ScanPlan,
       limit: number,
       translate: ((rank: number) => number) | null = null,
+      stopped?: Stopped,
     ) {
-      return scanCompacted(state, layout, plan, limit, translate);
+      return scanCompacted(state, layout, plan, limit, translate, stopped);
     },
 
     /** Changes so far; a different value after an await means the index moved meanwhile. */

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { createSearchIndex, type SearchScope } from "./search-index";
-import type { HistoryEntry, SearchRequest } from "./search-query";
+import {
+  SearchStopped,
+  type HistoryEntry,
+  type SearchRequest,
+} from "./search-query";
 
 const all: SearchScope = { type: "all" };
 
@@ -666,6 +670,50 @@ describe("words layer against a brute-force oracle", () => {
 });
 
 describe("fuzzy layer", () => {
+  it("bounds correction work by the query alone, however long the names", () => {
+    // Long names sharing a long stem, none of them visible to the caller:
+    // longer than any word corrected, and as long as the longest.
+    for (const stem of [
+      "abcdefghij".repeat(19),
+      "abcdefghij".repeat(3) + "abcdef",
+    ]) {
+      const index = createSearchIndex();
+      for (let name = 0; name < 3000; name++)
+        index.add(
+          `hidden/${stem}${name.toString(36).padStart(4, "q")}`,
+          "file",
+        );
+      index.add("mine/notes.txt", "file");
+      index.compact();
+      const started = performance.now();
+      const answer = index.search({
+        query: `${stem}zzzq`,
+        root: "",
+        limit: 50,
+        scope: { type: "grants", paths: ["mine"] },
+        depth: "full",
+      });
+      expect(answer.hits).toEqual([]);
+      // Seconds before the bound; a few milliseconds with it.
+      expect(performance.now() - started).toBeLessThan(1000);
+    }
+  });
+
+  it("stops a search whose deadline has passed", () => {
+    const index = drive();
+    index.compact();
+    expect(() =>
+      index.search({
+        query: "invioce report",
+        root: "",
+        limit: 50,
+        scope: all,
+        depth: "full",
+        deadline: Date.now() - 1,
+      }),
+    ).toThrow(SearchStopped);
+  });
+
   const hits = (
     index: ReturnType<typeof createSearchIndex>,
     query: string,

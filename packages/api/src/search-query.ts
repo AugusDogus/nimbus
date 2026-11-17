@@ -37,6 +37,7 @@
 import {
   collector,
   foldQuery,
+  type Stopped,
   MAX_BOOST,
   MAX_TERMS,
   queryTerms,
@@ -74,6 +75,7 @@ export type {
   ScanCounts,
   ScanPlan,
   SearchLayout,
+  Stopped,
   VisibleRange,
 } from "./search-scan";
 
@@ -113,7 +115,22 @@ export type SearchRequest = {
   cursor?: string;
   /** The clock history decays against, in ms; defaults to now. A continued page keeps its first page's. */
   now?: number;
+  /**
+   * When nobody waits for the answer any more, in `Date.now()` ms: work on
+   * this thread past it throws `SearchStopped`. None by default.
+   */
+  deadline?: number;
 };
+
+/** A search ran past its request's deadline, so it was abandoned unanswered. */
+export class SearchStopped extends Error {
+  constructor(deadline: number) {
+    super(
+      `The search ran past its deadline (${new Date(deadline).toISOString()}) and was stopped; nobody waits for its answer any more. Nothing changed.`,
+    );
+    this.name = "SearchStopped";
+  }
+}
 
 /**
  * Which layer found a hit: the whole query in its name, its words across name
@@ -272,18 +289,20 @@ type Readings = { missing: number; readings: number };
 export function createSearchState() {
   let scratch: { layout: SearchLayout; space: ScanScratch } | null = null;
   return {
+    /** False when `stopped` ended the scan early. */
     scanHere(
       layout: SearchLayout,
       plan: ScanPlan,
       add: (rank: number) => void,
       counts: ScanCounts,
+      stopped: Stopped,
     ) {
       if (scratch?.layout !== layout)
         scratch = { layout, space: ScanScratch.for(layout) };
       const { space } = scratch;
       ScanScratch.setBoosts(space, plan);
       try {
-        scanLayout(layout, plan, space, add, counts);
+        return scanLayout(layout, plan, space, add, counts, stopped);
       } finally {
         ScanScratch.clearBoosts(space, plan);
       }
@@ -515,6 +534,8 @@ export type PreparedSearch =
       plan: ScanPlan;
       limit: number;
       translate: ((rank: number) => number) | null;
+      /** True once the request's deadline has passed. */
+      stopped: Stopped;
       finish: (compacted: CompactRanks) => PreparedSearch;
     };
 
@@ -545,7 +566,13 @@ function prepare(
   request: SearchRequest,
   cursor: Cursor | "unusable" | null,
 ): PreparedSearch {
-  const { root, limit, scope } = request;
+  const { root, limit, scope, deadline } = request;
+  const stopped: Stopped =
+    deadline === undefined ? () => false : () => Date.now() > deadline;
+  /** Throw once the deadline has passed. */
+  const check = () => {
+    if (deadline !== undefined && stopped()) throw new SearchStopped(deadline);
+  };
   const needle = foldQuery(request.query);
   const rootId = view.find(root);
   if (!needle || limit <= 0 || rootId === NONE || !view.isFolder(rootId))
@@ -694,7 +721,9 @@ function prepare(
     plan,
     limit: want,
     translate,
+    stopped,
     finish: (compacted) => {
+      check();
       const results = collector(want);
       results.merge(compacted);
       const counts = ScanCounts.none(plan.terms.length);
@@ -710,6 +739,7 @@ function prepare(
         counts,
         corrections,
       );
+      check();
       let pageReadings = read;
       // Other readings of the query's words: dates written any way, and
       // words no visible name holds corrected to words visible names hold.
@@ -736,9 +766,10 @@ function prepare(
         });
         const fixes = allTerms.map((term, index) =>
           missing[index] && !dates[index]?.length
-            ? view.words.corrections(term, visibility, MAX_CORRECTIONS)
+            ? view.words.corrections(term, visibility, MAX_CORRECTIONS, stopped)
             : [],
         );
+        check();
         const readings = allTerms.map((_, index) => [
           ...(dates[index] ?? []),
           ...(fixes[index] ?? []),
@@ -849,13 +880,18 @@ function prepare(
   );
 }
 
-/** Scan the compacted names on this thread. */
+/**
+ * Scan the compacted names on this thread. Once `stopped`, the ranks are
+ * partial, and the search's `finish` throws `SearchStopped` instead of
+ * using them.
+ */
 export function scanCompacted(
   state: SearchState,
   layout: SearchLayout,
   plan: ScanPlan,
   limit: number,
   translate: ((rank: number) => number) | null,
+  stopped: Stopped = () => false,
 ): CompactRanks {
   const results = collector(limit);
   const counts = ScanCounts.none(plan.terms.length);
@@ -869,6 +905,7 @@ export function scanCompacted(
         }
       : (rank) => results.add(rank),
     counts,
+    stopped,
   );
   return { best: results.best(), total: results.total, counts };
 }
@@ -888,6 +925,7 @@ export function runSearch(
         prepared.plan,
         prepared.limit,
         prepared.translate,
+        prepared.stopped,
       ),
     );
   return prepared.done;
