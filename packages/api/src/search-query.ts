@@ -180,20 +180,32 @@ export function historyBoost(entry: HistoryEntry, now: number) {
   return Math.min(MAX_BOOST, Math.max(0, Math.round(score * 3)));
 }
 
-/** A short digest of the history a page was ranked with. */
-function historyDigest(history: readonly HistoryEntry[]) {
+/** A short digest of `parts`, for telling whether two pages used the same. */
+function digestOf(parts: readonly string[]) {
   let hash = 0x811c9dc5;
-  for (const entry of history) {
-    const text = `${entry.path}\0${entry.openedAt}\0${entry.visits}\0${entry.starred ? 1 : 0}\n`;
-    for (let i = 0; i < text.length; i++)
-      hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+  for (const part of parts) {
+    for (let i = 0; i < part.length; i++)
+      hash = Math.imul(hash ^ part.charCodeAt(i), 0x01000193);
+    hash = Math.imul(hash ^ 0x0a, 0x01000193);
   }
   return hash >>> 0;
 }
 
+/** A short digest of the history a page was ranked with. */
+const historyDigest = (history: readonly HistoryEntry[]) =>
+  digestOf(
+    history.map(
+      (entry) =>
+        `${entry.path}\0${entry.openedAt}\0${entry.visits}\0${entry.starred ? 1 : 0}`,
+    ),
+  );
+
 /**
  * Where a page ended: the layout it was ranked in, its last rank, how many
- * came before, and the clock and history its ranks were computed with.
+ * came before, and the clock and history its ranks were computed with. Also
+ * which words the typo layer corrected (bits of the query's words) and a
+ * digest of every other reading tried, so later pages read the query the
+ * same way however the names it was decided on change.
  */
 type Cursor = {
   generation: number;
@@ -201,16 +213,18 @@ type Cursor = {
   shown: number;
   now: number;
   history: number;
+  missing: number;
+  readings: number;
 };
 
 const Cursor = {
   format: (cursor: Cursor) =>
-    `${cursor.generation}-${cursor.after}-${cursor.shown}-${cursor.now}-${cursor.history}`,
-  /** Null for text that no page returned; such a search starts over. */
-  parse(text: string | undefined): Cursor | null {
+    `${cursor.generation}-${cursor.after}-${cursor.shown}-${cursor.now}-${cursor.history}-${cursor.missing}-${cursor.readings}`,
+  /** Null for text that no page returned; such a search restarts. */
+  parse(text: string): Cursor | null {
     const parts =
-      /^(\d{1,15})-(\d{1,16})-(\d{1,9})-(\d{1,15})-(\d{1,10})$/.exec(
-        text ?? "",
+      /^(\d{1,15})-(\d{1,16})-(\d{1,9})-(\d{1,15})-(\d{1,10})-(\d{1,2})-(\d{1,10})$/.exec(
+        text,
       );
     if (!parts) return null;
     return {
@@ -219,9 +233,14 @@ const Cursor = {
       shown: Number(parts[3]),
       now: Number(parts[4]),
       history: Number(parts[5]),
+      missing: Number(parts[6]),
+      readings: Number(parts[7]),
     };
   },
 } as const;
+
+/** How a page reads the query's words beyond as typed; see `Cursor`. */
+type Readings = { missing: number; readings: number };
 
 /** Per-index scratch space for scans on this thread, reused while a layout lasts. */
 export function createSearchState() {
@@ -482,9 +501,23 @@ const matchOf = (rank: number): SearchMatch => {
       : "fuzzy";
 };
 
-export function prepareSearch(
+export const prepareSearch = (
   view: IndexView,
   request: SearchRequest,
+): PreparedSearch =>
+  prepare(
+    view,
+    request,
+    request.cursor === undefined
+      ? null
+      : (Cursor.parse(request.cursor) ?? "unusable"),
+  );
+
+/** `prepareSearch` with the request's cursor read, or "unusable" to restart. */
+function prepare(
+  view: IndexView,
+  request: SearchRequest,
+  cursor: Cursor | "unusable" | null,
 ): PreparedSearch {
   const { root, limit, scope } = request;
   const needle = foldQuery(request.query);
@@ -532,22 +565,24 @@ export function prepareSearch(
   // Continue a page: after its last rank within its layout; through the
   // previous layout's numbering just after a compaction; otherwise from the
   // first result again.
-  const cursor = Cursor.parse(request.cursor);
-  const sameHistory = cursor !== null && cursor.history === digest;
+  const parsed = cursor === "unusable" ? null : cursor;
+  const sameHistory = parsed !== null && parsed.history === digest;
   const previous = view.previous;
   const mode =
     cursor === null
       ? "start"
-      : sameHistory && cursor.generation === layout.generation
+      : sameHistory && parsed.generation === layout.generation
         ? "continue"
-        : sameHistory && previous && cursor.generation === previous.generation
+        : sameHistory && previous && parsed.generation === previous.generation
           ? "translate"
           : "again";
-  const shown = cursor?.shown ?? 0;
-  const now = cursor?.now ?? request.now ?? Date.now();
-  const before = mode === "continue" || mode === "translate" ? shown : 0;
+  /** The page this one continues, when it does. */
+  const continued =
+    parsed && (mode === "continue" || mode === "translate") ? parsed : null;
+  const now = parsed?.now ?? request.now ?? Date.now();
+  const before = continued?.shown ?? 0;
   const want = limit;
-  const after = cursor && mode === "continue" ? cursor.after : -1;
+  const after = parsed && mode === "continue" ? parsed.after : -1;
   /**
    * For "translate": a rank in this layout as the previous one ranks it, or
    * -1 when it came no later than the cursor there. The whole page is ranked
@@ -555,7 +590,7 @@ export function prepareSearch(
    * the cursor however this compaction reordered entries.
    */
   const translate: ((rank: number) => number) | null =
-    cursor && previous && mode === "translate"
+    parsed && previous && mode === "translate"
       ? (rank) => {
           const order = Rank.order(rank);
           const id =
@@ -568,7 +603,7 @@ export function prepareSearch(
               : NONE;
           const ranked =
             rank - order + (old === NONE ? previous.slots + id : old);
-          return ranked > cursor.after ? ranked : -1;
+          return ranked > parsed.after ? ranked : -1;
         }
       : null;
   /** The layout the page's ranks are in, to turn them back into entries. */
@@ -623,6 +658,7 @@ export function prepareSearch(
   const step = (
     plan: ScanPlan,
     corrections: DeltaFuzzy | null,
+    read: Readings,
   ): PreparedSearch => ({
     done: null,
     layout,
@@ -645,13 +681,17 @@ export function prepareSearch(
         counts,
         corrections,
       );
+      let pageReadings = read;
       // Other readings of the query's words: dates written any way, and
       // words no visible name holds corrected to words visible names hold.
       if (plan.fuzzy === null && full && usable && allTerms.length) {
+        // A continued page corrects the words its first page did.
         const missing = allTerms.map((term, index) =>
-          plan.terms.length
-            ? (counts.terms[index] ?? 0) === 0
-            : counts.literal === 0,
+          continued
+            ? (continued.missing & (1 << index)) !== 0
+            : plan.terms.length
+              ? (counts.terms[index] ?? 0) === 0
+              : counts.literal === 0,
         );
         const dates = allTerms.map((term, index) => {
           const days = queryDates(term);
@@ -674,6 +714,18 @@ export function prepareSearch(
           ...(dates[index] ?? []),
           ...(fixes[index] ?? []),
         ]);
+        const decided: Readings = {
+          missing: missing.reduce(
+            (bits, word, index) => (word ? bits | (1 << index) : bits),
+            0,
+          ),
+          readings: digestOf(readings.map((list) => list.join("\0"))),
+        };
+        // The corrections chosen changed with the names since the page this
+        // continues: its cursor ranks a different result set, so restart.
+        if (continued && decided.readings !== continued.readings)
+          return prepare(view, request, "unusable");
+        pageReadings = decided;
         if (readings.some((list) => list.length)) {
           const expansions = readings.map((list) =>
             list.map((word) => view.words.expand(word)),
@@ -709,6 +761,7 @@ export function prepareSearch(
                   ),
               ),
             },
+            decided,
           );
         }
       }
@@ -746,6 +799,7 @@ export function prepareSearch(
                 shown: before + hits.length,
                 now,
                 history: digest,
+                ...pageReadings,
               })
             : null,
           terms: [
@@ -761,6 +815,7 @@ export function prepareSearch(
   return step(
     { needle, terms, split, fuzzy: null, ranges, boosts, after },
     null,
+    { missing: 0, readings: 0 },
   );
 }
 

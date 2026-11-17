@@ -414,6 +414,66 @@ describe("paging", () => {
     expect(after.hits).toEqual(fresh.hits.slice(4, 8));
   });
 
+  it("keeps the typo layer a paging session started with when a literal match arrives", () => {
+    const index = createSearchIndex();
+    for (let file = 1; file <= 3; file++)
+      index.add(`docs/invoice-${file}.pdf`, "file");
+    index.compact();
+    const request: SearchRequest = {
+      query: "invioce",
+      root: "",
+      limit: 1,
+      scope: all,
+      depth: "full",
+      now: 1,
+    };
+    const first = index.search(request);
+    expect(first.hits.map((hit) => hit.path)).toEqual(["docs/invoice-1.pdf"]);
+    // The word typed now matches a name as typed, which alone would turn the
+    // typo layer off for a new search.
+    index.add("docs/invioce-new.pdf", "file");
+    const rest: string[] = [];
+    for (let cursor = first.next ?? undefined; cursor !== undefined;) {
+      const page = index.search({ ...request, cursor });
+      expect(page.restarted).toBe(false);
+      rest.push(...page.hits.map((hit) => hit.path));
+      cursor = page.next ?? undefined;
+    }
+    expect(rest).toEqual(["docs/invoice-2.pdf", "docs/invoice-3.pdf"]);
+  });
+
+  it("restarts rather than skip when the corrections tried change between pages", () => {
+    const index = createSearchIndex();
+    for (let file = 1; file <= 3; file++)
+      index.add(`docs/invoice-${file}.pdf`, "file");
+    index.compact();
+    const request: SearchRequest = {
+      query: "invioce",
+      root: "",
+      limit: 1,
+      scope: all,
+      depth: "full",
+      now: 1,
+    };
+    const first = index.search(request);
+    // Many names now hold a closer reading, which a new search would try first.
+    for (let file = 0; file < 40; file++)
+      index.add(`docs/invoices ${file}.pdf`, "file");
+    for (let file = 0; file < 40; file++)
+      index.add(`docs/invoce ${file}.pdf`, "file");
+    const second = index.search({
+      ...request,
+      cursor: first.next ?? undefined,
+    });
+    const fresh = index.search(request);
+    if (fresh.terms.join() === first.terms.join())
+      throw new Error(
+        "The corrections did not change; the test proves nothing.",
+      );
+    expect(second.restarted).toBe(true);
+    expect(second.hits).toEqual(fresh.hits);
+  });
+
   it("starts over for a cursor no page returned", () => {
     const index = drive();
     expect(
