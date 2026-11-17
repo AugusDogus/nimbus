@@ -148,14 +148,16 @@ const dayKey = (year: number, month: number, day: number) =>
 const monthKey = (year: number, month: number) =>
   `M${year}${String(month).padStart(2, "0")}`;
 
-const DAYS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const leap = (year: number) =>
+  year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 const validDay = (year: number, month: number, day: number) =>
   year >= 1900 &&
   year <= 2099 &&
   month >= 1 &&
   month <= 12 &&
   day >= 1 &&
-  day <= (DAYS[month - 1] ?? 0);
+  day <= (DAYS[month - 1] ?? 0) + (month === 2 && leap(year) ? 1 : 0);
 
 /** Day-first and month-first readings of `a-b-year`, where valid. */
 function bothOrders(a: number, b: number, year: number) {

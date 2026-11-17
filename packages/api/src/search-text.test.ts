@@ -74,6 +74,11 @@ test("finds dates written in many ways", () => {
   // Not dates: digits running on, impossible days, bare years.
   expect(SearchText.datesIn("id 120240315 x")).toEqual([]);
   expect(SearchText.datesIn("2024-02-31")).toEqual([]);
+  // February 29th only in leap years.
+  expect(SearchText.datesIn("2023-02-29")).toEqual([]);
+  expect(SearchText.datesIn("1900-02-29")).toEqual([]);
+  expect(SearchText.datesIn("2024-02-29")).toEqual(["D20240229", "M202402"]);
+  expect(SearchText.datesIn("2000-02-29")).toEqual(["D20000229", "M200002"]);
   expect(SearchText.datesIn("2024 report")).toEqual([]);
 });
 
