@@ -685,6 +685,8 @@ export async function handleWebDAV(request: Request): Promise<Response> {
         },
       });
     if (method === "GET" || method === "HEAD") {
+      // Permission first, so a 404 never tells someone without access that a path exists.
+      if (!access.canBrowse(target)) throw new TRPCError({ code: "FORBIDDEN" });
       const entry = await entryAt(target);
       if (entry.type === "file")
         return await serveFile(request, target, access);

@@ -5,7 +5,7 @@ import {
   type APIRequestContext,
   type BrowserContext,
 } from "@playwright/test";
-import { adminEmail, client, origin, test } from "./helpers";
+import { adminEmail, client, login, origin, password, test } from "./helpers";
 
 async function davHeaders(context: BrowserContext) {
   const { token } = await (
@@ -297,5 +297,54 @@ test("a LOCK refused by the per-user lock limit leaves no empty file behind", as
           }),
         ),
       );
+  }
+});
+
+test("WebDAV GET and HEAD do not reveal whether a path the user cannot read exists", async ({
+  context,
+  request,
+  browser,
+}) => {
+  const email = `bytes-${randomUUID()}@nimbus.test`;
+  const created = await context.request.post("/api/auth/admin/create-user", {
+    headers: { Origin: origin },
+    data: { name: "Robin Vale", email, password, role: "user" },
+  });
+  expect(created.ok()).toBe(true);
+  const secret = `secret-${randomUUID()}.txt`;
+  expect(
+    (
+      await request.put(`/dav/homes/admin/${secret}`, {
+        headers: await davHeaders(context),
+        data: "private",
+      })
+    ).status(),
+  ).toBe(201);
+  const member = await browser.newContext({
+    storageState: { cookies: [], origins: [] },
+  });
+  try {
+    await login(await member.newPage(), email);
+    const { token } = await (
+      await client(member)
+    ).appPasswords.create.mutate({
+      name: `Bytes ${randomUUID()}`,
+    });
+    const headers = {
+      Authorization: `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`,
+    };
+    for (const method of ["GET", "HEAD"])
+      for (const name of [secret, `missing-${randomUUID()}.txt`])
+        expect(
+          (
+            await member.request.fetch(`/dav/homes/admin/${name}`, {
+              method,
+              headers,
+            })
+          ).status(),
+          `${method} ${name}`,
+        ).toBe(403);
+  } finally {
+    await member.close();
   }
 });
