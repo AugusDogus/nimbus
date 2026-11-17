@@ -17,6 +17,7 @@ import { mailConfig } from "./mail";
 import { SecurityHeaders } from "./security-headers";
 import { HttpRoutes } from "./http-routes";
 import { AppShell } from "./app-shell";
+import { AuthPages } from "./auth-pages";
 import { PageBootstrap } from "./page-bootstrap";
 import { PageSkeleton } from "./page-skeleton";
 import { PublicPages } from "./public-pages";
@@ -144,6 +145,11 @@ async function route(request: Request): Promise<Response> {
     if (file) return file;
     if (!page) return textResponse(404, `Nothing is served at ${pathname}.`);
   }
+  const authPage = await AuthPages.render(request, url, shell, securityMode);
+  if (authPage?.kind === "redirect")
+    return Response.redirect(new URL(authPage.location, request.url), 307);
+  if (authPage)
+    return AppShell.htmlResponse(request, authPage.html, authPage.headers);
   const publicPage = await PublicPages.render(
     request,
     pathname,
@@ -161,7 +167,7 @@ async function route(request: Request): Promise<Response> {
     request,
     await shell.html(nonce, pathname, {
       data: bootstrap.data,
-      skeleton: PageSkeleton.markup(kind, url, bootstrap),
+      skeleton: PageSkeleton.markup(kind, bootstrap),
       requests: bootstrap.requests,
     }),
     new Headers(SecurityHeaders.document(nonce, securityMode)),

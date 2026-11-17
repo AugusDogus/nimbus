@@ -28,9 +28,10 @@ const dist = path.resolve(
 const routePrefix = "routes/";
 const splitSuffix = "?tsr-split=component";
 /** Pages with their own HTML entry instead of the app's router. */
-const htmlEntries: Record<string, string> = {
-  "share.html": "/s/$token",
-  "file-request.html": "/r/$token",
+const htmlEntries: Record<string, readonly string[]> = {
+  "share.html": ["/s/$token"],
+  "file-request.html": ["/r/$token"],
+  "auth.html": ["/login", "/signup", "/reset-password"],
 };
 
 type RouteSize = {
@@ -154,7 +155,7 @@ async function measure(): Promise<RouteSize[]> {
     }
     results.push({ route: routePath(file), files: files.size, ...total });
   }
-  for (const [entry, route] of Object.entries(htmlEntries)) {
+  for (const [entry, routes] of Object.entries(htmlEntries)) {
     if (!chunks.has(entry)) continue;
     const files = new Set<string>();
     staticFiles(chunks, entry, files);
@@ -165,7 +166,8 @@ async function measure(): Promise<RouteSize[]> {
       total.gzip += sizes.gzip;
       total.brotli += sizes.brotli;
     }
-    results.push({ route, files: files.size, ...total });
+    for (const route of routes)
+      results.push({ route, files: files.size, ...total });
   }
   return results.sort((a, b) => a.route.localeCompare(b.route));
 }

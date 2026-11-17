@@ -1,4 +1,3 @@
-import { Link } from "@/components/link";
 import type { SubmitEvent } from "react";
 import { useState } from "react";
 
@@ -18,6 +17,8 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { signIn, signUp } from "@/lib/auth-client";
+import { useHydrated } from "@/lib/use-hydrated";
+import { useServerField } from "@/lib/use-server-field";
 import { cn } from "@/lib/utils";
 
 const getErrorMessage = (error: unknown) => {
@@ -46,6 +47,11 @@ export function SignupForm({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const nameField = useServerField(setName);
+  const emailField = useServerField(setEmail);
+  const passwordField = useServerField(setPassword);
+  const confirmPasswordField = useServerField(setConfirmPassword);
+  const hydrated = useHydrated();
 
   const handleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -84,7 +90,12 @@ export function SignupForm({
   };
 
   const isDisabled =
-    !name || !email || !password || !confirmPassword || isSubmitting;
+    !hydrated ||
+    !name ||
+    !email ||
+    !password ||
+    !confirmPassword ||
+    isSubmitting;
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
@@ -102,6 +113,7 @@ export function SignupForm({
               <Field>
                 <FieldLabel htmlFor="name">Full Name</FieldLabel>
                 <Input
+                  ref={nameField}
                   id="name"
                   autoComplete="name"
                   type="text"
@@ -117,6 +129,7 @@ export function SignupForm({
               <Field>
                 <FieldLabel htmlFor="email">Email</FieldLabel>
                 <Input
+                  ref={emailField}
                   id="email"
                   autoComplete="email"
                   type="email"
@@ -134,6 +147,7 @@ export function SignupForm({
                   <Field>
                     <FieldLabel htmlFor="password">Password</FieldLabel>
                     <Input
+                      ref={passwordField}
                       id="password"
                       autoComplete="new-password"
                       minLength={8}
@@ -151,6 +165,7 @@ export function SignupForm({
                       Confirm Password
                     </FieldLabel>
                     <Input
+                      ref={confirmPasswordField}
                       id="confirm-password"
                       autoComplete="new-password"
                       minLength={8}
@@ -184,12 +199,12 @@ export function SignupForm({
                 ) : null}
                 <FieldDescription className="text-center">
                   Already have an account?{" "}
-                  <Link
+                  <a
                     className="underline-offset-4 hover:underline"
-                    to="/login"
+                    href="/login"
                   >
                     Sign in
-                  </Link>
+                  </a>
                 </FieldDescription>
               </Field>
             </FieldGroup>

@@ -5,8 +5,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { readInlineJson } from "@/lib/inline-json";
 
 /**
- * Public pages, the share page and the upload page, arrive rendered by the server and hydrate
- * through entries of their own, which load nothing of the signed-in app.
+ * Public pages, the share and upload pages and the sign-in pages, arrive rendered by the server
+ * and hydrate through entries of their own, which load nothing of the signed-in app.
  */
 export const publicPageElementId = "nimbus-page";
 

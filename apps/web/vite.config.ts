@@ -131,12 +131,13 @@ export default defineConfig(({ command }) => {
       emptyOutDir: true,
       manifest: true,
       rolldownOptions: {
-        // The public share and upload pages are server-rendered and hydrate through entries of
-        // their own, which load none of the signed-in app.
+        // The public share and upload pages and the sign-in pages are server-rendered and
+        // hydrate through entries of their own, which load none of the signed-in app.
         input: {
           index: path.join(root, "index.html"),
           share: path.join(root, "share.html"),
           "file-request": path.join(root, "file-request.html"),
+          auth: path.join(root, "auth.html"),
         },
         output: { codeSplitting: startup?.codeSplitting ?? true },
       },

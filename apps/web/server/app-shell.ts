@@ -23,8 +23,12 @@ export type PageContent = {
 };
 
 /** Pages with an entry and template of their own, named by their HTML file. */
-export type PublicPageName = "share" | "file-request";
-const publicPages: readonly PublicPageName[] = ["share", "file-request"];
+export type PublicPageName = "share" | "file-request" | "auth";
+const publicPages: readonly PublicPageName[] = [
+  "share",
+  "file-request",
+  "auth",
+];
 
 export type AppShell = {
   /** The page an address names, or null when no route matches it. */
@@ -72,7 +76,7 @@ function compose(
 ) {
   if (!template.includes(root))
     throw new Error(
-      "The page template has no empty #root element, so the app cannot start. Check index.html, share.html and file-request.html, then rebuild Nimbus.",
+      "The page template has no empty #root element, so the app cannot start. Check index.html, share.html, file-request.html and auth.html, then rebuild Nimbus.",
     );
   return fill(template, nonce)
     .replace("</head>", () => `${head}</head>`)

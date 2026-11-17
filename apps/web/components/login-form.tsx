@@ -1,4 +1,3 @@
-import { Link } from "@/components/link";
 import type { SubmitEvent } from "react";
 import { useEffect, useState } from "react";
 import * as z from "zod/mini";
@@ -22,7 +21,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { authClient, signIn } from "@/lib/auth-client";
 import { CallbackUrl } from "@/lib/callback-url";
-import { queryClient } from "@/lib/trpc";
+import { useHydrated } from "@/lib/use-hydrated";
+import { useServerField } from "@/lib/use-server-field";
 import { cn } from "@/lib/utils";
 
 const getErrorMessage = (error: unknown) => {
@@ -46,11 +46,11 @@ type Step =
   | { kind: "credentials" }
   | { kind: "second-factor"; method: "totp" | "recovery" };
 
-/** Every sign-in path ends here, returning to `redirectTo`, a validated same-origin path. */
-const finish = (redirectTo: string) => {
-  queryClient.clear();
-  window.location.assign(redirectTo);
-};
+/**
+ * Every sign-in path ends here, returning to `redirectTo`, a validated same-origin path. It
+ * loads a new page, so nothing from before signing in carries over.
+ */
+const finish = (redirectTo: string) => window.location.assign(redirectTo);
 
 const isAbort = (error: unknown) =>
   error instanceof DOMException &&
@@ -82,6 +82,9 @@ export function LoginForm({
   const [error, setError] = useState<string | null>(initialError);
   const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const emailField = useServerField(setEmail);
+  const passwordField = useServerField(setPassword);
+  const hydrated = useHydrated();
 
   useEffect(() => {
     // Offer saved passkeys in the email field's autofill. The WebAuthn helpers load
@@ -300,7 +303,7 @@ export function LoginForm({
       </div>
     );
 
-  const isDisabled = !email || !password || isSubmitting;
+  const isDisabled = !hydrated || !email || !password || isSubmitting;
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
@@ -319,6 +322,7 @@ export function LoginForm({
               <Field>
                 <FieldLabel htmlFor="email">Email</FieldLabel>
                 <Input
+                  ref={emailField}
                   id="email"
                   autoComplete="username webauthn"
                   type="email"
@@ -335,15 +339,16 @@ export function LoginForm({
                 <div className="flex items-center justify-between gap-3">
                   <FieldLabel htmlFor="password">Password</FieldLabel>
                   {passwordReset && (
-                    <Link
-                      to="/reset-password"
+                    <a
+                      href="/reset-password"
                       className="text-sm underline-offset-4 hover:underline"
                     >
                       Forgot password?
-                    </Link>
+                    </a>
                   )}
                 </div>
                 <Input
+                  ref={passwordField}
                   id="password"
                   autoComplete="current-password"
                   type="password"
@@ -388,7 +393,7 @@ export function LoginForm({
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={isSubmitting}
+                  disabled={!hydrated || isSubmitting}
                   onClick={() => void signInWithPasskey()}
                 >
                   Sign in with a passkey
@@ -397,7 +402,7 @@ export function LoginForm({
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={isSubmitting}
+                    disabled={!hydrated || isSubmitting}
                     onClick={() => void signInWithProvider()}
                   >
                     Continue with {singleSignOn}
@@ -405,9 +410,9 @@ export function LoginForm({
                 )}
                 <FieldDescription className="text-pretty text-center">
                   {setupAvailable ? (
-                    <Link className="underline underline-offset-4" to="/signup">
+                    <a className="underline underline-offset-4" href="/signup">
                       Set up your server
-                    </Link>
+                    </a>
                   ) : (
                     "Need an account? Ask your server administrator."
                   )}

@@ -77,10 +77,17 @@ export const PublicPages = {
         publicShareQuery(shareToken, "").queryKey,
         result,
       );
-      return page("share", shell, mode, queryClient, answer.cookies, {
-        data: { token: shareToken, result },
-        content: <PublicShare token={shareToken} />,
-      });
+      return PublicPages.page(
+        "share",
+        shell,
+        mode,
+        queryClient,
+        answer.cookies,
+        {
+          data: { token: shareToken, result },
+          content: <PublicShare token={shareToken} />,
+        },
+      );
     }
     const requestToken = tokenAt(pathname, "r");
     if (requestToken !== null) {
@@ -93,38 +100,49 @@ export const PublicPages = {
       const result = FileRequestResult.fromResponse(answer.status, answer.body);
       const queryClient = createQueryClient();
       queryClient.setQueryData(fileRequestQuery(requestToken).queryKey, result);
-      return page("file-request", shell, mode, queryClient, answer.cookies, {
-        data: { token: requestToken, result },
-        content: <FileRequestUpload token={requestToken} />,
-      });
+      return PublicPages.page(
+        "file-request",
+        shell,
+        mode,
+        queryClient,
+        answer.cookies,
+        {
+          data: { token: requestToken, result },
+          content: <FileRequestUpload token={requestToken} />,
+        },
+      );
     }
     return null;
   },
-} as const;
 
-async function page(
-  name: PublicPageName,
-  shell: AppShell,
-  mode: SecurityMode,
-  queryClient: ReturnType<typeof createQueryClient>,
-  cookies: string[],
-  { data, content }: { data: unknown; content: ReactNode },
-) {
-  // Waits for lazy parts such as the theme styles, which `renderToString` would leave for the
-  // browser, logging a recoverable error as it hydrates.
-  const stream = await renderToReadableStream(
-    <PublicRoot queryClient={queryClient}>{content}</PublicRoot>,
-  );
-  await stream.allReady;
-  const markup = await new Response(stream).text();
-  const nonce = SecurityHeaders.nonce();
-  const html = await shell.publicHtml(
-    name,
-    nonce,
-    `<script type="application/json" id="${publicPageElementId}" nonce="${nonce}">${inlineJson(data)}</script>`,
-    markup,
-  );
-  const headers = new Headers(SecurityHeaders.document(nonce, mode));
-  for (const cookie of cookies) headers.append("Set-Cookie", cookie);
-  return { html, headers };
-}
+  /**
+   * A page rendered from `content` through the template and entry `name`, carrying `data` for
+   * the browser to hydrate with and any `cookies` its first answer set.
+   */
+  async page(
+    name: PublicPageName,
+    shell: AppShell,
+    mode: SecurityMode,
+    queryClient: ReturnType<typeof createQueryClient>,
+    cookies: string[],
+    { data, content }: { data: unknown; content: ReactNode },
+  ): Promise<{ html: string; headers: Headers }> {
+    // Waits for lazy parts such as the theme styles, which `renderToString` would leave for the
+    // browser, logging a recoverable error as it hydrates.
+    const stream = await renderToReadableStream(
+      <PublicRoot queryClient={queryClient}>{content}</PublicRoot>,
+    );
+    await stream.allReady;
+    const markup = await new Response(stream).text();
+    const nonce = SecurityHeaders.nonce();
+    const html = await shell.publicHtml(
+      name,
+      nonce,
+      `<script type="application/json" id="${publicPageElementId}" nonce="${nonce}">${inlineJson(data)}</script>`,
+      markup,
+    );
+    const headers = new Headers(SecurityHeaders.document(nonce, mode));
+    for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+    return { html, headers };
+  },
+} as const;

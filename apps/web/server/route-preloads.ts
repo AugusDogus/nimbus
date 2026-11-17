@@ -13,10 +13,9 @@ type Segment =
 
 /**
  * What a page needs first: `files` and `settings` pages are signed-in and check the session,
- * file browser pages also read the browsing preferences, and `auth` pages read the sign-in
- * options.
+ * and file browser pages also read the browsing preferences.
  */
-export type PageKind = "files" | "settings" | "signed-in" | "auth" | "public";
+export type PageKind = "files" | "settings" | "signed-in" | "public";
 
 /** The page an address names, with the code-split chunks it loads beyond the entry. */
 export type PageRoute = { kind: PageKind; chunks: string[] };
@@ -33,14 +32,12 @@ export type RoutePreloads = {
   links(pathname: string, data: readonly string[]): string;
 };
 
-const authPages = new Set(["login", "signup", "reset-password"]);
-
 function kindOf(file: string): PageKind {
   const name = file.slice(routePrefix.length, -".tsx".length);
   if (name.startsWith("_authed/_files/")) return "files";
   if (name.startsWith("_authed/settings")) return "settings";
   if (name.startsWith("_authed/")) return "signed-in";
-  return authPages.has(name) ? "auth" : "public";
+  return "public";
 }
 
 const routePrefix = "routes/";

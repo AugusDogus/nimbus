@@ -18,6 +18,20 @@ export type PageBootstrap =
 
 const signedInKinds = new Set<PageKind>(["files", "settings", "signed-in"]);
 
+/** The request's tRPC caller and its signed-in account, if any, read once per page. */
+async function forRequest(request: Request) {
+  const context = await createContext({
+    auth,
+    headers: request.headers,
+    preferences: preferencesStore,
+    drive: driveStore,
+  });
+  return {
+    caller: createWebCaller(context),
+    session: signedIn(context.session),
+  };
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -50,24 +64,12 @@ function folderOf(pathname: string): string | null {
 }
 
 export const PageBootstrap = {
+  forRequest,
+
   async load(request: Request, kind: PageKind | null): Promise<PageBootstrap> {
-    if (kind === null || (!signedInKinds.has(kind) && kind !== "auth"))
+    if (kind === null || !signedInKinds.has(kind))
       return { kind: "page", data: {}, requests: [], folder: false };
-    const context = await createContext({
-      auth,
-      headers: request.headers,
-      preferences: preferencesStore,
-      drive: driveStore,
-    });
-    const caller = createWebCaller(context);
-    if (kind === "auth")
-      return {
-        kind: "page",
-        data: { signInOptions: await caller.signIn.options() },
-        requests: [],
-        folder: false,
-      };
-    const session = signedIn(context.session);
+    const { caller, session } = await forRequest(request);
     if (!session) return { kind: "redirect", location: "/login" };
     if (kind !== "files")
       return { kind: "page", data: { session }, requests: [], folder: false };

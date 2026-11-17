@@ -3,23 +3,14 @@ import type { UserPreferences } from "@nimbus/api/context";
 import { sessionQuery, type SignedIn } from "@/lib/session-query";
 import { prefsQueryOptions } from "@/app/drive/files/use-file-preferences";
 import { inlineJson, readInlineJson } from "@/lib/inline-json";
-import { trpc } from "@/lib/trpc";
 
 /**
- * Data the server already knows when it sends a page: the session and browsing preferences of a
- * signed-in page, or the sign-in options of a sign-in page. The page carries it as JSON, so the
- * app starts without asking for it again.
+ * Data the server already knows when it sends a signed-in page: the session and browsing
+ * preferences. The page carries it as JSON, so the app starts without asking for it again.
  */
 export type Bootstrap = {
   session?: SignedIn;
   prefs?: UserPreferences;
-  signInOptions?: SignInOptions;
-};
-
-type SignInOptions = {
-  setupAvailable: boolean;
-  singleSignOn: string | null;
-  passwordReset: boolean;
 };
 
 export const bootstrapElementId = "nimbus-bootstrap";
@@ -56,21 +47,6 @@ function parsePrefs(value: unknown): UserPreferences | undefined {
     : undefined;
 }
 
-function parseSignInOptions(value: unknown): SignInOptions | undefined {
-  if (
-    !isRecord(value) ||
-    typeof value.setupAvailable !== "boolean" ||
-    typeof value.passwordReset !== "boolean" ||
-    (value.singleSignOn !== null && typeof value.singleSignOn !== "string")
-  )
-    return undefined;
-  return {
-    setupAvailable: value.setupAvailable,
-    singleSignOn: value.singleSignOn,
-    passwordReset: value.passwordReset,
-  };
-}
-
 export const Bootstrap = {
   serialize: (value: Bootstrap) => inlineJson(value),
 
@@ -82,8 +58,5 @@ export const Bootstrap = {
     if (session) queryClient.setQueryData(sessionQuery.queryKey, session);
     const prefs = parsePrefs(value.prefs);
     if (prefs) queryClient.setQueryData(prefsQueryOptions.queryKey, prefs);
-    const options = parseSignInOptions(value.signInOptions);
-    if (options)
-      queryClient.setQueryData(trpc.signIn.options.queryKey(), options);
   },
 } as const;

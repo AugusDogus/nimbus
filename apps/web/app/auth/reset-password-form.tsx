@@ -1,4 +1,3 @@
-import { Link } from "@/components/link";
 import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -16,6 +15,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
+import { useHydrated } from "@/lib/use-hydrated";
 
 type State =
   | { kind: "idle" }
@@ -41,6 +41,8 @@ export function ResetPasswordForm({
       : { kind: "idle" },
   );
   const busy = state.kind === "busy";
+  // Before hydration the form would submit natively, putting what was typed in the address.
+  const hydrated = useHydrated();
   const message =
     state.kind === "error" ? (
       <FieldDescription
@@ -69,12 +71,12 @@ export function ResetPasswordForm({
               <p role="status" className="text-pretty text-sm">
                 Your password has been changed.
               </p>
-              <Link
-                to="/login"
+              <a
+                href="/login"
                 className={buttonVariants({ className: "w-full" })}
               >
                 Sign in
-              </Link>
+              </a>
             </div>
           ) : (
             <form
@@ -147,7 +149,7 @@ export function ResetPasswordForm({
                   />
                 </Field>
                 <Field>
-                  <Button type="submit" disabled={busy}>
+                  <Button type="submit" disabled={busy || !hydrated}>
                     {busy ? "Saving…" : "Change password"}
                   </Button>
                   {message}
@@ -177,15 +179,15 @@ export function ResetPasswordForm({
               If an account uses that address, a reset link is on its way. It
               works for one hour. Check your spam folder if it does not arrive.
             </p>
-            <Link
-              to="/login"
+            <a
+              href="/login"
               className={buttonVariants({
                 variant: "outline",
                 className: "w-full",
               })}
             >
               Back to sign in
-            </Link>
+            </a>
           </div>
         ) : (
           <form
@@ -230,14 +232,14 @@ export function ResetPasswordForm({
                 />
               </Field>
               <Field>
-                <Button type="submit" disabled={busy}>
+                <Button type="submit" disabled={busy || !hydrated}>
                   {busy ? "Sending…" : "Send reset link"}
                 </Button>
                 {message}
                 <FieldDescription className="text-center">
-                  <Link to="/login" className="underline underline-offset-4">
+                  <a href="/login" className="underline underline-offset-4">
                     Back to sign in
-                  </Link>
+                  </a>
                 </FieldDescription>
               </Field>
             </FieldGroup>

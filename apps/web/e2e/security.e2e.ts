@@ -281,25 +281,57 @@ test("a signed-out session's cookie sends every signed-in page to sign-in", asyn
   }
 });
 
-test("the sign-in page offers no fields before the app can keep what is typed", async ({
+test("sign-in keeps what is typed before its code has loaded", async ({
   browser,
   page,
 }) => {
+  const { email } = await createMember(page);
   const visitor = await memberPage(browser, page);
   try {
-    // Hold back the app's code, so the page shows only what the server sent.
-    await visitor.page.route(/\.(js|tsx?)(\?|$)/, (route) => route.abort());
-    await visitor.page.goto("/login");
-    await expect(visitor.page.locator('[data-slot="card"]')).toBeVisible();
+    // A slow connection: the page's code arrives only after the visitor has typed.
+    const cdp = await visitor.context.newCDPSession(visitor.page);
+    await cdp.send("Network.enable");
+    await cdp.send("Network.emulateNetworkConditions", {
+      offline: false,
+      latency: 150,
+      downloadThroughput: (1600 * 1024) / 8,
+      uploadThroughput: (750 * 1024) / 8,
+    });
+    let release = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await visitor.page.route(/\.(js|tsx?)(\?|$)/, async (route) => {
+      await released;
+      await route.continue();
+    });
+    await visitor.page.goto("/login", { waitUntil: "commit" });
+    const emailField = visitor.page.getByLabel("Email", { exact: true });
+    const passwordField = visitor.page.getByLabel("Password", {
+      exact: true,
+    });
+    await emailField.pressSequentially(email);
+    await passwordField.pressSequentially(password);
+    // Until the code runs a click would reach no handler, so the actions wait for it.
     await expect(
-      visitor.page.getByLabel("Email", { exact: true }),
-    ).toBeHidden();
+      visitor.page.getByRole("button", {
+        name: "Sign in with a passkey",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    release();
+    const signIn = visitor.page.getByRole("button", {
+      name: "Sign in",
+      exact: true,
+    });
+    // Enabled only once the form, now hydrated, holds both values.
+    await expect(signIn).toBeEnabled();
+    await expect(emailField).toHaveValue(email);
+    await expect(passwordField).toHaveValue(password);
+    await signIn.click();
     await expect(
-      visitor.page.getByLabel("Password", { exact: true }),
-    ).toBeHidden();
-    await expect(
-      visitor.page.getByRole("button", { name: "Sign in", exact: true }),
-    ).toBeHidden();
+      visitor.page.getByRole("button", { name: "Account menu" }),
+    ).toBeVisible();
   } finally {
     await visitor.context.close();
   }

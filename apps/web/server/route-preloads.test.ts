@@ -27,7 +27,7 @@ describe("RoutePreloads", () => {
   test("names the kind of page an address is", () => {
     expect(preloads.match("/browse/x")?.kind).toBe("files");
     expect(preloads.match("/")?.kind).toBe("files");
-    expect(preloads.match("/login")?.kind).toBe("auth");
+    expect(preloads.match("/login")?.kind).toBe("public");
     expect(preloads.match("/r/abc")?.kind).toBe("public");
     expect(preloads.match("/nowhere/at/all")).toBeNull();
   });
