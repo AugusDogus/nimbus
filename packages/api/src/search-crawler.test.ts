@@ -117,6 +117,45 @@ describe("search crawler", () => {
     ]);
   });
 
+  it("drops what an earlier folder held when one replaces a folder only known from a change inside it", async () => {
+    const index = createSearchIndex();
+    await crawl(index, root);
+    const incoming = async (name: string) => {
+      const outside = await mkdtemp(path.join(os.tmpdir(), "nimbus-incoming-"));
+      await mkdir(path.join(outside, "album"));
+      await writeFile(path.join(outside, "album", name), "");
+      await rename(path.join(outside, "album"), path.join(root, "album"));
+      await rm(outside, { recursive: true });
+    };
+    await incoming("notes-old.txt");
+    await applyChange(index, root, path.join(root, "album/notes-old.txt"));
+    await rm(path.join(root, "album"), { recursive: true });
+    await incoming("notes-new.txt");
+    await applyChange(index, root, path.join(root, "album"));
+    expect(names(index, "notes")).toEqual([
+      "album/notes-new.txt",
+      "docs/deep/notes.txt",
+    ]);
+  });
+
+  it("finds what changed in a folder while it was moved out and back", async () => {
+    const index = createSearchIndex();
+    await crawl(index, root);
+    const away = await mkdtemp(path.join(os.tmpdir(), "nimbus-away-"));
+    await rename(path.join(root, "docs"), path.join(away, "docs"));
+    await writeFile(path.join(away, "docs/notes-added.txt"), "");
+    await writeFile(path.join(away, "docs/deep/notes-deeper.txt"), "");
+    await rename(path.join(away, "docs"), path.join(root, "docs"));
+    await rm(away, { recursive: true });
+    // Its removal and arrival coalesced, and it is the same folder as before.
+    await applyChange(index, root, path.join(root, "docs"));
+    expect(names(index, "notes")).toEqual([
+      "docs/deep/notes-deeper.txt",
+      "docs/deep/notes.txt",
+      "docs/notes-added.txt",
+    ]);
+  });
+
   it("ignores private and outside paths", async () => {
     expect(indexedPath(root, path.join(root, ".nimbus/uploads/x"))).toBeNull();
     expect(indexedPath(root, path.join(root, "a/.Nimbus/x"))).toBeNull();

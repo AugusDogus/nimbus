@@ -97,11 +97,14 @@ function openFolder(root: string, relative: string): OpenFolder {
 }
 
 /**
- * Which folder on disk a stat describes: its inode, with its device and birth
- * time so a number reused for another folder reads differently.
+ * Which folder on disk a stat describes, as it was then: its inode, with its
+ * device and birth time so a number reused for another folder reads
+ * differently, and its modification time, which changes whenever an entry
+ * is added, removed or renamed in it. Taken before the folder is listed, so a
+ * change during the listing reads as a change later.
  */
 const identityOf = (stats: Stats) =>
-  `${stats.dev}:${stats.ino}:${stats.birthtimeMs}`;
+  `${stats.dev}:${stats.ino}:${stats.birthtimeMs}:${stats.mtimeMs}`;
 
 /** Join "/"-separated index paths. */
 const childPath = (parent: string, name: string) =>
@@ -128,7 +131,6 @@ async function crawlInto(
     // Removed or unreadable while crawling; reconciliation retries later.
     const folder = openFolder(root, directory);
     if (folder.type !== "open") continue;
-    index.setIdentity(id, folder.identity);
     try {
       let entries: Dirent[];
       try {
@@ -136,6 +138,7 @@ async function crawlInto(
       } catch {
         continue;
       }
+      index.setIdentity(id, folder.identity);
       const files: string[] = [];
       for (const entry of entries) {
         if (unservableName(entry.name)) continue;
@@ -187,29 +190,58 @@ export type ReconcileReport = {
  * a change queued meanwhile re-checks its path afterwards. A folder that cannot
  * be read for a reason other than having vanished keeps its previous contents.
  */
-export async function reconcile(
+export const reconcile = (
   index: SearchIndex,
   root: string,
   serialize: Serialize,
+): Promise<ReconcileReport> =>
+  reconcileFrom(index, root, "", 0, serialize, false);
+
+/**
+ * `reconcile`, from the folder `relative` (index id `id`) down. With
+ * `changedOnly`, a folder whose identity is the one recorded when it was
+ * last listed is not listed again, though the folders in it are still
+ * checked: it holds the same entries, while theirs may have changed.
+ */
+async function reconcileFrom(
+  index: SearchIndex,
+  root: string,
+  relative: string,
+  id: number,
+  serialize: Serialize,
+  changedOnly: boolean,
 ): Promise<ReconcileReport> {
   const report: ReconcileReport = {
     folders: 0,
     unreadable: 0,
     longestSliceMs: 0,
   };
-  const pending: [string, number][] = [["", 0]];
+  const pending: [string, number][] = [[relative, id]];
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-    const [directory, id] = next;
+    const [directory, folderId] = next;
     const subfolders = await serialize(async () => {
       // Removed by a watcher change since it was queued.
-      if (!index.isFolder(id)) return [];
+      if (!index.isFolder(folderId)) return [];
       const folder = openFolder(root, directory);
-      if (folder.type === "gone") forget(index, id);
+      if (folder.type === "gone") forget(index, folderId);
       if (folder.type === "unreadable") report.unreadable++;
       if (folder.type !== "open") return [];
-      index.setIdentity(id, folder.identity);
       try {
-        return await reconcileFolder(index, report, folder.path, directory, id);
+        if (changedOnly && index.identityOf(folderId) === folder.identity)
+          return index
+            .childrenOf(folderId)
+            .filter((child) => child.kind === "dir")
+            .map((child): [string, number] => [
+              childPath(directory, child.name),
+              child.id,
+            ]);
+        return await reconcileFolder(
+          index,
+          report,
+          folder,
+          directory,
+          folderId,
+        );
       } finally {
         folder.close();
       }
@@ -232,10 +264,11 @@ function forget(index: SearchIndex, id: number) {
 async function reconcileFolder(
   index: SearchIndex,
   report: ReconcileReport,
-  listing: string,
+  folder: { path: string; identity: string },
   directory: string,
   id: number,
 ): Promise<[string, number][]> {
+  const listing = folder.path;
   let entries: Dirent[];
   try {
     entries = await readdir(listing, { withFileTypes: true });
@@ -273,6 +306,8 @@ async function reconcileFolder(
     }
   }
   if (unstated.size) report.unreadable++;
+  // Listed in full: a later folder event can trust this until it changes.
+  else index.setIdentity(id, folder.identity);
   for (const child of index.childrenOf(id))
     if (!seen.has(child.name)) index.removeId(child.id);
   index.maybeCompact();
@@ -339,8 +374,10 @@ export async function crawl(
 /**
  * Bring one path in line with the disk after a watcher event. A folder that
  * appears (moved or copied in) is crawled, because the watcher reports only
- * the folder itself; so is one that replaced a folder of the same name, or
- * that was only known from changes inside it, told apart by its identity.
+ * the folder itself. A folder already indexed is compared with the disk
+ * too, as it may be another folder now, or the same one changed while its
+ * events were lost (moved out and back); folders whose identity shows no
+ * change since they were last listed are not listed again.
  */
 export async function applyChange(
   index: SearchIndex,
@@ -369,17 +406,12 @@ export async function applyChange(
     parent.close();
   }
   if (stats.isDirectory()) {
-    let id = index.add(relative, "dir");
-    const known = id >= 0 ? index.identityOf(id) : undefined;
-    if (id >= 0 && known !== identityOf(stats)) {
-      // Another folder under the same name: what was indexed there is not in it.
-      if (known !== undefined) {
-        index.removeId(id);
-        id = index.add(relative, "dir");
-      }
-      // New, replaced, or only known as the folder above an earlier change.
-      if (id >= 0) await crawlInto(index, root, relative, id, () => false);
-    }
+    // New, replaced, only known from changes inside it, or changed while
+    // events were lost: its folders are compared with the disk, and each
+    // one listed again unless it is unchanged since it was last listed.
+    const id = index.add(relative, "dir");
+    if (id >= 0)
+      await reconcileFrom(index, root, relative, id, (work) => work(), true);
   } else if (stats.isFile()) index.add(relative, "file", stats.size);
   else index.remove(relative);
   index.maybeCompact();
