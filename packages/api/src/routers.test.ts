@@ -31,7 +31,9 @@ describe("files.list", () => {
 
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
-    process.env.NIMBUS_DATA_ROOT = previousRoot;
+    // Assigning undefined would store the string "undefined", a data root in the working directory.
+    if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
+    else process.env.NIMBUS_DATA_ROOT = previousRoot;
   });
 
   it("rejects path traversal", async () => {
