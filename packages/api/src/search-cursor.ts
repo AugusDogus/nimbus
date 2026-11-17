@@ -15,9 +15,9 @@ const TAG_BYTES = 16;
 /**
  * Every index cursor is padded to this many bytes before sealing, so a
  * cursor's length cannot tell how far its numbers have grown. Index cursors
- * are digits and dashes, at most 94 characters (search-query.ts).
+ * are digits, hex digits and dashes, at most 112 characters (search-query.ts).
  */
-const PLAIN_BYTES = 96;
+const PLAIN_BYTES = 112;
 
 /** An index cursor sealed for the caller `owner` (a user id), as URL-safe base64. */
 function seal(cursor: string, owner: string) {
@@ -59,7 +59,7 @@ function open(sealed: string, owner: string): string | null {
   }
 }
 
-/** Longest sealed cursor accepted; every one sealed here is 166 characters. */
+/** Longest sealed cursor accepted; every one sealed here is 187 characters. */
 export const MAX_SEALED_CURSOR = 200;
 
 export const SearchCursor = { seal, open } as const;

@@ -15,16 +15,17 @@ test("seals a cursor so it shows nothing of the index, and opens only an intact 
 });
 
 test("seals every cursor to the same length, so its size tells nothing", () => {
-  const shortest = "1-0-0-0-0-0-0-0";
+  const digest = "0123456789abcdef";
+  const shortest = `1-0-0-0-${digest}-${digest}-0-${digest}`;
   const longest = [
     "9".repeat(15),
     "9".repeat(16),
     "9".repeat(9),
     "9".repeat(15),
-    "9".repeat(10),
-    "9".repeat(10),
+    digest,
+    digest,
     "99",
-    "9".repeat(10),
+    digest,
   ].join("-");
   const sealed = SearchCursor.seal(shortest, "u");
   expect(SearchCursor.seal(longest, "u")).toHaveLength(sealed.length);

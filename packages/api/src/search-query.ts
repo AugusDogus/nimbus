@@ -34,6 +34,7 @@
  * the next one). Neither depends on any name, and sealed cursors are all one
  * length (search-cursor.ts).
  */
+import { createHash } from "node:crypto";
 import {
   collector,
   foldQuery,
@@ -209,24 +210,23 @@ export function historyBoost(entry: HistoryEntry, now: number) {
   return Math.min(MAX_BOOST, Math.max(0, Math.round(score * 3)));
 }
 
-/** A short digest of `parts`, for telling whether two pages used the same. */
-function digestOf(parts: readonly string[]) {
-  let hash = 0x811c9dc5;
-  for (const part of parts) {
-    for (let i = 0; i < part.length; i++)
-      hash = Math.imul(hash ^ part.charCodeAt(i), 0x01000193);
-    hash = Math.imul(hash ^ 0x0a, 0x01000193);
-  }
-  return hash >>> 0;
-}
+/**
+ * A digest of `value` for telling whether two pages used the same: 64 bits
+ * of SHA-256 over its JSON, as 16 hex digits, so no two differ by chance or
+ * by design.
+ */
+const digestOf = (value: unknown) =>
+  createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
 
-/** A short digest of the history a page was ranked with. */
+/** A digest of the history a page was ranked with. */
 const historyDigest = (history: readonly HistoryEntry[]) =>
   digestOf(
-    history.map(
-      (entry) =>
-        `${entry.path}\0${entry.openedAt}\0${entry.visits}\0${entry.starred ? 1 : 0}`,
-    ),
+    history.map((entry) => [
+      entry.path,
+      entry.openedAt,
+      entry.visits,
+      entry.starred,
+    ]),
   );
 
 /**
@@ -242,10 +242,10 @@ type Cursor = {
   after: number;
   shown: number;
   now: number;
-  history: number;
-  request: number;
+  history: string;
+  request: string;
   missing: number;
-  readings: number;
+  readings: string;
 };
 
 const Cursor = {
@@ -254,7 +254,7 @@ const Cursor = {
   /** Null for text that no page returned; such a search restarts. */
   parse(text: string): Cursor | null {
     const parts =
-      /^(\d{1,15})-(\d{1,16})-(\d{1,9})-(\d{1,15})-(\d{1,10})-(\d{1,10})-(\d{1,2})-(\d{1,10})$/.exec(
+      /^(\d{1,15})-(\d{1,16})-(\d{1,9})-(\d{1,15})-([\da-f]{16})-([\da-f]{16})-(\d{1,2})-([\da-f]{16})$/.exec(
         text,
       );
     if (!parts) return null;
@@ -263,10 +263,10 @@ const Cursor = {
       after: Number(parts[2]),
       shown: Number(parts[3]),
       now: Number(parts[4]),
-      history: Number(parts[5]),
-      request: Number(parts[6]),
+      history: parts[5] ?? "",
+      request: parts[6] ?? "",
       missing: Number(parts[7]),
-      readings: Number(parts[8]),
+      readings: parts[8] ?? "",
     };
   },
 } as const;
@@ -277,13 +277,14 @@ const requestDigest = (request: SearchRequest) =>
     request.query,
     request.root,
     request.depth ?? "instant",
-    ...(request.scope.type === "all"
-      ? ["\0all"]
-      : ["\0grants", ...[...request.scope.paths].sort()]),
+    request.scope.type === "all" ? null : [...request.scope.paths].sort(),
   ]);
 
 /** How a page reads the query's words beyond as typed; see `Cursor`. */
-type Readings = { missing: number; readings: number };
+type Readings = { missing: number; readings: string };
+
+/** Readings of a page that never decided on any: a search while typing. */
+const UNREAD: Readings = { missing: 0, readings: digestOf([]) };
 
 /** Per-index scratch space for scans on this thread, reused while a layout lasts. */
 export function createSearchState() {
@@ -779,7 +780,7 @@ function prepare(
             (bits, word, index) => (word ? bits | (1 << index) : bits),
             0,
           ),
-          readings: digestOf(readings.map((list) => list.join("\0"))),
+          readings: digestOf(readings),
         };
         // The corrections chosen changed with the names since the page this
         // continues: its cursor ranks a different result set, so restart.
@@ -876,7 +877,7 @@ function prepare(
   return step(
     { needle, terms, split, fuzzy: null, ranges, boosts, after },
     null,
-    { missing: 0, readings: 0 },
+    UNREAD,
   );
 }
 

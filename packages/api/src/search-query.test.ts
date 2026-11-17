@@ -511,6 +511,30 @@ describe("paging", () => {
     }
   });
 
+  it("restarts a cursor passed with another query, however alike their digests", () => {
+    // Two queries a 32-bit FNV digest cannot tell apart.
+    const index = createSearchIndex();
+    for (const word of ["termysukazduojxk", "termkfyrkgzpftnj"])
+      for (let file = 0; file < 2; file++)
+        index.add(`x/${word} ${file}.txt`, "file");
+    index.compact();
+    const first: SearchRequest = {
+      query: "termysukazduojxk",
+      root: "",
+      limit: 1,
+      scope: all,
+      depth: "full",
+      now: 1,
+    };
+    const other = { ...first, query: "termkfyrkgzpftnj" };
+    const page = index.search({
+      ...other,
+      cursor: index.search(first).next ?? undefined,
+    });
+    expect(page.restarted).toBe(true);
+    expect(page.hits).toEqual(index.search(other).hits);
+  });
+
   it("restarts a cursor from before the index was built again", () => {
     // Two runs of the search worker, as two processes: the same code loaded
     // afresh each time, building the same layouts in the same order. The
