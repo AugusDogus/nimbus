@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { Database as SQLite } from "bun:sqlite";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { openDatabase, type Database } from "./index";
+import { openDatabase, type Database } from "./connection";
 import { migrateDatabase } from "./migrate-database";
 
 const migrationsFolder = fileURLToPath(

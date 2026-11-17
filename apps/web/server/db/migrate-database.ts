@@ -1,7 +1,7 @@
 import type { Database as SQLite } from "bun:sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { fileURLToPath } from "node:url";
-import type { Database } from "./index";
+import type { Database } from "./connection";
 
 const migrationsFolder = fileURLToPath(
   new URL("../../drizzle", import.meta.url),

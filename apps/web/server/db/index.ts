@@ -1,23 +1,10 @@
-import { Database as SQLite } from "bun:sqlite";
-import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { mkdirSync } from "node:fs";
 import { databaseFile, getConfigRoot, getDatabaseUrl } from "../storage-paths";
-import * as schema from "./schema";
+import { openDatabase, type Database } from "./connection";
 
-export type Database = BunSQLiteDatabase<typeof schema>;
+export { openDatabase, type Database } from "./connection";
 
-/**
- * Open a SQLite database with Nimbus's connection settings. Queries run in
- * process and synchronously; transactions must be synchronous callbacks.
- */
-export function openDatabase(filename: string) {
-  const sqlite = new SQLite(filename, { create: true });
-  // Waits for the separate backup and migration processes, never for this one.
-  sqlite.run("PRAGMA busy_timeout = 5000");
-  sqlite.run("PRAGMA foreign_keys = ON");
-  return { sqlite, db: drizzle(sqlite, { schema }) };
-}
-
+// Opens the configured database on import. Tests use ./connection or ./testing instead.
 const stateDirectory = getConfigRoot();
 mkdirSync(stateDirectory, { recursive: true });
 
