@@ -1,4 +1,4 @@
-/** Token and registration bodies are tiny; anything larger is refused unread. */
+/** Token, registration and consent bodies are tiny; reading stops once a body passes this. */
 const MAX_BODY_BYTES = 64 * 1024;
 
 export type ProtocolError = {
@@ -54,19 +54,37 @@ export const preflight = (methods: string) =>
     },
   });
 
-async function readBody(request: Request): Promise<Parsed<string>> {
+const tooLarge: Parsed<never> = {
+  ok: false,
+  error: protocolError(
+    413,
+    "invalid_request",
+    "The request body is too large.",
+  ),
+};
+
+/**
+ * The request body as text, read until it passes 64 KiB and no further. A chunked body
+ * has no Content-Length, so the limit is enforced while streaming, not after buffering.
+ */
+export async function readBody(request: Request): Promise<Parsed<string>> {
   if (Number(request.headers.get("content-length") ?? "0") > MAX_BODY_BYTES)
-    return {
-      ok: false,
-      error: protocolError(
-        413,
-        "invalid_request",
-        "The request body is too large.",
-      ),
-    };
-  let text: string;
+    return tooLarge;
+  if (!request.body) return { ok: true, value: "" };
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
   try {
-    text = await request.text();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_BODY_BYTES) {
+        void reader.cancel().catch(() => {});
+        return tooLarge;
+      }
+      chunks.push(value);
+    }
   } catch {
     return {
       ok: false,
@@ -77,16 +95,7 @@ async function readBody(request: Request): Promise<Parsed<string>> {
       ),
     };
   }
-  if (Buffer.byteLength(text) > MAX_BODY_BYTES)
-    return {
-      ok: false,
-      error: protocolError(
-        413,
-        "invalid_request",
-        "The request body is too large.",
-      ),
-    };
-  return { ok: true, value: text };
+  return { ok: true, value: Buffer.concat(chunks).toString("utf8") };
 }
 
 const mediaType = (request: Request) =>

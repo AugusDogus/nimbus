@@ -8,7 +8,7 @@ import { mcpGrants, mcpTokens } from "../../db/mcp-schema";
 import { mcpResource } from "../config";
 import { findClient, type OAuthClient } from "./clients";
 import type { BrowserSession, OAuthContext } from "./context";
-import { htmlError, seeOther } from "./http";
+import { htmlError, readBody, seeOther } from "./http";
 import { AUTHORIZATION_CODE_TTL_MS, mintSecret, TokenPrefix } from "./secrets";
 
 /** A validated authorization request (RFC 6749 4.1.1 with PKCE and RFC 8707). */
@@ -438,16 +438,14 @@ export async function decideConsent(ctx: OAuthContext, request: Request) {
       "Request blocked",
       "This approval did not come from the Nimbus consent page. Nothing was shared.",
     );
-  let form: URLSearchParams;
-  try {
-    form = new URLSearchParams(await request.text());
-  } catch {
+  const body = await readBody(request);
+  if (!body.ok)
     return htmlError(
-      400,
+      body.error.status,
       "Cannot process approval",
-      `The approval form could not be read. ${restart}`,
+      `The approval form ${body.error.status === 413 ? "is too large" : "could not be read"}. ${restart}`,
     );
-  }
+  const form = new URLSearchParams(body.value);
   const ticket = form.get("ticket");
   const decision = form.get("decision");
   if (!ticket || (decision !== "approve" && decision !== "deny"))
