@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useFileDropGuard, useLeaveWarning } from "@/lib/use-file-drop-guard";
+import { LinkUnlock } from "@/lib/link-unlock";
 import { useHydrated } from "@/lib/use-hydrated";
 import { useServerField } from "@/lib/use-server-field";
 import { useQuery } from "@tanstack/react-query";
-import * as z from "zod/mini";
 import { Check, CircleAlert, Upload as UploadIcon } from "lucide-react";
 // Already in every page: the root layout's upload provider uses it.
 import * as tus from "tus-js-client";
@@ -22,8 +22,6 @@ import {
 } from "./file-request-result";
 
 type OpenRequest = Extract<FileRequestResult, { kind: "open" }>;
-
-const errorSchema = z.object({ error: z.string() });
 
 type ItemStatus =
   | { kind: "queued" }
@@ -208,14 +206,13 @@ export function FileRequestUpload({ token }: { token: string }) {
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ password }),
                 });
-                if (!response.ok) {
-                  const body = errorSchema.safeParse(await response.json());
+                if (!response.ok)
                   throw new Error(
-                    body.success
-                      ? body.data.error
-                      : "Could not unlock this link.",
+                    await LinkUnlock.failure(
+                      response,
+                      "Could not unlock this link. Try again.",
+                    ),
                   );
-                }
                 setPassword("");
                 await details.refetch();
               } catch (error) {
@@ -253,7 +250,8 @@ export function FileRequestUpload({ token }: { token: string }) {
           )}
           {/* Before hydration a click would submit the form natively and reload the page. */}
           <Button type="submit" disabled={!hydrated || busy}>
-            Unlock
+            {/* A link with many recent attempts checks one every few seconds. */}
+            {busy ? "Unlocking…" : "Unlock"}
           </Button>
         </form>
       ) : (

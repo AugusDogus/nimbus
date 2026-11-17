@@ -66,3 +66,45 @@ test("public link passwords typed before the page's code loads still unlock", as
     await visitor.close();
   }
 });
+
+test("a throttled unlock says how long to wait instead of calling the password wrong", async ({
+  context,
+  browser,
+}) => {
+  const folder = `throttled-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: folder });
+  const share = await rpc.shares.create.mutate({
+    path: folder,
+    expiresAt: null,
+    password: linkPassword,
+  });
+  const visitor = await browser.newContext({
+    storageState: { cookies: [], origins: [] },
+  });
+  try {
+    const page = await visitor.newPage();
+    await page.goto(`/s/${share.token}`);
+    await page.route(
+      (url) => url.pathname === `/api/share/${share.token}`,
+      (route) =>
+        route.request().method() === "POST"
+          ? route.fulfill({
+              status: 429,
+              headers: {
+                "Retry-After": "20",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ error: "Too many wrong passwords." }),
+            })
+          : route.continue(),
+    );
+    await page.getByLabel("Password", { exact: true }).fill(linkPassword);
+    await page.getByRole("button", { name: "Unlock", exact: true }).click();
+    await expect(page.getByRole("alert")).toHaveText(
+      "Too many password attempts on this link. Wait 20 seconds, then try again. Your password was not checked.",
+    );
+  } finally {
+    await visitor.close();
+  }
+});

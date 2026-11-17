@@ -1,9 +1,9 @@
 import { useState } from "react";
+import { LinkUnlock } from "@/lib/link-unlock";
 import { useHydrated } from "@/lib/use-hydrated";
 import { useServerField } from "@/lib/use-server-field";
 import { useLocalTime } from "@/lib/use-local-time";
 import { useQuery } from "@tanstack/react-query";
-import * as z from "zod/mini";
 import { FileText, Folder } from "lucide-react";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { NimbusWordmark } from "@/components/nimbus-wordmark";
@@ -17,8 +17,6 @@ import {
 } from "@/app/drive/files/entry-thumbnail";
 import { publicShareQuery, shareEndpoint, shareUrl } from "./share-result";
 import { FilePreview } from "@/app/drive/files/preview-dialog";
-
-const errorSchema = z.object({ error: z.string() });
 
 function Expiry({ time }: { time: number }) {
   const text = useLocalTime(time, "date");
@@ -77,14 +75,13 @@ export function PublicShare({ token }: { token: string }) {
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ password }),
                 });
-                if (!response.ok) {
-                  const body = errorSchema.safeParse(await response.json());
+                if (!response.ok)
                   throw new Error(
-                    body.success
-                      ? body.data.error
-                      : "Could not unlock this share.",
+                    await LinkUnlock.failure(
+                      response,
+                      "Could not unlock this share. Try again.",
+                    ),
                   );
-                }
                 setPassword("");
                 await share.refetch();
               } catch (error) {
@@ -122,7 +119,8 @@ export function PublicShare({ token }: { token: string }) {
           )}
           {/* Before hydration a click would submit the form natively and reload the page. */}
           <Button type="submit" disabled={!hydrated || busy}>
-            Unlock
+            {/* A link with many recent attempts checks one every few seconds. */}
+            {busy ? "Unlocking…" : "Unlock"}
           </Button>
         </form>
       ) : (
