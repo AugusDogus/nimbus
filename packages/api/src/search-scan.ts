@@ -82,7 +82,7 @@ export type ScanPlan = {
   after: number;
 };
 
-import { plain } from "./search-text";
+import { plain, queryDates } from "./search-text";
 
 const SEPARATOR = "\0";
 
@@ -91,11 +91,19 @@ for (const char of " _-.()[]+,@#&'") boundary[char.charCodeAt(0)] = 1;
 
 export { foldName, foldQuery } from "./search-text";
 
-/** Words of a folded query, split at spaces and "/", without bare punctuation. */
+/** A word that is a whole day written with slashes (3/15/2024), not folders. */
+const slashDay = (word: string) =>
+  word.includes("/") && queryDates(word).some((key) => key.startsWith("D"));
+
+/**
+ * Words of a folded query, split at spaces and "/" (folders), except a day
+ * written with slashes, without bare punctuation.
+ */
 export function queryTerms(needle: string) {
   const terms: string[] = [];
-  for (const part of needle.split(/[\s/]+/u))
-    if (/[\p{L}\p{N}]/u.test(part) && !terms.includes(part)) terms.push(part);
+  for (const word of needle.split(/\s+/u))
+    for (const part of slashDay(word) ? [word] : word.split(/\/+/u))
+      if (/[\p{L}\p{N}]/u.test(part) && !terms.includes(part)) terms.push(part);
   return terms;
 }
 

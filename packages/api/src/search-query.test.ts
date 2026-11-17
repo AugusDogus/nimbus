@@ -1086,6 +1086,30 @@ describe("dates", () => {
       const index = drive();
       if (compacted) index.compact();
 
+      it("reads a day written with slashes as a day, not as folders", () => {
+        for (const query of [
+          "3/15/2024",
+          "03/15/2024",
+          "15/03/2024",
+          "2024/03/15",
+        ])
+          expect({ query, found: found(index, query).sort() }).toEqual({
+            query,
+            found: [
+              "Photos/IMG_20240315_1015.jpg",
+              "Scans/receipt 2024-03-15 costco.pdf",
+              "Work/notes 2024.03.15.txt",
+            ],
+          });
+        expect(found(index, "receipt 3/15/2024")).toEqual([
+          "Scans/receipt 2024-03-15 costco.pdf",
+        ]);
+        // A month with a slash still reads as folders: Photos/2023 and so on.
+        expect(found(index, "photos/2023")).toEqual([
+          "Photos/2023-07-04 fireworks.jpg",
+        ]);
+      });
+
       it("finds a day written any way, below names with it as typed", () => {
         expect(found(index, "15-03-2024").sort()).toEqual([
           "Photos/IMG_20240315_1015.jpg",
