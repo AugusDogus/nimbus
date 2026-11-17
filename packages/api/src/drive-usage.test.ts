@@ -21,6 +21,7 @@ describe("storage usage from the drive index", () => {
       headers: new Headers(),
       drive: createTestDriveStore().store,
       session: { user: { id } },
+      sessionStillValid: async () => true,
       preferences: {
         getUserPreferences: async () => null,
         setUserPreferences: async (_userId, preferences) => preferences,

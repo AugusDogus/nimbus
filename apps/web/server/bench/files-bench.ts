@@ -459,6 +459,7 @@ const caller = (id: string, signal?: AbortSignal) =>
     {
       headers: new Headers(),
       session: { user: { id } },
+      sessionStillValid: async () => true,
       drive: store,
       preferences: {
         getUserPreferences: async () => null,

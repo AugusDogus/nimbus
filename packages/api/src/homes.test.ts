@@ -17,6 +17,7 @@ describe("home folders", () => {
     appRouter.createCaller({
       headers: new Headers(),
       session: { user: { id } },
+      sessionStillValid: async () => true,
       drive: memory.store,
       preferences: {
         getUserPreferences: async () => null,

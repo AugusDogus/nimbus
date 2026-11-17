@@ -26,6 +26,8 @@ export type PreferencesStore = {
   ) => Promise<UserPreferences>;
 };
 
+const sessionId = z.object({ session: z.object({ id: z.string() }) });
+
 export type CreateContextOptions = {
   auth: AuthLike;
   headers: Headers;
@@ -40,9 +42,21 @@ export async function createContext({
   drive,
 }: CreateContextOptions) {
   const session = await auth.api.getSession({ headers });
+  const signedIn = sessionId.safeParse(session);
   return {
     headers,
     session,
+    /** Whether this request's session is still signed in. Live event streams re-check it. */
+    sessionStillValid: async () => {
+      const current = sessionId.safeParse(
+        await auth.api.getSession({ headers }),
+      );
+      return (
+        signedIn.success &&
+        current.success &&
+        current.data.session.id === signedIn.data.session.id
+      );
+    },
     preferences,
     drive,
   };

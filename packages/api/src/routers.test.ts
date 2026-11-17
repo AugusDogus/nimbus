@@ -12,6 +12,7 @@ const createCaller = () => {
     headers: new Headers(),
     drive: createTestDriveStore().store,
     session: { user: { id: "user-1" } },
+    sessionStillValid: async () => true,
     preferences: {
       getUserPreferences: async () => null,
       setUserPreferences: async (_userId, prefs) => prefs,

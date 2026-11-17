@@ -32,6 +32,7 @@ describe("filesystem mutation coordination", () => {
     appRouter.createCaller({
       headers: new Headers(),
       session: { user: { id: "user-1" } },
+      sessionStillValid: async () => true,
       drive: memory.store,
       preferences: {
         getUserPreferences: async () => null,

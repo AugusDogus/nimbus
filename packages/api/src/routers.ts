@@ -100,6 +100,9 @@ const defaultPreferences: UserPreferences = {
   groupByType: true,
 };
 
+/** How often a live event stream re-checks its session while events arrive. */
+export const SESSION_RECHECK_MS = 1000;
+
 export const appRouter = router({
   access: managementRouter,
   shares: sharesRouter,
@@ -324,6 +327,7 @@ export const appRouter = router({
           typeof input.path === "string" && input.path.length > 0;
         const { absolute: requestedAbs, relative: requestedRel } =
           await safePath(input.path ?? "");
+        let sessionCheckedAt = Date.now();
 
         for await (const [event] of iterateFileEvents(signal)) {
           const parsed = fileEventSchema.safeParse(event);
@@ -343,6 +347,12 @@ export const appRouter = router({
             eventRel.split(path.sep).includes(".nimbus")
           )
             continue;
+          // A stream outlives sign-out and revoked sessions unless it checks; the
+          // account being disabled ends it through getAccess below.
+          if (Date.now() - sessionCheckedAt >= SESSION_RECHECK_MS) {
+            if (!(await ctx.sessionStillValid())) return;
+            sessionCheckedAt = Date.now();
+          }
           const driveRelative = path
             .relative(root, eventAbs)
             .split(path.sep)

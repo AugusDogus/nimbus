@@ -148,6 +148,8 @@ export function defineTool<I extends Shape, O extends Shape>(
         const caller = createCaller({
           headers: new Headers(),
           session: { user: { id: context.userId } },
+          // MCP authorizes each request by its token and opens no event streams.
+          sessionStillValid: async () => true,
           drive: context.drive,
           preferences: context.preferences,
         });

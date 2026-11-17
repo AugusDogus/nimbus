@@ -29,6 +29,7 @@ for (let index = 0; index < subscribers; index++) {
     {
       headers: new Headers(),
       session: { user: { id: "admin" } },
+      sessionStillValid: async () => true,
       drive: store,
       preferences: {
         getUserPreferences: async () => null,
