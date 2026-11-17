@@ -93,8 +93,18 @@ export async function sharedTarget(
       code: "FORBIDDEN",
       message: "This path is outside the shared folder.",
     });
+  // Built field by field: a link grants reading inside its path and nothing of its creator's
+  // other rights, such as administration or grants elsewhere.
   const scoped: Access = {
-    ...access,
+    user: access.user,
+    grants: [],
+    isAdmin: false,
+    requireAdmin() {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "A public link cannot manage users and groups.",
+      });
+    },
     can: (requested, permission) =>
       permission === "read" &&
       isWithinPath(share.path, requested) &&
