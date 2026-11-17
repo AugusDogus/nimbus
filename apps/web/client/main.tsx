@@ -27,9 +27,10 @@ queryClient.getQueryCache().subscribe((event) => {
 
 Bootstrap.seed(queryClient);
 
-// The toast UI loads after the first render; toasts asked for before then wait for it.
-const Toaster = lazyComponent(async () => ({
-  default: (await import("@/components/toaster")).Toaster,
+// The toast UI and the impersonation banner load after the first render; toasts asked for
+// before then wait for it.
+const AfterStart = lazyComponent(async () => ({
+  default: (await import("@/components/after-start")).AfterStart,
 }));
 
 const container = document.getElementById("root");
@@ -48,7 +49,7 @@ void router.load().then(() =>
         <ThemeProvider>
           <RouterProvider router={router} />
         </ThemeProvider>
-        <Toaster />
+        <AfterStart />
       </QueryClientProvider>
     </StrictMode>,
   ),

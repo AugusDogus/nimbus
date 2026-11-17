@@ -71,16 +71,18 @@ type Autofill = {
  * request still fetching its options would cancel the button's ceremony once it starts.
  * Cancelling until it has ended closes that gap; it settles within one options request.
  */
-async function endAutofill(autofill: Autofill | null) {
+async function endAutofill(
+  autofill: Autofill | null,
+  ceremonies: { cancelCeremony: () => void },
+) {
   if (!autofill) return false;
   let ended = false;
   void autofill.ended.then(() => {
     ended = true;
   });
-  const { WebAuthnAbortService } = await import("@simplewebauthn/browser");
   const deadline = Date.now() + 5_000;
   while (!ended && Date.now() < deadline) {
-    WebAuthnAbortService.cancelCeremony();
+    ceremonies.cancelCeremony();
     await Promise.race([
       autofill.ended,
       new Promise((resolve) => setTimeout(resolve, 50)),
@@ -221,10 +223,12 @@ export function LoginForm({
 
   const signInWithPasskey = () =>
     run(async () => {
-      const [{ passkeyAuthClient }, signedIn] = await Promise.all([
-        import("@/lib/passkey-client"),
-        endAutofill(autofill.current),
-      ]);
+      const { passkeyAuthClient, WebAuthnAbortService } =
+        await import("@/lib/passkey-client");
+      const signedIn = await endAutofill(
+        autofill.current,
+        WebAuthnAbortService,
+      );
       if (signedIn) return;
       // Offer autofill again unless this ceremony signs in.
       const offerAutofill = () => setAutofillRound((round) => round + 1);

@@ -7,7 +7,7 @@ const returnTo = "/settings/admin";
 
 /**
  * Shown on every signed-in page while an administrator is signed in as someone else.
- * Loaded only then, so other sessions never download it.
+ * It loads after the app's first render, with the toast area, so no first load carries it.
  */
 export default function ImpersonationBanner({ email }: { email: string }) {
   const [busy, setBusy] = useState(false);
