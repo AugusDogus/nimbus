@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { getDataRoot } from "./data-root";
 import { createPathLocks, type HeldScope, type PathLocks } from "./path-locks";
@@ -106,6 +107,21 @@ export function requireUnlocked(
   }
 }
 
+/** Checks of the request being served that every mutation it starts re-runs, holding its scope. */
+const preconditions = new AsyncLocalStorage<() => Promise<void>>();
+
+/**
+ * Run `operation` so each mutation it starts runs `check` once it holds its paths, before
+ * changing anything. A request's conditions, such as a WebDAV If header, then cannot pass
+ * against a state another writer is about to change. `check` throws to refuse.
+ */
+export function withMutationPrecondition<T>(
+  check: () => Promise<void>,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return preconditions.run(check, operation);
+}
+
 /** What a mutation holds besides the paths it changes. */
 export type MutationScope = {
   /** Subtrees held without a WebDAV lock check, such as a folder in which a free name is chosen. */
@@ -145,6 +161,7 @@ export async function mutateFiles<T>(
   const release = await state().scopes.acquire([first, ...rest]);
   try {
     requireUnlocked(paths, credentials);
+    await preconditions.getStore()?.();
     return await operation();
   } finally {
     release();

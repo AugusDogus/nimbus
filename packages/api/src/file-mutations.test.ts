@@ -17,6 +17,7 @@ import {
   refreshLock,
   requireLockable,
   unlockFile,
+  withMutationPrecondition,
   forgetFileMutationsForTest,
 } from "./file-mutations";
 import { moveItem } from "./file-operations";
@@ -98,6 +99,34 @@ describe("filesystem mutation coordination", () => {
       async () => {},
     );
     expect(locksCovering("docs/first.txt")[0]?.token).toBe(lock.token);
+  });
+
+  it("re-checks a request's precondition once the mutation holds its paths", async () => {
+    const owner = { userId: "user-1" };
+    let version = 1;
+    let releaseFirst = () => {};
+    const release = new Promise<void>((resolve) => (releaseFirst = resolve));
+    const first = mutateFiles(["docs/first.txt"], owner, async () => {
+      await release;
+      version = 2;
+    });
+    // The precondition held when the request arrived, but a change was already in progress.
+    const loaded = version;
+    const second = withMutationPrecondition(
+      async () => {
+        if (version !== loaded) throw new Error("precondition failed");
+      },
+      () => mutateFiles(["docs/first.txt"], owner, async () => "written"),
+    );
+    releaseFirst();
+    await first;
+    await expect(second).rejects.toThrow("precondition failed");
+    expect(
+      await withMutationPrecondition(
+        async () => {},
+        () => mutateFiles(["docs/first.txt"], owner, async () => "written"),
+      ),
+    ).toBe("written");
   });
 
   it("caps active locks per user, so one user cannot use up everyone's locks", () => {

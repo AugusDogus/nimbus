@@ -19,6 +19,7 @@ import {
   requireLockable,
   requireUnlocked,
   unlockFile,
+  withMutationPrecondition,
   type FileLock,
   type LockDepth,
   type LockScope,
@@ -613,6 +614,53 @@ async function transfer(
   });
 }
 
+/** The methods that change the drive, once permission and the If header were checked. */
+async function mutation(
+  request: Request,
+  method: string,
+  url: URL,
+  access: Access,
+  target: string,
+  credentials: MutationCredentials,
+) {
+  if (method === "LOCK") return await lock(request, target, credentials);
+  if (method === "PROPPATCH")
+    return await proppatch(request, target, credentials);
+  if (method === "COPY")
+    return await transfer(request, method, url, access, target, credentials);
+  requireMutable(target);
+  if (method === "DELETE") {
+    await trashItem(httpDriveStore, access, target, credentials.lockTokens);
+    return new Response(null, { status: 204 });
+  }
+  if (method === "MKCOL") {
+    // Any body is refused, so none is buffered: reading stops at the first byte.
+    if ((await RequestBody.read(request, 0)).kind === "too_large")
+      return textResponse(415, "MKCOL does not accept a request body.");
+    return await mutateFiles([target], credentials, async () => {
+      (await authenticate(request)).require(target, "write");
+      const destination = await safePath(target);
+      try {
+        await mkdir(destination.absolute);
+      } catch (error) {
+        if (isFsError(error, "EEXIST"))
+          return textResponse(405, "An item with this name already exists.");
+        throw error;
+      }
+      publishFileEvent({
+        path: destination.absolute,
+        event: "rename",
+        ts: Date.now(),
+      });
+      return new Response(null, { status: 201 });
+    });
+  }
+  if (method === "PUT") return await putFile(request, target, credentials);
+  if (method === "MOVE")
+    return await transfer(request, method, url, access, target, credentials);
+  return new Response(null, { status: 405 });
+}
+
 export async function handleWebDAV(request: Request): Promise<Response> {
   const limited = throttled(request);
   if (limited) return limited;
@@ -677,42 +725,20 @@ export async function handleWebDAV(request: Request): Promise<Response> {
         412,
         "A condition in the If header does not hold. The item was not changed.",
       );
-    if (method === "LOCK") return await lock(request, target, credentials);
-    if (method === "PROPPATCH")
-      return await proppatch(request, target, credentials);
-    if (method === "COPY")
-      return await transfer(request, method, url, access, target, credentials);
-    requireMutable(target);
-    if (method === "DELETE") {
-      await trashItem(httpDriveStore, access, target, credentials.lockTokens);
-      return new Response(null, { status: 204 });
-    }
-    if (method === "MKCOL") {
-      // Any body is refused, so none is buffered: reading stops at the first byte.
-      if ((await RequestBody.read(request, 0)).kind === "too_large")
-        return textResponse(415, "MKCOL does not accept a request body.");
-      return await mutateFiles([target], credentials, async () => {
-        (await authenticate(request)).require(target, "write");
-        const destination = await safePath(target);
-        try {
-          await mkdir(destination.absolute);
-        } catch (error) {
-          if (isFsError(error, "EEXIST"))
-            return textResponse(405, "An item with this name already exists.");
-          throw error;
-        }
-        publishFileEvent({
-          path: destination.absolute,
-          event: "rename",
-          ts: Date.now(),
-        });
-        return new Response(null, { status: 201 });
-      });
-    }
-    if (method === "PUT") return await putFile(request, target, credentials);
-    if (method === "MOVE")
-      return await transfer(request, method, url, access, target, credentials);
-    return new Response(null, { status: 405 });
+    const change = () =>
+      mutation(request, method, url, access, target, credentials);
+    // Checked again inside each mutation, once it holds its paths, so a change landing between
+    // the check above and this one's commit makes it fail instead of writing over it.
+    return conditions.value.length
+      ? await withMutationPrecondition(async () => {
+          if (!(await ifHeaderHolds(conditions.value, url, target)))
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "A condition in the If header no longer holds because another change landed first. The item was not changed.",
+            });
+        }, change)
+      : await change();
   } catch (error) {
     if (isApiError(error, "UNAUTHORIZED"))
       return new Response("Use your email and a Nimbus app password.", {
