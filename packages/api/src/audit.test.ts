@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it } from "bun:test";
 import {
+  anonymousActor,
   flushAudit,
   recordAudit,
   resetAuditForTest,
@@ -69,4 +70,14 @@ it("attaches the client address of the surrounding request", async () => {
   recordAudit(event);
   await flushAudit();
   expect(written.map((entry) => entry.ip)).toEqual(["198.51.100.7", undefined]);
+});
+
+it("labels an anonymous caller only with a well-formed email address", () => {
+  expect(anonymousActor("Someone@Example.test")).toEqual({
+    type: "anonymous",
+    label: "someone@example.test",
+  });
+  expect(anonymousActor("MySecretPassw0rd!")).toEqual({ type: "anonymous" });
+  expect(anonymousActor("")).toEqual({ type: "anonymous" });
+  expect(anonymousActor(undefined)).toEqual({ type: "anonymous" });
 });

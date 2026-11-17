@@ -38,7 +38,7 @@ import {
 import { FilesystemCapacity } from "@nimbus/api/filesystem-capacity";
 import { FileVersions } from "@nimbus/api/file-versions";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
-import { recordAudit } from "@nimbus/api/audit";
+import { anonymousActor, recordAudit } from "@nimbus/api/audit";
 import { ClientIp } from "./client-ip";
 import { serveFile } from "./file-response";
 import { httpDriveStore, httpError } from "./http-files";
@@ -119,10 +119,7 @@ async function authenticate(request: Request) {
     failedLogins.consume(clientKey(request));
     recordAudit({
       action: "webdav.auth_failed",
-      actor: {
-        type: "anonymous",
-        ...(email && { label: email.slice(0, 320) }),
-      },
+      actor: anonymousActor(email),
     });
     return new TRPCError({ code: "UNAUTHORIZED" });
   };

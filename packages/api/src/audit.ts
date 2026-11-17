@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { z } from "zod";
 
 /**
  * Security audit trail. Call `recordAudit` after an action succeeds (or, for failures
@@ -106,6 +107,19 @@ export const auditUser = (user: { id: string; email: string }): AuditActor => ({
   id: user.id,
   label: user.email,
 });
+
+const claimedEmail = z.email().max(320);
+
+/**
+ * An unauthenticated caller, labeled with the email address they claimed only when it is
+ * one. Text typed into an email field can be a password, which must never be stored.
+ */
+export const anonymousActor = (claimed: string | undefined): AuditActor => {
+  const email = claimedEmail.safeParse(claimed?.trim());
+  return email.success
+    ? { type: "anonymous", label: email.data.toLowerCase() }
+    : { type: "anonymous" };
+};
 
 export type RecordedAuditEvent = AuditEvent & { at: number };
 export type AuditSink = (events: RecordedAuditEvent[]) => Promise<void>;

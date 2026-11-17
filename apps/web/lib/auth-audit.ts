@@ -2,6 +2,7 @@ import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { z } from "zod";
 import {
+  anonymousActor,
   auditUser,
   recordAudit,
   type AuditAction,
@@ -76,7 +77,7 @@ export const nimbusAudit = () =>
             const caller = sessionShape.safeParse(ctx.context.session);
             const actor: AuditActor = caller.success
               ? auditUser(caller.data.user)
-              : { type: "anonymous", ...(email && { label: email }) };
+              : anonymousActor(email);
             const path = ctx.path.startsWith("/callback/") ? "oidc" : ctx.path;
             // Confirming a new authenticator also calls verify-totp, from a signed-in session.
             const method =

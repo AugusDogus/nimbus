@@ -186,3 +186,20 @@ describe("rate limits", () => {
     });
   });
 });
+
+describe("audit labels", () => {
+  test("a failed sign-in records the address only when it is an email address", async () => {
+    await t.createUser("first@example.test");
+    for (const email of ["MySecretPassw0rd!", "nobody@example.test"])
+      await t.request("POST", "/sign-in/email", {
+        body: { email, password: "wrong password" },
+      });
+    const failures = (await t.auditEvents()).filter(
+      (event) => event.action === "auth.sign_in_failed",
+    );
+    expect(failures.map((event) => event.actor)).toEqual([
+      { type: "anonymous" },
+      { type: "anonymous", label: "nobody@example.test" },
+    ]);
+  });
+});
