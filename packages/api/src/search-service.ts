@@ -113,6 +113,7 @@ export async function searchEntries(
     truncated: answer.truncated,
     total: answer.total,
     next: answer.next,
+    restarted: answer.restarted,
     complete: answer.complete,
   };
 }

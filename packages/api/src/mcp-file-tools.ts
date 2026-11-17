@@ -127,6 +127,11 @@ const search = defineTool({
   output: z.object({
     entries: z.array(entryOutput),
     total: z.number(),
+    restarted: z
+      .boolean()
+      .describe(
+        "True when the drive changed too much since the previous page to continue it: this page starts again from the first match, so drop entries you already have. No match is skipped either way.",
+      ),
     truncated: z.boolean(),
     complete: z.boolean(),
     ...pageOutput,
@@ -142,6 +147,7 @@ const search = defineTool({
     return {
       entries: result.entries.map(toEntry),
       total: result.total,
+      restarted: result.restarted,
       truncated: result.truncated,
       complete: result.complete,
       nextCursor: result.next,

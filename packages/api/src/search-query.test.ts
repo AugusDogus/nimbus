@@ -431,3 +431,89 @@ describe("fuzzy layer", () => {
     expect(hits(index, "nots")).toEqual(["name other/nots.txt"]);
   });
 });
+
+describe("what a caller sees never depends on names it may not read", () => {
+  const hiddenNames = [
+    "secret/zephyrine plan.txt",
+    "secret/zephyrines.txt",
+    "secret/zephyrinea.txt",
+    "secret/zephyrinne draft.txt",
+    "secret/zephyrinee.txt",
+    "secret/codename/budget.xlsx",
+  ];
+  const visibleNames = [
+    "team/zephyrina notes.txt",
+    "team/zephyrina/agenda.md",
+    "team/budget 2026.xlsx",
+    "team/notes.txt",
+  ];
+  function drive(withHidden: boolean, compacted: boolean) {
+    const index = createSearchIndex();
+    for (const path of [...(withHidden ? hiddenNames : []), ...visibleNames])
+      index.add(path, "file");
+    if (compacted) index.compact();
+    return index;
+  }
+  const teamOnly: SearchScope = { type: "grants", paths: ["team"] };
+  /** Everything a caller observes of a result, except the opaque cursor's contents. */
+  const observed = (
+    index: ReturnType<typeof createSearchIndex>,
+    query: string,
+    scope: SearchScope,
+  ) => {
+    const answer = index.search({
+      query,
+      root: "",
+      limit: 2,
+      scope,
+      depth: "full",
+      now: 1,
+    });
+    return {
+      hits: answer.hits,
+      total: answer.total,
+      truncated: answer.truncated,
+      more: answer.next !== null,
+      terms: answer.terms,
+    };
+  };
+
+  const namedHits = (
+    index: ReturnType<typeof createSearchIndex>,
+    query: string,
+    scope: SearchScope,
+  ) =>
+    index
+      .search({ query, root: "", limit: 50, scope, depth: "full", now: 1 })
+      .hits.map((hit) => `${hit.match} ${hit.path}`);
+
+  for (const compacted of [false, true])
+    it(`for exact and misspelled words, ${compacted ? "compacted" : "before compaction"}`, () => {
+      const withHidden = drive(true, compacted);
+      const without = drive(false, compacted);
+      for (const query of [
+        "zephyrine",
+        "zephyrinne",
+        "zephyrine notes",
+        "zephyrnie agenda",
+        "codename budget",
+        "budgte",
+        "notes",
+      ]) {
+        expect({ query, ...observed(withHidden, query, teamOnly) }).toEqual({
+          query,
+          ...observed(without, query, teamOnly),
+        });
+      }
+      // The word a hidden name holds is corrected to the visible one, as if the hidden names were not there.
+      expect(
+        observed(withHidden, "zephyrine", teamOnly).hits.map(
+          (hit) => `${hit.match} ${hit.path}`,
+        ),
+      ).toEqual(["fuzzy team/zephyrina", "fuzzy team/zephyrina notes.txt"]);
+      // Someone who can read the secret folder finds it as typed.
+      expect(namedHits(withHidden, "zephyrine", { type: "all" })).toContain(
+        "name secret/zephyrine plan.txt",
+      );
+    });
+});

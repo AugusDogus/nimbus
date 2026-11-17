@@ -18,7 +18,7 @@
  * the drive's storage usage and any folder's total is one lookup.
  */
 
-import { SearchVocabulary } from "./search-vocabulary";
+import { SearchWords } from "./search-words";
 import {
   createSearchState,
   foldName,
@@ -133,11 +133,15 @@ export function createSearchIndex(initialCapacity = 1024) {
     dead: new Uint8Array(1),
     slots,
     generation: nextGeneration++,
+    postingStart: new Int32Array([0]),
+    postingSlots: new Int32Array(0),
   };
   // Names for entries added since compaction.
   const deltaNames = new Map<number, { raw: string; folded: string }>();
-  /** Words of every live name, for the fuzzy layer's corrections. */
-  const vocabulary = SearchVocabulary.create();
+  /** Which names hold each word, for the fuzzy layer (search-words.ts). */
+  const words = SearchWords.create();
+  /** The layout before the last compaction, for page cursors ranked in it. */
+  let previous: IndexView["previous"] = null;
 
   // Open-addressed (parent, name) → id table.
   let table = new Int32Array(2048).fill(NONE);
@@ -251,7 +255,6 @@ export function createSearchIndex(initialCapacity = 1024) {
       )
         pending.push(child);
       unhash(current);
-      vocabulary.remove(nameOf(current));
       kinds[current] = FREE;
       // Scans of the layout skip it from now on.
       if (slotOf[current] !== NONE) layout.dead[slotOf[current]] = 1;
@@ -286,7 +289,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     firstChild[parentId] = id;
     slotOf[id] = NONE;
     deltaNames.set(id, { raw: name, folded: foldName(name) });
-    vocabulary.add(name);
+    words.add(id, name);
     const { slot } = probe(parentId, name);
     table[slot] = id;
     tableUsed++;
@@ -297,6 +300,7 @@ export function createSearchIndex(initialCapacity = 1024) {
   /** Lay out live entries depth-first and drop freed text. */
   const compact = () => {
     changes++;
+    const previousLayout = layout;
     const sharedInt32 = (length: number) =>
       new Int32Array(new SharedArrayBuffer(length * 4));
     const order = sharedInt32(live + 1);
@@ -378,6 +382,12 @@ export function createSearchIndex(initialCapacity = 1024) {
       const id = order[slot];
       parentSlot[slot] = id === ROOT ? NONE : nextSlotOf[parent[id]];
     }
+    words.compact(previousLayout.slotId, nextSlotOf);
+    previous = {
+      generation: previousLayout.generation,
+      slots: previousLayout.slots,
+      slotOf,
+    };
     layout = {
       folded,
       foldedStarts,
@@ -387,6 +397,8 @@ export function createSearchIndex(initialCapacity = 1024) {
       dead: new Uint8Array(new SharedArrayBuffer(used)),
       slots,
       generation: nextGeneration++,
+      postingStart: words.base.postingStart,
+      postingSlots: words.base.postingSlots,
     };
     slotOf = nextSlotOf;
     deltaNames.clear();
@@ -470,7 +482,10 @@ export function createSearchIndex(initialCapacity = 1024) {
       );
     },
     visibleRanges,
-    corrections: (term) => vocabulary.corrections(term),
+    get previous() {
+      return previous;
+    },
+    words,
   };
   const state = createSearchState();
 
@@ -584,8 +599,13 @@ export function createSearchIndex(initialCapacity = 1024) {
       return prepareSearch(view, request);
     },
 
-    scanHere(layout: SearchLayout, plan: ScanPlan, limit: number) {
-      return scanCompacted(state, layout, plan, limit);
+    scanHere(
+      layout: SearchLayout,
+      plan: ScanPlan,
+      limit: number,
+      keep: ((rank: number) => boolean) | null = null,
+    ) {
+      return scanCompacted(state, layout, plan, limit, keep);
     },
 
     /** Changes so far; a different value after an await means the index moved meanwhile. */

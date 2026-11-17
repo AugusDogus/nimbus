@@ -14,6 +14,7 @@
  */
 import type { SearchIndex, SearchRequest, SearchResult } from "./search-index";
 import {
+  ScanCounts,
   ScanScratch,
   splitRanges,
   type CompactRanks,
@@ -96,7 +97,9 @@ function merge(parts: CompactRanks[], limit: number): CompactRanks {
     at += part.best.length;
   }
   best.sort();
-  return { best: best.subarray(0, limit), total };
+  const counts = ScanCounts.none(parts[0]?.counts.terms.length ?? 0);
+  for (const part of parts) ScanCounts.add(counts, part.counts);
+  return { best: best.subarray(0, limit), total, counts };
 }
 
 export function createScanPool(spawn: () => Worker, size: number) {
@@ -212,7 +215,14 @@ export function createScanPool(spawn: () => Worker, size: number) {
       const { generation, scratch } = publish(layout);
       const groups = splitRanges(layout, plan.ranges, workers.length);
       if (groups.length === 0)
-        return { ok: true, ranks: { best: new Float64Array(0), total: 0 } };
+        return {
+          ok: true,
+          ranks: {
+            best: new Float64Array(0),
+            total: 0,
+            counts: ScanCounts.none(plan.terms.length),
+          },
+        };
       ScanScratch.setBoosts(scratch, plan);
       Atomics.store(control, 0, job);
       let drained = () => {};
@@ -280,9 +290,15 @@ export async function searchWithPool(
   const before = index.changes;
   let prepared = index.prepareSearch(request);
   while (!prepared.done) {
-    const { layout, plan, limit } = prepared;
-    if (!pool || scanBytes(layout, plan) < minBytes || !isShared(layout)) {
-      prepared = prepared.finish(index.scanHere(layout, plan, limit));
+    const { layout, plan, limit, keep } = prepared;
+    // A cursor from the previous layout filters in a way workers cannot.
+    if (
+      !pool ||
+      keep !== null ||
+      scanBytes(layout, plan) < minBytes ||
+      !isShared(layout)
+    ) {
+      prepared = prepared.finish(index.scanHere(layout, plan, limit, keep));
       continue;
     }
     const outcome = await pool.scan(layout, plan, limit);

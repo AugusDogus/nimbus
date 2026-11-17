@@ -3,6 +3,7 @@
 // search's slots when asked. Imports only packages, like search.worker.ts.
 import {
   collector,
+  ScanCounts,
   scanLayout,
   type ScanScratch,
   type SearchLayout,
@@ -55,11 +56,13 @@ self.onmessage = (event: MessageEvent<ScanWorkerInbound>) => {
         return;
       }
       const results = collector(message.limit);
+      const counts = ScanCounts.none(message.plan.terms.length);
       const finished = scanLayout(
         held.layout,
         message.plan,
         held.scratch,
         (rank) => results.add(rank),
+        counts,
         () => Atomics.load(control, 0) !== job,
       );
       if (!finished) {
@@ -68,9 +71,10 @@ self.onmessage = (event: MessageEvent<ScanWorkerInbound>) => {
       }
       // A copy, so the transfer does not detach the collector's larger buffer.
       const best = results.best().slice();
-      post({ type: "ranks", job, ranks: { best, total: results.total } }, [
-        best.buffer,
-      ]);
+      post(
+        { type: "ranks", job, ranks: { best, total: results.total, counts } },
+        [best.buffer],
+      );
       return;
     }
   }

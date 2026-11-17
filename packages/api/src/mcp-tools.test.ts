@@ -289,12 +289,15 @@ describe("MCP tools", () => {
     const searchPage = z.object({
       entries: z.array(z.object({ path: z.string() })),
       total: z.number(),
+      restarted: z.boolean(),
       nextCursor: z.string().nullable(),
     });
     await mkdir(path.join(root, "docs", "2024"));
     for (let i = 0; i < 5; i++)
       await writeFile(path.join(root, "docs", "2024", `invoice-${i}.pdf`), "x");
-    const seen: string[] = [];
+    // The test service builds a fresh index for every query, as after a
+    // restart: later pages start again, and repeats are dropped as told.
+    const seen = new Set<string>();
     let cursor: string | undefined;
     do {
       const page = searchPage.parse(
@@ -305,10 +308,11 @@ describe("MCP tools", () => {
         }),
       );
       expect(page.total).toBe(5);
-      seen.push(...page.entries.map((entry) => entry.path));
+      expect(page.restarted).toBe(cursor !== undefined);
+      for (const entry of page.entries) seen.add(entry.path);
       cursor = page.nextCursor ?? undefined;
     } while (cursor !== undefined);
-    expect(seen.sort()).toEqual(
+    expect([...seen].sort()).toEqual(
       [0, 1, 2, 3, 4].map((i) => `docs/2024/invoice-${i}.pdf`),
     );
   });

@@ -12,9 +12,15 @@
  *
  * Every rank is distinct, so a page continues from the last rank shown: the
  * next page is the best matches ranked after it, read from the index as it is
- * then. Nothing is stored between pages, and while the layout stays the same
- * no surviving match is repeated or skipped. Compaction renumbers slots; a
- * cursor from before one continues by position instead.
+ * then. Nothing is stored between pages, and no surviving match is repeated
+ * or skipped. Compaction renumbers slots, so the index keeps the previous
+ * layout's numbering to translate a cursor from just before one; a cursor
+ * older than that, or one ranked with different history, gets every result
+ * up to the end of its next page again instead, so nothing is skipped and the
+ * caller drops the repeats.
+ *
+ * Nothing a caller sees depends on names outside the ranges it may read:
+ * which layers run, which corrections are tried, every count and the order.
  */
 import {
   collector,
@@ -23,9 +29,10 @@ import {
   MAX_TERMS,
   queryTerms,
   Rank,
+  ScanCounts,
   scanLayout,
   ScanScratch,
-  patternBits,
+  slotHolds,
   termBits,
   TIER_FUZZY_IN_NAME,
   TIER_FUZZY_IN_PATH,
@@ -36,10 +43,12 @@ import {
   type SearchLayout,
   type VisibleRange,
 } from "./search-scan";
+import { lowerSlot, type SearchWords, type Visibility } from "./search-words";
 
 export { foldName, foldQuery } from "./search-scan";
 export type {
   CompactRanks,
+  ScanCounts,
   ScanPlan,
   SearchLayout,
   VisibleRange,
@@ -76,6 +85,8 @@ export type SearchRequest = {
   history?: readonly HistoryEntry[];
   /** Continue after the page that returned this `next`. */
   cursor?: string;
+  /** The clock history decays against, in ms; defaults to now. A continued page keeps its first page's. */
+  now?: number;
 };
 
 /**
@@ -94,6 +105,12 @@ export type SearchResult = {
   total: number;
   /** Pass as `cursor` for the next page; null on the last one. */
   next: string | null;
+  /**
+   * The drive changed too much since the previous page to continue it, so
+   * this page starts again from the first result: it repeats results
+   * already returned, and skips none.
+   */
+  restarted: boolean;
   /** Folded words that matched, for highlighting. Never sent to clients as-is. */
   terms: string[];
 };
@@ -101,8 +118,18 @@ export type SearchResult = {
 /** What the query layers need from an index. */
 export type IndexView = {
   readonly layout: SearchLayout;
+  /**
+   * The layout before the last compaction, with each id's slot in it then,
+   * to continue a page ranked in it. Null before the first compaction.
+   */
+  readonly previous: {
+    generation: number;
+    slots: number;
+    slotOf: Int32Array;
+  } | null;
   /** Entries added since the layout was built, with folded names. */
   readonly delta: ReadonlyMap<number, { raw: string; folded: string }>;
+  readonly words: SearchWords;
   find: (relative: string) => number;
   isLive: (id: number) => boolean;
   isFolder: (id: number) => boolean;
@@ -113,15 +140,13 @@ export type IndexView = {
   pathOf: (id: number) => string;
   foldedNameOf: (id: number) => string;
   visibleRanges: (rootId: number, granted: number[] | null) => VisibleRange[];
-  /** Words in the index a folded query word may have meant, best first. */
-  corrections: (term: string) => string[];
 };
 
 /**
- * The fuzzy layer runs when the stricter ones found fewer matches than this
- * in the whole result list: typos are worth suggesting when little else is.
+ * Corrections tried per misspelled word, best first. Chosen with the
+ * relevance sets and the benchmark; see the search report.
  */
-export const FUZZY_BELOW = 10;
+export const MAX_CORRECTIONS = 4;
 
 const NONE = -1;
 const ROOT = 0;
@@ -139,20 +164,45 @@ export function historyBoost(entry: HistoryEntry, now: number) {
   return Math.min(MAX_BOOST, Math.max(0, Math.round(score * 3)));
 }
 
-/** Where a page ended: the layout it was ranked in, its last rank, and how many came before. */
-type Cursor = { generation: number; after: number; shown: number };
+/** A short digest of the history a page was ranked with. */
+function historyDigest(history: readonly HistoryEntry[]) {
+  let hash = 0x811c9dc5;
+  for (const entry of history) {
+    const text = `${entry.path}\0${entry.openedAt}\0${entry.visits}\0${entry.starred ? 1 : 0}\n`;
+    for (let i = 0; i < text.length; i++)
+      hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * Where a page ended: the layout it was ranked in, its last rank, how many
+ * came before, and the clock and history its ranks were computed with.
+ */
+type Cursor = {
+  generation: number;
+  after: number;
+  shown: number;
+  now: number;
+  history: number;
+};
 
 const Cursor = {
   format: (cursor: Cursor) =>
-    `${cursor.generation}-${cursor.after}-${cursor.shown}`,
+    `${cursor.generation}-${cursor.after}-${cursor.shown}-${cursor.now}-${cursor.history}`,
   /** Null for text that no page returned; such a search starts over. */
   parse(text: string | undefined): Cursor | null {
-    const parts = /^(\d{1,15})-(\d{1,16})-(\d{1,9})$/.exec(text ?? "");
+    const parts =
+      /^(\d{1,15})-(\d{1,16})-(\d{1,9})-(\d{1,15})-(\d{1,10})$/.exec(
+        text ?? "",
+      );
     if (!parts) return null;
     return {
       generation: Number(parts[1]),
       after: Number(parts[2]),
       shown: Number(parts[3]),
+      now: Number(parts[4]),
+      history: Number(parts[5]),
     };
   },
 } as const;
@@ -165,13 +215,14 @@ export function createSearchState() {
       layout: SearchLayout,
       plan: ScanPlan,
       add: (rank: number) => void,
+      counts: ScanCounts,
     ) {
       if (scratch?.layout !== layout)
         scratch = { layout, space: ScanScratch.for(layout) };
       const { space } = scratch;
       ScanScratch.setBoosts(space, plan);
       try {
-        scanLayout(layout, plan, space, add);
+        scanLayout(layout, plan, space, add, counts);
       } finally {
         ScanScratch.clearBoosts(space, plan);
       }
@@ -187,7 +238,7 @@ function deltaVisible(
   rootId: number,
   grants: Set<number> | null,
 ) {
-  if (id === rootId) return false;
+  if (id === rootId || !view.isLive(id)) return false;
   let inRoot = false;
   let inGrant = grants === null;
   for (let current = id; current !== NONE; current = view.parentOf(current)) {
@@ -197,53 +248,77 @@ function deltaVisible(
   return inRoot && inGrant;
 }
 
-/** Both layers over entries added since compaction, by the same rules as search-scan.ts. */
+/** The fuzzy layer's corrections as entries added since compaction see them. */
+type DeltaFuzzy = {
+  terms: readonly string[];
+  /** Per word, the corrections tried, for highlighting. */
+  words: readonly (readonly string[])[];
+  /** Per word, ids of delta names holding one of its corrections. */
+  ids: readonly ReadonlySet<number>[];
+  /** Per word, compacted posting keys of its corrections, for folders above. */
+  keys: readonly (readonly number[])[];
+};
+
+/** The layers over entries added since compaction, by the same rules as search-scan.ts. */
 function scanDelta(
   view: IndexView,
   plan: ScanPlan,
   rootId: number,
   grants: Set<number> | null,
   boosts: ReadonlyMap<number, number>,
+  keep: (rank: number) => boolean,
   add: (rank: number) => void,
+  counts: ScanCounts,
+  corrections: DeltaFuzzy | null,
 ) {
-  const { needle, terms, fuzzy } = plan;
+  const { needle, terms } = plan;
   const prefixOnly = needle.length === 1;
-  const all = (1 << terms.length) - 1;
-  const { slots } = view.layout;
-  /** Bits of every word in a name and the folders above it. */
-  const reach = (
+  const { layout } = view;
+  const { slots } = layout;
+  /** Bits of `bitsOf` across the folders above `id`, stopping once `full`. */
+  const above = (
     id: number,
-    inName: number,
+    bits: number,
     full: number,
-    bitsOf: (name: string) => number,
+    bitsOf: (folder: number) => number,
   ) => {
-    let bits = inName;
     for (
       let parent = view.parentOf(id);
       bits !== full && parent > ROOT;
       parent = view.parentOf(parent)
     )
-      bits |= bitsOf(view.foldedNameOf(parent));
+      bits |= bitsOf(parent);
     return bits;
   };
-  const keep = (rank: number) => {
-    if (rank > plan.after) add(rank);
+  const correctedBits = (id: number) => {
+    if (!corrections) return 0;
+    let bits = termBits(view.foldedNameOf(id), corrections.terms);
+    const slot = view.slotOf(id);
+    corrections.ids.forEach((ids, term) => {
+      const held =
+        slot === NONE
+          ? ids.has(id)
+          : slotHolds(layout, slot, corrections.keys[term] ?? []);
+      if (held) bits |= 1 << term;
+    });
+    return bits;
   };
   for (const [id, name] of view.delta) {
+    if (!deltaVisible(view, id, rootId, grants)) continue;
     const at = name.folded.indexOf(needle);
     const literal = at >= 0 && (!prefixOnly || at === 0);
-    const inName = !literal && terms.length ? termBits(name.folded, terms) : 0;
-    if (
-      (!literal &&
-        inName === 0 &&
-        !(fuzzy && patternBits(name.folded, fuzzy))) ||
-      !deltaVisible(view, id, rootId, grants)
-    )
-      continue;
+    const inName = terms.length ? termBits(name.folded, terms) : 0;
+    if (literal) counts.literal++;
+    for (let term = 0; term < terms.length; term++)
+      if (inName & (1 << term))
+        counts.terms[term] = (counts.terms[term] ?? 0) + 1;
     const boost = boosts.get(id) ?? 0;
     const length = Buffer.byteLength(name.folded);
+    const offer = (rank: number) => {
+      if (keep(rank)) add(rank);
+    };
     if (literal) {
-      keep(
+      offer(
         Rank.of(
           Rank.literalTier(
             name.folded.length === needle.length,
@@ -257,11 +332,14 @@ function scanDelta(
       );
       continue;
     }
+    const all = (1 << terms.length) - 1;
     if (
       inName !== 0 &&
-      reach(id, inName, all, (folder) => termBits(folder, terms)) === all
+      above(id, inName, all, (folder) =>
+        termBits(view.foldedNameOf(folder), terms),
+      ) === all
     ) {
-      keep(
+      offer(
         Rank.of(
           inName === all ? TIER_WORDS_IN_NAME : TIER_WORDS_IN_PATH,
           boost,
@@ -271,16 +349,14 @@ function scanDelta(
       );
       continue;
     }
-    if (!fuzzy) continue;
-    const fuzzyAll = (1 << fuzzy.length) - 1;
-    const fuzzyInName = patternBits(name.folded, fuzzy);
+    if (!corrections) continue;
+    const fuzzyAll = (1 << corrections.terms.length) - 1;
+    const fuzzyInName = correctedBits(id);
     if (
       fuzzyInName !== 0 &&
-      reach(id, fuzzyInName, fuzzyAll, (folder) =>
-        patternBits(folder, fuzzy),
-      ) === fuzzyAll
+      above(id, fuzzyInName, fuzzyAll, correctedBits) === fuzzyAll
     )
-      keep(
+      offer(
         Rank.of(
           fuzzyInName === fuzzyAll ? TIER_FUZZY_IN_NAME : TIER_FUZZY_IN_PATH,
           boost,
@@ -296,6 +372,7 @@ const empty = (): SearchResult => ({
   truncated: false,
   total: 0,
   next: null,
+  restarted: false,
   terms: [],
 });
 
@@ -303,7 +380,8 @@ const empty = (): SearchResult => ({
  * A search ready for its compacted scan: run `plan` over `layout` keeping the
  * best `limit` ranks, then pass them to `finish`, which matches the entries
  * added since compaction and returns the page, or a second scan when the
- * fuzzy layer should run too.
+ * fuzzy layer should run too. `keep`, when set, filters ranks in a way scan
+ * workers cannot (a cursor from the previous layout): scan on this thread.
  */
 export type PreparedSearch =
   | { done: SearchResult }
@@ -312,6 +390,7 @@ export type PreparedSearch =
       layout: SearchLayout;
       plan: ScanPlan;
       limit: number;
+      keep: ((rank: number) => boolean) | null;
       finish: (compacted: CompactRanks) => PreparedSearch;
     };
 
@@ -338,6 +417,7 @@ export function prepareSearch(
       ? scope.paths.map(view.find).filter((id) => id !== NONE)
       : null;
   if (granted?.length === 0) return { done: empty() };
+  const grants = granted ? new Set(granted) : null;
   const full = request.depth === "full";
   const allTerms = queryTerms(needle);
   const usable = allTerms.length <= MAX_TERMS;
@@ -345,19 +425,53 @@ export function prepareSearch(
     full && usable && !(allTerms.length === 1 && allTerms[0] === needle)
       ? allTerms
       : [];
-
+  const history = request.history ?? [];
+  const digest = historyDigest(history);
   const { layout } = view;
-  // Within the layout a page was ranked in, continue after its last rank;
-  // after a compaction, by position.
+  const ranges = view.visibleRanges(rootId, granted);
+
+  // Continue a page: after its last rank within its layout; through the
+  // previous layout's numbering just after a compaction; otherwise by
+  // returning everything up to the end of this page again.
   const cursor = Cursor.parse(request.cursor);
-  const continues = cursor !== null && cursor.generation === layout.generation;
-  const skip = cursor && !continues ? cursor.shown : 0;
+  const sameHistory = cursor !== null && cursor.history === digest;
+  const previous = view.previous;
+  const mode =
+    cursor === null
+      ? "start"
+      : sameHistory && cursor.generation === layout.generation
+        ? "continue"
+        : sameHistory && previous && cursor.generation === previous.generation
+          ? "translate"
+          : "again";
   const shown = cursor?.shown ?? 0;
+  const now = cursor?.now ?? request.now ?? Date.now();
+  const before = mode === "continue" || mode === "translate" ? shown : 0;
+  const want = (mode === "again" ? shown : 0) + limit;
+  const after = cursor && mode === "continue" ? cursor.after : -1;
+  /** For "translate": whether a rank in this layout came after the cursor in the previous one. */
+  const keep: ((rank: number) => boolean) | null =
+    cursor && previous && mode === "translate"
+      ? (rank) => {
+          const order = Rank.order(rank);
+          const id =
+            order < layout.slots
+              ? (layout.slotId[order] ?? NONE)
+              : order - layout.slots;
+          const old =
+            id >= 0 && id < previous.slotOf.length
+              ? (previous.slotOf[id] ?? NONE)
+              : NONE;
+          return (
+            rank - order + (old === NONE ? previous.slots + id : old) >
+            cursor.after
+          );
+        }
+      : null;
 
   const boosts: number[] = [];
   const deltaBoosts = new Map<number, number>();
-  const now = Date.now();
-  for (const entry of request.history ?? []) {
+  for (const entry of history) {
     const id = view.find(entry.path);
     if (id === NONE) continue;
     const boost = historyBoost(entry, now);
@@ -365,45 +479,103 @@ export function prepareSearch(
     if (slot === NONE) deltaBoosts.set(id, boost);
     else boosts.push(slot, boost);
   }
-  const strict: ScanPlan = {
-    needle,
-    terms,
-    fuzzy: null,
-    ranges: view.visibleRanges(rootId, granted),
-    boosts,
-    after: continues ? cursor.after : -1,
-  };
-  const grants = granted ? new Set(granted) : null;
-  const want = skip + limit;
 
-  const step = (plan: ScanPlan): PreparedSearch => ({
+  /** Visible live names holding a word, for choosing corrections. */
+  const visibility: Visibility = {
+    baseCount: (index, cap) => {
+      const { postingStart, postingSlots, dead } = layout;
+      const end = postingStart[index + 1] ?? 0;
+      let count = 0;
+      for (const range of ranges) {
+        for (
+          let at = lowerSlot(
+            postingSlots,
+            postingStart[index] ?? 0,
+            end,
+            range.first,
+          );
+          at < end && count < cap;
+          at++
+        ) {
+          const slot = postingSlots[at] ?? 0;
+          if (slot >= range.end) break;
+          if (!dead[slot]) count++;
+        }
+        if (count >= cap) break;
+      }
+      return count;
+    },
+    deltaVisible: (id) => deltaVisible(view, id, rootId, grants),
+  };
+
+  const step = (
+    plan: ScanPlan,
+    corrections: DeltaFuzzy | null,
+  ): PreparedSearch => ({
     done: null,
     layout,
     plan,
     limit: want,
+    keep,
     finish: (compacted) => {
       const results = collector(want);
       results.merge(compacted);
-      scanDelta(view, plan, rootId, grants, deltaBoosts, (rank) =>
-        results.add(rank),
+      const counts = ScanCounts.none(plan.terms.length);
+      ScanCounts.add(counts, compacted.counts);
+      scanDelta(
+        view,
+        plan,
+        rootId,
+        grants,
+        deltaBoosts,
+        keep ?? ((rank) => rank > plan.after),
+        (rank) => results.add(rank),
+        counts,
+        corrections,
       );
-      // Too little found: run again with the words the query may have meant.
-      // Pages before this one count, so every page of a search decides alike.
+      // Words no visible name holds, corrected to words visible names hold.
       if (plan.fuzzy === null && full && usable && allTerms.length) {
-        const strictTotal = continues ? shown + results.total : results.total;
-        if (strictTotal < FUZZY_BELOW) {
-          const fuzzy = allTerms.map((term) => [
-            term,
-            ...view.corrections(term),
+        const missing = allTerms.map((term, index) =>
+          plan.terms.length
+            ? (counts.terms[index] ?? 0) === 0
+            : counts.literal === 0,
+        );
+        const fixes = allTerms.map((term, index) =>
+          missing[index]
+            ? view.words.corrections(term, visibility, MAX_CORRECTIONS)
+            : [],
+        );
+        if (fixes.some((list) => list.length)) {
+          const expansions = fixes.map((list) =>
+            list.map((word) => view.words.expand(word)),
+          );
+          const keys = expansions.map((list) => [
+            ...new Set(list.flatMap((expansion) => expansion.base)),
           ]);
-          if (fuzzy.some((patterns) => patterns.length > 1))
-            return step({ ...plan, fuzzy });
+          return step(
+            { ...plan, fuzzy: { terms: allTerms, keys } },
+            {
+              terms: allTerms,
+              words: fixes,
+              keys,
+              ids: expansions.map(
+                (list) =>
+                  new Set(
+                    list.flatMap((expansion) =>
+                      expansion.delta.flatMap((key) =>
+                        view.words.deltaIds(key),
+                      ),
+                    ),
+                  ),
+              ),
+            },
+          );
         }
       }
       const best = results.best();
       const hits: SearchHit[] = [];
       let last = -1;
-      for (let at = skip; at < best.length; at++) {
+      for (let at = 0; at < best.length; at++) {
         const rank = best[at] ?? 0;
         const order = Rank.order(rank);
         const id =
@@ -418,20 +590,26 @@ export function prepareSearch(
         });
       }
       const more = results.total > want;
+      const fixed = corrections
+        ? [...corrections.terms, ...corrections.words.flat()]
+        : [];
       return {
         done: {
           hits,
           truncated: more,
-          total: (continues ? shown : 0) + results.total,
+          total: before + results.total,
+          restarted: mode === "again",
           next: more
             ? Cursor.format({
                 generation: layout.generation,
                 after: last,
-                shown: shown + hits.length,
+                shown: before + hits.length,
+                now,
+                history: digest,
               })
             : null,
-          terms: plan.fuzzy
-            ? [...new Set(plan.fuzzy.flat())]
+          terms: corrections
+            ? [...new Set(fixed)]
             : terms.length
               ? terms
               : [needle],
@@ -439,7 +617,7 @@ export function prepareSearch(
       };
     },
   });
-  return step(strict);
+  return step({ needle, terms, fuzzy: null, ranges, boosts, after }, null);
 }
 
 /** Scan the compacted names on this thread. */
@@ -448,10 +626,21 @@ export function scanCompacted(
   layout: SearchLayout,
   plan: ScanPlan,
   limit: number,
+  keep: ((rank: number) => boolean) | null,
 ): CompactRanks {
   const results = collector(limit);
-  state.scanHere(layout, plan, (rank) => results.add(rank));
-  return { best: results.best(), total: results.total };
+  const counts = ScanCounts.none(plan.terms.length);
+  state.scanHere(
+    layout,
+    plan,
+    keep
+      ? (rank) => {
+          if (keep(rank)) results.add(rank);
+        }
+      : (rank) => results.add(rank),
+    counts,
+  );
+  return { best: results.best(), total: results.total, counts };
 }
 
 /** A whole search on this thread. */
@@ -463,7 +652,13 @@ export function runSearch(
   let prepared = prepareSearch(view, request);
   while (!prepared.done)
     prepared = prepared.finish(
-      scanCompacted(state, prepared.layout, prepared.plan, prepared.limit),
+      scanCompacted(
+        state,
+        prepared.layout,
+        prepared.plan,
+        prepared.limit,
+        prepared.keep,
+      ),
     );
   return prepared.done;
 }

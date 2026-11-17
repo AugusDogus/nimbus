@@ -59,6 +59,7 @@ describe("search scan pool", () => {
               limit: 25,
               scope,
               depth,
+              now: 1,
             };
             const request =
               page === 1
@@ -89,6 +90,7 @@ describe("search scan pool", () => {
       limit: 10_000,
       scope: { type: "all" },
       depth: "full",
+      now: 1,
     };
     const pending = searchWithPool(() => index, request, pool, 0);
     index.add("late/report-added-meanwhile.txt", "file");
@@ -107,6 +109,7 @@ describe("search scan pool", () => {
       limit: 10,
       scope: { type: "all" },
       depth: "full",
+      now: 1,
     };
     const first = searchWithPool(() => index, request, pool, 0);
     const second = searchWithPool(
@@ -128,6 +131,7 @@ describe("search scan pool", () => {
       limit: 30,
       scope: { type: "all" },
       depth: "full",
+      now: 1,
     });
     const answers = await Promise.all(
       queries.map((query) =>

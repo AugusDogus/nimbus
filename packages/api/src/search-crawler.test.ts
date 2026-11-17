@@ -122,6 +122,7 @@ describe("searchEntries", () => {
         truncated: false,
         total: 3,
         next: null,
+        restarted: false,
         terms: ["notes"],
         complete: true,
       }),
@@ -144,6 +145,7 @@ describe("searchEntries", () => {
           truncated: false,
           total: 0,
           next: null,
+          restarted: false,
           terms: [],
           complete: true,
         };

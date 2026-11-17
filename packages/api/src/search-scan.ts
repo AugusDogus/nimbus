@@ -5,13 +5,16 @@
  * else, so a scan worker can run it over its share of the slots while the
  * index keeps changing on its own thread.
  *
- * Two layers run here, each over only the ranges the caller may see:
+ * Three layers run here, each over only the ranges the caller may see:
  * - names: the whole query as a substring of a name, ranked exact, prefix,
  *   word boundary, then anywhere;
  * - words: every word of the query in the name or in a folder above it, at
  *   least one in the name. One scan per word marks the slots whose names hold
  *   it; a candidate's folders are checked through those marks by walking up
- *   the tree, so full paths are never built.
+ *   the tree, so full paths are never built;
+ * - fuzzy: the same, with misspelled or abbreviated words replaced by words
+ *   the caller's own names hold, found through the word-to-name postings
+ *   (search-words.ts) rather than another scan.
  */
 
 /** The compacted part of an index, replaced (never changed) by compaction. */
@@ -31,6 +34,9 @@ export type SearchLayout = {
   readonly slots: number;
   /** Distinct for every layout any index builds, so a page cursor can tell its layout. */
   readonly generation: number;
+  /** Word-to-name postings for these slots (search-words.ts): key i's slots, sorted. */
+  readonly postingStart: Int32Array;
+  readonly postingSlots: Int32Array;
 };
 
 /**
@@ -46,10 +52,14 @@ export type ScanPlan = {
   /** Words for the words layer; empty runs the names layer only. */
   terms: readonly string[];
   /**
-   * For the fuzzy layer, each query word with the words it may have meant
-   * (itself first); null skips the layer.
+   * For the fuzzy layer: every query word, and for each the posting keys of
+   * the words it may have meant (none for a word some visible name holds).
+   * Null skips the layer.
    */
-  fuzzy: readonly (readonly string[])[] | null;
+  fuzzy: {
+    terms: readonly string[];
+    keys: readonly (readonly number[])[];
+  } | null;
   ranges: readonly VisibleRange[];
   /** Flat [slot, boost, slot, boost, ...] pairs from the caller's history. */
   boosts: readonly number[];
@@ -119,18 +129,6 @@ export function termBits(name: string, terms: readonly string[]) {
   let bits = 0;
   for (let i = 0; i < terms.length; i++)
     if (nameHolds(name, terms[i] ?? "")) bits |= 1 << i;
-  return bits;
-}
-
-/** Word bits for `name` where word i matches when any of `patterns[i]` does. */
-export function patternBits(
-  name: string,
-  patterns: readonly (readonly string[])[],
-) {
-  let bits = 0;
-  for (let i = 0; i < patterns.length; i++)
-    if (patterns[i]?.some((pattern) => nameHolds(name, pattern)))
-      bits |= 1 << i;
   return bits;
 }
 
@@ -209,7 +207,8 @@ const never: Stopped = () => false;
  * scan workers. A cut range's later piece takes as its outside the folder
  * above its first slot: every folder above a slot in the piece but before it
  * is above that first slot too, since subtrees are contiguous. (Not every
- * folder above the first slot is above the others, which `words` allows for.)
+ * folder above the first slot is above the others, which `foldersAbove`
+ * allows for.)
  */
 export function splitRanges(
   layout: SearchLayout,
@@ -259,8 +258,32 @@ export function splitRanges(
   return groups;
 }
 
-/** What a scan of the compacted names found: the best `limit` ranks, sorted, and how many matched. */
-export type CompactRanks = { best: Float64Array; total: number };
+/** Visible names a scan saw: holding the whole query, and holding each query word. */
+export type ScanCounts = { literal: number; terms: number[] };
+
+/**
+ * What a scan of the compacted names found: the best `limit` ranks, sorted,
+ * how many matched, and the counts that decide whether the fuzzy layer runs.
+ */
+export type CompactRanks = {
+  best: Float64Array;
+  total: number;
+  counts: ScanCounts;
+};
+
+export const ScanCounts = {
+  none: (terms: number): ScanCounts => ({
+    literal: 0,
+    terms: new Array<number>(terms).fill(0),
+  }),
+  /** Add `from` into `into`. */
+  add(into: ScanCounts, from: ScanCounts) {
+    into.literal += from.literal;
+    from.terms.forEach((count, term) => {
+      into.terms[term] = (into.terms[term] ?? 0) + count;
+    });
+  },
+} as const;
 
 /** The best `limit` ranks, sorted, and how many were offered. */
 export function collector(limit: number) {
@@ -294,12 +317,16 @@ export function collector(limit: number) {
 }
 
 /**
- * Scratch space for scans of one layout: a byte per slot for word marks and
- * for history boosts. Scan workers share one, on shared memory: each writes
- * marks only in its own slots, and boosts are set before they start and
- * cleared after they all finish.
+ * Scratch space for scans of one layout: a byte per slot for word marks, for
+ * corrected-word marks and for history boosts. Scan workers share one, on
+ * shared memory: each writes marks only in its own slots, and boosts are set
+ * before they start and cleared after they all finish.
  */
-export type ScanScratch = { marks: Uint8Array; boosts: Uint8Array };
+export type ScanScratch = {
+  marks: Uint8Array;
+  corrected: Uint8Array;
+  boosts: Uint8Array;
+};
 
 export const ScanScratch = {
   for: (layout: SearchLayout, shared = false): ScanScratch => {
@@ -307,7 +334,11 @@ export const ScanScratch = {
       shared
         ? new Uint8Array(new SharedArrayBuffer(length))
         : new Uint8Array(length);
-    return { marks: bytes(layout.slots), boosts: bytes(layout.slots) };
+    return {
+      marks: bytes(layout.slots),
+      corrected: bytes(layout.slots),
+      boosts: bytes(layout.slots),
+    };
   },
   /** Put a plan's history boosts in place, before its scan starts. */
   setBoosts(scratch: ScanScratch, plan: ScanPlan) {
@@ -323,15 +354,17 @@ export const ScanScratch = {
 
 /**
  * Run the layers over the compacted names in `plan.ranges`, passing each
- * match's rank to `add`. Removed entries are skipped through `layout.dead`.
- * The plan's boosts must already be in `scratch` (ScanScratch.setBoosts).
- * False when `stopped` ended it early, with only some ranks passed.
+ * match's rank to `add` and counting visible names into `counts`. Removed
+ * entries are skipped through `layout.dead`. The plan's boosts must already
+ * be in `scratch` (ScanScratch.setBoosts). False when `stopped` ended it
+ * early, with only some ranks passed.
  */
 export function scanLayout(
   layout: SearchLayout,
   plan: ScanPlan,
   scratch: ScanScratch,
   add: (rank: number) => void,
+  counts: ScanCounts,
   stopped: Stopped = never,
 ) {
   const { marks } = scratch;
@@ -346,29 +379,10 @@ export function scanLayout(
   if (marking)
     for (const range of plan.ranges) marks.fill(0, range.first, range.end);
   return (
-    names(layout, plan, scratch, keep, stopped, marking) &&
-    (!terms.length ||
-      words(
-        layout,
-        plan.ranges,
-        terms.map((term) => [term]),
-        [TIER_WORDS_IN_NAME, TIER_WORDS_IN_PATH],
-        LITERAL,
-        scratch,
-        keep,
-        stopped,
-      )) &&
+    names(layout, plan, scratch, keep, counts, stopped, marking) &&
+    (!terms.length || words(layout, plan, scratch, keep, counts, stopped)) &&
     (plan.fuzzy === null ||
-      words(
-        layout,
-        plan.ranges,
-        plan.fuzzy,
-        [TIER_FUZZY_IN_NAME, TIER_FUZZY_IN_PATH],
-        LITERAL | FOUND,
-        scratch,
-        keep,
-        stopped,
-      ))
+      fuzzy(layout, plan, plan.fuzzy, scratch, keep, stopped))
   );
 }
 
@@ -377,6 +391,7 @@ function names(
   plan: ScanPlan,
   { boosts, marks }: ScanScratch,
   add: (rank: number) => void,
+  counts: ScanCounts,
   stopped: Stopped,
   marking: boolean,
 ) {
@@ -393,6 +408,7 @@ function names(
       prefixOnly,
       (slot, at) => {
         if (dead[slot]) return;
+        counts.literal++;
         const start = foldedStarts[slot] ?? 0;
         const length = (foldedStarts[slot + 1] ?? 0) - start - 1;
         if (marking) marks[slot] = (marks[slot] ?? 0) | LITERAL;
@@ -422,68 +438,79 @@ function names(
  */
 let candidates = new Int32Array(1 << 16);
 
+const keepCandidate = (count: number, slot: number) => {
+  if (count === candidates.length) {
+    const grown = new Int32Array(candidates.length * 2);
+    grown.set(candidates);
+    candidates = grown;
+  }
+  candidates[count] = slot;
+};
+
 /**
- * Names holding every word, or some with the rest in folders above, where
- * word i matches when any of `patterns[i]` does. Slots flagged with any of
- * `skip` were ranked by an earlier layer and are left out; slots this ranks
- * are flagged FOUND.
+ * The folders above `range`, each with the word bits it and every folder
+ * above it hold (`bitsOf`). A candidate's walk up leaves the range at one of
+ * these: any folder above a slot in the range but before it is above
+ * `first` too.
  */
+function foldersAbove(
+  layout: SearchLayout,
+  range: VisibleRange,
+  bitsOf: (slot: number) => number,
+) {
+  const chain: number[] = [];
+  for (let slot = range.outside; slot > 0; slot = layout.parentSlot[slot] ?? -1)
+    chain.push(slot);
+  const above = new Map<number, number>();
+  let carried = 0;
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const slot = chain[i] ?? 0;
+    carried |= bitsOf(slot);
+    above.set(slot, carried);
+  }
+  return above;
+}
+
+/** Names holding every word, or some with the rest in folders above. Literal matches are skipped. */
 function words(
   layout: SearchLayout,
-  ranges: readonly VisibleRange[],
-  patterns: readonly (readonly string[])[],
-  [inNameTier, inPathTier]: readonly [number, number],
-  skip: number,
+  plan: ScanPlan,
   { boosts, marks }: ScanScratch,
   add: (rank: number) => void,
+  counts: ScanCounts,
   stopped: Stopped,
 ) {
   const { foldedStarts, parentSlot, dead } = layout;
-  const all = (1 << patterns.length) - 1;
-  for (const range of ranges) {
-    // A later pass starts from the flags of the earlier ones, not their word bits.
-    if (skip & FOUND)
-      for (let slot = range.first; slot < range.end; slot++)
-        marks[slot] = (marks[slot] ?? 0) & ~TERM_BITS;
-    // Folders above the range, each with the words it and every folder above
-    // it hold. A candidate's walk up leaves the range at one of these: any
-    // folder above a slot in the range but before it is above `first` too.
-    const chain: number[] = [];
-    for (let slot = range.outside; slot > 0; slot = parentSlot[slot] ?? -1)
-      chain.push(slot);
-    const above = new Map<number, number>();
-    let carried = 0;
-    for (let i = chain.length - 1; i >= 0; i--) {
-      const slot = chain[i] ?? 0;
-      carried |= patternBits(slotName(layout, slot), patterns);
-      above.set(slot, carried);
-    }
+  const { terms } = plan;
+  const all = (1 << terms.length) - 1;
+  for (const range of plan.ranges) {
+    const above = foldersAbove(layout, range, (slot) =>
+      termBits(slotName(layout, slot), terms),
+    );
+    const outer = above.get(range.outside) ?? 0;
     let count = 0;
-    for (let term = 0; term < patterns.length; term++) {
+    for (let term = 0; term < terms.length; term++) {
       const bit = 1 << term;
-      for (const text of patterns[term] ?? []) {
-        const prefixOnly = text.length === 1;
-        const finished = scan(
-          layout,
-          range,
-          Buffer.from(prefixOnly ? SEPARATOR + text : text),
-          prefixOnly,
-          (slot) => {
-            const mark = marks[slot] ?? 0;
-            if ((mark & (TERM_BITS | skip)) === 0) {
-              if (count === candidates.length) {
-                const grown = new Int32Array(candidates.length * 2);
-                grown.set(candidates);
-                candidates = grown;
-              }
-              candidates[count++] = slot;
-            }
-            marks[slot] = mark | bit;
-          },
-          stopped,
-        );
-        if (!finished) return false;
-      }
+      // Folders above the range show in every result's path, so they count as seen.
+      if (outer & bit) counts.terms[term] = (counts.terms[term] ?? 0) + 1;
+      const text = terms[term] ?? "";
+      const prefixOnly = text.length === 1;
+      const finished = scan(
+        layout,
+        range,
+        Buffer.from(prefixOnly ? SEPARATOR + text : text),
+        prefixOnly,
+        (slot) => {
+          const mark = marks[slot] ?? 0;
+          if (!dead[slot] && (mark & bit) === 0)
+            counts.terms[term] = (counts.terms[term] ?? 0) + 1;
+          if ((mark & (TERM_BITS | LITERAL)) === 0)
+            keepCandidate(count++, slot);
+          marks[slot] = mark | bit;
+        },
+        stopped,
+      );
+      if (!finished) return false;
     }
     for (let at = 0; at < count; at++) {
       const slot = candidates[at] ?? 0;
@@ -501,7 +528,102 @@ function words(
       const start = foldedStarts[slot] ?? 0;
       add(
         Rank.of(
-          inName === all ? inNameTier : inPathTier,
+          inName === all ? TIER_WORDS_IN_NAME : TIER_WORDS_IN_PATH,
+          boosts[slot] ?? 0,
+          (foldedStarts[slot + 1] ?? 0) - start - 1,
+          slot,
+        ),
+      );
+    }
+  }
+  return true;
+}
+
+/** Whether compacted `slot` is among the postings of any of `keys`. */
+export function slotHolds(
+  layout: SearchLayout,
+  slot: number,
+  keys: readonly number[],
+) {
+  const { postingStart, postingSlots } = layout;
+  for (const key of keys) {
+    const end = postingStart[key + 1] ?? 0;
+    let low = postingStart[key] ?? 0;
+    let high = end;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if ((postingSlots[middle] ?? 0) < slot) low = middle + 1;
+      else high = middle;
+    }
+    if (low < end && postingSlots[low] === slot) return true;
+  }
+  return false;
+}
+
+/**
+ * Names matching every word once misspelled words count as the words they
+ * may have meant: a word holds where the name (or a folder above) holds it as
+ * typed, or holds one of its corrections. Names an earlier layer ranked are
+ * skipped, so every result here needed a correction.
+ */
+function fuzzy(
+  layout: SearchLayout,
+  plan: ScanPlan,
+  { terms, keys }: NonNullable<ScanPlan["fuzzy"]>,
+  { boosts, marks, corrected }: ScanScratch,
+  add: (rank: number) => void,
+  stopped: Stopped,
+) {
+  const { foldedStarts, parentSlot, dead, postingStart, postingSlots } = layout;
+  const all = (1 << terms.length) - 1;
+  // Word bits as typed, kept by the words pass (none for a one-word query,
+  // whose only word as typed is a names-layer match).
+  const typed = plan.terms.length ? TERM_BITS : 0;
+  const bitsAt = (slot: number) =>
+    (((marks[slot] ?? 0) & typed) | (corrected[slot] ?? 0)) & all;
+  for (const range of plan.ranges) {
+    if (stopped()) return false;
+    corrected.fill(0, range.first, range.end);
+    for (let term = 0; term < keys.length; term++) {
+      const bit = 1 << term;
+      for (const key of keys[term] ?? []) {
+        const end = postingStart[key + 1] ?? 0;
+        let low = postingStart[key] ?? 0;
+        let high = end;
+        while (low < high) {
+          const middle = (low + high) >> 1;
+          if ((postingSlots[middle] ?? 0) < range.first) low = middle + 1;
+          else high = middle;
+        }
+        for (let at = low; at < end; at++) {
+          const slot = postingSlots[at] ?? 0;
+          if (slot >= range.end) break;
+          corrected[slot] = (corrected[slot] ?? 0) | bit;
+        }
+      }
+    }
+    const above = foldersAbove(layout, range, (slot) => {
+      let bits = termBits(slotName(layout, slot), terms);
+      for (let term = 0; term < keys.length; term++)
+        if (slotHolds(layout, slot, keys[term] ?? [])) bits |= 1 << term;
+      return bits;
+    });
+    for (let slot = range.first; slot < range.end; slot++) {
+      const inName = bitsAt(slot);
+      if (inName === 0 || dead[slot] || (marks[slot] ?? 0) & (FOUND | LITERAL))
+        continue;
+      let bits = inName;
+      let parent = parentSlot[slot] ?? -1;
+      while (bits !== all && parent >= range.first) {
+        bits |= bitsAt(parent);
+        parent = parentSlot[parent] ?? -1;
+      }
+      if (bits !== all) bits |= above.get(parent) ?? 0;
+      if (bits !== all) continue;
+      const start = foldedStarts[slot] ?? 0;
+      add(
+        Rank.of(
+          inName === all ? TIER_FUZZY_IN_NAME : TIER_FUZZY_IN_PATH,
           boosts[slot] ?? 0,
           (foldedStarts[slot + 1] ?? 0) - start - 1,
           slot,
