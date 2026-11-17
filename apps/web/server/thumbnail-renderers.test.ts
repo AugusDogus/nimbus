@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { pdfRenderer, runBounded, videoRenderer } from "./thumbnail-renderers";
+import { fromVerifiedFile } from "./thumbnail-service";
 import { ThumbnailTimeout } from "./thumbnails";
 
 const pdftoppm = Bun.which("pdftoppm");
@@ -89,6 +90,27 @@ describe("runBounded", () => {
 });
 
 describe.skipIf(!pdftoppm)("PDF thumbnails (requires pdftoppm)", () => {
+  test("a decoder process reads the file through a descriptor opened without following symlinks", async () => {
+    const previousRoot = process.env.NIMBUS_DATA_ROOT;
+    const drive = path.join(root, "drive");
+    process.env.NIMBUS_DATA_ROOT = drive;
+    try {
+      await mkdir(path.join(drive, "docs"), { recursive: true });
+      await writeFile(path.join(drive, "docs/page.pdf"), pdf());
+      // A folder swapped for a symlink after its path was checked.
+      await symlink(path.join(drive, "docs"), path.join(drive, "swapped"));
+      const render = fromVerifiedFile(pdfRenderer(pdftoppm ?? ""));
+      const output = await render(path.join(drive, "docs/page.pdf"), signal());
+      expect(await sharp(output).metadata()).toMatchObject({ format: "webp" });
+      await expect(
+        render(path.join(drive, "swapped/page.pdf"), signal()),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    } finally {
+      if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
+      else process.env.NIMBUS_DATA_ROOT = previousRoot;
+    }
+  });
+
   test("renders the first page within the thumbnail size", async () => {
     const file = path.join(root, "page.pdf");
     await writeFile(file, pdf());

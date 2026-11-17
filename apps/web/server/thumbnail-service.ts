@@ -1,5 +1,7 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
+import { DriveFile } from "@nimbus/api/drive-file";
 import { getConfigRoot } from "./storage-paths";
 import { pdfRenderer, videoRenderer } from "./thumbnail-renderers";
 import {
@@ -7,6 +9,29 @@ import {
   imageRenderer,
   type ThumbnailRenderer,
 } from "./thumbnails";
+
+/** Linux names every open descriptor of this process under /proc, for its children too. */
+const descriptorPaths = existsSync("/proc/self/fd");
+
+/**
+ * `render` reading the file through a descriptor opened without following symlinks, so a
+ * symlink swapped in after the path was checked never feeds another file to a decoder. The
+ * decoders, in process or as child processes, open the descriptor's /proc path; elsewhere they
+ * open the checked path itself.
+ */
+export const fromVerifiedFile =
+  (render: ThumbnailRenderer): ThumbnailRenderer =>
+  async (absolute, signal) => {
+    const { handle } = await DriveFile.openFile(absolute);
+    try {
+      return await render(
+        descriptorPaths ? `/proc/${process.pid}/fd/${handle.fd}` : absolute,
+        signal,
+      );
+    } finally {
+      await handle.close();
+    }
+  };
 
 let shared: ReturnType<typeof createThumbnailer> | null = null;
 
@@ -23,9 +48,11 @@ export function thumbnailer() {
     const limited = Bun.which("prlimit") !== null;
     const renderers: Partial<
       Record<"image" | "pdf" | "video", ThumbnailRenderer>
-    > = { image: imageRenderer };
-    if (limited && pdftoppm) renderers.pdf = pdfRenderer(pdftoppm);
-    if (limited && ffmpeg) renderers.video = videoRenderer(ffmpeg);
+    > = { image: fromVerifiedFile(imageRenderer) };
+    if (limited && pdftoppm)
+      renderers.pdf = fromVerifiedFile(pdfRenderer(pdftoppm));
+    if (limited && ffmpeg)
+      renderers.video = fromVerifiedFile(videoRenderer(ffmpeg));
     const missing = [
       !limited && "prlimit (util-linux)",
       !pdftoppm && "pdftoppm (poppler-utils) for PDFs",
