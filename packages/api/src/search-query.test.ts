@@ -510,7 +510,10 @@ describe("fuzzy layer", () => {
       hits(index, "note").filter((hit) => hit.startsWith("fuzzy")),
     ).toEqual([]);
     index.remove("notes/note-9.txt");
-    expect(hits(index, "note.txt")).toEqual([]);
+    // Read apart (note, txt) it finds the notes; it is no typo to correct.
+    expect(
+      hits(index, "note.txt").filter((hit) => hit.startsWith("fuzzy")),
+    ).toEqual([]);
     // A word some name holds is not a typo, however few names hold it.
     expect(hits(index, "nots")).toEqual(["name other/nots.txt"]);
   });
@@ -747,6 +750,52 @@ describe("dates", () => {
         });
         for (const written of ["2024-03-15", "2024.03.15", "20240315"])
           expect(terms).toContain(written);
+      });
+    });
+});
+
+describe("joined words", () => {
+  function drive() {
+    const index = createSearchIndex();
+    for (const path of [
+      "Code/scripts/backup_photos_nightly.sh",
+      "Code/photo-sorter/readme.md",
+      "Code/web/UserProfileCard.tsx",
+      "Hiring/jane_doe_resume.pdf",
+      "Hiring/jane smith doe notes.txt",
+    ])
+      index.add(path, "file");
+    return index;
+  }
+  const found = (index: ReturnType<typeof createSearchIndex>, query: string) =>
+    index
+      .search({ query, root: "", limit: 50, scope: all, depth: "full", now: 1 })
+      .hits.map((hit) => `${hit.match} ${hit.path}`);
+
+  for (const compacted of [false, true])
+    describe(compacted ? "compacted" : "before compaction", () => {
+      const index = drive();
+      if (compacted) index.compact();
+
+      it("reads words joined by case, hyphens, underscores or dots apart", () => {
+        expect(found(index, "backupPhotos")).toEqual([
+          "words Code/scripts/backup_photos_nightly.sh",
+        ]);
+        // Only the folder: readme.md holds neither word in its own name.
+        expect(found(index, "photoSorter")).toEqual([
+          "words Code/photo-sorter",
+        ]);
+        expect(found(index, "user-profile-card")).toEqual([
+          "words Code/web/UserProfileCard.tsx",
+        ]);
+      });
+
+      it("keeps names holding the query as typed first", () => {
+        expect(found(index, "jane_doe")).toEqual([
+          "name Hiring/jane_doe_resume.pdf",
+          "words Hiring/jane smith doe notes.txt",
+        ]);
+        expect(found(index, "photo-sorter")[0]).toBe("name Code/photo-sorter");
       });
     });
 });

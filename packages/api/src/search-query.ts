@@ -36,6 +36,8 @@ import {
   termBits,
   TIER_DATES_IN_NAME,
   TIER_DATES_IN_PATH,
+  TIER_SPLIT_IN_NAME,
+  TIER_SPLIT_IN_PATH,
   TIER_FUZZY_IN_NAME,
   TIER_FUZZY_IN_PATH,
   TIER_WORDS_IN_NAME,
@@ -46,7 +48,13 @@ import {
   type VisibleRange,
 } from "./search-scan";
 import { lowerSlot, type SearchWords, type Visibility } from "./search-words";
-import { dateSpellings, monthNamed, plain, queryDates } from "./search-text";
+import {
+  dateSpellings,
+  joinedWords,
+  monthNamed,
+  plain,
+  queryDates,
+} from "./search-text";
 
 export { foldName, foldQuery } from "./search-scan";
 export type {
@@ -376,6 +384,27 @@ function scanDelta(
       );
       continue;
     }
+    const split = plan.split;
+    if (split) {
+      const splitAll = (1 << split.length) - 1;
+      const splitInName = termBits(name.folded, split);
+      if (
+        splitInName !== 0 &&
+        above(id, splitInName, splitAll, (folder) =>
+          termBits(view.foldedNameOf(folder), split),
+        ) === splitAll
+      ) {
+        offer(
+          Rank.of(
+            splitInName === splitAll ? TIER_SPLIT_IN_NAME : TIER_SPLIT_IN_PATH,
+            boost,
+            length,
+            slots + id,
+          ),
+        );
+        continue;
+      }
+    }
     if (!corrections) continue;
     const otherAll = (1 << corrections.terms.length) - 1;
     let typed = typedBits(id);
@@ -468,6 +497,26 @@ export function prepareSearch(
     full && usable && !(allTerms.length === 1 && allTerms[0] === needle)
       ? allTerms
       : [];
+  // Joined words read apart: the words as typed (case and all), each split
+  // where it joins words, when any does.
+  const typedWords = request.query
+    .trim()
+    .split(/[\s/]+/u)
+    .filter((word) => /[\p{L}\p{N}]/u.test(word));
+  const splitWords = [
+    ...new Set(
+      typedWords.flatMap((word) => {
+        const parts = joinedWords(word);
+        return parts.length ? parts : [foldQuery(word)];
+      }),
+    ),
+  ];
+  const split =
+    full &&
+    typedWords.some((word) => joinedWords(word).length) &&
+    splitWords.length <= MAX_TERMS
+      ? splitWords
+      : null;
   const history = request.history ?? [];
   const digest = historyDigest(history);
   const { layout } = view;
@@ -679,16 +728,20 @@ export function prepareSearch(
                 history: digest,
               })
             : null,
-          terms: corrections
-            ? [...new Set(fixed)]
-            : terms.length
-              ? terms
-              : [needle],
+          terms: [
+            ...new Set([
+              ...(corrections ? fixed : terms.length ? terms : [needle]),
+              ...(split ?? []),
+            ]),
+          ],
         },
       };
     },
   });
-  return step({ needle, terms, fuzzy: null, ranges, boosts, after }, null);
+  return step(
+    { needle, terms, split, fuzzy: null, ranges, boosts, after },
+    null,
+  );
 }
 
 /** Scan the compacted names on this thread. */

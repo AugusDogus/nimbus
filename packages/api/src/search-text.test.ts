@@ -37,7 +37,14 @@ test("splits words joined by case, hyphens, underscores and dots", () => {
     "card",
   ]);
   expect(SearchText.joinedWords("logo.final")).toEqual(["logo", "final"]);
-  expect(SearchText.joinedWords("IMG_4821")).toEqual(["img", "4821"]);
+  // Numbers keep their own readings: as typed, and as dates.
+  expect(SearchText.joinedWords("IMG_4821")).toEqual([]);
+  expect(SearchText.joinedWords("2024-03-15")).toEqual([]);
+  expect(SearchText.joinedWords("report2024Final")).toEqual([
+    "report",
+    "2024",
+    "final",
+  ]);
   expect(SearchText.joinedWords("report")).toEqual([]);
   expect(SearchText.joinedWords("Report")).toEqual([]);
 });

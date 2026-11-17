@@ -123,7 +123,8 @@ export const isPlain = (folded: string) => plain(folded) === folded;
 /**
  * The words a query word joins with case changes, hyphens, underscores or
  * dots (`backupPhotos`, `user-profile-card`), folded; empty when it joins
- * none. `raw` is the word as typed, since folding loses case.
+ * fewer than two words with letters. `raw` is the word as typed, since
+ * folding loses case.
  */
 export function joinedWords(raw: string): string[] {
   const parts = raw
@@ -132,7 +133,10 @@ export function joinedWords(raw: string): string[] {
     )
     .map(foldName)
     .filter((part) => /[\p{L}\p{N}]/u.test(part));
-  return parts.length > 1 ? [...new Set(parts)] : [];
+  // Words, not numbers: two parts with letters at least, so dates and
+  // camera names (`2024-03`, `IMG_4821`) keep their own readings.
+  const worded = parts.filter((part) => /\p{L}/u.test(part)).length;
+  return worded > 1 ? [...new Set(parts)] : [];
 }
 
 /**

@@ -73,6 +73,11 @@ export type ScanPlan = {
   ranges: readonly VisibleRange[];
   /** Flat [slot, boost, slot, boost, ...] pairs from the caller's history. */
   boosts: readonly number[];
+  /**
+   * The query's words with joined ones (`backupPhotos`) read apart, for a
+   * pass of its own below the words as typed; null when none are joined.
+   */
+  split: readonly string[] | null;
   /** Only ranks after this one, to continue a page; -1 for all. */
   after: number;
 };
@@ -458,12 +463,38 @@ export function scanLayout(
       : (rank: number) => {
           if (rank > after) add(rank);
         };
-  const marking = terms.length > 0 || plan.fuzzy !== null;
+  const marking =
+    terms.length > 0 || plan.split !== null || plan.fuzzy !== null;
   if (marking)
     for (const range of plan.ranges) marks.fill(0, range.first, range.end);
   return (
     names(layout, plan, scratch, keep, counts, stopped, marking) &&
-    (!terms.length || words(layout, plan, scratch, keep, counts, stopped)) &&
+    (!terms.length ||
+      words(
+        layout,
+        plan.ranges,
+        terms,
+        marks,
+        [TIER_WORDS_IN_NAME, TIER_WORDS_IN_PATH],
+        scratch,
+        keep,
+        counts,
+        stopped,
+      )) &&
+    // Joined words read apart, ahead of the second pass, which reuses the
+    // same scratch byte after clearing it.
+    (plan.split === null ||
+      words(
+        layout,
+        plan.ranges,
+        plan.split,
+        scratch.corrected,
+        [TIER_SPLIT_IN_NAME, TIER_SPLIT_IN_PATH],
+        scratch,
+        keep,
+        null,
+        stopped,
+      )) &&
     (plan.fuzzy === null ||
       fuzzy(layout, plan, plan.fuzzy, scratch, keep, stopped))
   );
@@ -645,19 +676,29 @@ function foldersAbove(
   return above;
 }
 
-/** Names holding every word, or some with the rest in folders above. Literal matches are skipped. */
+/**
+ * Names holding every one of `terms`, or some with the rest in folders above,
+ * with word bits kept in `bits` (the marks themselves for the query's words,
+ * or another scratch array for another reading of them). Names an earlier
+ * layer ranked are skipped, and those this ranks are flagged FOUND. Counts
+ * visible names per word when given `counts`.
+ */
 function words(
   layout: SearchLayout,
-  plan: ScanPlan,
+  ranges: readonly VisibleRange[],
+  terms: readonly string[],
+  bits: Uint8Array,
+  [inNameTier, inPathTier]: readonly [number, number],
   { boosts, marks }: ScanScratch,
   add: (rank: number) => void,
-  counts: ScanCounts,
+  counts: ScanCounts | null,
   stopped: Stopped,
 ) {
   const { foldedStarts, parentSlot, dead } = layout;
-  const { terms } = plan;
   const all = (1 << terms.length) - 1;
-  for (const range of plan.ranges) {
+  const own = bits !== marks;
+  for (const range of ranges) {
+    if (own) bits.fill(0, range.first, range.end);
     const above = foldersAbove(layout, range, (slot) =>
       termBits(slotName(layout, slot), terms),
     );
@@ -666,18 +707,22 @@ function words(
     for (let term = 0; term < terms.length; term++) {
       const bit = 1 << term;
       // Folders above the range show in every result's path, so they count as seen.
-      if (outer & bit) counts.terms[term] = (counts.terms[term] ?? 0) + 1;
+      if (counts && outer & bit)
+        counts.terms[term] = (counts.terms[term] ?? 0) + 1;
       const finished = scanWord(
         layout,
         range,
         terms[term] ?? "",
         (slot) => {
-          const mark = marks[slot] ?? 0;
-          if (!dead[slot] && (mark & bit) === 0)
+          const held = bits[slot] ?? 0;
+          if (counts && !dead[slot] && (held & bit) === 0)
             counts.terms[term] = (counts.terms[term] ?? 0) + 1;
-          if ((mark & (TERM_BITS | LITERAL)) === 0)
+          if (
+            (held & TERM_BITS) === 0 &&
+            ((marks[slot] ?? 0) & (LITERAL | FOUND)) === 0
+          )
             keepCandidate(count++, slot);
-          marks[slot] = mark | bit;
+          bits[slot] = held | bit;
         },
         stopped,
       );
@@ -685,21 +730,21 @@ function words(
     }
     for (let at = 0; at < count; at++) {
       const slot = candidates[at] ?? 0;
-      if (dead[slot]) continue;
-      const inName = (marks[slot] ?? 0) & all;
-      let bits = inName;
+      if (dead[slot] || (marks[slot] ?? 0) & (LITERAL | FOUND)) continue;
+      const inName = (bits[slot] ?? 0) & all;
+      let held = inName;
       let parent = parentSlot[slot] ?? -1;
-      while (bits !== all && parent >= range.first) {
-        bits |= (marks[parent] ?? 0) & all;
+      while (held !== all && parent >= range.first) {
+        held |= (bits[parent] ?? 0) & all;
         parent = parentSlot[parent] ?? -1;
       }
-      if (bits !== all) bits |= above.get(parent) ?? 0;
-      if (bits !== all) continue;
+      if (held !== all) held |= above.get(parent) ?? 0;
+      if (held !== all) continue;
       marks[slot] = (marks[slot] ?? 0) | FOUND;
       const start = foldedStarts[slot] ?? 0;
       add(
         Rank.of(
-          inName === all ? TIER_WORDS_IN_NAME : TIER_WORDS_IN_PATH,
+          inName === all ? inNameTier : inPathTier,
           boosts[slot] ?? 0,
           (foldedStarts[slot + 1] ?? 0) - start - 1,
           slot,
