@@ -17,6 +17,7 @@ import {
 import { AuditRetention, createAuditSink, purgeAuditEvents } from "./audit-log";
 import { ClientIp, clientIpHeader, TrustedProxies } from "./client-ip";
 import { mailConfig } from "./mail";
+import { EventStreams } from "./event-streams";
 import { SecurityHeaders } from "./security-headers";
 import { HttpRoutes } from "./http-routes";
 import { AppShell } from "./app-shell";
@@ -220,7 +221,7 @@ const server = Bun.serve({
     );
     request.headers.set(clientIpHeader, ip);
     const userAgent = request.headers.get("user-agent") ?? undefined;
-    const events = request.headers.get("accept")?.includes("text/event-stream");
+    const events = EventStreams.untimed(request);
     if (events) server.timeout(request, 0);
     const incoming = events
       ? new Request(request, {
@@ -238,9 +239,13 @@ const server = Bun.serve({
         `Nimbus request failed: ${request.method} ${new URL(request.url).pathname}`,
         error,
       );
-      return textResponse(
-        500,
-        "The request failed. Check the server logs and try again.",
+      return withHeaders(
+        textResponse(
+          500,
+          "The request failed. Check the server logs and try again.",
+        ),
+        commonHeaders,
+        { replace: true },
       );
     }
   },
