@@ -106,7 +106,7 @@ server {
 
 Set `NIMBUS_TRUSTED_PROXIES` to the proxy's address so rate limits and the audit log see each visitor's address; see [Reverse proxies and client addresses](#reverse-proxies-and-client-addresses).
 
-The server runs as an unprivileged user, by default UID and GID 1000. Set `PUID` and `PGID` to the numeric owner of your host directories, and Nimbus creates files as that user. `UMASK` (default `022`) sets the permissions of new files; `002` makes them group-writable. The container starts as root only to apply these settings, then drops privileges before the server starts. At startup it takes ownership of the config root and the reserved `/data/.nimbus` folder, which contain only Nimbus state, and of the `/data` directory itself; it never changes the ownership of your files. If you start the container with `--user` instead, these variables are ignored and the mounts must already be writable by that user. Persist both `/data` (managed files, trash, upload staging) and `/config` (database and thumbnail cache). Use one Nimbus process per data root, on a local filesystem. Locks, live events, and mutation coordination are maintained within that process.
+The server runs as an unprivileged user, by default UID and GID 1000. Set `PUID` and `PGID` to the numeric owner of your host directories, and Nimbus creates files as that user. `UMASK` (default `022`) sets the permissions of new files; `002` makes them group-writable. The container starts as root only to apply these settings, then drops privileges before the server starts. At startup it takes ownership only of what Nimbus writes itself: the `/data` directory itself, the config root with its database, journal files, backups, and thumbnail cache, the reserved `/data/.nimbus` folder with its own subfolders, and unfinished uploads. It never changes the ownership of your files, including trashed items, saved versions, and any file that shares its data with a user file through a hard link. It first refuses a `NIMBUS_CONFIG_ROOT` that is `/`, contains the data root, or lies inside the data root outside `.nimbus`, and a `NIMBUS_DATA_ROOT` of `/`, so a mistyped path cannot change ownership of anything. If you start the container with `--user` instead, these variables are ignored and the mounts must already be writable by that user. Persist both `/data` (managed files, trash, upload staging) and `/config` (database and thumbnail cache). Use one Nimbus process per data root, on a local filesystem. Locks, live events, and mutation coordination are maintained within that process.
 
 ### Published image
 
@@ -128,7 +128,17 @@ Publishing uses the workflow's `GITHUB_TOKEN`; no registry secret needs to be co
 
 ### Unraid
 
-Set `PUID=99` and `PGID=100`, Unraid's `nobody:users` owner for shares, so files created by Nimbus are accessible over SMB and to other containers. Use these container path mappings:
+Set `PUID=99` and `PGID=100`, Unraid's `nobody:users` owner for shares, so files created by Nimbus are accessible over SMB and to other containers.
+
+An existing installation that ran with another `PUID`, including every installation from images before `PUID` existed (which ran as `1000:1000`), owns its folders as that user. Nimbus never re-owns your files, so after changing `PUID` it cannot write to those folders, including existing home folders, until you re-own them. Either keep the old `PUID` and `PGID`, or stop Nimbus and re-own the data once, for example from the Unraid terminal with `chown -R 99:100 /mnt/user/data`, or with Compose:
+
+```bash
+docker compose stop nimbus
+docker compose run --rm --no-deps --entrypoint chown nimbus -R 99:100 /data
+docker compose up -d
+```
+
+Use these container path mappings:
 
 | Host path | Container path | Access |
 | --- | --- | --- |
@@ -155,13 +165,13 @@ Set the deployment values in `apps/web/.env` before startup. For PDF and video t
 | Variable                      | Purpose                                                                                                                             |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`          | Required random secret of at least 32 characters. Protect it and keep it across restarts.                                           |
-| `BETTER_AUTH_URL`             | Public origin, including scheme and port when needed. Defaults locally to `http://localhost:3000`.                                  |
+| `BETTER_AUTH_URL`             | Public origin, including scheme and port when needed. Set it whenever other people reach Nimbus. Unset, Nimbus uses `http://localhost:<PORT>` for WebDAV, MCP, and its security headers, while Better Auth takes the origin for sign-in callbacks and password reset links from each request's `Host` header, which a client controls. |
 | `BETTER_AUTH_TRUSTED_ORIGINS` | Optional comma-separated additional trusted origins. Compose defaults this to `BETTER_AUTH_URL`.                                    |
 | `NIMBUS_DATA_ROOT`            | Filesystem directory to manage. Local default: `apps/web/data` when launched with the supplied scripts. Container default: `/data`. |
 | `NIMBUS_CONFIG_ROOT`          | Database and thumbnail cache directory. Local default: `<data root>/.nimbus`. Container default: `/config`. |
 | `NIMBUS_HOMES_PATH`           | Folder inside the data root that holds every account's home folder, relative to the data root, for example `users` or `team/users`. Default `users`. See [Home folders](#home-folders). |
 | `DATABASE_URL`                | Optional SQLite URL, overriding the config root for the database only. Default: `file:<config root>/db.sqlite`. Use an absolute path when overriding it. |
-| `PORT`                        | Listening port, default `3000`. Update the public origin and proxy when changing it.                                                |
+| `PORT`                        | Listening port, default `3000`. Update the public origin and proxy when changing it. The container health check follows it. |
 | `PUID`, `PGID`                | Container only. Numeric user and group the server runs as, default `1000`. |
 | `UMASK`                       | Container only. Permission mask for new files and folders, default `022`. |
 | `NIMBUS_TRUSTED_PROXIES`      | Comma-separated addresses or CIDR ranges of your reverse proxies, for example `127.0.0.1, 172.16.0.0/12`. Unset means `X-Forwarded-For` is ignored. See [Reverse proxies and client addresses](#reverse-proxies-and-client-addresses). |
@@ -177,9 +187,10 @@ Set the deployment values in `apps/web/.env` before startup. For PDF and video t
 | `NIMBUS_OIDC_AUTO_PROVISION`  | `true` lets provider identities without a Nimbus account create a member account. Default `false`. |
 | `NIMBUS_OIDC_GROUPS_CLAIM`    | Optional ID token claim listing group names, for example `groups`. See [Single sign-on](#single-sign-on). |
 | `NIMBUS_BACKUP_KEEP`          | Daily database backups to keep in `<config root>/backups`, default `7`. |
+| `NIMBUS_WATCH_DEBOUNCE_MS`    | Milliseconds to wait for changes made outside Nimbus to settle before open folders and search refresh, default `300`. Invalid values use the default. |
 | `NIMBUS_MCP_ENABLED`          | Optional. `false` turns off the MCP server, its OAuth endpoints, and discovery documents. Default: `true`. Approved clients stay stored. |
 
-Startup fails with a message naming the problem when an optional integration is only partly configured, so a typo cannot silently turn email or single sign-on off.
+Startup fails with a message naming the problem when an optional integration is only partly configured or a setting has an invalid value, such as `NIMBUS_MCP_ENABLED=no` or an unsafe `NIMBUS_HOMES_PATH`, so a typo cannot silently turn email, single sign-on, or MCP off.
 
 The reserved `<data root>/.nimbus` directory contains trash and temporary uploads. Without a separate config root, it also contains the database and thumbnail cache. Nimbus never exposes `.nimbus` through file browsing or sharing. Keep a separate config root outside the browsable data root. Symbolic links and special files are excluded. Startup makes the config root owner-only (`700`) and the database and its journal files `600`, and stops with the fix when it cannot, for example because a restored file belongs to another user. Nimbus needs read and write access to both roots; other local programs with access to those directories remain outside Nimbus's permission controls.
 
@@ -354,7 +365,7 @@ In browsers that support [WebMCP](https://webmachinelearning.github.io/webmcp/) 
 
 ### Database backups
 
-Nimbus backs up its database every day while running, using SQLite's `VACUUM INTO` in a separate process. Requests continue during the backup. Backups are compact, consistent snapshots, stored with owner-only permissions in `<config root>/backups` as `nimbus-<UTC time>.sqlite`. The newest `NIMBUS_BACKUP_KEEP` (default 7) are kept. Server administrators can select **Back up now** and download backups from **Settings → Administration**. Failed backups are logged and retried within an hour; earlier backups are unaffected.
+Nimbus backs up its database every day while running, using SQLite's `VACUUM INTO` in a separate process. Requests continue during the backup. Backups are compact, consistent snapshots, stored with owner-only permissions in `<config root>/backups`, like the live database and its journal files, as `nimbus-<UTC time>.sqlite`. The newest `NIMBUS_BACKUP_KEEP` (default 7) are kept. Server administrators can select **Back up now** and download backups from **Settings → Administration**. Failed backups are logged and retried within an hour; earlier backups are unaffected.
 
 These backups contain accounts, permissions, links, file requests, trash records, version records, and preferences. They do not contain files. Back up the data root, including `.nimbus` (trash, versions), with your usual file backup tool, and keep the environment configuration with it.
 
@@ -390,13 +401,13 @@ docker compose run --rm --no-deps --entrypoint sh nimbus -c '
 docker compose up -d
 ```
 
-For Unraid bind mounts or a local installation, stop Nimbus and copy the same database and any companion journal files from the old `.nimbus` directory to the new config directory. Keep `BETTER_AUTH_SECRET` unchanged. Startup gives the config directory to `PUID`:`PGID`. Thumbnails can regenerate, or you can copy `.nimbus/cache` into the config directory too. Leave `.nimbus/trash` and `.nimbus/uploads` under the data root.
+For Unraid bind mounts or a local installation, stop Nimbus and copy the same database and any companion journal files from the old `.nimbus` directory to the new config directory. Keep `BETTER_AUTH_SECRET` unchanged. Startup gives the database, its journal files, backups, and thumbnail cache in the config directory to `PUID`:`PGID`, and stops with a message naming the files if the database still cannot be written, for example when a local installation's files belong to another user. Thumbnails can regenerate, or you can copy `.nimbus/cache` into the config directory too. Leave `.nimbus/trash` and `.nimbus/uploads` under the data root.
 
 Verify your existing accounts, shares, and trash after restarting. The old database copy is a backup of the migration point; it does not receive subsequent changes. Once verified and backed up, you can remove the old database, its journal files, and the old thumbnail cache. An explicit `DATABASE_URL` continues to take precedence and is never relocated automatically.
 
 ### Application upgrades
 
-To upgrade, back up first, update the checkout, then rebuild and restart:
+To upgrade, back up first, update the checkout, then rebuild and restart. When migrations are pending, startup also backs up the database into `<config root>/backups` before applying them, and applies them in one transaction that rolls back completely on failure:
 
 ```bash
 docker compose up -d --build
@@ -410,7 +421,7 @@ bun run --cwd apps/web db:migrate
 
 Existing installations from the original file manager should retain their `DATABASE_URL` and `NIMBUS_DATA_ROOT`. The original default database was `apps/web/nimbus.db`; set `DATABASE_URL=file:/absolute/path/to/apps/web/nimbus.db` to keep using it. The upgrade preserves existing accounts and promotes the oldest account to administrator. Each account gets a home folder at the next startup; other folders must be shared with them. If the data root already has a `users` folder, startup stops without creating or changing any folders or sharing; set `NIMBUS_HOMES_PATH` to a new folder name or rename yours (see [Home folders](#home-folders)). Do not use `db:push` as an upgrade procedure.
 
-`GET /api/health` reports readiness: it returns `200` when the database answers and both the data root and the config root accept writes, and `503` otherwise. The Docker health check uses it. Results are cached for five seconds, and the response never includes details; the server log names the failing check when the state changes. `GET /api/health/live` reports only that the server responds. Neither is a storage-capacity check. Startup fails when configuration or migrations cannot be applied; inspect the process or Compose logs for the failing operation.
+`GET /api/health` reports readiness: it returns `200` when the database accepts writes, the data root itself and its `.nimbus` folder are writable, and the config root accepts writes, and `503` otherwise. It cannot check every folder: a folder inside the data root owned by another user, for example after a `PUID` change, still fails writes with a permission error while readiness passes. The Docker health check uses it on the port set by `PORT`. Results are cached for five seconds, and the response never includes details; the server log names the failing check when the state changes. `GET /api/health/live` reports only that the server responds. Neither is a storage-capacity check. Startup fails when configuration or migrations cannot be applied; inspect the process or Compose logs for the failing operation.
 
 ## Development and verification
 
