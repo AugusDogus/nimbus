@@ -29,9 +29,9 @@ queryClient.getQueryCache().subscribe((event) => {
 
 Bootstrap.seed(queryClient);
 
-// Pages that show toasts load the toast code with their own; sign-in and public pages never do.
+// The toast UI loads after the first render; toasts asked for before then wait for it.
 const Toaster = lazyComponent(async () => ({
-  default: (await import("@/components/ui/toast")).Toaster,
+  default: (await import("@/components/toaster")).Toaster,
 }));
 
 const container = document.getElementById("root");
