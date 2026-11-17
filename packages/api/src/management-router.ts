@@ -120,7 +120,16 @@ export const managementRouter = router({
       });
     }),
   shared: protectedProcedure.query(({ ctx }) => ctx.access.grants),
-  groups: protectedProcedure.query(({ ctx }) => ctx.drive.listGroups()),
+  /**
+   * Groups to share with. Who belongs to a group is shown to server administrators only;
+   * everyone else gets each group's id and name, with an empty member list.
+   */
+  groups: protectedProcedure.query(async ({ ctx }) => {
+    const groups = await ctx.drive.listGroups();
+    return ctx.access.isAdmin
+      ? groups
+      : groups.map(({ id, name }) => ({ id, name, memberIds: [] }));
+  }),
   saveGroup: protectedProcedure
     .input(
       z.object({

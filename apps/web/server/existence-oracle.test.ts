@@ -66,6 +66,20 @@ describe("paths the caller cannot read", () => {
     }
   });
 
+  test("people who are not server administrators see group names, not members", async () => {
+    await drive.store.saveGroup({
+      id: "finance",
+      name: "Finance",
+      memberIds: ["alice", "bob"],
+    });
+    expect(await drive.caller("carol").access.groups()).toEqual([
+      { id: "finance", name: "Finance", memberIds: [] },
+    ]);
+    expect(await drive.caller("owner").access.groups()).toEqual([
+      { id: "finance", name: "Finance", memberIds: ["alice", "bob"] },
+    ]);
+  });
+
   test("a path running through a file is a missing item, not a server error", async () => {
     await expect(
       drive.caller("owner").files.list({ path: "private/salary.xlsx/inside" }),
