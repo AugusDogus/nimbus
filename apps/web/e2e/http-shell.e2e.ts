@@ -69,3 +69,21 @@ test("responses honor encodings the client refuses with q=0", async ({
   const api = await request.get(listing, { headers: refused });
   expect(api.headers()["content-encoding"]).toBeUndefined();
 });
+
+test("sign-in and public link pages ask search engines not to index them", async ({
+  browser,
+}) => {
+  const visitor = await browser.newContext({
+    storageState: { cookies: [], origins: [] },
+  });
+  try {
+    for (const path of ["/login", "/s/no-such-link", "/r/no-such-link"]) {
+      const html = await (await visitor.request.get(path)).text();
+      expect(html.match(/<meta name="robots"[^>]*>/)?.[0], path).toMatch(
+        /content="noindex, nofollow"/,
+      );
+    }
+  } finally {
+    await visitor.close();
+  }
+});
