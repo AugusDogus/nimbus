@@ -12,6 +12,7 @@ import {
 import path from "node:path";
 import type { DriveStore } from "./drive-store";
 import { isFsError } from "./safe-path";
+import { DriveFile } from "./drive-file";
 import { VacantPath } from "./vacant-path";
 
 /**
@@ -118,28 +119,39 @@ const isUnsupported = (error: unknown) =>
  * Make `destination` hold `source`'s current content without copying bytes
  * where the filesystem allows: a hardlink when the inode has no other names
  * (so no other path can edit it in place), else a reflink, else a full copy.
+ * The file is opened without following symlinks first, and a hardlink, made by
+ * name, must name the inode that was opened.
  */
-async function preserve(source: string, destination: string, nlink: bigint) {
-  if (nlink === BigInt(1)) {
+async function preserve(dataRoot: string, source: string, destination: string) {
+  const opened = await DriveFile.openFile(source, dataRoot);
+  try {
+    if (opened.stats.nlink === 1) {
+      try {
+        await link(source, destination);
+        const linked = await lstat(destination);
+        if (linked.dev === opened.stats.dev && linked.ino === opened.stats.ino)
+          return "link" as const;
+        await rm(destination, { force: true });
+        throw DriveFile.swapped();
+      } catch (error) {
+        if (!isUnsupported(error)) throw error;
+      }
+    }
     try {
-      await link(source, destination);
-      return "link" as const;
+      await DriveFile.copyOpened(
+        opened,
+        destination,
+        constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE_FORCE,
+      );
+      return "reflink" as const;
     } catch (error) {
       if (!isUnsupported(error)) throw error;
     }
+    await DriveFile.copyOpened(opened, destination, constants.COPYFILE_EXCL);
+    return "copy" as const;
+  } finally {
+    await opened.handle.close();
   }
-  try {
-    await copyFile(
-      source,
-      destination,
-      constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE_FORCE,
-    );
-    return "reflink" as const;
-  } catch (error) {
-    if (!isUnsupported(error)) throw error;
-  }
-  await copyFile(source, destination, constants.COPYFILE_EXCL);
-  return "copy" as const;
 }
 
 /** Payloads removed at once: purging a large folder's history removes thousands. */
@@ -217,12 +229,14 @@ async function commitReplacement({
       throw new Error(
         `${target} is not a regular file, so Nimbus did not replace it. Callers refuse folders and special files before committing; nothing was changed and the new content is still staged.`,
       );
+    await DriveFile.requireFolder(path.dirname(target), dataRoot);
     await rename(incoming, target);
     return { kind: "created" };
   }
   if (previous.size === BigInt(0)) {
     // An empty file, such as one created by a WebDAV LOCK before its PUT, has
     // nothing to keep; its earlier history stays with the path.
+    await DriveFile.requireFolder(path.dirname(target), dataRoot);
     await rename(incoming, target);
     return { kind: "replaced", version: null };
   }
@@ -237,7 +251,7 @@ async function commitReplacement({
   };
   const payload = payloadPath(dataRoot, version.id);
   await mkdir(path.dirname(payload), { recursive: true });
-  await preserve(target, payload, previous.nlink);
+  await preserve(dataRoot, target, payload);
   if (!sameContent(previous, await fileStats(target))) {
     // Another program changed the file while it was being preserved.
     await rm(payload, { force: true });

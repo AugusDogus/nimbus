@@ -173,8 +173,9 @@ test("folder ZIPs list readable contents relative to the folder", async () => {
 test("special files are refused without waiting on them", async () => {
   const access = await admin();
   Bun.spawnSync(["mkfifo", path.join(root, "docs/pipe")]);
+  // Refused as everywhere else in the drive: pipes, sockets and devices are not drive content.
   await expect(serveFile(get(), "docs/pipe", access)).rejects.toMatchObject({
-    code: "BAD_REQUEST",
+    code: "FORBIDDEN",
   });
   await expect(serveFile(get(), "docs/missing", access)).rejects.toMatchObject({
     code: "NOT_FOUND",

@@ -1,12 +1,13 @@
 import type { Readable } from "node:stream";
-import { constants, existsSync, type Stats } from "node:fs";
-import { lstat, open } from "node:fs/promises";
+import { existsSync, type Stats } from "node:fs";
+import { lstat } from "node:fs/promises";
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
 import type { Access } from "@nimbus/api/access";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { isFsError } from "@nimbus/api/safe-path";
 import { FileKind } from "@/lib/file-kind";
+import { DriveFile } from "@nimbus/api/drive-file";
 import { archiveEntries, folderRoot } from "./routes/archive-entries";
 import { fileETag } from "./file-content";
 import { zipStream } from "./zip-stream";
@@ -38,9 +39,9 @@ export function streamBody(stream: Readable) {
 }
 
 /**
- * The file to serve and its metadata. A GET opens it, refusing a symlink in
- * the last component as `safePath` refuses one in the others, and states the
- * open descriptor; a HEAD needs no descriptor.
+ * The file to serve and its metadata. A GET opens it without following a
+ * symlink swapped in anywhere along its path since `safePath` checked it, and
+ * states the open descriptor; a HEAD needs no descriptor.
  */
 async function openFile(head: boolean, requested: string) {
   if (head) {
@@ -48,32 +49,8 @@ async function openFile(head: boolean, requested: string) {
     return { handle: null, stats: target.stats, absolute: target.absolute };
   }
   const target = await safePath(requested);
-  let handle;
-  try {
-    // O_NONBLOCK: opening a FIFO would otherwise wait for a writer. It changes nothing for files.
-    handle = await open(
-      target.absolute,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    );
-  } catch (error) {
-    if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR"))
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "This file or folder no longer exists. Refresh the drive.",
-      });
-    if (isFsError(error, "ELOOP"))
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "Symbolic links cannot be accessed through Nimbus.",
-      });
-    throw error;
-  }
-  try {
-    return { handle, stats: await handle.stat(), absolute: target.absolute };
-  } catch (error) {
-    await handle.close();
-    throw error;
-  }
+  const { handle, stats } = await DriveFile.openForReading(target.absolute);
+  return { handle, stats, absolute: target.absolute };
 }
 
 /**

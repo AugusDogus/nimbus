@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { constants, type Stats } from "node:fs";
-import { copyFile, lstat, mkdir, rename, rm } from "node:fs/promises";
+import { lstat, mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { accessFor, getAccess, type Access } from "./access";
@@ -16,7 +16,9 @@ import type { DriveStore, TrashItem } from "./drive-store";
 import { publishFileEvent } from "./file-events";
 import { auditUser, recordAudit } from "./audit";
 import { FileVersions } from "./file-versions";
+import { DriveFile } from "./drive-file";
 import {
+  isApiError,
   isFsError,
   isWithinPath,
   PathError,
@@ -231,7 +233,7 @@ async function stageCopy(
   depth: CopyDepth,
 ) {
   if (!source.stats.isDirectory()) {
-    await copyFile(source.absolute, staging, copyMode);
+    await DriveFile.copy(source.absolute, staging, copyMode);
     return;
   }
   await mkdir(staging);
@@ -251,15 +253,20 @@ async function stageCopy(
         pending.push(entry.path);
       } else {
         try {
-          // Listed by lstat inside a validated folder, so a plain file.
-          await copyFile(
+          // Listed as a plain file, but opened without following a symlink swapped in since.
+          await DriveFile.copy(
             path.join(getDataRoot(), entry.path),
             destination,
             copyMode,
           );
         } catch (error) {
-          // Entries removed while copying are skipped, like a listing taken at that moment.
-          if (!isFsError(error, "ENOENT")) throw error;
+          // Entries removed or replaced by a symlink while copying are skipped, like a
+          // listing taken at that moment.
+          if (
+            !isApiError(error, "NOT_FOUND") &&
+            !isApiError(error, "FORBIDDEN")
+          )
+            throw error;
         }
       }
     }

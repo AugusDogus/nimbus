@@ -1,5 +1,6 @@
-import { createReadStream, type ReadStream } from "node:fs";
-import { PassThrough } from "node:stream";
+import type { ReadStream } from "node:fs";
+import { PassThrough, Readable } from "node:stream";
+import { DriveFile } from "@nimbus/api/drive-file";
 import { ZipFile } from "yazl";
 import type { ArchiveEntry } from "./routes/archive-entries";
 import { streamBody } from "./file-response";
@@ -41,15 +42,28 @@ export function zipStream(
         entry.name,
         { size: entry.size, mtime: entry.mtime, compress: false },
         (callback) => {
-          // 1 MiB reads: measured twice the throughput of the 64 KiB default.
-          const stream = createReadStream(entry.absolute, {
-            highWaterMark: 1 << 20,
-          });
-          active = stream;
-          stream.once("close", () => {
-            if (active === stream) active = null;
-          });
-          callback(null, stream);
+          // Listed as a plain file, but opened without following a symlink swapped in since.
+          DriveFile.openFile(entry.absolute).then(
+            ({ handle }) => {
+              // 1 MiB reads: measured twice the throughput of the 64 KiB default.
+              const stream = handle.createReadStream({
+                highWaterMark: 1 << 20,
+              });
+              active = stream;
+              stream.once("close", () => {
+                if (active === stream) active = null;
+              });
+              callback(null, stream);
+            },
+            (error: unknown) =>
+              // yazl fails the whole archive on an error and reads nothing from the stream.
+              callback(
+                error instanceof Error
+                  ? error
+                  : new Error(`Opening ${entry.name} for the ZIP failed.`),
+                Readable.from([]),
+              ),
+          );
         },
       );
     }

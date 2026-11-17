@@ -1,9 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { randomUUID } from "node:crypto";
-import { open, mkdir, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Access } from "./access";
 import { getDataRoot } from "./data-root";
+import { DriveFile } from "./drive-file";
 import { entryAt, type FileEntry } from "./file-browser";
 import { publishFileEvent } from "./file-events";
 import { mutateFiles } from "./file-mutations";
@@ -69,17 +70,17 @@ export async function readFileText(
 ): Promise<TextRead> {
   const target = await safePath(requested);
   access.require(target.relative, "read");
-  const existing = await requireExisting(target.relative);
-  if (!existing.stats.isFile())
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "Choose a file to read. Folders have no text content.",
-    });
-  const size = existing.stats.size;
-  const etag = fileTag({ mtime: existing.stats.mtimeMs, size });
-  const offset = Math.min(range.offset, size);
-  const handle = await open(existing.absolute, "r");
+  // Stated on the open descriptor, which never follows a symlink swapped in since the check.
+  const { handle, stats } = await DriveFile.openForReading(target.absolute);
   try {
+    if (!stats.isFile())
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Choose a file to read. Folders have no text content.",
+      });
+    const size = stats.size;
+    const etag = fileTag({ mtime: stats.mtimeMs, size });
+    const offset = Math.min(range.offset, size);
     const buffer = new Uint8Array(Math.min(range.maxBytes, size - offset));
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset);
     const bytes = buffer.subarray(0, bytesRead);
