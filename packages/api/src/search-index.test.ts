@@ -235,3 +235,36 @@ test("lists and removes children by id, and counts the id slots removal frees", 
   index.removeId(0);
   expect(index.bytesAt("")).toBe(3);
 });
+
+test("compacts for the changes since the last compaction, not for ids freed before it", () => {
+  const index = createSearchIndex();
+  for (let i = 0; i < 100; i++) index.add(`keep/note-${i}.txt`, "file");
+  for (let i = 0; i < 300; i++) index.add(`tmp/scratch-${i}.txt`, "file");
+  index.compact();
+  index.remove("tmp");
+  index.maybeCompact();
+  // Freed ids now outnumber live entries, and stay so until a rebuild.
+  expect(index.freedIds).toBeGreaterThan(index.size);
+  const request = {
+    query: "note",
+    root: "",
+    limit: 10,
+    scope: all,
+    depth: "full",
+    now: 1,
+  } as const;
+  const first = index.search(request);
+  // A few ordinary changes: none is worth compacting the whole index for.
+  for (let i = 0; i < 3; i++) {
+    index.add(`keep/new-${i}.txt`, "file");
+    index.maybeCompact();
+  }
+  const second = index.search({ ...request, cursor: first.next ?? undefined });
+  expect(second.restarted).toBe(false);
+  expect(second.hits.map((hit) => hit.path)).toEqual(
+    index
+      .search({ ...request, limit: 20 })
+      .hits.slice(10)
+      .map((hit) => hit.path),
+  );
+});

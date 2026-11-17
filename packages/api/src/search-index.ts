@@ -124,6 +124,8 @@ export function createSearchIndex(initialCapacity = 1024) {
   let slotId: Int32Array = new Int32Array([ROOT]);
   let subtreeEnd: Int32Array = new Int32Array([1]);
   let slots = 1;
+  /** Slots of the layout removed since it was built, whose text scans still pass over. */
+  let deadSlots = 0;
   /** The arrays above as one value, replaced whenever compaction replaces them. */
   let layout: SearchLayout = {
     folded,
@@ -270,7 +272,10 @@ export function createSearchIndex(initialCapacity = 1024) {
       unhash(current);
       kinds[current] = FREE;
       // Scans of the layout skip it from now on.
-      if (slotOf[current] !== NONE) layout.dead[slotOf[current]] = 1;
+      if (slotOf[current] !== NONE) {
+        layout.dead[slotOf[current]] = 1;
+        deadSlots++;
+      }
       bytes[current] = 0;
       slotOf[current] = NONE;
       deltaNames.delete(current);
@@ -396,6 +401,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     slotId = order.subarray(0, used);
     subtreeEnd = ends;
     slots = used;
+    deadSlots = 0;
     // Plain names, kept only where they differ: added ones carry theirs, and
     // the rest are copied from the old layout, whose surviving slots keep
     // their order.
@@ -655,14 +661,16 @@ export function createSearchIndex(initialCapacity = 1024) {
       return id === NONE ? null : kinds[id] === DIR ? "dir" : "file";
     },
 
-    /** Compact once the delta is large enough to slow queries. */
+    /**
+     * Compact once the delta, or the removed names scans still pass over, is
+     * large enough to slow queries. Both count only changes since the last
+     * compaction, so each compaction follows that many changes: geometric
+     * growth keeps a full crawl linear overall, and churn never compacts on
+     * every change. (Freed ids are reclaimed only by a rebuild.)
+     */
     maybeCompact(threshold = DELTA_LIMIT) {
-      // Geometric growth keeps a full crawl linear overall.
-      if (
-        deltaNames.size >= Math.max(threshold, slots / 4) ||
-        count - live > live
-      )
-        compact();
+      const enough = Math.max(threshold, slots / 4);
+      if (deltaNames.size >= enough || deadSlots >= enough) compact();
     },
 
     compact,
