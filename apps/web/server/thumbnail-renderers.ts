@@ -2,6 +2,7 @@ import sharp from "sharp";
 import {
   finishThumbnail,
   THUMBNAIL_SIZE,
+  ThumbnailTimeout,
   type ThumbnailRenderer,
 } from "./thumbnails";
 
@@ -61,6 +62,11 @@ export async function runBounded(
   }
   const code = await child.exited;
   if (signal.aborted) throw signal.reason;
+  // Killed at the wall-clock deadline, not for its output or CPU time (RLIMIT_CPU sends SIGXCPU).
+  if (child.signalCode === "SIGKILL" && size <= limits.maxOutputBytes)
+    throw new ThumbnailTimeout(
+      `${command[0]} did not finish within ${limits.timeoutMs} ms.`,
+    );
   if (code !== 0 || size > limits.maxOutputBytes)
     throw new Error(
       `${command[0]} exited with ${child.signalCode ?? `code ${code}`} after producing ${size} bytes.`,

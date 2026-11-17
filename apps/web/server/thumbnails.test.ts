@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -8,6 +8,7 @@ import {
   createThumbnailer,
   imageRenderer,
   thumbnailTag,
+  ThumbnailTimeout,
   type ThumbnailSource,
 } from "./thumbnails";
 
@@ -197,6 +198,59 @@ test("remembers files that cannot be rendered until they change", async () => {
     type: "unavailable",
   });
   expect(renders).toBe(2);
+});
+
+test("a render that times out is retried later, and remembered only if it times out again", async () => {
+  let renders = 0;
+  let outcome: "timeout" | "ok" = "timeout";
+  const cacheDirectory = path.join(root, "cache");
+  const thumbnails = createThumbnailer({
+    cacheDirectory,
+    renderers: {
+      image: async () => {
+        renders++;
+        if (outcome === "timeout")
+          throw new ThumbnailTimeout("The render took too long.");
+        return webp;
+      },
+    },
+  });
+  const signal = new AbortController().signal;
+  const age = async () => {
+    const old = new Date(Date.now() - 60 * 60 * 1000);
+    for (const name of await readdir(cacheDirectory))
+      await utimes(path.join(cacheDirectory, name), old, old);
+  };
+  expect(await thumbnails.get(source("a.png"), signal)).toEqual({
+    type: "unavailable",
+  });
+  // Right after a timeout the file is not rendered again, so a busy server is not loaded more.
+  expect(await thumbnails.get(source("a.png"), signal)).toEqual({
+    type: "unavailable",
+  });
+  expect(renders).toBe(1);
+  // Later it is retried, and a success replaces the timeout.
+  await age();
+  outcome = "ok";
+  expect(await thumbnails.get(source("a.png"), signal)).toEqual({
+    type: "ready",
+    body: webp,
+  });
+  expect(renders).toBe(2);
+  // A file that times out twice is treated like one that cannot be rendered.
+  outcome = "timeout";
+  expect(await thumbnails.get(source("b.png"), signal)).toEqual({
+    type: "unavailable",
+  });
+  await age();
+  expect(await thumbnails.get(source("b.png"), signal)).toEqual({
+    type: "unavailable",
+  });
+  await age();
+  expect(await thumbnails.get(source("b.png"), signal)).toEqual({
+    type: "unavailable",
+  });
+  expect(renders).toBe(4);
 });
 
 test("reports kinds without an installed renderer as unavailable", async () => {

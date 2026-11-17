@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
@@ -32,6 +32,8 @@ export const THUMBNAIL_SIZE = 256;
 const FORMAT_VERSION = 1;
 // Matches the decoded-pixel bound used before this module; about 160 MB of RGBA.
 const MAX_INPUT_PIXELS = 40_000_000;
+/** How long a file whose render timed out shows its generic icon before one more try. */
+const timeoutRetryMs = 10 * 60 * 1000;
 
 /** Content-addressed: changes whenever the file's path, mtime or size do. */
 export function thumbnailTag(
@@ -44,17 +46,38 @@ export function thumbnailTag(
     .digest("hex");
 }
 
+/**
+ * A render that ran out of time. A busy server can cause it as well as a hostile file, so it
+ * is retried once later instead of being remembered as a file that cannot be rendered.
+ */
+export class ThumbnailTimeout extends Error {
+  override name = "ThumbnailTimeout";
+}
+
 /** Resize an already decodable still image to the final WebP thumbnail. */
 export async function finishThumbnail(input: string | Uint8Array) {
-  return sharp(input, { limitInputPixels: MAX_INPUT_PIXELS, failOn: "error" })
-    .rotate()
-    .resize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, {
-      fit: "inside",
-      withoutEnlargement: true,
+  try {
+    return await sharp(input, {
+      limitInputPixels: MAX_INPUT_PIXELS,
+      failOn: "error",
     })
-    .webp({ quality: 75 })
-    .timeout({ seconds: 10 })
-    .toBuffer();
+      .rotate()
+      .resize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, {
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .webp({ quality: 75 })
+      .timeout({ seconds: 10 })
+      .toBuffer();
+  } catch (error) {
+    // libvips reports its deadline as "timeout: N% complete".
+    if (
+      error instanceof Error &&
+      /\btimeout: \d+% complete/.test(error.message)
+    )
+      throw new ThumbnailTimeout(error.message, { cause: error });
+    throw error;
+  }
 }
 
 export const imageRenderer: ThumbnailRenderer = (absolute) =>
@@ -154,7 +177,20 @@ export function createThumbnailer({
     } catch (error) {
       if (!isFsError(error, "ENOENT")) throw error;
     }
+    // A recent timeout: wait before trying again, so a busy server is not loaded further.
+    const timedOut = await timedOutAt(tag);
+    if (timedOut !== null && Date.now() - timedOut < timeoutRetryMs)
+      return { type: "unavailable" };
     return null;
+  }
+
+  async function timedOutAt(tag: string) {
+    try {
+      return (await stat(path.join(cacheDirectory, `${tag}.timeout`))).mtimeMs;
+    } catch (error) {
+      if (isFsError(error, "ENOENT")) return null;
+      throw error;
+    }
   }
 
   async function store(filename: string, body: Uint8Array) {
@@ -180,7 +216,17 @@ export function createThumbnailer({
         body = await render(source.absolute, signal);
       } catch (error) {
         if (signal.aborted) throw abortError();
-        // Corrupt or hostile input: remember it until the file changes.
+        if (
+          error instanceof ThumbnailTimeout &&
+          (await timedOutAt(tag)) === null
+        ) {
+          console.warn(
+            `Nimbus ran out of time creating a thumbnail for "${source.relative}". It will try again in ${timeoutRetryMs / 60_000} minutes; a generic icon is shown meanwhile.`,
+          );
+          await store(`${tag}.timeout`, new Uint8Array());
+          return { type: "unavailable" };
+        }
+        // Corrupt or hostile input, or a second timeout: remember it until the file changes.
         console.warn(
           `Nimbus could not create a thumbnail for "${source.relative}". The file is unchanged; a generic icon is shown instead.`,
           error,
@@ -189,6 +235,7 @@ export function createThumbnailer({
         return { type: "unavailable" };
       }
       await store(`${tag}.webp`, body);
+      await rm(path.join(cacheDirectory, `${tag}.timeout`), { force: true });
       return { type: "ready", body };
     }, signal);
   }

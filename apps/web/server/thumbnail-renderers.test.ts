@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { pdfRenderer, runBounded, videoRenderer } from "./thumbnail-renderers";
+import { ThumbnailTimeout } from "./thumbnails";
 
 const pdftoppm = Bun.which("pdftoppm");
 const ffmpeg = Bun.which("ffmpeg");
@@ -51,7 +52,7 @@ describe("runBounded", () => {
         },
         signal(),
       ),
-    ).rejects.toThrow(/sleep exited/);
+    ).rejects.toBeInstanceOf(ThumbnailTimeout);
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 
