@@ -431,6 +431,123 @@ test("passkeys sign in without a password", async ({
   }
 });
 
+test("a passkey button pressed while autofill is still starting signs in once", async ({
+  browser,
+  page,
+  browserName,
+}) => {
+  test.skip(
+    browserName !== "chromium",
+    "Virtual authenticators need the Chrome DevTools Protocol.",
+  );
+  const { email } = await createMember(page);
+  const member = await memberPage(browser, page);
+  const cdp = await member.context.newCDPSession(member.page);
+  try {
+    await cdp.send("WebAuthn.enable");
+    const { authenticatorId } = await cdp.send(
+      "WebAuthn.addVirtualAuthenticator",
+      {
+        options: {
+          protocol: "ctap2",
+          transport: "internal",
+          hasResidentKey: true,
+          hasUserVerification: true,
+          isUserVerified: true,
+          automaticPresenceSimulation: true,
+        },
+      },
+    );
+    await login(member.page, email);
+    await member.page.goto("/settings/account");
+    const section = member.page.getByRole("region", {
+      name: "Passkeys",
+      exact: true,
+    });
+    await section
+      .getByRole("button", { name: "Add passkey", exact: true })
+      .click();
+    await member.page.getByLabel("Passkey name").fill("Test authenticator");
+    await member.page
+      .getByRole("button", { name: "Continue", exact: true })
+      .click();
+    await expect(section.getByRole("list", { name: "Passkeys" })).toContainText(
+      "Test authenticator",
+    );
+    await member.context.clearCookies();
+
+    // The autofill request's options arrive only after the button was pressed.
+    let held = true;
+    let releaseAutofill = () => {};
+    const autofillReleased = new Promise<void>((resolve) => {
+      releaseAutofill = resolve;
+    });
+    await member.page.route(
+      "**/api/auth/passkey/generate-authenticate-options",
+      async (route) => {
+        if (held) {
+          held = false;
+          await autofillReleased;
+        }
+        await route.continue();
+      },
+    );
+    const verifications: string[] = [];
+    member.page.on("request", (request) => {
+      if (request.url().includes("/passkey/verify-authentication"))
+        verifications.push(request.url());
+    });
+    // Page loads after signing in: a second would abort the first.
+    const pageLoads: string[] = [];
+    member.page.on("request", (request) => {
+      if (
+        request.isNavigationRequest() &&
+        request.frame() === member.page.mainFrame() &&
+        new URL(request.url()).pathname === "/"
+      )
+        pageLoads.push(request.url());
+    });
+    // Errors the sign-in page shows, even briefly, before it navigates away.
+    const alerts: string[] = [];
+    member.page.on("console", (message) => {
+      const text = message.text();
+      if (text.startsWith("nimbus-alert: ")) alerts.push(text);
+    });
+    await member.page.addInitScript(() => {
+      const reported = new Set<Element>();
+      new MutationObserver(() => {
+        for (const alert of document.querySelectorAll('[role="alert"]'))
+          if (alert.textContent && !reported.has(alert)) {
+            reported.add(alert);
+            console.info(`nimbus-alert: ${alert.textContent}`);
+          }
+      }).observe(document, { subtree: true, childList: true });
+    });
+    await member.page.goto("/login");
+    const button = member.page.getByRole("button", {
+      name: "Sign in with a passkey",
+      exact: true,
+    });
+    await expect(button).toBeEnabled();
+    await expect.poll(() => held).toBe(false);
+    // The authenticator answers every request at once, so both could complete.
+    await button.click();
+    releaseAutofill();
+    await expect(
+      member.page.getByRole("button", { name: "Account menu" }),
+    ).toBeVisible();
+    await member.page.waitForTimeout(500);
+    expect(verifications).toHaveLength(1);
+    expect(pageLoads).toHaveLength(1);
+    expect(alerts).toEqual([]);
+    await cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId });
+  } finally {
+    await cdp.send("WebAuthn.disable").catch(() => undefined);
+    await cdp.detach().catch(() => undefined);
+    await member.context.close();
+  }
+});
+
 test("repeated wrong passwords are throttled", async ({ browser, page }) => {
   const { email } = await createMember(page);
   const member = await memberPage(browser, page);

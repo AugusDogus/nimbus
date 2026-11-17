@@ -1,5 +1,5 @@
 import type { SubmitEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as z from "zod/mini";
 
 import { Button } from "@/components/ui/button";
@@ -46,11 +46,48 @@ type Step =
   | { kind: "credentials" }
   | { kind: "second-factor"; method: "totp" | "recovery" };
 
+let finished = false;
+
 /**
  * Every sign-in path ends here, returning to `redirectTo`, a validated same-origin path. It
- * loads a new page, so nothing from before signing in carries over.
+ * loads a new page, so nothing from before signing in carries over. Only the first call
+ * navigates: a second would abort the first page load.
  */
-const finish = (redirectTo: string) => window.location.assign(redirectTo);
+const finish = (redirectTo: string) => {
+  if (finished) return;
+  finished = true;
+  window.location.assign(redirectTo);
+};
+
+/** The email field's passkey autofill request, while it may still be running. */
+type Autofill = {
+  /** Settles when the request has ended: whether it signed in. */
+  ended: Promise<boolean>;
+};
+
+/**
+ * Ends the autofill request before another passkey ceremony starts, and says whether it
+ * signed in meanwhile. Starting a ceremony cancels any other one in flight, so an autofill
+ * request still fetching its options would cancel the button's ceremony once it starts.
+ * Cancelling until it has ended closes that gap; it settles within one options request.
+ */
+async function endAutofill(autofill: Autofill | null) {
+  if (!autofill) return false;
+  let ended = false;
+  void autofill.ended.then(() => {
+    ended = true;
+  });
+  const { WebAuthnAbortService } = await import("@simplewebauthn/browser");
+  const deadline = Date.now() + 5_000;
+  while (!ended && Date.now() < deadline) {
+    WebAuthnAbortService.cancelCeremony();
+    await Promise.race([
+      autofill.ended,
+      new Promise((resolve) => setTimeout(resolve, 50)),
+    ]);
+  }
+  return ended && (await autofill.ended);
+}
 
 const isAbort = (error: unknown) =>
   error instanceof DOMException &&
@@ -86,25 +123,35 @@ export function LoginForm({
   const passwordField = useServerField(setPassword);
   const hydrated = useHydrated();
 
+  const autofill = useRef<Autofill | null>(null);
+  /** Counts autofill requests; a new one starts after a passkey ceremony from a button ends. */
+  const [autofillRound, setAutofillRound] = useState(0);
+
   useEffect(() => {
     // Offer saved passkeys in the email field's autofill. The WebAuthn helpers load
     // only when the browser supports it, after the page is interactive.
     let active = true;
-    const supported =
-      window.PublicKeyCredential?.isConditionalMediationAvailable?.();
-    void supported?.then(async (available) => {
-      if (!available || !active) return;
+    const ended = (async () => {
+      const available =
+        await window.PublicKeyCredential?.isConditionalMediationAvailable?.();
+      if (!available || !active) return false;
       const { passkeyAuthClient } = await import("@/lib/passkey-client");
-      if (!active) return;
+      if (!active) return false;
       const result = await passkeyAuthClient.signIn
         .passkey({ autoFill: true })
         .catch(() => null);
-      if (active && result && !result.error) finish(redirectTo);
-    });
+      // A passkey chosen here signs in even if a button ceremony asked it to end.
+      if (!result || result.error) return false;
+      finish(redirectTo);
+      return true;
+    })().catch(() => false);
+    const current: Autofill = { ended };
+    autofill.current = current;
     return () => {
       active = false;
+      if (autofill.current === current) autofill.current = null;
     };
-  }, [redirectTo]);
+  }, [redirectTo, autofillRound]);
 
   const run = async (action: () => Promise<void>) => {
     setError(null);
@@ -174,9 +221,21 @@ export function LoginForm({
 
   const signInWithPasskey = () =>
     run(async () => {
-      const { passkeyAuthClient } = await import("@/lib/passkey-client");
-      const result = await passkeyAuthClient.signIn.passkey();
+      const [{ passkeyAuthClient }, signedIn] = await Promise.all([
+        import("@/lib/passkey-client"),
+        endAutofill(autofill.current),
+      ]);
+      if (signedIn) return;
+      // Offer autofill again unless this ceremony signs in.
+      const offerAutofill = () => setAutofillRound((round) => round + 1);
+      const result = await passkeyAuthClient.signIn
+        .passkey()
+        .catch((error: unknown) => {
+          offerAutofill();
+          throw error;
+        });
       if (result?.error) {
+        offerAutofill();
         setError(
           getErrorMessage(result.error) ||
             "Your passkey was not accepted. Try again, or sign in with your password.",
