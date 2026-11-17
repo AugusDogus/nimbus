@@ -26,6 +26,12 @@ test("administrators back up the database on demand and download it; health stay
     "SQLite format 3",
   );
 
+  // A page on another site cannot start a backup with the administrator's cookie.
+  const forged = await page.request.post("/api/backups", {
+    headers: { origin: "https://attacker.example" },
+  });
+  expect(forged.status()).toBe(403);
+
   const anonymous = await browser.newContext({
     storageState: { cookies: [], origins: [] },
   });

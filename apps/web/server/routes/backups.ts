@@ -1,4 +1,6 @@
 import { auditUser, recordAudit } from "@nimbus/api/audit";
+import { allowedOrigins } from "@/lib/auth";
+import { RequestOrigin } from "@/server/request-origin";
 import { backups, Backup } from "@/server/backup";
 import { httpError, requestAccess } from "@/server/http-files";
 import { getConfigRoot } from "@/server/storage-paths";
@@ -21,6 +23,15 @@ export async function GET(request: Request) {
 
 /** Back up the database now; joins a backup that is already running. */
 export async function POST(request: Request) {
+  // The session cookie is SameSite=Lax, so check that a Nimbus page sent this.
+  if (!RequestOrigin.fromNimbus(request, allowedOrigins))
+    return Response.json(
+      {
+        error:
+          "This request did not come from Nimbus Settings, so no backup was made. Use Back up now in Settings, Administration.",
+      },
+      { status: 403, headers: noStore },
+    );
   try {
     const access = await requestAccess(request);
     access.requireAdmin();

@@ -7,6 +7,7 @@ import {
 import { allowedOrigins } from "@/lib/auth";
 import { httpError, requestAccess } from "@/server/http-files";
 import { RequestBody } from "@/server/request-body";
+import { RequestOrigin } from "@/server/request-origin";
 import { zipStream } from "@/server/zip-stream";
 
 // About 50,000 selected paths of typical length.
@@ -16,16 +17,7 @@ const archiveFormBytes = 16 * 1024 * 1024;
 export async function POST(request: Request) {
   try {
     // A form POST authenticated by cookie: refuse it unless it comes from Nimbus's own pages.
-    // SameSite=Lax cookies still reach a POST from a sibling subdomain ("same-site"). Nimbus
-    // pages send Origin "null" (no-referrer policy), which any page can also produce, so only
-    // fetch metadata proves the origin then. Every current browser sends it.
-    const site = request.headers.get("sec-fetch-site");
-    const from = request.headers.get("origin");
-    if (
-      site !== null
-        ? site !== "same-origin" && site !== "none"
-        : from !== null && !allowedOrigins.has(from)
-    )
+    if (!RequestOrigin.fromNimbus(request, allowedOrigins))
       throw new TRPCError({
         code: "FORBIDDEN",
         message:

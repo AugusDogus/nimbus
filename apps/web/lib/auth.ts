@@ -45,5 +45,5 @@ export const auth = createNimbusAuth({
         kind: "local-default",
         url: new URL(`http://localhost:${process.env.PORT ?? "3000"}`),
       },
-  trustedOrigins: parseTrustedOrigins(process.env.BETTER_AUTH_TRUSTED_ORIGINS),
+  trustedOrigins: [...trustedOrigins],
 });
