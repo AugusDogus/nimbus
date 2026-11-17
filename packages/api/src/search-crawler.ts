@@ -2,10 +2,12 @@ import {
   closeSync,
   constants,
   existsSync,
+  fstatSync,
   openSync,
   readlinkSync,
   realpathSync,
   type Dirent,
+  type Stats,
 } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -33,7 +35,7 @@ const realRoots = new Map<string, string>();
  * that folder even if its path is changed meanwhile.
  */
 type OpenFolder =
-  | { type: "open"; path: string; close: () => void }
+  | { type: "open"; path: string; identity: string; close: () => void }
   /** Gone, no longer a folder, a symlink, or below one. */
   | { type: "gone" }
   /** Unreadable for another reason (permissions, I/O): keep what was seen. */
@@ -78,7 +80,12 @@ function openFolder(root: string, relative: string): OpenFolder {
       return path.join(real, relative);
     };
     if (actual === expected(false) || actual === expected(true))
-      return { type: "open", path: listing, close };
+      return {
+        type: "open",
+        path: listing,
+        identity: identityOf(fstatSync(opened)),
+        close,
+      };
     close();
     return { type: "gone" };
   } catch (error) {
@@ -88,6 +95,13 @@ function openFolder(root: string, relative: string): OpenFolder {
       : { type: "unreadable" };
   }
 }
+
+/**
+ * Which folder on disk a stat describes: its inode, with its device and birth
+ * time so a number reused for another folder reads differently.
+ */
+const identityOf = (stats: Stats) =>
+  `${stats.dev}:${stats.ino}:${stats.birthtimeMs}`;
 
 /** Join "/"-separated index paths. */
 const childPath = (parent: string, name: string) =>
@@ -114,6 +128,7 @@ async function crawlInto(
     // Removed or unreadable while crawling; reconciliation retries later.
     const folder = openFolder(root, directory);
     if (folder.type !== "open") continue;
+    index.setIdentity(id, folder.identity);
     try {
       let entries: Dirent[];
       try {
@@ -192,6 +207,7 @@ export async function reconcile(
       if (folder.type === "gone") index.removeId(id);
       if (folder.type === "unreadable") report.unreadable++;
       if (folder.type !== "open") return [];
+      index.setIdentity(id, folder.identity);
       try {
         return await reconcileFolder(index, report, folder.path, directory, id);
       } finally {
@@ -314,7 +330,8 @@ export async function crawl(
 /**
  * Bring one path in line with the disk after a watcher event. A folder that
  * appears (moved or copied in) is crawled, because the watcher reports only
- * the folder itself.
+ * the folder itself; so is one that replaced a folder of the same name, or
+ * that was only known from changes inside it, told apart by its identity.
  */
 export async function applyChange(
   index: SearchIndex,
@@ -343,10 +360,17 @@ export async function applyChange(
     parent.close();
   }
   if (stats.isDirectory()) {
-    const known = index.kindOf(relative) === "dir";
-    const id = index.add(relative, "dir");
-    if (!known && id >= 0)
-      await crawlInto(index, root, relative, id, () => false);
+    let id = index.add(relative, "dir");
+    const known = id >= 0 ? index.identityOf(id) : undefined;
+    if (id >= 0 && known !== identityOf(stats)) {
+      // Another folder under the same name: what was indexed there is not in it.
+      if (known !== undefined) {
+        index.removeId(id);
+        id = index.add(relative, "dir");
+      }
+      // New, replaced, or only known as the folder above an earlier change.
+      if (id >= 0) await crawlInto(index, root, relative, id, () => false);
+    }
   } else if (stats.isFile()) index.add(relative, "file", stats.size);
   else index.remove(relative);
   index.maybeCompact();

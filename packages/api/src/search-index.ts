@@ -149,6 +149,12 @@ export function createSearchIndex(initialCapacity = 1024) {
   const words = SearchWords.create();
   /** The layout before the last compaction, for page cursors ranked in it. */
   let previous: IndexView["previous"] = null;
+  /**
+   * Which folder on disk each listed folder was, so a crawler can tell a
+   * folder replaced under the same name. Ids are not reused before a
+   * rebuild, which starts a new index, so entries for removed ids are inert.
+   */
+  const identities = new Map<number, string>();
 
   // Open-addressed (parent, name) → id table.
   let table = new Int32Array(2048).fill(NONE);
@@ -609,6 +615,16 @@ export function createSearchIndex(initialCapacity = 1024) {
           kind: kinds[child] === DIR ? "dir" : "file",
         });
       return children;
+    },
+
+    /** The disk identity a crawler recorded when it last listed folder `id`. */
+    identityOf(id: number) {
+      return identities.get(id);
+    },
+
+    setIdentity(id: number, identity: string) {
+      if (id >= 0 && id < count && kinds[id] === DIR)
+        identities.set(id, identity);
     },
 
     /** Remove an entry by id, with everything beneath it. */
