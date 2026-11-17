@@ -1,11 +1,16 @@
+import { isIP } from "node:net";
 import { ClientIp } from "../client-ip";
 import { RateLimiter, type RateLimitDecision } from "../rate-limit";
 
 /** MCP and its OAuth endpoints, limited with Nimbus's shared in-memory limiter. */
 const rules = {
   registerPerAddress: { limit: 30, windowMs: 10 * 60 * 1000 },
-  /** Bounds what open registration can store per hour, however many addresses a caller has. */
-  registerGlobal: { limit: 300, windowMs: 60 * 60 * 1000 },
+  /**
+   * Per /24 (IPv4) or /48 (IPv6), so one network's addresses share a budget. There is no
+   * global rate, which a few addresses could exhaust for everyone; storage is bounded
+   * instead by MAX_UNUSED_CLIENTS.
+   */
+  registerPerNetwork: { limit: 60, windowMs: 10 * 60 * 1000 },
   tokenPerAddress: { limit: 120, windowMs: 60 * 1000 },
   /** Per client and address: client ids are public, so a per-client bucket alone would let anyone block a client. */
   tokenPerClient: { limit: 60, windowMs: 60 * 1000 },
@@ -51,6 +56,16 @@ export function hit(
  */
 export const clientAddress = (request: Request) =>
   ClientIp.bucket(ClientIp.fromHeaders(request.headers));
+
+/** The network around the caller's address: its /24 for IPv4 and /48 for IPv6. */
+export const clientNetwork = (request: Request) => {
+  const address = ClientIp.fromHeaders(request.headers);
+  if (isIP(address) === 4)
+    return `${address.split(".").slice(0, 3).join(".")}.0/24`;
+  if (isIP(address) === 6)
+    return `${ClientIp.bucket(address).split(":").slice(0, 3).join(":")}::/48`;
+  return address;
+};
 
 export function resetThrottleForTest() {
   for (const limiter of limiters.values()) limiter.clear();

@@ -13,7 +13,8 @@ import * as schema from "../../db/schema";
 import { createTestDatabase } from "../../db/testing";
 import { resetThrottleForTest } from "../throttle";
 import { decideConsent, handleAuthorize, loadConsent } from "./authorization";
-import { registerClient } from "./clients";
+import { clientIpHeader } from "../../client-ip";
+import { MAX_UNUSED_CLIENTS, registerClient } from "./clients";
 import { listConnections, revokeConnection } from "./connections";
 import type { BrowserSession, OAuthContext } from "./context";
 import { authenticateBearer, handleRevoke, handleToken } from "./tokens";
@@ -489,6 +490,59 @@ describe("MCP OAuth flow", () => {
     expect(
       new URL(response.headers.get("location") ?? "").searchParams.get("error"),
     ).toBe("access_denied");
+  });
+
+  const registerFrom = (address: string) =>
+    registerClient(
+      ctx,
+      new Request(`${origin}/oauth/register`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [clientIpHeader]: address,
+        },
+        body: JSON.stringify({ redirect_uris: [redirectUri] }),
+      }),
+    );
+
+  it("a few addresses at their own limits cannot block registration for everyone", async () => {
+    for (let network = 0; network < 12; network++)
+      for (let index = 0; index < 30; index++)
+        expect((await registerFrom(`10.0.${network}.1`)).status).toBe(201);
+    expect((await registerFrom("192.0.2.10")).status).toBe(201);
+  });
+
+  it("limits registration per network, not only per address", async () => {
+    const statuses: number[] = [];
+    for (let host = 1; host <= 4; host++)
+      for (let index = 0; index < 30; index++)
+        statuses.push((await registerFrom(`10.1.0.${host}`)).status);
+    expect(statuses.filter((status) => status === 201)).toHaveLength(60);
+    expect((await registerFrom("10.1.1.1")).status).toBe(201);
+  });
+
+  it("keeps the newest unused registrations when storage is full", async () => {
+    await ctx.db.insert(schema.mcpClients).values(
+      Array.from({ length: MAX_UNUSED_CLIENTS }, (_, index) => ({
+        clientId: `old-${index}`,
+        clientName: "Old",
+        redirectUrisJson: JSON.stringify([redirectUri]),
+        tokenEndpointAuthMethod: "none" as const,
+        scope: "files:read",
+        createdAt: now - 1000 + index,
+      })),
+    );
+    const response = await registerFrom("192.0.2.20");
+    expect(response.status).toBe(201);
+    const { client_id } = z
+      .object({ client_id: z.string() })
+      .parse(await response.json());
+    const stored = await ctx.db
+      .select({ clientId: schema.mcpClients.clientId })
+      .from(schema.mcpClients);
+    expect(stored).toHaveLength(MAX_UNUSED_CLIENTS);
+    expect(stored.map((row) => row.clientId)).toContain(client_id);
+    expect(stored.map((row) => row.clientId)).not.toContain("old-0");
   });
 
   it("validates registrations and throttles them", async () => {

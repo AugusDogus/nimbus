@@ -1,7 +1,7 @@
 import { RateLimiter } from "../../rate-limit";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { McpScope } from "@nimbus/api/mcp-scope";
-import { and, eq, lt, notExists } from "drizzle-orm";
+import { and, asc, count, eq, inArray, lt, notExists } from "drizzle-orm";
 import { z } from "zod";
 import {
   mcpClients,
@@ -19,13 +19,15 @@ import {
   type ProtocolError,
 } from "./http";
 import { validateRedirectUri, validateWebUri } from "./redirect-uri";
-import { clientAddress, hit } from "../throttle";
+import { clientAddress, clientNetwork, hit } from "../throttle";
 
 export const DEFAULT_CLIENT_NAME = "MCP client";
 const MAX_CLIENT_NAME_LENGTH = 200;
 const MAX_REDIRECT_URIS = 10;
 /** Clients register right before authorizing; a registration never approved is dropped after a day. */
 export const UNUSED_CLIENT_TTL_MS = 24 * 60 * 60 * 1000;
+/** At most this many registrations without an approval are stored; the oldest go first. */
+export const MAX_UNUSED_CLIENTS = 1000;
 
 export type OAuthClient = {
   clientId: string;
@@ -182,11 +184,14 @@ const tooManyRequests = (retryAfterSeconds: number) =>
 export const throttled = (retryAfterSeconds: number) =>
   errorResponse(tooManyRequests(retryAfterSeconds));
 
-/** POST /oauth/register (RFC 7591). Registration is open, so it is bounded per address and globally. */
+/** POST /oauth/register (RFC 7591). Registration is open, so it is limited per address and network, and storage is capped. */
 export async function registerClient(ctx: OAuthContext, request: Request) {
   const now = ctx.now();
   const perAddress = hit(
-    [{ key: `register:${clientAddress(request)}`, rule: "registerPerAddress" }],
+    [
+      { key: `register:${clientAddress(request)}`, rule: "registerPerAddress" },
+      { key: `register:${clientNetwork(request)}`, rule: "registerPerNetwork" },
+    ],
     now,
   );
   if (!perAddress.allowed) return throttled(perAddress.retryAfterSeconds);
@@ -194,9 +199,6 @@ export async function registerClient(ctx: OAuthContext, request: Request) {
   if (!body.ok) return errorResponse(body.error);
   const parsed = parseRegistration(body.value);
   if (!parsed.ok) return errorResponse(parsed.error);
-  // Counted only for valid registrations, the ones that store a row.
-  const global = hit([{ key: "register:global", rule: "registerGlobal" }], now);
-  if (!global.allowed) return throttled(global.retryAfterSeconds);
   const registration = parsed.value;
   const clientId = randomBytes(18).toString("base64url");
   const clientSecret =
@@ -227,6 +229,36 @@ export async function registerClient(ctx: OAuthContext, request: Request) {
         ),
       ),
     );
+  // Bound what open registration can store: beyond the cap, the oldest unapproved go.
+  const unused = notExists(
+    ctx.db
+      .select({ id: mcpGrants.id })
+      .from(mcpGrants)
+      .where(eq(mcpGrants.clientId, mcpClients.clientId)),
+  );
+  const [stored] = await ctx.db
+    .select({ count: count() })
+    .from(mcpClients)
+    .where(unused);
+  const excess = (stored?.count ?? 0) - MAX_UNUSED_CLIENTS;
+  if (excess > 0) {
+    const oldest = await ctx.db
+      .select({ clientId: mcpClients.clientId })
+      .from(mcpClients)
+      .where(unused)
+      .orderBy(asc(mcpClients.createdAt), asc(mcpClients.clientId))
+      .limit(excess);
+    // Re-checked here, so a client approved meanwhile keeps its grant.
+    await ctx.db.delete(mcpClients).where(
+      and(
+        inArray(
+          mcpClients.clientId,
+          oldest.map((row) => row.clientId),
+        ),
+        unused,
+      ),
+    );
+  }
   return json(
     {
       client_id: clientId,
