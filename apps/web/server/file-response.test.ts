@@ -12,6 +12,7 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
+import { readdirSync, readlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
@@ -274,4 +275,48 @@ test("serves a stored version payload with its length, its download name and ran
     (await serveStoredFile(get({ range: "bytes=20-" }), payload, "a.txt"))
       .status,
   ).toBe(416);
+});
+
+/** Descriptors this process holds open on `file`. */
+function openDescriptors(file: string) {
+  return readdirSync("/proc/self/fd").filter((fd) => {
+    try {
+      return readlinkSync(`/proc/self/fd/${fd}`) === file;
+    } catch {
+      return false;
+    }
+  }).length;
+}
+
+test("finished downloads do not keep their descriptors open", async () => {
+  const access = await admin();
+  const small = path.join(root, "docs/a.txt");
+  const large = path.join(root, "docs/large.bin");
+  await writeFile(large, Buffer.alloc(1 << 20, 65));
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) =>
+      serveFile(request, new URL(request.url).pathname.slice(1), access),
+  });
+  try {
+    const base = `http://localhost:${server.port}`;
+    for (let index = 0; index < 200; index++) {
+      const response = await fetch(`${base}/docs/a.txt`);
+      expect(await response.text()).toBe("0123456789");
+    }
+    // Small files are read and closed at once.
+    expect(openDescriptors(small)).toBe(0);
+    await Promise.all(
+      Array.from({ length: 1500 }, async () => {
+        const response = await fetch(`${base}/docs/large.bin`);
+        expect((await response.arrayBuffer()).byteLength).toBe(1 << 20);
+      }),
+    );
+    // Large files go out zero-copy, holding a bounded number of descriptors briefly.
+    expect(openDescriptors(large)).toBeLessThanOrEqual(1024);
+    await Bun.sleep(1500);
+    expect(openDescriptors(large)).toBe(0);
+  } finally {
+    await server.stop(true);
+  }
 });

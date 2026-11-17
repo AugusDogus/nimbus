@@ -77,13 +77,22 @@ async function openFile(head: boolean, requested: string) {
 }
 
 /**
- * How long a download keeps its descriptor open after the response is handed
- * to the server. Bun opens its own copy through `/proc/self/fd` while it
- * renders the response, within a millisecond of the handler returning; the
- * hold covers that with a wide margin, so the number cannot be reused for
- * another file before Bun has opened it.
+ * How long a zero-copy download keeps its descriptor open after the response
+ * is handed to the server. Bun opens its own copy through `/proc/self/fd` as
+ * it renders the response, in the same turn of the event loop as the handler
+ * returns (measured: before the next `setImmediate`); the hold covers that
+ * with a wide margin, so the number cannot be reused for another file before
+ * Bun has opened it. Bun reports neither when it opened the copy nor when the
+ * response finished, so the hold is a fixed time.
  */
-const descriptorHoldMs = 10_000;
+const descriptorHoldMs = 1_000;
+
+/** Zero-copy downloads holding a descriptor at once. Beyond this, downloads stream. */
+const maxHeldDescriptors = 512;
+let heldDescriptors = 0;
+
+/** Files up to this size are read into memory and their descriptor closed at once. */
+const bufferedBytes = 64 * 1024;
 
 /** Linux exposes every open descriptor as a path that opens the same file. */
 const descriptorPaths = existsSync("/proc/self/fd");
@@ -124,13 +133,47 @@ export async function serveFile(
       await handle?.close();
       return new Response(null, response.init);
     }
-    if (await stillNamed(absolute, stats)) {
+    if (response.length <= bufferedBytes) {
+      const bytes = new Uint8Array(response.length);
+      let read = 0;
+      while (read < bytes.length) {
+        const { bytesRead } = await handle.read(
+          bytes,
+          read,
+          bytes.length - read,
+          response.start + read,
+        );
+        if (bytesRead === 0) break;
+        read += bytesRead;
+      }
+      await handle.close();
+      // Shortened in place since it was opened: send what remains, with that length.
+      const headers = new Headers(response.init.headers);
+      headers.set("Content-Length", String(read));
+      if (response.init.status === 206 && read > 0)
+        headers.set(
+          "Content-Range",
+          `bytes ${response.start}-${response.start + read - 1}/${stats.size}`,
+        );
+      return new Response(bytes.subarray(0, read), {
+        status: response.init.status,
+        headers,
+      });
+    }
+    if (
+      heldDescriptors < maxHeldDescriptors &&
+      (await stillNamed(absolute, stats))
+    ) {
       const body = Bun.file(`/proc/self/fd/${handle.fd}`).slice(
         response.start,
         response.end + 1,
       );
+      heldDescriptors++;
       // Unreferenced: an open hold never keeps the process alive on its own.
-      setTimeout(() => void handle.close(), descriptorHoldMs).unref();
+      setTimeout(() => {
+        heldDescriptors--;
+        void handle.close();
+      }, descriptorHoldMs).unref();
       return new Response(body, response.init);
     }
     const stream = handle.createReadStream({
