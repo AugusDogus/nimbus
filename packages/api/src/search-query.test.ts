@@ -4,6 +4,7 @@ import {
   SearchStopped,
   type HistoryEntry,
   type SearchRequest,
+  type SearchResult,
 } from "./search-query";
 
 const all: SearchScope = { type: "all" };
@@ -568,6 +569,9 @@ describe("words layer against a brute-force oracle", () => {
       "2024",
       "épsilon",
       "zeta.txt",
+      // One typo from a word the queries use, so a typo layer that ran when
+      // it should not would find it.
+      "delte",
     ];
     const index = createSearchIndex(2);
     const oracle = new Map<string, "file" | "dir">();
@@ -597,7 +601,7 @@ describe("words layer against a brute-force oracle", () => {
           if (within(path, existing)) oracle.delete(existing);
         index.remove(path);
       } else if (action < 0.78) index.compact();
-      if (step % 40 !== 0) continue;
+      if (step % 10 !== 0) continue;
       const query =
         pick([
           "alpha beta",
@@ -607,6 +611,7 @@ describe("words layer against a brute-force oracle", () => {
           "zeta épsilon",
           "beta1 alpha0",
           "eta",
+          "delta",
         ]) ?? "";
       const root = pick(dirs) ?? "";
       const grants =
@@ -644,7 +649,9 @@ describe("words layer against a brute-force oracle", () => {
         scope,
         depth: "full",
       });
-      // Typo matches (the fuzzy layer) come after, and only when few matched strictly.
+      // Typo matches (the fuzzy layer) come after, and only for a word no
+      // name the caller may see holds: in its name for a one-word query, and
+      // anywhere in its path otherwise.
       const strict = answer.hits.filter((hit) => hit.match !== "fuzzy");
       const fuzzy = answer.hits.filter((hit) => hit.match === "fuzzy");
       const found = strict.map((hit) => hit.path);
@@ -655,7 +662,30 @@ describe("words layer against a brute-force oracle", () => {
         found: expected,
       });
       expect(answer.hits.slice(0, strict.length)).toEqual(strict);
-      if (expected.length >= 10) expect(fuzzy).toEqual([]);
+      const visible = [...oracle.keys()].filter(
+        (path) =>
+          path !== root &&
+          within(root, path) &&
+          (grants === null || grants.some((grant) => within(grant, path))),
+      );
+      const held =
+        terms.length < 2
+          ? expected.length > 0
+          : terms.every((term) =>
+              visible.some((path) =>
+                path
+                  .split("/")
+                  .map(fold)
+                  .some((segment) => holds(segment, term)),
+              ),
+            );
+      if (held)
+        expect({ query, root, grants, fuzzy }).toEqual({
+          query,
+          root,
+          grants,
+          fuzzy: [],
+        });
       for (const hit of fuzzy) {
         expect(expected).not.toContain(hit.path);
         expect(within(root, hit.path) && hit.path !== root).toBe(true);
@@ -775,7 +805,7 @@ describe("fuzzy layer", () => {
       });
     });
 
-  it("stays out of the way once ten or more names match strictly", () => {
+  it("stays out of the way while any name the caller may see holds the word", () => {
     const index = createSearchIndex();
     for (let i = 0; i < 10; i++) index.add(`notes/note-${i}.txt`, "file");
     index.add("other/nots.txt", "file");
@@ -784,6 +814,12 @@ describe("fuzzy layer", () => {
     expect(
       hits(index, "note").filter((hit) => hit.startsWith("fuzzy")),
     ).toEqual([]);
+    // However few: one name holding it is enough.
+    expect(
+      hits(index, "note", {
+        scope: { type: "grants", paths: ["notes/note-3.txt", "other"] },
+      }),
+    ).toEqual(["name notes/note-3.txt"]);
     index.remove("notes/note-9.txt");
     // Read apart (note, txt) it finds the notes; it is no typo to correct.
     expect(
@@ -818,35 +854,73 @@ describe("what a caller sees never depends on names it may not read", () => {
     "team/backupPhotos.sh",
     "team/zurich.txt",
   ];
-  function drive(withHidden: boolean, compacted: boolean) {
+  type State = "before compaction" | "compacted" | "mixed, with removals";
+  /**
+   * The same visible tree, with or without the hidden names. Mixed: half of
+   * each compacted, the rest added since, and some of both removed since,
+   * hidden ones included, so dead slots and the delta both take part.
+   */
+  function drive(withHidden: boolean, state: State) {
     const index = createSearchIndex();
-    for (const path of [...(withHidden ? hiddenNames : []), ...visibleNames])
-      index.add(path, "file");
-    if (compacted) index.compact();
+    const add = (paths: readonly string[]) => {
+      for (const path of paths) index.add(path, "file");
+    };
+    const hidden = withHidden ? hiddenNames : [];
+    if (state !== "mixed, with removals") {
+      add([...hidden, ...visibleNames]);
+      if (state === "compacted") index.compact();
+      return index;
+    }
+    const half = (paths: readonly string[], first: boolean) =>
+      paths.filter((_, at) => at % 2 === (first ? 0 : 1));
+    add([...half(hidden, true), ...half(visibleNames, true)]);
+    add(withHidden ? ["secret/gone/zephyrine old.txt"] : []);
+    add(["team/zephyrina gone.txt", "team/old/notes 2024-03-15.txt"]);
+    index.compact();
+    add([...half(hidden, false), ...half(visibleNames, false)]);
+    if (withHidden) index.remove("secret/gone");
+    index.remove("team/zephyrina gone.txt");
+    index.remove("team/old");
     return index;
   }
   const teamOnly: SearchScope = { type: "grants", paths: ["team"] };
-  /** Everything a caller observes of a result, except the opaque cursor's contents. */
+  /** Everything a caller observes of a page, except the opaque cursor's contents. */
+  const seen = (answer: SearchResult) => ({
+    hits: answer.hits,
+    total: answer.total,
+    truncated: answer.truncated,
+    more: answer.next !== null,
+    restarted: answer.restarted,
+    terms: answer.terms,
+  });
+  const request = (query: string, scope: SearchScope): SearchRequest => ({
+    query,
+    root: "",
+    limit: 2,
+    scope,
+    depth: "full",
+    now: 1,
+  });
+  /** What a caller observes of the first page. */
   const observed = (
     index: ReturnType<typeof createSearchIndex>,
     query: string,
     scope: SearchScope,
+  ) => seen(index.search(request(query, scope)));
+  /** What a caller observes of every page, following each page's cursor. */
+  const observedPages = (
+    index: ReturnType<typeof createSearchIndex>,
+    query: string,
+    scope: SearchScope,
   ) => {
-    const answer = index.search({
-      query,
-      root: "",
-      limit: 2,
-      scope,
-      depth: "full",
-      now: 1,
-    });
-    return {
-      hits: answer.hits,
-      total: answer.total,
-      truncated: answer.truncated,
-      more: answer.next !== null,
-      terms: answer.terms,
-    };
+    const pages = [];
+    let cursor: string | undefined;
+    do {
+      const page = index.search({ ...request(query, scope), cursor });
+      pages.push(seen(page));
+      cursor = page.next ?? undefined;
+    } while (cursor !== undefined);
+    return pages;
   };
 
   const namedHits = (
@@ -858,10 +932,14 @@ describe("what a caller sees never depends on names it may not read", () => {
       .search({ query, root: "", limit: 50, scope, depth: "full", now: 1 })
       .hits.map((hit) => `${hit.match} ${hit.path}`);
 
-  for (const compacted of [false, true])
-    it(`for exact and misspelled words, ${compacted ? "compacted" : "before compaction"}`, () => {
-      const withHidden = drive(true, compacted);
-      const without = drive(false, compacted);
+  for (const state of [
+    "before compaction",
+    "compacted",
+    "mixed, with removals",
+  ] as const)
+    it(`for exact and misspelled words, on every page, ${state}`, () => {
+      const withHidden = drive(true, state);
+      const without = drive(false, state);
       for (const query of [
         "zephyrine",
         "zephyrinne",
@@ -885,10 +963,10 @@ describe("what a caller sees never depends on names it may not read", () => {
         "secrète",
         "creme secrete",
       ]) {
-        expect({ query, ...observed(withHidden, query, teamOnly) }).toEqual({
+        expect({
           query,
-          ...observed(without, query, teamOnly),
-        });
+          pages: observedPages(withHidden, query, teamOnly),
+        }).toEqual({ query, pages: observedPages(without, query, teamOnly) });
       }
       // The word a hidden name holds is corrected to the visible one, as if the hidden names were not there.
       expect(
