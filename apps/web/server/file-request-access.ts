@@ -63,7 +63,7 @@ const unlockScope = (
   name: `nimbus-request-${request.id}`,
   path,
   token: request.token,
-  passwordHash: request.passwordHash,
+  binding: request.passwordHash,
 });
 
 /**

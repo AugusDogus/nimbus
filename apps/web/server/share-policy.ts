@@ -1,4 +1,5 @@
 import type { Share, ShareMode } from "@nimbus/api/drive-store";
+import { UnlockCookie, type UnlockScope } from "./unlock-cookie";
 
 export type ShareAvailability =
   | { kind: "available" }
@@ -16,16 +17,53 @@ function availability(
   return { kind: "available" };
 }
 
+/** The proof that this browser already made a counted transfer of one version of a file. */
+const continuationScope = (
+  share: Pick<Share, "token">,
+  relative: string,
+  etag: string,
+): UnlockScope => ({
+  name: "nimbus-transfer",
+  path: `/api/share/${share.token}`,
+  token: share.token,
+  binding: `transfer:${relative}:${etag}`,
+});
+
 /**
- * A transfer counts once, when it includes the first byte. Resumed downloads
- * and media seeking request later ranges and continue the same transfer, while
- * any complete copy still needs at least one counted request.
+ * Whether serving `response` uses up one of the link's downloads. Every full
+ * response counts. A byte range counts too, unless the browser holds the
+ * cookie a counted transfer of the same file version set: resumed downloads
+ * and media seeking then continue that transfer, while ranges alone (such as
+ * `bytes=1-` with byte 0 fetched separately) can never make an uncounted copy.
  */
-function countsAsTransfer(method: string, response: Response) {
-  if (method === "HEAD") return false;
+function countsAsTransfer(
+  request: Request,
+  response: Response,
+  share: Pick<Share, "token">,
+  relative: string,
+) {
+  if (request.method === "HEAD") return false;
   if (response.status === 200) return true;
   if (response.status !== 206) return false;
-  return /^bytes 0-/.test(response.headers.get("content-range") ?? "");
+  const etag = response.headers.get("etag");
+  return !(
+    etag &&
+    UnlockCookie.verify(continuationScope(share, relative, etag), request)
+  );
+}
+
+/** Let later ranges of a counted file response continue its transfer without counting. */
+function allowContinuation(
+  response: Response,
+  share: Pick<Share, "token">,
+  relative: string,
+) {
+  const etag = response.headers.get("etag");
+  if (etag)
+    response.headers.append(
+      "Set-Cookie",
+      UnlockCookie.issue(continuationScope(share, relative, etag)),
+    );
 }
 
 /**
@@ -42,5 +80,6 @@ function permitsResponse(mode: ShareMode, response: Response) {
 export const SharePolicy = {
   availability,
   countsAsTransfer,
+  allowContinuation,
   permitsResponse,
 } as const;

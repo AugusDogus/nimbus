@@ -9,12 +9,24 @@ import { LinkPasswordAttempts } from "./link-password-attempts";
 import { SharePolicy } from "./share-policy";
 import { UnlockCookie } from "./unlock-cookie";
 
-export async function getPublicShare(token: string) {
+/**
+ * The share behind `token` and its creator's access, or NOT_FOUND. `exhausted: "allow"` returns
+ * a share that has used its downloads, for a byte request that may continue a counted transfer;
+ * the caller must then refuse anything that is not such a continuation.
+ */
+export async function getPublicShare(
+  token: string,
+  { exhausted }: { exhausted: "allow" | "refuse" } = { exhausted: "refuse" },
+) {
   const share = await httpDriveStore.getShare(token);
   const availability = share
     ? SharePolicy.availability(share, Date.now())
     : { kind: "expired" as const };
-  if (!share || availability.kind !== "available")
+  if (
+    !share ||
+    availability.kind === "expired" ||
+    (availability.kind === "exhausted" && exhausted === "refuse")
+  )
     throw new TRPCError({
       code: "NOT_FOUND",
       message:
@@ -48,7 +60,7 @@ const unlockScope = (
   name: "nimbus-share",
   path,
   token: share.token,
-  passwordHash: share.passwordHash,
+  binding: share.passwordHash,
 });
 
 /**

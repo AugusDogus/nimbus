@@ -182,3 +182,52 @@ test("parallel wrong passwords are counted before they are checked", async ({
     await anonymous.close();
   }
 });
+
+test("a link's download limit counts ranges that do not continue a counted download", async ({
+  context,
+  browser,
+}) => {
+  const share = await (
+    await client(context)
+  ).shares.create.mutate({
+    path: "alpha.txt",
+    expiresAt: null,
+    maxDownloads: 2,
+  });
+  const url = `/api/share/${share.token}?download=1`;
+  const visitor = () =>
+    browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const first = await visitor();
+  const second = await visitor();
+  try {
+    // Loading the share page (GET and HEAD) uses up nothing.
+    for (let load = 0; load < 3; load++)
+      expect((await first.request.get(`/s/${share.token}`)).status()).toBe(200);
+    expect((await first.request.head(`/s/${share.token}`)).status()).toBe(200);
+    // Each fresh visitor's `bytes=1-` is a new transfer, so the third is refused.
+    for (const context of [first, second])
+      expect(
+        (
+          await context.request.get(url, { headers: { Range: "bytes=1-" } })
+        ).status(),
+      ).toBe(206);
+    const third = await visitor();
+    try {
+      const refused = await third.request.get(url, {
+        headers: { Range: "bytes=1-" },
+      });
+      expect(refused.status()).toBe(404);
+    } finally {
+      await third.close();
+    }
+    // The visitors who were counted can still resume their own transfers.
+    expect(
+      (
+        await first.request.get(url, { headers: { Range: "bytes=3-" } })
+      ).status(),
+    ).toBe(206);
+  } finally {
+    await first.close();
+    await second.close();
+  }
+});

@@ -25,21 +25,24 @@ type Context = { params: Promise<{ token: string }> };
 export async function GET(request: Request, context: Context) {
   try {
     const { token } = await context.params;
-    const { share, access } = await getPublicShare(token);
+    const url = new URL(request.url);
+    const download = url.searchParams.get("download") === "1";
+    const bytes = download || url.searchParams.get("preview") === "1";
+    const { share, access } = await getPublicShare(token, {
+      exhausted: bytes ? "allow" : "refuse",
+    });
     if (!isShareUnlocked(share, request))
       return Response.json(
         { passwordRequired: true },
         { status: 401, headers: { "Cache-Control": "no-store" } },
       );
-    const url = new URL(request.url);
     const scoped = await sharedTarget(
       share,
       access,
       url.searchParams.get("path") ?? "",
     );
     const entry = await entryAt(scoped.target.relative);
-    const download = url.searchParams.get("download") === "1";
-    if (download || url.searchParams.get("preview") === "1") {
+    if (bytes) {
       if (share.mode === "view" && (download || entry.type === "dir"))
         return Response.json(
           {
@@ -63,15 +66,24 @@ export async function GET(request: Request, context: Context) {
           403,
           "This file cannot be previewed, and this link allows previews only. Ask the owner for a download link.",
         );
-      if (
-        SharePolicy.countsAsTransfer(request.method, response) &&
-        !(await httpDriveStore.claimDownload(share.id))
-      )
-        return refuse(
+      const relative = scoped.target.relative;
+      const exhausted = () =>
+        refuse(
           response,
           404,
           "This share link has reached its download limit. Ask the owner for a new link.",
         );
+      if (SharePolicy.countsAsTransfer(request, response, share, relative)) {
+        // Atomic: of two requests for the last download, only one claims it.
+        if (!(await httpDriveStore.claimDownload(share.id))) return exhausted();
+        if (entry.type === "file")
+          SharePolicy.allowContinuation(response, share, relative);
+      } else if (
+        // Only a range continuing a counted transfer is served once downloads are used up.
+        response.status !== 206 &&
+        SharePolicy.availability(share, Date.now()).kind === "exhausted"
+      )
+        return exhausted();
       return response;
     }
     const entries =

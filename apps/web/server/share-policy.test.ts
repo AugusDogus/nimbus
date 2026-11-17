@@ -37,24 +37,55 @@ test("links stay available until they expire or use every download", () => {
 const response = (status: number, headers: HeadersInit = {}) =>
   new Response(null, { status, headers });
 
-test("only transfers that include the first byte count as downloads", () => {
-  expect(SharePolicy.countsAsTransfer("GET", response(200))).toBe(true);
+const get = (headers: HeadersInit = {}, method = "GET") =>
+  new Request("http://localhost/api/share/token?download=1", {
+    method,
+    headers,
+  });
+
+test("ranges count unless they continue a transfer this browser already made", () => {
+  process.env.BETTER_AUTH_SECRET ??= "test-secret-test-secret-test-secret";
+  const counts = (request: Request, served: Response) =>
+    SharePolicy.countsAsTransfer(request, served, share, "docs/a.txt");
+  const range = (start: number) =>
+    response(206, {
+      "Content-Range": `bytes ${start}-999/1000`,
+      ETag: '"1-1000"',
+    });
+  expect(counts(get(), response(200))).toBe(true);
+  expect(counts(get(), range(0))).toBe(true);
+  // A later range alone could otherwise copy all but the first byte without counting.
+  expect(counts(get(), range(100))).toBe(true);
+  expect(counts(get({}, "HEAD"), response(200))).toBe(false);
+  expect(counts(get(), response(404))).toBe(false);
+  expect(counts(get(), response(416))).toBe(false);
+
+  // A counted transfer lets the same browser resume or seek within the same file version.
+  const counted = response(200, { ETag: '"1-1000"' });
+  SharePolicy.allowContinuation(counted, share, "docs/a.txt");
+  const cookie = counted.headers.get("set-cookie")?.split(";")[0] ?? "";
+  expect(cookie).toStartWith("nimbus-transfer=");
+  expect(counts(get({ cookie }), range(100))).toBe(false);
+  expect(counts(get({ cookie }), range(0))).toBe(false);
+  // Never another full copy, another file, or a changed file.
+  expect(counts(get({ cookie }), response(200))).toBe(true);
   expect(
     SharePolicy.countsAsTransfer(
-      "GET",
-      response(206, { "Content-Range": "bytes 0-99/1000" }),
+      get({ cookie }),
+      range(100),
+      share,
+      "docs/b.txt",
     ),
   ).toBe(true);
-  // Resumed downloads and media seeking continue an already counted transfer.
   expect(
-    SharePolicy.countsAsTransfer(
-      "GET",
-      response(206, { "Content-Range": "bytes 100-999/1000" }),
+    counts(
+      get({ cookie }),
+      response(206, {
+        "Content-Range": "bytes 100-999/1000",
+        ETag: '"2-1000"',
+      }),
     ),
-  ).toBe(false);
-  expect(SharePolicy.countsAsTransfer("HEAD", response(200))).toBe(false);
-  expect(SharePolicy.countsAsTransfer("GET", response(404))).toBe(false);
-  expect(SharePolicy.countsAsTransfer("GET", response(416))).toBe(false);
+  ).toBe(true);
 });
 
 test("view-only links serve inline previews and refuse attachments", () => {

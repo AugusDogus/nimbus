@@ -1,9 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 /**
- * A signed, hour-long proof that a visitor entered a link's password. The
- * signature covers the password hash, so changing or removing the password
- * ends every earlier unlock.
+ * A signed, hour-long proof that a visitor entered a link's password, or
+ * already downloaded a file through it. The signature covers `binding`, such
+ * as the password hash, so changing or removing it ends every earlier cookie.
  */
 export type UnlockScope = {
   /** Cookie name, unique per link. */
@@ -11,7 +11,8 @@ export type UnlockScope = {
   /** Cookie path; the cookie is only sent to these endpoints. */
   path: string;
   token: string;
-  passwordHash: string;
+  /** What the cookie proves something about: the password hash, or a file and its version. */
+  binding: string;
 };
 
 const lifetimeMs = 60 * 60 * 1000;
@@ -23,7 +24,7 @@ function signature(scope: UnlockScope, expires: string) {
       "BETTER_AUTH_SECRET is required for password-protected links. Set it and restart Nimbus.",
     );
   return createHmac("sha256", secret)
-    .update(`${scope.token}:${scope.passwordHash}:${expires}`)
+    .update(`${scope.token}:${scope.binding}:${expires}`)
     .digest("hex");
 }
 

@@ -17,24 +17,24 @@ test("public links enforce download limits and preview-only mode, and can be edi
       maxDownloads: 2,
     });
     const limitedURL = `/api/share/${limited.token}`;
-    // Metadata, HEAD requests and resumed ranges do not use up downloads.
+    // Metadata, HEAD requests and ranges resuming a counted download do not use up downloads.
+    const resume = () =>
+      anonymous.request.get(`${limitedURL}?download=1`, {
+        headers: { Range: "bytes=1-" },
+      });
     expect((await anonymous.request.get(limitedURL)).status()).toBe(200);
     expect(
       (await anonymous.request.head(`${limitedURL}?download=1`)).status(),
     ).toBe(200);
     expect(
-      (
-        await anonymous.request.get(`${limitedURL}?download=1`, {
-          headers: { Range: "bytes=1-" },
-        })
-      ).status(),
-    ).toBe(206);
-    expect(
       (await anonymous.request.get(`${limitedURL}?download=1`)).status(),
     ).toBe(200);
+    expect((await resume()).status()).toBe(206);
     expect(
       (await anonymous.request.get(`${limitedURL}?preview=1`)).status(),
     ).toBe(200);
+    // Resuming still works after the last download was used.
+    expect((await resume()).status()).toBe(206);
     const exhausted = await anonymous.request.get(`${limitedURL}?download=1`);
     expect(exhausted.status()).toBe(404);
     expect(await exhausted.text()).toContain("download limit");
