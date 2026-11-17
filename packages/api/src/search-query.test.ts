@@ -253,6 +253,38 @@ describe("paging", () => {
     }
   });
 
+  it("pages through accent, date and joined-word readings across a compaction", () => {
+    const index = createSearchIndex();
+    for (let folder = 0; folder < 4; folder++)
+      for (let file = 0; file < 4; file++) {
+        index.add(`f${folder}/scan 2024-03-15 ${file}.pdf`, "file");
+        index.add(`f${folder}/Scan_15.03.2024_${file}.pdf`, "file");
+      }
+    index.compact();
+    for (let folder = 0; folder < 4; folder++)
+      index.add(`f${folder}/scän 20240315 late.pdf`, "file");
+    const request: SearchRequest = {
+      query: "scan 15-03-2024",
+      root: "",
+      limit: 5,
+      scope: all,
+      depth: "full",
+      now: 1,
+    };
+    const expected = index
+      .search({ ...request, limit: 1000 })
+      .hits.map((hit) => hit.path)
+      .sort();
+    expect(expected).toHaveLength(36);
+    const { all: seen, restarted } = pages(index, request, (page) => {
+      if (page === 2) index.compact();
+    });
+    expect(restarted).toBe(0);
+    const flat = seen.flat();
+    expect(flat.length).toBe(new Set(flat).size);
+    expect([...flat].sort()).toEqual(expected);
+  });
+
   it("starts again rather than skip when the layout is two compactions old", () => {
     const index = createSearchIndex();
     for (let file = 0; file < 10; file++) index.add(`a/note-${file}`, "file");
@@ -527,12 +559,21 @@ describe("what a caller sees never depends on names it may not read", () => {
     "secret/zephyrinne draft.txt",
     "secret/zephyrinee.txt",
     "secret/codename/budget.xlsx",
+    // Names that would match through accents, dates and joined words.
+    "secret/Crème secrète 2024-03-15.txt",
+    "secret/crémeux.txt",
+    "secret/backup_photos_vault.txt",
+    "secret/Zürich 15.03.2024 plan.txt",
+    "secret/Brûlé/notes 2024_03.txt",
   ];
   const visibleNames = [
     "team/zephyrina notes.txt",
     "team/zephyrina/agenda.md",
     "team/budget 2026.xlsx",
     "team/notes.txt",
+    "team/creme notes 20240315.md",
+    "team/backupPhotos.sh",
+    "team/zurich.txt",
   ];
   function drive(withHidden: boolean, compacted: boolean) {
     const index = createSearchIndex();
@@ -586,6 +627,20 @@ describe("what a caller sees never depends on names it may not read", () => {
         "codename budget",
         "budgte",
         "notes",
+        "crème",
+        "creme",
+        "cremeux",
+        "brule",
+        "zürich",
+        "2024-03-15",
+        "15-03-2024",
+        "2024-03",
+        "march 2024",
+        "backupPhotos",
+        "backup_photos",
+        "photos-vault",
+        "secrète",
+        "creme secrete",
       ]) {
         expect({ query, ...observed(withHidden, query, teamOnly) }).toEqual({
           query,
@@ -598,6 +653,18 @@ describe("what a caller sees never depends on names it may not read", () => {
           (hit) => `${hit.match} ${hit.path}`,
         ),
       ).toEqual(["fuzzy team/zephyrina", "fuzzy team/zephyrina notes.txt"]);
+      // Each reading still finds what the caller may see.
+      for (const [query, path] of [
+        ["crème", "team/creme notes 20240315.md"],
+        ["15-03-2024", "team/creme notes 20240315.md"],
+        ["backup_photos", "team/backupPhotos.sh"],
+        ["zürich", "team/zurich.txt"],
+      ])
+        expect(
+          observed(withHidden, query ?? "", teamOnly).hits.map(
+            (hit) => hit.path,
+          ),
+        ).toContain(path);
       // Someone who can read the secret folder finds it as typed.
       expect(namedHits(withHidden, "zephyrine", { type: "all" })).toContain(
         "name secret/zephyrine plan.txt",
