@@ -353,6 +353,39 @@ describe("MCP OAuth flow", () => {
     ).toBe(200);
   });
 
+  it("two refreshes racing with one token leave exactly one working pair", async () => {
+    const tokens = await connect();
+    const responses = await Promise.all([
+      refreshWith(tokens.clientId, tokens.refresh_token),
+      refreshWith(tokens.clientId, tokens.refresh_token),
+    ]);
+    // The loser is treated as a retry within the grace window, not refused: it gets the
+    // live pair and the winner's unused pair is retired, so a thief who wins the race
+    // without using the tokens yet keeps nothing.
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    const pairs = await Promise.all(
+      responses.map(async (response) =>
+        response.status === 200 ? pair.parse(await response.json()) : null,
+      ),
+    );
+    const working = [];
+    for (const issued of pairs)
+      if (
+        issued &&
+        (await bearer(issued.access_token)).kind === "authenticated"
+      )
+        working.push(issued);
+    expect(working).toHaveLength(1);
+    const [survivor] = working;
+    if (!survivor) throw new Error("Expected one working token pair.");
+    // The other pair is gone, not still usable by whoever won the race.
+    for (const issued of pairs)
+      if (issued && issued !== survivor)
+        expect(
+          (await refreshWith(tokens.clientId, issued.refresh_token)).status,
+        ).toBe(400);
+  });
+
   it("disconnects the client when a refresh token is replayed after its successor was used", async () => {
     for (const useSuccessor of ["access", "refresh"] as const) {
       const tokens = await connect();

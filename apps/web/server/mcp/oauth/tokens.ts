@@ -368,14 +368,10 @@ async function refresh(
     return retried ? { ok: true, value: retried } : reused();
   }
   const issued = await rotate(ctx, row, scopes);
-  return issued
-    ? { ok: true, value: issued }
-    : {
-        ok: false,
-        error: invalidGrant(
-          "The refresh token was already used. Use the newest one.",
-        ),
-      };
+  if (issued) return { ok: true, value: issued };
+  // Another request rotated the same token at the same moment: decide as for a retry.
+  const retried = await retryRotation(ctx, row, scopes);
+  return retried ? { ok: true, value: retried } : reused();
 }
 
 /** POST /oauth/token: authorization_code with PKCE, and refresh_token with rotation. */

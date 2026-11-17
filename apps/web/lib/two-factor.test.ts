@@ -1,14 +1,25 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { createHmac } from "node:crypto";
 import { z } from "zod";
 import { createTestAuth, type TestAuth } from "./auth-testing";
 
 let t: TestAuth;
 beforeEach(async () => {
+  // One second into a 30-second step, held there, so each code the tests compute belongs
+  // to the step they mean even when a test runs across a step boundary.
+  setSystemTime(new Date(Math.floor(Date.now() / 30_000) * 30_000 + 1_000));
   t = await createTestAuth();
 });
 afterEach(async () => {
   await t.close();
+  setSystemTime();
 });
 
 /** RFC 4648 base32, as authenticator apps read the secret from the otpauth URI. */
