@@ -198,7 +198,88 @@ describe("paging", () => {
     expect(rest).toEqual([...expected, "b/note-late"]);
   });
 
-  it("continues by position after a compaction renumbers the tree", () => {
+  /** Every page of `request`, with `between` run before each later page. */
+  function pages(
+    index: ReturnType<typeof createSearchIndex>,
+    request: SearchRequest,
+    between: (page: number) => void,
+  ) {
+    const all: string[][] = [];
+    let restarted = 0;
+    let cursor: string | undefined;
+    do {
+      if (all.length) between(all.length);
+      const page = index.search({ ...request, cursor });
+      if (page.restarted) restarted++;
+      all.push(page.hits.map((hit) => hit.path));
+      cursor = page.next ?? undefined;
+    } while (cursor !== undefined);
+    return { all, restarted };
+  }
+
+  it("continues after a compaction with every result exactly once", () => {
+    for (const seed of [1, 2, 3]) {
+      const index = createSearchIndex();
+      for (let folder = 0; folder < 6; folder++)
+        for (let file = 0; file < 5; file++)
+          index.add(`f${folder}/note-${file}.txt`, "file");
+      index.compact();
+      // Added since compaction, so they rank after their equals until the
+      // next compaction places them among them in tree order.
+      for (let folder = 0; folder < 6; folder += seed)
+        index.add(`f${folder}/note-${5 + seed}.txt`, "file");
+      const request: SearchRequest = {
+        query: "note",
+        root: "",
+        limit: 7,
+        scope: all,
+        depth: "full",
+        now: 1,
+      };
+      const expected = index
+        .search({ ...request, limit: 1000 })
+        .hits.map((hit) => hit.path)
+        .sort();
+      const { all: seen, restarted } = pages(index, request, (page) => {
+        if (page % 2 === 1) index.compact();
+      });
+      expect(restarted).toBe(0);
+      const flat = seen.flat();
+      expect({ seed, repeats: flat.length - new Set(flat).size }).toEqual({
+        seed,
+        repeats: 0,
+      });
+      expect([...flat].sort()).toEqual(expected);
+    }
+  });
+
+  it("starts again rather than skip when the layout is two compactions old", () => {
+    const index = createSearchIndex();
+    for (let file = 0; file < 10; file++) index.add(`a/note-${file}`, "file");
+    index.compact();
+    for (let file = 0; file < 4; file++) index.add(`b/note-${file}`, "file");
+    const request: SearchRequest = {
+      query: "note",
+      root: "",
+      limit: 4,
+      scope: all,
+      depth: "full",
+      now: 1,
+    };
+    const { all: seen, restarted } = pages(index, request, () => {
+      index.compact();
+      index.compact();
+    });
+    expect(restarted).toBeGreaterThan(0);
+    expect([...new Set(seen.flat())].sort()).toEqual(
+      index
+        .search({ ...request, limit: 1000 })
+        .hits.map((hit) => hit.path)
+        .sort(),
+    );
+  });
+
+  it("starts again rather than skip when the caller's history changed", () => {
     const index = createSearchIndex();
     for (let file = 0; file < 10; file++) index.add(`a/note-${file}`, "file");
     index.compact();
@@ -208,20 +289,23 @@ describe("paging", () => {
       limit: 4,
       scope: all,
       depth: "full",
+      now: 1,
     };
     const first = index.search(request);
-    index.compact();
+    // An unseen result was opened meanwhile, which would now rank first.
+    const opened: HistoryEntry = {
+      path: "a/note-9",
+      openedAt: 1,
+      visits: 30,
+      starred: true,
+    };
     const second = index.search({
       ...request,
+      history: [opened],
       cursor: first.next ?? undefined,
     });
-    expect(second.hits.map((hit) => hit.path)).toEqual(
-      index
-        .search({ ...request, limit: 8 })
-        .hits.slice(4)
-        .map((hit) => hit.path),
-    );
-    expect(second.total).toBe(10);
+    expect(second.restarted).toBe(true);
+    expect(second.hits.map((hit) => hit.path)).toContain("a/note-9");
   });
 
   it("starts over for a cursor no page returned", () => {
