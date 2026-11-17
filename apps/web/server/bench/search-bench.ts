@@ -21,6 +21,8 @@ import {
   pathAt,
   blindCases,
   blindFiles,
+  matchingCases,
+  matchingFiles,
   plantedFiles,
   plantedHistory,
   queryClasses,
@@ -54,7 +56,7 @@ type ClassResult = {
 };
 type RelevanceResult = {
   /** "first" was written with the engine; "blind" before seeing how it handles each case. */
-  set?: "first" | "blind";
+  set?: "first" | "blind" | "matching";
   task: string;
   query: string;
   expected: string;
@@ -165,7 +167,7 @@ function compare(before: Results, after: Results) {
     const score = (
       items: RelevanceResult[] | undefined,
       scope: string,
-      set: "first" | "blind",
+      set: "first" | "blind" | "matching",
     ) => {
       const scoped =
         items?.filter(
@@ -186,11 +188,12 @@ function compare(before: Results, after: Results) {
         score(old?.relevance, scope, "first"),
         score(size.relevance, scope, "first"),
       );
-    row(
-      "blind relevance admin",
-      score(old?.relevance, "admin", "blind"),
-      score(size.relevance, "admin", "blind"),
-    );
+    for (const set of ["blind", "matching"] as const)
+      row(
+        `${set} relevance admin`,
+        score(old?.relevance, "admin", set),
+        score(size.relevance, "admin", set),
+      );
   }
 }
 
@@ -265,7 +268,7 @@ async function measureSize(entries: number): Promise<SizeResult> {
   const started = now();
   const real = createSearchIndex(1 << 16);
   const index: BenchIndex = real;
-  for (const planted of [...plantedFiles, ...blindFiles])
+  for (const planted of [...plantedFiles, ...blindFiles, ...matchingFiles])
     index.add(planted, "file", 1000);
   let generated = 0;
   while (index.size < entries) {
@@ -359,28 +362,32 @@ async function measureSize(entries: number): Promise<SizeResult> {
         rank: position < 0 ? null : position + 1,
       });
     }
-  // The blind set's folders are mostly outside the user's grants: admin only.
-  for (const item of blindCases) {
-    const answer = await search({
-      query: item.query,
-      root: "",
-      limit: 50,
-      scope: admin,
-      depth: "full",
-      history: [],
-    });
-    const position = answer.hits.findIndex((hit) =>
-      item.expected.includes(hit.path),
-    );
-    relevance.push({
-      set: "blind",
-      task: item.task,
-      query: item.query,
-      expected: item.expected.join(" or "),
-      scope: "admin",
-      rank: position < 0 ? null : position + 1,
-    });
-  }
+  // The blind sets' folders are mostly outside the user's grants: admin only.
+  for (const [set, cases] of [
+    ["blind", blindCases],
+    ["matching", matchingCases],
+  ] as const)
+    for (const item of cases) {
+      const answer = await search({
+        query: item.query,
+        root: "",
+        limit: 50,
+        scope: admin,
+        depth: "full",
+        history: [],
+      });
+      const position = answer.hits.findIndex((hit) =>
+        item.expected.includes(hit.path),
+      );
+      relevance.push({
+        set,
+        task: item.task,
+        query: item.query,
+        expected: item.expected.join(" or "),
+        scope: "admin",
+        rank: position < 0 ? null : position + 1,
+      });
+    }
   console.log(
     `  relevance: ${relevance.map((item) => `${item.scope}:${item.query}=${item.rank ?? "-"}`).join(", ")}`,
   );
