@@ -13,6 +13,12 @@
 **/*.tsbuildinfo
 test-results
 playwright-report
-.cursor
-.agents
+**/.cursor
+**/.agents
+**/.opencode
+**/e2e
 .github
+Dockerfile
+.dockerignore
+compose.yaml
+docs
