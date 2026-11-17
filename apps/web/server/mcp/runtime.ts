@@ -64,7 +64,11 @@ export function mcpRuntime(format: "json" | "html" = "json"): McpRuntime {
       getSession: async (headers) => {
         const session = await auth.api.getSession({ headers });
         return session
-          ? { userId: session.user.id, sessionId: session.session.id }
+          ? {
+              userId: session.user.id,
+              sessionId: session.session.id,
+              impersonatedBy: session.session.impersonatedBy ?? null,
+            }
           : null;
       },
     },

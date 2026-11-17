@@ -207,6 +207,12 @@ export const appPasswordsRouter = router({
   create: protectedProcedure
     .input(z.object({ name: z.string().trim().min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
+      if (ctx.impersonatedBy !== null)
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "An administrator signed in as this person cannot create app passwords for them. Stop impersonating, or ask them to create it. No password was created.",
+        });
       const token = randomBytes(32).toString("base64url");
       const id = randomUUID();
       await ctx.drive.addAppPassword({

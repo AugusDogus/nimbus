@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it } from "bun:test";
 import {
   anonymousActor,
   flushAudit,
+  markAuditImpersonator,
   recordAudit,
   resetAuditForTest,
   runWithAuditRequest,
@@ -80,4 +81,25 @@ it("labels an anonymous caller only with a well-formed email address", () => {
   expect(anonymousActor("MySecretPassw0rd!")).toEqual({ type: "anonymous" });
   expect(anonymousActor("")).toEqual({ type: "anonymous" });
   expect(anonymousActor(undefined)).toEqual({ type: "anonymous" });
+});
+
+it("marks every event of a request made in an impersonated session with the administrator", async () => {
+  const written: RecordedAuditEvent[] = [];
+  setAuditSink(async (events) => void written.push(...events));
+  runWithAuditRequest({ ip: "192.0.2.1" }, () => {
+    recordAudit({ ...event, details: { kept: true } });
+    markAuditImpersonator({ id: "admin-1", label: "admin@example.test" });
+    recordAudit({ ...event, details: { kept: true } });
+  });
+  recordAudit(event);
+  await flushAudit();
+  expect(written.map((entry) => entry.details)).toEqual([
+    { kept: true },
+    {
+      kept: true,
+      impersonatedBy: "admin@example.test",
+      impersonatedById: "admin-1",
+    },
+    undefined,
+  ]);
 });

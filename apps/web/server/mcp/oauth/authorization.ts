@@ -346,6 +346,9 @@ export function redirectTarget(redirectUri: string) {
   return url.host !== "" ? url.host : url.protocol;
 }
 
+const impersonationRefused =
+  "An administrator signed in as this person cannot connect AI clients to their account. Stop impersonating, or ask them to connect the client themselves. Nothing was shared.";
+
 export async function loadConsent(
   ctx: OAuthContext,
   params: URLSearchParams,
@@ -362,6 +365,8 @@ export async function loadConsent(
         `/oauth/consent?${authorizationParams(validation.request)}`,
       ),
     };
+  if (session.impersonatedBy !== null)
+    return { kind: "invalid", message: impersonationRefused };
   return {
     kind: "ready",
     clientName: validation.client.clientName,
@@ -462,6 +467,8 @@ export async function decideConsent(ctx: OAuthContext, request: Request) {
         "Signed out",
         `Your Nimbus session ended before you decided. ${restart}`,
       );
+    if (session.impersonatedBy !== null)
+      return htmlError(403, "Cannot connect this app", impersonationRefused);
     const checked = verifyConsentTicket(ctx, ticket, session);
     if (!checked.ok) return htmlError(400, "Approval expired", checked.message);
     const validation = await validateAuthorization(

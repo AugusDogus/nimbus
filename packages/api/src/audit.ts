@@ -30,6 +30,8 @@ export const auditActions = [
   "account.password_set",
   "account.second_factors_reset",
   "account.sessions_revoked",
+  "account.impersonation_started",
+  "account.impersonation_stopped",
   "group.saved",
   "group.removed",
   "grant.added",
@@ -91,7 +93,15 @@ export type AuditEvent = {
   userAgent?: string;
 };
 
-export type AuditRequest = { ip: string; userAgent?: string };
+/** The administrator acting in someone else's session, recorded on every event it causes. */
+export type AuditImpersonator = { id: string; label: string };
+
+export type AuditRequest = {
+  ip: string;
+  userAgent?: string;
+  /** Set once the request's session turns out to be an impersonation. */
+  impersonator?: AuditImpersonator;
+};
 
 /**
  * Runs a request handler with its client metadata, so events recorded anywhere below it
@@ -101,6 +111,15 @@ export const runWithAuditRequest = <T>(
   request: AuditRequest,
   handler: () => T,
 ) => state.requests.run(request, handler);
+
+/**
+ * Marks the rest of the current request as an administrator acting in someone else's
+ * session, so every event it records names who really acted.
+ */
+export const markAuditImpersonator = (impersonator: AuditImpersonator) => {
+  const request = state.requests.getStore();
+  if (request) request.impersonator = impersonator;
+};
 
 export const auditUser = (user: { id: string; email: string }): AuditActor => ({
   type: "user",
@@ -163,9 +182,17 @@ export function recordAudit(event: AuditEvent) {
     return;
   }
   const request = state.requests.getStore();
+  const impersonator = request?.impersonator;
   state.queue.push({
     ...(request && { ip: request.ip, userAgent: request.userAgent }),
     ...event,
+    ...(impersonator && {
+      details: {
+        ...event.details,
+        impersonatedBy: impersonator.label,
+        impersonatedById: impersonator.id,
+      },
+    }),
     at: Date.now(),
   });
   schedule();

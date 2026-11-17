@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   anonymousActor,
   auditUser,
+  markAuditImpersonator,
   recordAudit,
   type AuditAction,
   type AuditActor,
@@ -25,6 +26,11 @@ const body = z
   .loose();
 const userShape = z.object({ id: z.string(), email: z.string() });
 const sessionShape = z.object({ user: userShape });
+/** A session an administrator opened as someone else. */
+const impersonatedShape = z.object({
+  user: userShape,
+  session: z.object({ impersonatedBy: z.string().min(1) }),
+});
 
 /** Sign-in endpoints and the method each represents. */
 const signIns: Record<string, string> = {
@@ -53,6 +59,7 @@ const actions: Record<string, AuditAction> = {
   "/admin/remove-user": "account.removed",
   "/admin/set-user-password": "account.password_set",
   "/admin/revoke-user-sessions": "account.sessions_revoked",
+  "/admin/impersonate-user": "account.impersonation_started",
 };
 
 const errorCode = (error: APIError) => {
@@ -74,6 +81,40 @@ export const nimbusAudit = () =>
           matcher: () => true,
           handler: createAuthMiddleware(async (ctx) => {
             const returned: unknown = ctx.context.returned;
+            const impersonated = impersonatedShape.safeParse(
+              ctx.path === "/get-session" ? returned : ctx.context.session,
+            );
+            const administrator = impersonated.success
+              ? await ctx.context.internalAdapter
+                  .findUserById(impersonated.data.session.impersonatedBy)
+                  .catch(() => null)
+              : null;
+            if (ctx.path === "/admin/stop-impersonating") {
+              if (impersonated.success && !(returned instanceof APIError))
+                recordAudit({
+                  action: "account.impersonation_stopped",
+                  actor: auditUser(
+                    administrator ?? {
+                      id: impersonated.data.session.impersonatedBy,
+                      email: impersonated.data.session.impersonatedBy,
+                    },
+                  ),
+                  target: {
+                    type: "user",
+                    id: impersonated.data.user.id,
+                    label: impersonated.data.user.email,
+                  },
+                });
+              return;
+            }
+            // Everything this request records names the administrator acting in this session.
+            if (impersonated.success)
+              markAuditImpersonator({
+                id: impersonated.data.session.impersonatedBy,
+                label:
+                  administrator?.email ??
+                  impersonated.data.session.impersonatedBy,
+              });
             const failed =
               returned instanceof APIError && returned.status !== "FOUND";
             const input = body.safeParse(ctx.body);

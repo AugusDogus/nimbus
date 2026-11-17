@@ -161,7 +161,7 @@ describe("MCP OAuth flow", () => {
       "INSERT INTO user (id, name, email, role) VALUES ('owner', 'Owner', 'owner@example.test', 'admin')",
     );
     now = 1_800_000_000_000;
-    session = { userId: "owner", sessionId: "session-1" };
+    session = { userId: "owner", sessionId: "session-1", impersonatedBy: null };
     ctx = {
       db,
       origin,
@@ -383,6 +383,40 @@ describe("MCP OAuth flow", () => {
     }
   });
 
+  it("an administrator signed in as someone else cannot connect AI clients for them", async () => {
+    const clientId = await register();
+    const { challenge } = pkce();
+    const view = await loadConsent(
+      ctx,
+      authorizeParams(clientId, challenge),
+      new Headers(),
+    );
+    if (view.kind !== "ready")
+      throw new Error(`Expected a consent form, got ${view.kind}`);
+    session = {
+      userId: "owner",
+      sessionId: "session-1",
+      impersonatedBy: "admin-1",
+    };
+    expect(
+      await loadConsent(
+        ctx,
+        authorizeParams(clientId, challenge),
+        new Headers(),
+      ),
+    ).toMatchObject({ kind: "invalid", message: containing("administrator") });
+    const decided = await decideConsent(
+      ctx,
+      post(
+        "/oauth/consent",
+        { ticket: view.ticket, decision: "approve" },
+        { origin },
+      ),
+    );
+    expect(decided.status).toBe(403);
+    expect(await listConnections(ctx.db, "owner")).toEqual([]);
+  });
+
   it("refuses to refresh tokens for a different resource", async () => {
     const tokens = await connect();
     const response = await handleToken(
@@ -410,7 +444,11 @@ describe("MCP OAuth flow", () => {
     client.run(
       "INSERT INTO user (id, name, email) VALUES ('member', 'Member', 'member@example.test')",
     );
-    session = { userId: "member", sessionId: "session-2" };
+    session = {
+      userId: "member",
+      sessionId: "session-2",
+      impersonatedBy: null,
+    };
     const tokens = await connect();
     await ctx.db
       .update(schema.user)
@@ -521,7 +559,11 @@ describe("MCP OAuth flow", () => {
         )
       ).status,
     ).toBe(403);
-    session = { userId: "owner", sessionId: "other-session" };
+    session = {
+      userId: "owner",
+      sessionId: "other-session",
+      impersonatedBy: null,
+    };
     expect(
       (
         await decideConsent(

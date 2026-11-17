@@ -24,6 +24,8 @@ export const auditLabels: Record<AuditAction, string> = {
   "account.password_set": "Reset account password",
   "account.second_factors_reset": "Reset sign-in methods",
   "account.sessions_revoked": "Signed out account everywhere",
+  "account.impersonation_started": "Started signing in as this account",
+  "account.impersonation_stopped": "Stopped signing in as this account",
   "group.saved": "Saved group",
   "group.removed": "Deleted group",
   "grant.added": "Granted access",

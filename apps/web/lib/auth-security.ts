@@ -3,6 +3,7 @@ import {
   APIError,
   createAuthEndpoint,
   createAuthMiddleware,
+  getSessionFromCtx,
   sessionMiddleware,
 } from "better-auth/api";
 import encodeQR from "qr";
@@ -81,6 +82,36 @@ const disconnectsMcp: Record<string, string> = {
   "/admin/revoke-user-sessions": "signed_out_everywhere",
   "/admin/set-user-password": "password_set",
 };
+
+/**
+ * What an administrator signed in as someone else may not do: change the account's
+ * password, email, sign-in methods or sessions, or delete it. Administration is already
+ * out of reach, because only members can be impersonated. App passwords and MCP
+ * connections are refused where they are created (tRPC and the consent page).
+ */
+const refusedWhileImpersonating = new Set([
+  "/change-password",
+  "/set-password",
+  "/change-email",
+  "/delete-user",
+  "/two-factor/enable",
+  "/two-factor/disable",
+  "/two-factor/get-totp-uri",
+  "/two-factor/verify-totp",
+  "/two-factor/generate-backup-codes",
+  "/two-factor/view-backup-codes",
+  "/passkey/generate-register-options",
+  "/passkey/verify-registration",
+  "/passkey/delete-passkey",
+  "/passkey/update-passkey",
+  "/revoke-sessions",
+  "/revoke-other-sessions",
+  "/nimbus/revoke-session",
+]);
+
+const impersonation = z.object({
+  session: z.object({ impersonatedBy: z.string().min(1) }),
+});
 
 /**
  * Nimbus account-security endpoints that Better Auth does not provide:
@@ -215,6 +246,21 @@ export const nimbusSecurity = ({
       ),
     },
     hooks: {
+      before: [
+        {
+          matcher: (context) =>
+            refusedWhileImpersonating.has(context.path ?? ""),
+          handler: createAuthMiddleware(async (ctx) => {
+            if (!impersonation.safeParse(await getSessionFromCtx(ctx)).success)
+              return;
+            throw new APIError("FORBIDDEN", {
+              code: "impersonation_restricted",
+              message:
+                "You are signed in as this person by an administrator, so you cannot change their password, email, sign-in methods or sessions. Stop impersonating to return to your own account. Nothing was changed.",
+            });
+          }),
+        },
+      ],
       after: [
         {
           matcher: () => true,

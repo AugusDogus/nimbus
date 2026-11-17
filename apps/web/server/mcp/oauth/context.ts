@@ -3,7 +3,12 @@ import type { Database } from "../../db";
 export type { Database };
 
 /** The signed-in browser user, from the Better Auth session. */
-export type BrowserSession = { userId: string; sessionId: string };
+export type BrowserSession = {
+  userId: string;
+  sessionId: string;
+  /** The administrator signed in as this user, or null for the user's own session. */
+  impersonatedBy: string | null;
+};
 
 /**
  * Dependencies of the OAuth endpoints. Routes build it from the environment
