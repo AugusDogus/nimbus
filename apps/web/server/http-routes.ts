@@ -140,8 +140,12 @@ export const HttpRoutes = {
   },
   /** Whether `pathname` belongs to a server endpoint rather than a browser page. */
   owns(pathname: string) {
+    // Routes match decoded segments, so `/%61pi/health` belongs to the server as `/api/health`
+    // does. A malformed encoding is checked as written.
+    const segments = pathSegments(pathname);
+    const decoded = segments ? `/${segments.join("/")}` : pathname;
     return serverPrefixes.some(
-      (prefix) => pathname.startsWith(prefix) || `${pathname}/` === prefix,
+      (prefix) => decoded.startsWith(prefix) || `${decoded}/` === prefix,
     );
   },
 } as const;
