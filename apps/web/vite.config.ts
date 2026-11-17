@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
+import { clientZodMini } from "./vite/client-zod-mini";
 import { startupChunkGroups } from "./vite/startup-chunk-groups";
 import { htmlNonce } from "./client/html-nonce";
 import { themeBoot } from "./lib/theme-boot-script";
@@ -175,6 +176,7 @@ export default defineConfig(({ command }) => {
       preloadFonts(),
       precompress(),
       startup?.plugin,
+      clientZodMini(),
     ],
   };
 });

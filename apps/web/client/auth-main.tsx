@@ -1,5 +1,3 @@
-// Must run before zod loads: it turns off zod's eval probe, which the CSP would report.
-import "./zod-jitless";
 import "@/app/globals.css";
 import "@/app/fonts.css";
 import { AuthPageData } from "@/app/auth/auth-page-data";
