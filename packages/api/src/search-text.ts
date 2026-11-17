@@ -174,6 +174,8 @@ const number = (value: string | undefined) => Number(value ?? "");
  * a month. Digits must not run on into other digits.
  */
 export function datesIn(name: string): string[] {
+  // Every form has a year from 1900 to 2099.
+  if (!/(?:19|20)\d\d/.test(name)) return [];
   const keys = new Set<string>();
   const sep = "[-_. /]";
   const ymd = new RegExp(

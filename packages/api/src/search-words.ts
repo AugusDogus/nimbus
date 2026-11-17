@@ -41,26 +41,71 @@ const isDate = (key: string) => /^[DM]\d/.test(key);
 /** Whether `key` can be offered as a correction: a word, not a fragment or a date. */
 const isWord = (key: string) => !key.endsWith(FRAGMENT) && !isDate(key);
 
+const isAsciiLetter = (code: number) =>
+  (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+const isAsciiDigit = (code: number) => code >= 48 && code <= 57;
+const isUpper = (code: number) => code >= 65 && code <= 90;
+
+/** Keys of the ASCII letter run `raw[start, end)`, by the same rules as `keysOf`. */
+function asciiRun(raw: string, start: number, end: number, keys: Set<string>) {
+  const length = end - start;
+  if (length < MIN_WORD) return;
+  const run = raw.slice(start, end).toLowerCase();
+  if (
+    length <= 4 &&
+    (isAsciiDigit(raw.charCodeAt(start - 1)) ||
+      isAsciiDigit(raw.charCodeAt(end)))
+  ) {
+    keys.add(run + FRAGMENT);
+    return;
+  }
+  keys.add(run);
+  // camelCase: a lowercase letter followed by an uppercase one.
+  let from = start;
+  for (let at = start + 1; at <= end; at++) {
+    if (
+      at < end &&
+      !(isUpper(raw.charCodeAt(at)) && !isUpper(raw.charCodeAt(at - 1)))
+    )
+      continue;
+    if (from === start && at === end) return;
+    if (at - from >= MIN_WORD) keys.add(raw.slice(from, at).toLowerCase());
+    from = at;
+  }
+}
+
 /** Distinct index keys of a raw name: folded words, fragments ending in NUL, and dates. */
 function keysOf(raw: string): string[] {
   const keys = new Set<string>();
-  for (const match of raw.matchAll(/\p{L}+/gu)) {
-    const run = match[0];
-    const end = match.index + run.length;
-    if (
-      run.length <= 4 &&
-      (/\p{N}/u.test(raw[match.index - 1] ?? "") ||
-        /\p{N}/u.test(raw[end] ?? ""))
-    ) {
-      if (run.length >= MIN_WORD) keys.add(keyOf(run) + FRAGMENT);
-      continue;
+  // ASCII names, most of them: char codes instead of Unicode regexes.
+  if (!/[^\u0000-\u007f]/.test(raw)) {
+    let start = -1;
+    for (let at = 0; at <= raw.length; at++) {
+      if (at < raw.length && isAsciiLetter(raw.charCodeAt(at))) {
+        if (start < 0) start = at;
+      } else if (start >= 0) {
+        asciiRun(raw, start, at, keys);
+        start = -1;
+      }
     }
-    if (run.length >= MIN_WORD) keys.add(keyOf(run));
-    const parts = run.split(/(?<=\p{Ll})(?=\p{Lu})/u);
-    if (parts.length > 1)
-      for (const part of parts)
-        if (part.length >= MIN_WORD) keys.add(keyOf(part));
-  }
+  } else
+    for (const match of raw.matchAll(/\p{L}+/gu)) {
+      const run = match[0];
+      const end = match.index + run.length;
+      if (
+        run.length <= 4 &&
+        (/\p{N}/u.test(raw[match.index - 1] ?? "") ||
+          /\p{N}/u.test(raw[end] ?? ""))
+      ) {
+        if (run.length >= MIN_WORD) keys.add(keyOf(run) + FRAGMENT);
+        continue;
+      }
+      if (run.length >= MIN_WORD) keys.add(keyOf(run));
+      const parts = run.split(/(?<=\p{Ll})(?=\p{Lu})/u);
+      if (parts.length > 1)
+        for (const part of parts)
+          if (part.length >= MIN_WORD) keys.add(keyOf(part));
+    }
   if (/\d/.test(raw)) for (const date of datesIn(raw)) keys.add(date);
   return [...keys];
 }
