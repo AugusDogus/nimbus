@@ -538,14 +538,39 @@ function names(
   const loose = Buffer.from(plainNeedle);
   const pattern = (bytes: Buffer) =>
     prefixOnly ? Buffer.concat([Buffer.from(SEPARATOR), bytes]) : bytes;
-  const found = (slot: number, tier: (length: number) => number) => {
+  /** Rank `slot` at the tier of a match at `at` in `bytes`, whose name starts at `start`. */
+  const found = (
+    slot: number,
+    bytes: Buffer,
+    start: number,
+    nameBytes: number,
+    query: Buffer,
+    at: number,
+    plainForm: boolean,
+  ) => {
     if (dead[slot]) return;
     counts.literal++;
+    if (marking) marks[slot] = (marks[slot] ?? 0) | LITERAL;
     const length =
       (foldedStarts[slot + 1] ?? 0) - (foldedStarts[slot] ?? 0) - 1;
-    if (marking) marks[slot] = (marks[slot] ?? 0) | LITERAL;
-    add(Rank.of(tier(length), boosts[slot] ?? 0, length, slot));
+    add(
+      Rank.of(
+        Rank.literalTier(
+          nameBytes === query.length,
+          at - start,
+          bytes[at - 1] ?? 0,
+          plainForm,
+        ),
+        boosts[slot] ?? 0,
+        length,
+        slot,
+      ),
+    );
   };
+  const foldedLength = (slot: number) =>
+    (foldedStarts[slot + 1] ?? 0) - (foldedStarts[slot] ?? 0) - 1;
+  // Folding changes only letters: a query without any reads the same plain.
+  const plainCanDiffer = /\p{L}/u.test(plainNeedle);
   for (const range of plan.ranges) {
     const asTyped = scan(
       layout,
@@ -553,13 +578,14 @@ function names(
       pattern(exact),
       prefixOnly,
       (slot, at) =>
-        found(slot, (length) =>
-          Rank.literalTier(
-            length === exact.length,
-            at - (foldedStarts[slot] ?? 0),
-            folded[at - 1] ?? 0,
-            false,
-          ),
+        found(
+          slot,
+          folded,
+          foldedStarts[slot] ?? 0,
+          foldedLength(slot),
+          exact,
+          at,
+          false,
         ),
       stopped,
     );
@@ -574,19 +600,21 @@ function names(
         prefixOnly,
         (slot, at) => {
           if (foldedHas(layout, slot, exact, prefixOnly)) return;
-          found(slot, (length) =>
-            Rank.literalTier(
-              length === loose.length,
-              at - (foldedStarts[slot] ?? 0),
-              folded[at - 1] ?? 0,
-              true,
-            ),
+          found(
+            slot,
+            folded,
+            foldedStarts[slot] ?? 0,
+            foldedLength(slot),
+            loose,
+            at,
+            true,
           );
         },
         stopped,
       )
     )
       return false;
+    if (!plainCanDiffer) continue;
     // The query read plain, in names that read differently plain.
     const withoutAccents = scanPlain(
       layout,
@@ -600,14 +628,14 @@ function names(
         )
           return;
         const start = layout.plainStarts[entry] ?? 0;
-        const plainLength = (layout.plainStarts[entry + 1] ?? 0) - start - 1;
-        found(slot, () =>
-          Rank.literalTier(
-            plainLength === loose.length,
-            at - start,
-            layout.plain[at - 1] ?? 0,
-            true,
-          ),
+        found(
+          slot,
+          layout.plain,
+          start,
+          (layout.plainStarts[entry + 1] ?? 0) - start - 1,
+          loose,
+          at,
+          true,
         );
       },
       stopped,
@@ -630,9 +658,11 @@ function scanWord(
   const pattern = (text: string) =>
     Buffer.from(prefixOnly ? SEPARATOR + text : text);
   return (
-    scan(layout, range, pattern(term), prefixOnly, visit, stopped) &&
-    (plainTerm === term ||
-      scan(layout, range, pattern(plainTerm), prefixOnly, visit, stopped)) &&
+    (scan(layout, range, pattern(term), prefixOnly, visit, stopped) &&
+      (plainTerm === term ||
+        scan(layout, range, pattern(plainTerm), prefixOnly, visit, stopped)) &&
+      // Folding changes only letters: a word without any reads the same plain.
+      !/\p{L}/u.test(plainTerm)) ||
     scanPlain(layout, range, pattern(plainTerm), prefixOnly, visit, stopped)
   );
 }
