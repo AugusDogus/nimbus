@@ -42,7 +42,7 @@ import { anonymousActor, recordAudit } from "@nimbus/api/audit";
 import { ClientIp } from "./client-ip";
 import { serveFile } from "./file-response";
 import { httpDriveStore, httpError } from "./http-files";
-import { RateLimiter } from "./rate-limit";
+import { CredentialAttempts } from "./credential-attempts";
 import { RequestBody } from "./request-body";
 import {
   evaluateIfHeader,
@@ -87,52 +87,66 @@ const MICROSOFT = "urn:schemas-microsoft-com:";
 
 // Counts wrong credentials per client. Requests without credentials (the usual
 // first request of a WebDAV client) are challenged, not counted.
-const failedLogins = RateLimiter.shared("webdav-auth-failures", {
+const failedLogins = CredentialAttempts.create({
   limit: 20,
   windowMs: 10 * 60 * 1000,
 });
 const clientKey = (request: Request) =>
   ClientIp.bucket(ClientIp.fromHeaders(request.headers));
+const hasCredentials = (request: Request) =>
+  request.headers.get("authorization")?.startsWith("Basic ") ?? false;
 
-function throttled(request: Request) {
-  if (!request.headers.get("authorization")?.startsWith("Basic ")) return null;
-  const decision = failedLogins.check(clientKey(request));
-  if (decision.allowed) return null;
-  const minutes = Math.ceil(decision.retryAfterSeconds / 60);
-  return new Response(
-    `Too many failed WebDAV sign-ins from this address. Wait ${minutes === 1 ? "a minute" : `${minutes} minutes`}, then check the email and app password in your client.`,
-    {
-      status: 429,
-      headers: { "Retry-After": String(decision.retryAfterSeconds) },
-    },
-  );
-}
-
-async function authenticate(request: Request) {
-  const header = request.headers.get("authorization");
-  if (!header?.startsWith("Basic "))
-    throw new TRPCError({ code: "UNAUTHORIZED" });
+/** The account named by the request's Basic credentials, or null (audited) when they are wrong. */
+async function verifyCredentials(request: Request) {
+  const header = request.headers.get("authorization") ?? "";
   const credentials = Buffer.from(header.slice(6), "base64").toString("utf8");
   const colon = credentials.indexOf(":");
   const email = colon < 1 ? "" : credentials.slice(0, colon);
   const reject = () => {
-    failedLogins.consume(clientKey(request));
     recordAudit({
       action: "webdav.auth_failed",
       actor: anonymousActor(email),
     });
-    return new TRPCError({ code: "UNAUTHORIZED" });
+    return null;
   };
-  if (colon < 1) throw reject();
+  if (colon < 1) return reject();
   const token = credentials.slice(colon + 1);
   // App passwords are 256-bit random tokens, so a fast hash is the right lookup key.
   const password = await httpDriveStore.findAppPassword(
     createHash("sha256").update(token).digest("hex"),
   );
-  if (!password) throw reject();
+  if (!password) return reject();
   const access = await getAccess(httpDriveStore, password.userId);
-  if (access.user.email.toLowerCase() !== email.toLowerCase()) throw reject();
+  if (access.user.email.toLowerCase() !== email.toLowerCase()) return reject();
   return access;
+}
+
+/** Authenticates a request as it arrives, refusing clients with too many wrong credentials. */
+async function signIn(request: Request) {
+  if (!hasCredentials(request)) throw new TRPCError({ code: "UNAUTHORIZED" });
+  const attempt = await failedLogins.run(clientKey(request), () =>
+    verifyCredentials(request),
+  );
+  if (attempt.kind === "verified") return attempt.value;
+  if (attempt.kind === "rejected")
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  const minutes = Math.ceil(attempt.retryAfterSeconds / 60);
+  return new Response(
+    `Too many failed WebDAV sign-ins from this address. Wait ${minutes === 1 ? "a minute" : `${minutes} minutes`}, then check the email and app password in your client.`,
+    {
+      status: 429,
+      headers: { "Retry-After": String(attempt.retryAfterSeconds) },
+    },
+  );
+}
+
+/** Re-checks the credentials of a request already signed in, such as inside a file lock. */
+async function authenticate(request: Request) {
+  if (!hasCredentials(request)) throw new TRPCError({ code: "UNAUTHORIZED" });
+  const access = await verifyCredentials(request);
+  if (access) return access;
+  failedLogins.fail(clientKey(request));
+  throw new TRPCError({ code: "UNAUTHORIZED" });
 }
 
 /** XML responses carry an exact Content-Length; some clients mishandle chunked multistatus. */
@@ -664,10 +678,9 @@ async function mutation(
 }
 
 export async function handleWebDAV(request: Request): Promise<Response> {
-  const limited = throttled(request);
-  if (limited) return limited;
   try {
-    const access = await authenticate(request);
+    const access = await signIn(request);
+    if (access instanceof Response) return access;
     const url = new URL(request.url);
     const target = (await safePath(decodedPath(url.pathname))).relative;
     const method = request.method;
