@@ -169,16 +169,32 @@ test("serves cached thumbnails that revalidate and work on public links", async 
     expiresAt: null,
   });
   const shared = await anonymous.request.get(
-    `/api/files/thumbnail?share=${token}&path=photo.png`,
+    `/api/share/${token}/thumbnail?path=photo.png`,
   );
   expect(shared.status()).toBe(200);
   expect(
     (
       await anonymous.request.get(
-        `/api/files/thumbnail?share=${token}&path=../outside.png`,
+        `/api/share/${token}/thumbnail?path=../outside.png`,
       )
     ).status(),
   ).toBeGreaterThanOrEqual(400);
+  // A password-protected link's thumbnails load once it is unlocked.
+  const locked = await rpc.shares.create.mutate({
+    path: folder,
+    expiresAt: null,
+    password: "thumbnail-pass-42",
+  });
+  const lockedURL = `/api/share/${locked.token}/thumbnail?path=photo.png`;
+  expect((await anonymous.request.get(lockedURL)).status()).toBe(401);
+  expect(
+    (
+      await anonymous.request.post(`/api/share/${locked.token}`, {
+        data: { password: "thumbnail-pass-42" },
+      })
+    ).status(),
+  ).toBe(200);
+  expect((await anonymous.request.get(lockedURL)).status()).toBe(200);
   await anonymous.close();
 
   await page.goto(`/browse/${folder}`);

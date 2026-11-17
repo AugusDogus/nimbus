@@ -24,6 +24,7 @@ import * as oauthRegister from "./routes/oauth-register";
 import * as oauthRevoke from "./routes/oauth-revoke";
 import * as oauthToken from "./routes/oauth-token";
 import * as share from "./routes/share";
+import * as shareThumbnail from "./routes/share-thumbnail";
 import * as trpc from "./routes/trpc";
 import * as upload from "./routes/upload";
 import { RequestBody } from "./request-body";
@@ -71,6 +72,11 @@ const routes = ({ shell, mode }: PageContext): Route[] => [
   route("/api/mcp", none, mcp),
   route("/api/mcp/connections/:id", ([id]) => ({ id }), mcpConnection),
   route("/api/mcp/download", none, mcpDownload),
+  route(
+    "/api/share/:token/thumbnail",
+    ([token]) => ({ token }),
+    shareThumbnail,
+  ),
   route("/api/share/:token", ([token]) => ({ token }), share),
   route("/api/trpc/:procedures", none, {
     GET: RequestBody.capped(trpcBodyBytes, trpc.GET),

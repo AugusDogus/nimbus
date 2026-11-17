@@ -1,5 +1,6 @@
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
+import type { Access } from "@nimbus/api/access";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { FileKind } from "@/lib/file-kind";
 import { hasThumbnail } from "@/lib/thumbnail-kind";
@@ -21,27 +22,43 @@ const cacheHeaders = (etag: string) => ({
   "Content-Security-Policy": "sandbox; default-src 'none'",
 });
 
-async function authorize(request: Request, url: URL) {
-  const requested = url.searchParams.get("path") ?? "";
-  const token = url.searchParams.get("share");
-  if (token === null) {
-    const access = await requestAccess(request);
-    return { access, relative: (await safePath(requested)).relative };
-  }
-  const { share, access } = await getPublicShare(token);
-  if (!isShareUnlocked(share, request))
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "Unlock this share with its password to view thumbnails.",
-    });
-  const scoped = await sharedTarget(share, access, requested);
-  return { access: scoped.access, relative: scoped.target.relative };
+type Authorized = { access: Pick<Access, "require">; relative: string };
+
+/** The signed-in caller's thumbnail of `?path=`. */
+export async function GET(request: Request) {
+  return thumbnail(request, async (url) => ({
+    access: await requestAccess(request),
+    relative: (await safePath(url.searchParams.get("path") ?? "")).relative,
+  }));
 }
 
-export async function GET(request: Request) {
+/**
+ * A thumbnail of `?path=` inside the public link `token`. It is served under the link's own
+ * endpoint, where the browser sends the link's unlock cookie.
+ */
+export async function shareThumbnail(request: Request, token: string) {
+  return thumbnail(request, async (url) => {
+    const { share, access } = await getPublicShare(token);
+    if (!isShareUnlocked(share, request))
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Unlock this share with its password to view thumbnails.",
+      });
+    const scoped = await sharedTarget(
+      share,
+      access,
+      url.searchParams.get("path") ?? "",
+    );
+    return { access: scoped.access, relative: scoped.target.relative };
+  });
+}
+
+async function thumbnail(
+  request: Request,
+  authorize: (url: URL) => Promise<Authorized>,
+) {
   try {
-    const url = new URL(request.url);
-    const { access, relative } = await authorize(request, url);
+    const { access, relative } = await authorize(new URL(request.url));
     access.require(relative, "read");
     const entry = await requireExisting(relative);
     const name = path.basename(entry.absolute);

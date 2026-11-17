@@ -11,13 +11,15 @@ type ThumbnailEntry = {
 
 /**
  * The version parameter changes with the file, so a live update swaps the
- * image while an unchanged file revalidates with a 304.
+ * image while an unchanged file revalidates with a 304. A public link's
+ * thumbnails come from its own endpoint, which receives its unlock cookie.
  */
 export function thumbnailSrc(entry: ThumbnailEntry, share?: string) {
   const params = new URLSearchParams({ path: entry.path });
-  if (share !== undefined) params.set("share", share);
   params.set("v", `${entry.mtime ?? 0}-${entry.size ?? 0}`);
-  return `/api/files/thumbnail?${params}`;
+  return share === undefined
+    ? `/api/files/thumbnail?${params}`
+    : `/api/share/${encodeURIComponent(share)}/thumbnail?${params}`;
 }
 
 export const hasThumbnail = (entry: ThumbnailEntry) =>
