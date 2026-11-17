@@ -9,11 +9,9 @@ type DragState =
       sources: readonly FileEntry[];
       targetPath: string | null;
     }
-  | { status: "moving"; sources: readonly FileEntry[]; targetPath: string }
-  | { status: "error"; message: string };
+  | { status: "moving"; sources: readonly FileEntry[]; targetPath: string };
 
 type Moves = {
-  moveEntry: (sourcePath: string, destinationPath: string) => Promise<void>;
   moveEntries: (
     sources: readonly FileEntry[],
     destinationPath: string,
@@ -39,7 +37,7 @@ function setCountImage(event: DragEvent<HTMLElement>, count: number) {
   setTimeout(() => badge.remove());
 }
 
-export function useFileDrag({ moveEntry, moveEntries }: Moves) {
+export function useFileDrag({ moveEntries }: Moves) {
   const [state, setRendered] = useState<DragState>({ status: "idle" });
   // Handlers read the latest state from this ref: memoized rows keep handlers from earlier renders.
   const stateRef = useRef<DragState>(state);
@@ -55,24 +53,7 @@ export function useFileDrag({ moveEntry, moveEntries }: Moves) {
     destination: FileEntry,
   ) => {
     setState({ status: "moving", sources, targetPath: destination.path });
-    const [source, ...rest] = sources;
-    if (source && rest.length === 0) {
-      try {
-        await moveEntry(source.path, destination.path);
-        setState({ status: "idle" });
-      } catch (error) {
-        const reason =
-          error instanceof Error
-            ? error.message
-            : "Refresh the folder and try again.";
-        setState({
-          status: "error",
-          message: `Could not move “${source.name}” to “${destination.name}”. ${reason}`,
-        });
-      }
-      return;
-    }
-    // Bulk moves report their outcome in a summary toast.
+    // The summary toast reports the outcome, one item or many; a failure stays until closed.
     await moveEntries(sources, destination.path);
     setState({ status: "idle" });
   };

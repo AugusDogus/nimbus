@@ -494,11 +494,6 @@ export function EntriesView({
 
   return (
     <>
-      {drag.state.status === "error" && (
-        <p role="alert" className="mb-3 text-pretty text-sm text-destructive">
-          {drag.state.message}
-        </p>
-      )}
       {drag.state.status === "moving" && (
         <p role="status" className="sr-only">
           Moving{" "}

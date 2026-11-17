@@ -77,9 +77,14 @@ for (const view of ["list", "grid"] as const) {
       exact: true,
     });
     await sourceConflict.dragTo(target);
-    await expect(
-      page.getByRole("alert").filter({ hasText: "Could not move" }),
-    ).toContainText("An item with that name already exists");
+    // One report, which stays until closed and names the item; the reason is the server's.
+    const failure = page
+      .getByRole("alert")
+      .filter({ hasText: `Nothing was moved. “${conflict}”` });
+    await expect(failure).toHaveCount(1);
+    await expect(page.getByRole("alert")).toHaveCount(1);
+    await page.locator('[aria-label="Close toast"]').click();
+    await expect(failure).toHaveCount(0);
     await expect(sourceConflict).toBeVisible();
     const sourceDownload = await context.request.get(
       `/api/files/download?path=${encodeURIComponent(`${root}/${conflict}`)}`,
