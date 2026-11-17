@@ -103,9 +103,6 @@ export async function POST(request: Request, context: Context) {
   try {
     const { token } = await context.params;
     const { share } = await getPublicShare(token);
-    const allowed = SharePasswordAttempts.check(token, request);
-    if (!allowed.allowed)
-      return RateLimiter.response(allowed, "wrong passwords for this link");
     const read = await RequestBody.read(request, RequestBody.smallJsonBytes);
     if (read.kind === "too_large")
       return RequestBody.tooLargeResponse(read.maxBytes);
@@ -135,13 +132,20 @@ export async function POST(request: Request, context: Context) {
         { unlocked: true },
         { headers: { "Cache-Control": "no-store" } },
       );
+    const attempt = await SharePasswordAttempts.begin(token, request);
+    if (attempt.kind === "refused")
+      return RateLimiter.response(
+        attempt.decision,
+        "wrong passwords for this link",
+      );
     if (!(await Bun.password.verify(body.password, passwordHash))) {
-      SharePasswordAttempts.fail(share, request);
+      SharePasswordAttempts.failed(share);
       return Response.json(
         { error: "That password is incorrect. Try again or ask the owner." },
         { status: 401 },
       );
     }
+    attempt.succeeded();
     const headers = new Headers({ "Cache-Control": "no-store" });
     for (const cookie of shareCookies({ ...share, passwordHash }))
       headers.append("Set-Cookie", cookie);

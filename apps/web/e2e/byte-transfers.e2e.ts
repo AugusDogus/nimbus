@@ -151,3 +151,34 @@ test("link password endpoints refuse oversized bodies before reading them", asyn
     await anonymous.close();
   }
 });
+
+test("parallel wrong passwords are counted before they are checked", async ({
+  context,
+  browser,
+}) => {
+  const share = await (
+    await client(context)
+  ).shares.create.mutate({
+    path: "alpha.txt",
+    expiresAt: null,
+    password: "correct-horse-42",
+  });
+  const anonymous = await browser.newContext({
+    storageState: { cookies: [], origins: [] },
+  });
+  try {
+    const statuses = await Promise.all(
+      Array.from({ length: 30 }, (_, index) =>
+        anonymous.request
+          .post(`/api/share/${share.token}`, {
+            data: { password: `wrong-guess-${index}` },
+          })
+          .then((response) => response.status()),
+      ),
+    );
+    expect(statuses.filter((status) => status === 401)).toHaveLength(10);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(20);
+  } finally {
+    await anonymous.close();
+  }
+});

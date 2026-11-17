@@ -14,6 +14,8 @@ export type RateLimiter = {
   check(key: string, now?: number): RateLimitDecision;
   /** Counts one event and returns whether it was allowed. */
   consume(key: string, now?: number): RateLimitDecision;
+  /** Gives back one event counted by `consume`, such as an attempt that turned out legitimate. */
+  refund(key: string, now?: number): void;
   /** Forget every key, as a restart would. */
   clear(): void;
   readonly size: number;
@@ -59,6 +61,13 @@ export const RateLimiter = {
         arrivals.delete(key);
         arrivals.set(key, decision.next);
         return { allowed: true };
+      },
+      refund(key, now = Date.now()) {
+        const tat = arrivals.get(key);
+        if (tat === undefined) return;
+        const earlier = tat - rule.windowMs / rule.limit;
+        if (earlier <= now) arrivals.delete(key);
+        else arrivals.set(key, earlier);
       },
       clear() {
         arrivals.clear();

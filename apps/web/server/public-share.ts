@@ -103,11 +103,11 @@ export async function sharedTarget(
 const sharePasswords = LinkPasswordAttempts.create("share");
 
 export const SharePasswordAttempts = {
-  check(token: string, request: Request) {
-    return sharePasswords.check(token, request);
+  begin(token: string, request: Request) {
+    return sharePasswords.begin(token, request);
   },
-  fail(share: Share, request: Request) {
-    sharePasswords.fail(share.token, request);
+  /** Audit a wrong password; the attempt was counted when it began. */
+  failed(share: Share) {
     recordAudit({
       action: "share.password_failed",
       actor: { type: "anonymous" },

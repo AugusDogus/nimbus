@@ -53,9 +53,6 @@ export async function POST(request: Request, context: Context) {
   try {
     const { token } = await context.params;
     const { request: fileRequest } = await activeFileRequest({ token });
-    const attempt = FileRequestPasswordAttempts.check(token, request);
-    if (!attempt.allowed)
-      return RateLimiter.response(attempt, "wrong passwords for this link");
     const read = await RequestBody.read(request, RequestBody.smallJsonBytes);
     if (read.kind === "too_large")
       return RequestBody.tooLargeResponse(read.maxBytes);
@@ -79,8 +76,14 @@ export async function POST(request: Request, context: Context) {
     const { passwordHash } = fileRequest;
     if (passwordHash === null)
       return Response.json({ unlocked: true }, { headers: noStore });
+    const attempt = await FileRequestPasswordAttempts.begin(token, request);
+    if (attempt.kind === "refused")
+      return RateLimiter.response(
+        attempt.decision,
+        "wrong passwords for this link",
+      );
     if (!(await Bun.password.verify(body.password, passwordHash))) {
-      FileRequestPasswordAttempts.fail(fileRequest, request);
+      FileRequestPasswordAttempts.failed(fileRequest);
       return Response.json(
         {
           error:
@@ -89,6 +92,7 @@ export async function POST(request: Request, context: Context) {
         { status: 401 },
       );
     }
+    attempt.succeeded();
     const headers = new Headers(noStore);
     for (const cookie of fileRequestCookies({ ...fileRequest, passwordHash }))
       headers.append("Set-Cookie", cookie);

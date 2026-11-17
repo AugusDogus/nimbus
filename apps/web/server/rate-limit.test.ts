@@ -23,6 +23,17 @@ describe("RateLimiter", () => {
     expect(limiter.check("a", 12_000).allowed).toBe(false);
   });
 
+  it("gives back a refunded event", () => {
+    const limiter = RateLimiter.create(rule);
+    for (let attempt = 0; attempt < 5; attempt++) limiter.consume("a", 0);
+    limiter.refund("a", 0);
+    expect(limiter.consume("a", 0)).toEqual({ allowed: true });
+    expect(limiter.consume("a", 0).allowed).toBe(false);
+    limiter.consume("b", 0);
+    limiter.refund("b", 0);
+    expect(limiter.size).toBe(1);
+  });
+
   it("checks without counting", () => {
     const limiter = RateLimiter.create(rule);
     for (let attempt = 0; attempt < 20; attempt++)

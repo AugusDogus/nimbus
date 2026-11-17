@@ -90,11 +90,11 @@ export function isFileRequestUnlocked(request: FileRequest, incoming: Request) {
 const fileRequestPasswords = LinkPasswordAttempts.create("file-request");
 
 export const FileRequestPasswordAttempts = {
-  check(token: string, incoming: Request) {
-    return fileRequestPasswords.check(token, incoming);
+  begin(token: string, incoming: Request) {
+    return fileRequestPasswords.begin(token, incoming);
   },
-  fail(request: FileRequest, incoming: Request) {
-    fileRequestPasswords.fail(request.token, incoming);
+  /** Audit a wrong password; the attempt was counted when it began. */
+  failed(request: FileRequest) {
     recordAudit({
       action: "file_request.password_failed",
       actor: { type: "anonymous" },
