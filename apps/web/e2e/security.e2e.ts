@@ -319,6 +319,13 @@ test("sign-in keeps what is typed before its code has loaded", async ({
         exact: true,
       }),
     ).toBeDisabled();
+    // The code then arrives at full speed: development serves it as many separate modules.
+    await cdp.send("Network.emulateNetworkConditions", {
+      offline: false,
+      latency: 0,
+      downloadThroughput: -1,
+      uploadThroughput: -1,
+    });
     release();
     const signIn = visitor.page.getByRole("button", {
       name: "Sign in",
