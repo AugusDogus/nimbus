@@ -11,6 +11,7 @@
     "./file-events": "./src/file-events.ts",
     "./data-root": "./src/data-root.ts",
     "./safe-path": "./src/safe-path.ts",
+    "./staging": "./src/staging.ts",
     "./fs-utils": "./src/fs-utils.ts",
     "./access": "./src/access.ts",
     "./audit": "./src/audit.ts",

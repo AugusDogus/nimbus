@@ -10,6 +10,7 @@ import { mutateFiles } from "./file-mutations";
 import { FileVersions, type FileVersionStore } from "./file-versions";
 import { requireExisting, safePath } from "./file-operations";
 import { isApiError } from "./safe-path";
+import { Staging } from "./staging";
 
 /** The entity tag WebDAV and downloads already use for a file version. */
 export const fileTag = (entry: Pick<FileEntry, "mtime" | "size">) =>
@@ -121,11 +122,18 @@ export type StagedFile = { path: string; discard: () => Promise<void> };
 /**
  * Write content beside the drive's upload staging area, outside any lock, so a
  * slow transfer never blocks other mutations. Commit it with `commitStagedFile`.
+ * Staging on the filesystem of `destination` (an absolute path already checked with
+ * `safePath`), when given, avoids a copy at commit when it is a folder mounted inside
+ * the drive.
  */
 export async function stageFile(
   content: string | ReadableStream<Uint8Array> | null,
+  destination?: string,
 ): Promise<StagedFile> {
-  const directory = path.join(getDataRoot(), ".nimbus", "uploads");
+  const directory =
+    destination === undefined
+      ? path.join(getDataRoot(), ".nimbus", "uploads")
+      : await Staging.directoryFor(getDataRoot(), destination);
   await mkdir(directory, { recursive: true });
   const staged = path.join(directory, `${randomUUID()}.staged`);
   const discard = () => rm(staged, { force: true });
@@ -186,14 +194,24 @@ export async function commitStagedFile(
         if (isApiError(error, "NOT_FOUND")) return { kind: "missing_parent" };
         throw error;
       }
-      // The single commit point for staged content: a replaced file's content is kept as a version.
-      await FileVersions.commitReplacement({
-        store: credentials.versions,
-        dataRoot: getDataRoot(),
-        path: target.relative,
-        incoming: staged.path,
-        archivedBy: access.user.id,
-      });
+      // Renames only work within a filesystem; a folder may be a mount inside the drive.
+      const incoming = await Staging.onFilesystemOf(
+        getDataRoot(),
+        staged.path,
+        target.absolute,
+      );
+      try {
+        // The single commit point for staged content: a replaced file's content is kept as a version.
+        await FileVersions.commitReplacement({
+          store: credentials.versions,
+          dataRoot: getDataRoot(),
+          path: target.relative,
+          incoming: incoming.path,
+          archivedBy: access.user.id,
+        });
+      } finally {
+        await incoming.discard();
+      }
       publishFileEvent({
         path: target.absolute,
         event: current ? "change" : "rename",

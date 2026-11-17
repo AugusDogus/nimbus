@@ -11,7 +11,9 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { getDataRoot } from "@nimbus/api/data-root";
 import { isFsError } from "@nimbus/api/safe-path";
+import { Staging } from "@nimbus/api/staging";
 
 // Errors from filesystems or nested mounts that cannot hardlink or rename between each other.
 const crossDevice = ["EXDEV", "ENOTSUP", "EOPNOTSUPP", "EPERM"];
@@ -74,8 +76,22 @@ export class UploadStore extends FileStore {
           throw error;
         }
       } else if (crossDevice.some((code) => isFsError(error, code))) {
-        // Preserve support for filesystems or nested mounts without hardlinks.
-        await copyFile(source, destination, constants.COPYFILE_EXCL);
+        // A nested mount, or a filesystem without hardlinks: copy onto the destination's
+        // filesystem first, so the file appears whole, never half written.
+        const incoming = await Staging.onFilesystemOf(
+          getDataRoot(),
+          source,
+          destination,
+        );
+        try {
+          await link(incoming.path, destination);
+        } catch (linkError) {
+          if (!crossDevice.some((code) => isFsError(linkError, code)))
+            throw linkError;
+          await copyFile(incoming.path, destination, constants.COPYFILE_EXCL);
+        } finally {
+          await incoming.discard();
+        }
         copied = true;
       } else {
         throw error;
@@ -96,19 +112,29 @@ export class UploadStore extends FileStore {
   ) {
     if (await this.isFinished(id)) return;
     const source = path.join(this.directory, id);
+    // On a folder mounted inside the drive, the staged bytes are copied onto its filesystem,
+    // so the commit still renames them into place and keeps the replaced content as a version.
+    const incoming = await Staging.onFilesystemOf(
+      getDataRoot(),
+      source,
+      destination,
+    );
     const temporary = path.join(this.directory, `${id}.replace`);
     try {
-      await rm(temporary, { force: true });
-      try {
-        await link(source, temporary);
+      if (incoming.path === source) {
+        // The staged file stays for tus retries; the commit renames a second name away.
+        await rm(temporary, { force: true });
+        try {
+          await link(source, temporary);
+        } catch (error) {
+          if (!crossDevice.some((code) => isFsError(error, code))) throw error;
+          await copyFile(source, temporary);
+        }
         await commit(temporary);
-      } catch (error) {
-        if (!crossDevice.some((code) => isFsError(error, code))) throw error;
-        // Nested mounts cannot rename between filesystems. Overwrite in place instead.
-        await copyFile(source, destination);
-      }
+      } else await commit(incoming.path);
     } finally {
       await rm(temporary, { force: true });
+      await incoming.discard();
     }
     // A failed marker leaves the replaced content in place; a retry replaces it again.
     await this.markFinished(id, destination, false);

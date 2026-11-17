@@ -22,6 +22,7 @@ import {
   PathError,
   resolveSafePath,
 } from "./safe-path";
+import { Staging } from "./staging";
 
 export async function safePath(requested: string) {
   try {
@@ -281,8 +282,11 @@ export async function copyItem(
   requireSeparate(source.relative, target.relative);
   const existingDestination = options.existing ?? "refuse";
   if (existingDestination === "refuse") await requireUnused(target.absolute);
-  const stagingDirectory = path.join(getDataRoot(), ".nimbus", "uploads");
-  await mkdir(stagingDirectory, { recursive: true });
+  // On the destination's filesystem, which a folder mounted inside the drive may not share.
+  const stagingDirectory = await Staging.directoryFor(
+    getDataRoot(),
+    target.absolute,
+  );
   const staging = path.join(stagingDirectory, `${randomUUID()}.copy`);
   const trashId = randomUUID();
   try {

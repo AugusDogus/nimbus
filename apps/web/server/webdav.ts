@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import path from "node:path";
 import { lstat, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { TRPCError } from "@trpc/server";
 import { getAccess, type Access } from "@nimbus/api/access";
@@ -489,7 +490,11 @@ async function putFile(
   requested: string,
   credentials: MutationCredentials,
 ) {
-  const staged = await stageFile(request.body);
+  // `requested` was checked with safePath by the caller.
+  const staged = await stageFile(
+    request.body,
+    path.join(getDataRoot(), requested),
+  );
   try {
     const mtime = requestedMtime(request);
     // The staged file is private until it commits, so its time can be set outside the lock.
