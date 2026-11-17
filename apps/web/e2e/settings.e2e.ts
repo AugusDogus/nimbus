@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
-import { client, createFolder, test } from "./helpers";
+import { adminEmail, client, createFolder, password, test } from "./helpers";
 import { FileListing } from "@nimbus/api/file-listing";
 
 test("settings replaces the drive shell and keeps its sections independently navigable", async ({
@@ -90,11 +90,15 @@ test("direct settings links require sign-in", async ({ browser }) => {
   });
   try {
     const page = await context.newPage();
-    await page.goto("/settings/account");
-    await expect(page).toHaveURL("/login");
-    await expect(
-      page.getByRole("button", { name: "Sign in", exact: true }),
-    ).toBeVisible();
+    await page.goto("/settings/account?tab=1");
+    await expect(page).toHaveURL(
+      "/login?callbackURL=%2Fsettings%2Faccount%3Ftab%3D1",
+    );
+    // Signing in returns to the page that was asked for.
+    await page.getByLabel("Email", { exact: true }).fill(adminEmail);
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page).toHaveURL("/settings/account?tab=1");
   } finally {
     await context.close();
   }

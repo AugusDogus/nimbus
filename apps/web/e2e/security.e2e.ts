@@ -210,7 +210,9 @@ test("sessions can be reviewed and signed out, and administrators can reset sign
       .click();
     await expect(page.getByRole("alertdialog")).toBeHidden();
     await first.page.reload();
-    await expect(first.page).toHaveURL(/\/login$/);
+    await expect(first.page).toHaveURL(
+      "/login?callbackURL=%2Fsettings%2Fwebdav",
+    );
     expect(await davStatus()).toBe(401);
 
     await page.goto("/settings/admin/audit");
@@ -265,10 +267,14 @@ test("a signed-out session's cookie sends every signed-in page to sign-in", asyn
         headers: { "Sec-Fetch-Dest": "document" },
         maxRedirects: 0,
       });
+      const signIn =
+        path === "/"
+          ? "/login"
+          : `/login?${new URLSearchParams({ callbackURL: path })}`;
       expect(answer.status(), path).toBe(307);
-      expect(answer.headers().location, path).toBe(`${origin}/login`);
+      expect(answer.headers().location, path).toBe(`${origin}${signIn}`);
       await member.page.goto(path);
-      await expect(member.page).toHaveURL(/\/login$/);
+      await expect(member.page).toHaveURL(signIn);
       await expect(
         member.page.getByRole("button", { name: "Sign in", exact: true }),
       ).toBeVisible();

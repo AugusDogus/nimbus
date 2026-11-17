@@ -1,5 +1,6 @@
 import { createContext } from "@nimbus/api/context";
 import { auth } from "@/lib/auth";
+import { CallbackUrl } from "@/lib/callback-url";
 import { fileListRequest } from "@/lib/file-list-request";
 import { parseSignedIn } from "@/lib/session-query";
 import type { Bootstrap } from "@/client/bootstrap";
@@ -61,7 +62,13 @@ export const PageBootstrap = {
     if (kind === null || !signedInKinds.has(kind))
       return { kind: "page", data: {}, requests: [], folder: false };
     const { caller, session } = await forRequest(request);
-    if (!session) return { kind: "redirect", location: "/login" };
+    if (!session) {
+      const { pathname, search } = new URL(request.url);
+      return {
+        kind: "redirect",
+        location: CallbackUrl.signInPath(pathname + search),
+      };
+    }
     if (kind !== "files")
       return { kind: "page", data: { session }, requests: [], folder: false };
     const prefs = await caller.prefs.get();
