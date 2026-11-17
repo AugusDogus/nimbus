@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { inferRouterOutputs } from "@trpc/server";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import type { WebRouter } from "@/server/web-router";
 
@@ -59,13 +59,67 @@ export function useSearch(query: string, limit: number): SearchState {
   });
   // Later pages, for the search they continue. (Plain queries rather than
   // useInfiniteQuery, whose code would join the chunk every page loads.)
+  // `base` is when the first page they continue was fetched.
   const [later, setLater] = useState<{
     query: string;
+    base: number;
     pages: SearchOutput[];
     loading: boolean;
     error: Error | null;
-  }>({ query: "", pages: [], loading: false, error: null });
+  }>({ query: "", base: 0, pages: [], loading: false, error: null });
   const own = later.query === query ? later : null;
+  const base = full.dataUpdatedAt;
+  const first = full.data;
+  const loaded = own?.pages.length ?? 0;
+  // A change refetches the first page, so the later pages may list items that were trashed,
+  // renamed or moved. Fetch the same number of pages again after the new first page, keeping
+  // the old ones on screen until the new ones replace them.
+  const stale = first !== undefined && loaded > 0 && own?.base !== base;
+  useEffect(() => {
+    if (!stale) return;
+    const controller = new AbortController();
+    void (async () => {
+      const pages: SearchOutput[] = [];
+      let cursor = first.next;
+      while (cursor && pages.length < loaded) {
+        const page = await trpcClient.catalog.search.query(
+          { query, path: "", limit, depth: "full", cursor },
+          { signal: controller.signal },
+        );
+        pages.push(page);
+        cursor = page.next;
+      }
+      return pages;
+    })().then(
+      (pages) =>
+        setLater((previous) =>
+          previous.query === query
+            ? { query, base, pages, loading: false, error: null }
+            : previous,
+        ),
+      (error: unknown) => {
+        if (controller.signal.aborted) return;
+        // Results that may be wrong are dropped; Show more loads them again.
+        setLater((previous) =>
+          previous.query === query
+            ? {
+                query,
+                base,
+                pages: [],
+                loading: false,
+                error:
+                  error instanceof Error
+                    ? error
+                    : new Error(
+                        "The results changed and the later ones could not be reloaded. Show more to try again.",
+                      ),
+              }
+            : previous,
+        );
+      },
+    );
+    return () => controller.abort();
+  }, [stale, first, base, loaded, query, limit]);
 
   const fullPages = useMemo(
     () => (full.data ? [full.data, ...(own?.pages ?? [])] : undefined),
@@ -86,14 +140,14 @@ export function useSearch(query: string, limit: number): SearchState {
     return merged;
   }, [enabled, fullPages, instant.data]);
 
-  const first = fullPages?.[0];
   const last = fullPages?.[fullPages.length - 1];
   const summary = first ?? instant.data;
   const loadMore = () => {
     const cursor = last?.next;
-    if (!cursor || own?.loading) return;
+    if (!cursor || own?.loading || stale) return;
     setLater({
       query,
+      base,
       pages: own?.pages ?? [],
       loading: true,
       error: null,
@@ -111,7 +165,7 @@ export function useSearch(query: string, limit: number): SearchState {
       .then(
         (page) =>
           setLater((previous) =>
-            previous.query === query
+            previous.query === query && previous.base === base
               ? {
                   ...previous,
                   pages: [...previous.pages, page],
@@ -146,7 +200,7 @@ export function useSearch(query: string, limit: number): SearchState {
     complete: summary?.complete ?? true,
     pending: enabled && instant.isPending,
     settled: !enabled || first !== undefined || full.isError || instant.isError,
-    loadingMore: own?.loading ?? false,
+    loadingMore: (own?.loading ?? false) || stale,
     error: instant.error ?? full.error ?? own?.error ?? null,
     loadMore,
   };

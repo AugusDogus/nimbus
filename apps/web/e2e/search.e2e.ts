@@ -124,3 +124,36 @@ test("finds names with a typo under a separate heading", async ({
     .filter({ visible: true });
   await expect(row.locator("mark").first()).toHaveText(word);
 });
+
+test("drops a trashed result loaded by Show more and updates the count", async ({
+  page,
+  context,
+}) => {
+  const token = randomUUID().slice(0, 8);
+  const folder = `paged-${token}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: folder });
+  const directory = path.join(await dataRoot(), folder);
+  for (let i = 0; i < 230; i++)
+    await writeFile(path.join(directory, `report-${token}-${i}.txt`), "x");
+  const status = page.getByRole("status").filter({ hasText: "matches" });
+  await expect(async () => {
+    await page.goto(`/search?q=report-${token}`);
+    await expect(status).toHaveText("Showing 200 of 230 matches.", {
+      timeout: 2_000,
+    });
+  }).toPass();
+  await page.getByRole("button", { name: "Show 30 more", exact: true }).click();
+  await expect(status).toHaveText("230 matches.");
+  const rows = page
+    .locator(`[data-entry-path^="${folder}/"]`)
+    .filter({ visible: true });
+  await rows.last().scrollIntoViewIfNeeded();
+  const last = await rows.last().getAttribute("data-entry-path");
+  if (!last) throw new Error("The last search result has no path.");
+  await rpc.files.delete.mutate({ path: last });
+  await expect(status).toHaveText("229 matches.");
+  await expect(
+    page.locator(`[data-entry-path="${last}"]`).filter({ visible: true }),
+  ).toHaveCount(0);
+});
