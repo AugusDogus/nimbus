@@ -74,7 +74,9 @@ function plan(
   const renamed = new Map<string, string>();
   const replacing = new Set<string>();
   const skipped = new Set<string>();
-  const used = new Set(existing.keys());
+  // A new name must be free in the folder and among the upload's own top-level items, or two
+  // uploaded folders would merge into one.
+  const used = new Set([...existing.keys(), ...tops(upload).keys()]);
   for (const clash of clashes(upload, existing)) {
     const choice = choices.get(clash.name) ?? "keep-both";
     if (choice === "skip") skipped.add(clash.name);

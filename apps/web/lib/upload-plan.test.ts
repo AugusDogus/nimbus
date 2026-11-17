@@ -105,4 +105,26 @@ describe("upload planning", () => {
       picked.sources.map((source) => `${source.folder}/${source.file.name}`),
     ).toEqual(["trip/a.jpg", "trip/day 1/b.jpg"]);
   });
+
+  it("never renames a folder onto another folder of the same upload", () => {
+    const both: CollectedUpload = {
+      sources: [
+        { file: file("a.jpg"), folder: "photos" },
+        { file: file("b.jpg"), folder: "photos (1)" },
+      ],
+      emptyFolders: [],
+      skipped: [],
+    };
+    const result = UploadPlan.plan(
+      both,
+      new Map([["photos", "dir"]]),
+      new Map(),
+      target,
+    );
+    expect(summary(result).requests).toEqual([
+      "photos (2)|a.jpg|keep-both",
+      "photos (1)|b.jpg|keep-both",
+    ]);
+  });
 });
+
