@@ -3,7 +3,7 @@ import { lazy, Suspense, useState, type ReactNode } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileKind } from "@/lib/file-kind";
-import { saveText } from "./save-text";
+import type { EditBase } from "./text-editor";
 import { TEXT_LIMIT, TextContent } from "./text-content";
 
 const MarkdownView = lazy(() => import("./markdown-view"));
@@ -131,6 +131,11 @@ export default function FilePreview({
   }
 }
 
+type TextMode =
+  | { type: "view" }
+  | { type: "source" }
+  | { type: "edit"; base: EditBase };
+
 function TextPreview({
   kind,
   url,
@@ -144,13 +149,46 @@ function TextPreview({
 }) {
   const queryClient = useQueryClient();
   const queryKey = ["preview", url];
+  const [mode, setMode] = useState<TextMode>({ type: "view" });
   const content = useQuery({
     queryKey,
     queryFn: ({ signal }) => TextContent.load(url, signal),
     staleTime: 0,
     gcTime: 0,
+    // The editor works from the text it started with; refetches would only be discarded.
+    enabled: mode.type !== "edit",
   });
-  const [mode, setMode] = useState<"view" | "source" | "edit">("view");
+  // Rendered before the query's state: a failed refetch or a file that grew must not unmount
+  // the editor and lose the draft.
+  if (mode.type === "edit" && editPath !== undefined)
+    return (
+      <Suspense fallback={loading}>
+        <TextEditor
+          path={editPath}
+          base={mode.base}
+          language={kind.type === "code" ? kind.language : undefined}
+          onDirtyChange={onDirtyChange}
+          onSaved={({ text, etag, size }) =>
+            queryClient.setQueryData<TextContent>(queryKey, {
+              type: "text",
+              text,
+              size,
+              truncated: false,
+              etag,
+            })
+          }
+          onClose={() => {
+            onDirtyChange?.(false);
+            setMode({ type: "view" });
+          }}
+          onDiscard={() => {
+            onDirtyChange?.(false);
+            void queryClient.invalidateQueries({ queryKey, exact: true });
+            setMode({ type: "view" });
+          }}
+        />
+      </Suspense>
+    );
   if (content.isPending) return loading;
   if (content.isError)
     return (
@@ -166,42 +204,14 @@ function TextPreview({
         to open it on your device.
       </Unavailable>
     );
-  const editable =
-    editPath !== undefined && !data.truncated && data.etag !== null;
-  if (mode === "edit" && editable && data.etag !== null) {
-    const etag = data.etag;
-    return (
-      <Suspense fallback={loading}>
-        <TextEditor
-          initial={data.text}
-          language={kind.type === "code" ? kind.language : undefined}
-          onDirtyChange={onDirtyChange}
-          onCancel={() => {
-            onDirtyChange?.(false);
-            setMode("view");
-          }}
-          onSave={async (text) => {
-            const outcome = await saveText(editPath, etag, text);
-            if (outcome.type === "saved") {
-              queryClient.setQueryData(queryKey, {
-                ...data,
-                text,
-                size: outcome.size,
-                etag: outcome.etag,
-              });
-              onDirtyChange?.(false);
-              setMode("view");
-            }
-            return outcome;
-          }}
-        />
-      </Suspense>
-    );
-  }
+  const editBase =
+    editPath !== undefined && !data.truncated && data.etag !== null
+      ? { text: data.text, etag: data.etag }
+      : null;
   const view =
-    kind.type === "markdown" && mode === "view" ? (
+    kind.type === "markdown" && mode.type === "view" ? (
       <MarkdownView text={data.text} />
-    ) : kind.type === "table" && mode === "view" ? (
+    ) : kind.type === "table" && mode.type === "view" ? (
       <TableView text={data.text} delimiter={kind.delimiter} />
     ) : kind.type === "code" ? (
       <CodeView text={data.text} language={kind.language} />
@@ -228,13 +238,19 @@ function TextPreview({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setMode(mode === "source" ? "view" : "source")}
+              onClick={() =>
+                setMode({ type: mode.type === "source" ? "view" : "source" })
+              }
             >
-              {mode === "source" ? "Show formatted" : "Show source"}
+              {mode.type === "source" ? "Show formatted" : "Show source"}
             </Button>
           )}
-          {editable && (
-            <Button variant="outline" size="sm" onClick={() => setMode("edit")}>
+          {editBase && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMode({ type: "edit", base: editBase })}
+            >
               Edit
             </Button>
           )}

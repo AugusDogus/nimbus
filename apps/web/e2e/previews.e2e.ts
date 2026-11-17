@@ -121,12 +121,109 @@ test("edits text files and refuses to overwrite a concurrent change", async ({
     .fill("my overwrite");
   await preview.getByRole("button", { name: "Save", exact: true }).click();
   await expect(preview.getByRole("alert")).toContainText(
-    "changed after you opened it",
+    "changed after you started editing",
   );
   await expect(
     preview.getByRole("textbox", { name: "File contents" }),
   ).toHaveValue("my overwrite");
   expect(await readFile(file, "utf8")).toBe("changed in another app");
+});
+
+test("keeps an edit tied to the version it started from after the tab regains focus", async ({
+  page,
+  context,
+}) => {
+  const folder = `editing-focus-${randomUUID()}`;
+  await (await client(context)).files.createFolder.mutate({ name: folder });
+  const file = path.join(await dataRoot(), folder, "notes.txt");
+  await writeFile(file, "original");
+  await page.goto(`/browse/${folder}`);
+  await page
+    .locator('[data-entry-name="notes.txt"]')
+    .filter({ visible: true })
+    .click();
+  const preview = page.getByRole("dialog", { name: "notes.txt", exact: true });
+  await preview.getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = preview.getByRole("textbox", { name: "File contents" });
+  await editor.fill("my edits");
+  // Someone else saves, and the tab regains focus, which refetches stale queries.
+  await writeFile(file, "their change");
+  // Before the fix this refetch replaced the version the save checked against.
+  const refetched = page
+    .waitForResponse(
+      (response) =>
+        response.url().includes("/api/files/download") &&
+        response.request().method() === "GET",
+      { timeout: 3_000 },
+    )
+    .catch(() => null);
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange", { bubbles: true })),
+  );
+  await refetched;
+  await preview.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(preview.getByRole("alert")).toContainText(
+    "changed after you started editing",
+  );
+  await expect(editor).toHaveValue("my edits");
+  expect(await readFile(file, "utf8")).toBe("their change");
+
+  // Overwriting is an explicit choice, and the replaced text stays in the version history.
+  await preview
+    .getByRole("button", { name: "Overwrite with my edits", exact: true })
+    .click();
+  await expect(preview.locator("pre")).toHaveText("my edits");
+  expect(await readFile(file, "utf8")).toBe("my edits");
+
+  // Discarding instead shows the file as it is now.
+  await preview.getByRole("button", { name: "Edit", exact: true }).click();
+  await editor.fill("discard me");
+  await writeFile(file, "newest");
+  await preview.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(preview.getByRole("alert")).toContainText(
+    "changed after you started editing",
+  );
+  await preview
+    .getByRole("button", { name: "Discard my edits", exact: true })
+    .click();
+  await expect(preview.locator("pre")).toHaveText("newest");
+  expect(await readFile(file, "utf8")).toBe("newest");
+});
+
+test("keeps text typed while a save is in flight", async ({
+  page,
+  context,
+}) => {
+  const folder = `editing-inflight-${randomUUID()}`;
+  await (await client(context)).files.createFolder.mutate({ name: folder });
+  const file = path.join(await dataRoot(), folder, "draft.txt");
+  await writeFile(file, "a");
+  await page.goto(`/browse/${folder}`);
+  await page
+    .locator('[data-entry-name="draft.txt"]')
+    .filter({ visible: true })
+    .click();
+  const preview = page.getByRole("dialog", { name: "draft.txt", exact: true });
+  await preview.getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = preview.getByRole("textbox", { name: "File contents" });
+  await editor.fill("ab");
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/files/content?**", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await preview.getByRole("button", { name: "Save", exact: true }).click();
+  await editor.press("End");
+  await editor.pressSequentially("c");
+  release();
+  await expect.poll(() => readFile(file, "utf8")).toBe("ab");
+  // The editor stays open with the newer text, still unsaved.
+  await expect(editor).toHaveValue("abc");
+  await page.unroute("**/api/files/content?**");
+  await preview.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(preview.locator("pre")).toHaveText("abc");
+  expect(await readFile(file, "utf8")).toBe("abc");
 });
 
 test("serves cached thumbnails that revalidate and work on public links", async ({
