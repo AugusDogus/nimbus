@@ -1,5 +1,6 @@
 import { lstat, readdir, rm } from "node:fs/promises";
 import path from "node:path";
+import { Staging } from "@nimbus/api/staging";
 import type { DriveStore } from "@nimbus/api/drive-store";
 import { recordAudit } from "@nimbus/api/audit";
 import { reservationLifetimeMs } from "@nimbus/api/file-request";
@@ -86,7 +87,9 @@ export async function cleanExpiredData(
       { trash: [listed.id] },
     );
   }
-  await cleanFiles(path.join(internal, "uploads"), now - day, true);
+  // Folders mounted inside the drive stage their own writes; see Staging.
+  for (const staging of await Staging.directories(dataRoot))
+    await cleanFiles(staging, now - day, true);
   await store.fileRequests.releaseAbandoned(now - reservationLifetimeMs);
   await FileVersions.cleanup(store.versions, dataRoot, now);
   await cleanFiles(

@@ -6,8 +6,10 @@ import {
   readFile,
   rm,
   stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
@@ -15,6 +17,7 @@ import { commitStagedFile, stageFile } from "@nimbus/api/file-content";
 import { copyItem } from "@nimbus/api/file-operations";
 import { FileVersions } from "@nimbus/api/file-versions";
 import { createTestDriveStore } from "@nimbus/api/testing";
+import { cleanExpiredData } from "@/server/maintenance";
 import { UploadStore } from "@/server/upload-store";
 import { commitUpload, UploadMetadata } from "@/server/routes/upload-commit";
 
@@ -28,11 +31,12 @@ const unshare = Bun.which("unshare");
 
 if (nested === undefined)
   test.skipIf(unshare === null)(
-    "writes into a nested mount keep versions and replace atomically",
+    "writes into nested mounts and bind mounts keep versions, replace atomically and are cleaned up",
     async () => {
       const root = await mkdtemp(path.join(os.tmpdir(), "nimbus-nested-"));
       try {
-        await mkdir(path.join(root, "mounted"));
+        for (const folder of ["mounted", "bound", "elsewhere"])
+          await mkdir(path.join(root, folder));
         const run = Bun.spawn(
           [
             unshare ?? "unshare",
@@ -41,7 +45,7 @@ if (nested === undefined)
             "--mount",
             "sh",
             "-c",
-            `mount -t tmpfs none "$0/mounted" && exec "$1" test "$2"`,
+            `mount -t tmpfs none "$0/mounted" && mount --bind "$0/elsewhere" "$0/bound" && exec "$1" test "$2"`,
             root,
             process.execPath,
             import.meta.path,
@@ -64,116 +68,143 @@ if (nested === undefined)
     60_000,
   );
 else
-  describe("inside a nested mount", () => {
+  describe("inside nested mounts", () => {
     const root = nested;
     const memory = createTestDriveStore();
     const store = new UploadStore({
       directory: path.join(root, ".nimbus/uploads"),
     });
     let next = 0;
-    const upload = async (
-      body: string,
-      filename: string,
-      conflict: "replace" | "keep-both",
-    ) => {
-      const id = `upload-${next++}`;
-      await writeFile(path.join(store.directory, id), body);
-      return commitUpload(
-        store,
-        memory.store.versions,
-        id,
-        UploadMetadata.parse({
-          targetPath: "mounted",
-          owner: "user-1",
-          filename,
-          conflict,
-        }),
-        () => getAccess(memory.store, "user-1"),
-      );
-    };
+    let previousRoot: string | undefined;
 
     beforeAll(async () => {
+      previousRoot = process.env.NIMBUS_DATA_ROOT;
       process.env.NIMBUS_DATA_ROOT = root;
       await mkdir(store.directory, { recursive: true });
       expect((await stat(path.join(root, "mounted"))).dev).not.toBe(
         (await stat(root)).dev,
       );
+      // A bind mount shares the root's device number, yet renames into it fail too.
+      expect((await stat(path.join(root, "bound"))).dev).toBe(
+        (await stat(root)).dev,
+      );
     });
     afterAll(() => {
-      delete process.env.NIMBUS_DATA_ROOT;
+      if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
+      else process.env.NIMBUS_DATA_ROOT = previousRoot;
     });
 
-    test("an upload replacing a file keeps the old content as a version and never rewrites it in place", async () => {
-      const file = path.join(root, "mounted/report.txt");
-      await writeFile(file, "previous");
-      const reader = await open(file, "r");
-      try {
-        expect(
-          await upload("replacement", "report.txt", "replace"),
-        ).toMatchObject({
-          kind: "published",
-          replaced: true,
-        });
-        expect(await readFile(file, "utf8")).toBe("replacement");
-        // A reader of the old file still sees it whole: the new one took its place by rename.
-        expect((await reader.readFile()).toString()).toBe("previous");
-      } finally {
-        await reader.close();
-      }
-      const [version] = await FileVersions.history(
-        memory.store.versions,
-        "mounted/report.txt",
-      );
-      expect(version).toMatchObject({ size: "previous".length });
-    });
-
-    test("an upload of a new file is published whole", async () => {
-      expect(await upload("fresh", "fresh.txt", "keep-both")).toMatchObject({
-        kind: "published",
-        path: "mounted/fresh.txt",
-      });
-      expect(await readFile(path.join(root, "mounted/fresh.txt"), "utf8")).toBe(
-        "fresh",
-      );
-    });
-
-    test("WebDAV PUT writes and replaces files in the mount", async () => {
-      const put = async (body: string) => {
-        const staged = await stageFile(
-          body,
-          path.join(root, "mounted/put.txt"),
+    // "mounted" is a tmpfs; "bound" is a bind mount of another folder of the root's filesystem.
+    for (const folder of ["mounted", "bound"]) {
+      const upload = async (
+        body: string,
+        filename: string,
+        conflict: "replace" | "keep-both",
+      ) => {
+        const id = `upload-${next++}`;
+        await writeFile(path.join(store.directory, id), body);
+        return commitUpload(
+          store,
+          memory.store.versions,
+          id,
+          UploadMetadata.parse({
+            targetPath: folder,
+            owner: "user-1",
+            filename,
+            conflict,
+          }),
+          () => getAccess(memory.store, "user-1"),
         );
-        try {
-          return await commitStagedFile(
-            {
-              userId: "user-1",
-              versions: memory.store.versions,
-              authorize: () => getAccess(memory.store, "user-1"),
-            },
-            "mounted/put.txt",
-            staged,
-            () => true,
-          );
-        } finally {
-          await staged.discard();
-        }
       };
-      expect((await put("first")).kind).toBe("created");
-      expect((await put("second")).kind).toBe("replaced");
-      expect(await readFile(path.join(root, "mounted/put.txt"), "utf8")).toBe(
-        "second",
-      );
-      expect(
-        await FileVersions.history(memory.store.versions, "mounted/put.txt"),
-      ).toHaveLength(1);
-    });
 
-    test("COPY into the mount works", async () => {
-      await writeFile(path.join(root, "source.txt"), "copied");
-      const access = await getAccess(memory.store, "user-1");
-      await copyItem(memory.store, access, "source.txt", "mounted/copy.txt");
-      expect(await readFile(path.join(root, "mounted/copy.txt"), "utf8")).toBe(
-        "copied",
-      );
-    });
+      test(`${folder}: an upload replacing a file keeps the old content as a version and never rewrites it in place`, async () => {
+        const file = path.join(root, folder, "report.txt");
+        await writeFile(file, "previous");
+        const reader = await open(file, "r");
+        try {
+          expect(
+            await upload("replacement", "report.txt", "replace"),
+          ).toMatchObject({ kind: "published", replaced: true });
+          expect(await readFile(file, "utf8")).toBe("replacement");
+          // A reader of the old file still sees it whole: the new one took its place by rename.
+          expect((await reader.readFile()).toString()).toBe("previous");
+        } finally {
+          await reader.close();
+        }
+        const [version] = await FileVersions.history(
+          memory.store.versions,
+          `${folder}/report.txt`,
+        );
+        expect(version).toMatchObject({ size: "previous".length });
+      });
+
+      test(`${folder}: an upload of a new file is published whole`, async () => {
+        expect(await upload("fresh", "fresh.txt", "keep-both")).toMatchObject({
+          kind: "published",
+          path: `${folder}/fresh.txt`,
+        });
+        expect(
+          await readFile(path.join(root, folder, "fresh.txt"), "utf8"),
+        ).toBe("fresh");
+      });
+
+      test(`${folder}: WebDAV PUT writes and replaces files`, async () => {
+        const relative = `${folder}/put.txt`;
+        const put = async (body: string) => {
+          const staged = await stageFile(body, path.join(root, relative));
+          try {
+            return await commitStagedFile(
+              {
+                userId: "user-1",
+                versions: memory.store.versions,
+                authorize: () => getAccess(memory.store, "user-1"),
+              },
+              relative,
+              staged,
+              () => true,
+            );
+          } finally {
+            await staged.discard();
+          }
+        };
+        expect((await put("first")).kind).toBe("created");
+        expect((await put("second")).kind).toBe("replaced");
+        expect(await readFile(path.join(root, relative), "utf8")).toBe(
+          "second",
+        );
+        expect(
+          await FileVersions.history(memory.store.versions, relative),
+        ).toHaveLength(1);
+      });
+
+      test(`${folder}: COPY into the mount works`, async () => {
+        await writeFile(path.join(root, "source.txt"), "copied");
+        const access = await getAccess(memory.store, "user-1");
+        await copyItem(
+          memory.store,
+          access,
+          "source.txt",
+          `${folder}/copy.txt`,
+        );
+        expect(
+          await readFile(path.join(root, folder, "copy.txt"), "utf8"),
+        ).toBe("copied");
+      });
+
+      test(`${folder}: maintenance removes abandoned staging files in the mount`, async () => {
+        const staging = path.join(root, folder, ".nimbus", "uploads");
+        await mkdir(staging, { recursive: true });
+        const abandoned = path.join(staging, "abandoned.staged");
+        await writeFile(abandoned, "left by a crash");
+        const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+        await utimes(abandoned, old, old);
+        await cleanExpiredData(
+          memory.store,
+          root,
+          Date.now(),
+          path.join(root, ".config"),
+        );
+        expect(existsSync(abandoned)).toBe(false);
+      });
+    }
   });

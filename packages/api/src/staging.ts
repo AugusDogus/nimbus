@@ -1,28 +1,83 @@
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, rm, stat } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+} from "node:fs/promises";
 import path from "node:path";
-import { isFsError } from "./safe-path";
+import { isFsError, isWithinPath } from "./safe-path";
 
 /**
- * Where content is written before it is renamed into the drive. A rename only works within
- * one filesystem, and a folder of the drive may be its own filesystem (a disk or share mounted
- * inside it), so each filesystem stages in `.nimbus/uploads` at its top folder in the drive:
- * the data root, or the mounted folder. Nimbus hides `.nimbus` at every depth.
+ * Where content is written before it is renamed into the drive. A rename only works within one
+ * mount of one filesystem: a folder mounted inside the drive (a disk, a share, or a bind mount
+ * of another folder) or a btrfs subvolume refuses renames from outside it. So each such place
+ * stages in `.nimbus/uploads` at its top folder in the drive: the data root, or the mounted
+ * folder. Nimbus hides `.nimbus` at every depth, and maintenance cleans every staging folder.
  */
-async function deviceOf(absolute: string) {
-  return (await stat(absolute)).dev;
+
+/** A folder's filesystem and mount. Renames work only between folders of the same place. */
+type Place = { device: number; mount: string | null };
+
+/** Absolute paths compared as drive-style relative ones, where "" is the filesystem root. */
+const within = (parent: string, child: string) =>
+  isWithinPath(parent.slice(1), child.slice(1));
+
+/** Mount points from /proc/self/mountinfo, reread at most once a second; null off Linux. */
+let mounts: { points: string[] | null; readAt: number } | null = null;
+async function mountPoints() {
+  if (mounts && Date.now() - mounts.readAt < 1000) return mounts.points;
+  let points: string[] | null;
+  try {
+    const table = await readFile("/proc/self/mountinfo", "utf8");
+    points = table
+      .split("\n")
+      .flatMap((line) => {
+        const field = line.split(" ")[4];
+        return field ? [field] : [];
+      })
+      // Spaces and other special characters are written as octal escapes, such as \040.
+      .map((point) =>
+        point.replace(/\\([0-7]{3})/g, (_, octal: string) =>
+          String.fromCharCode(Number.parseInt(octal, 8)),
+        ),
+      );
+  } catch (error) {
+    if (!isFsError(error, "ENOENT")) throw error;
+    points = null;
+  }
+  mounts = { points, readAt: Date.now() };
+  return points;
 }
 
-/** The data root's device, read once per root: writes stat on every commit otherwise. */
-const rootDevices = new Map<string, number>();
-async function rootDevice(dataRoot: string) {
-  let device = rootDevices.get(dataRoot);
-  if (device === undefined) {
-    device = await deviceOf(dataRoot);
-    rootDevices.set(dataRoot, device);
-  }
-  return device;
+async function placeOf(folder: string): Promise<Place> {
+  const [details, real, points] = await Promise.all([
+    stat(folder),
+    realpath(folder),
+    mountPoints(),
+  ]);
+  // The innermost mount point containing the folder.
+  let mount: string | null = null;
+  for (const point of points ?? [])
+    if (within(point, real) && (mount === null || point.length > mount.length))
+      mount = point;
+  return { device: details.dev, mount };
 }
+
+/** The data root's place, read at most once a second: every staged write compares with it. */
+const rootPlaces = new Map<string, { place: Place; readAt: number }>();
+async function rootPlace(dataRoot: string) {
+  const cached = rootPlaces.get(dataRoot);
+  if (cached && Date.now() - cached.readAt < 1000) return cached.place;
+  const place = await placeOf(dataRoot);
+  rootPlaces.set(dataRoot, { place, readAt: Date.now() });
+  return place;
+}
+
+const samePlace = (a: Place, b: Place) =>
+  a.device === b.device && a.mount === b.mount;
 
 const rootStaging = (dataRoot: string) =>
   path.join(dataRoot, ".nimbus", "uploads");
@@ -40,41 +95,42 @@ async function existingFolder(dataRoot: string, absolute: string) {
   }
 }
 
-/** The staging folder on the filesystem that holds `target`, an absolute path in the drive. */
+/** The staging folder for renames into the folder holding `target`, an absolute drive path. */
 async function directoryFor(dataRoot: string, target: string) {
-  let top = await existingFolder(dataRoot, path.dirname(target));
-  const device = await deviceOf(top);
-  if (device === (await rootDevice(dataRoot))) top = dataRoot;
-  // Otherwise walk up to the mounted folder: the highest one on the same filesystem.
-  else
+  const folder = await existingFolder(dataRoot, path.dirname(target));
+  const place = await placeOf(folder);
+  let top = dataRoot;
+  if (!samePlace(place, await rootPlace(dataRoot))) {
+    // The highest folder of the drive in the same place as the target's folder.
+    top = folder;
     while (
       top !== dataRoot &&
       path.dirname(top) !== top &&
-      (await deviceOf(path.dirname(top))) === device
+      samePlace(await placeOf(path.dirname(top)), place)
     )
       top = path.dirname(top);
+  }
   const directory = rootStaging(top);
   await mkdir(directory, { recursive: true });
   return directory;
 }
 
 /**
- * `incoming` as a file on the filesystem of `target`, so it can be renamed there: `incoming`
- * itself when it already is, otherwise a copy in that filesystem's staging folder, removed by
- * `discard`.
+ * `incoming` as a file that can be renamed into the folder of `target`: `incoming` itself when
+ * it can be, otherwise a copy in that place's staging folder, removed by `discard`.
  */
 async function onFilesystemOf(
   dataRoot: string,
   incoming: string,
   target: string,
 ): Promise<{ path: string; discard: () => Promise<void> }> {
-  const folder = await existingFolder(dataRoot, path.dirname(target));
-  const incomingDevice =
+  const [from, to] = await Promise.all([
     path.dirname(incoming) === rootStaging(dataRoot)
-      ? await rootDevice(dataRoot)
-      : await deviceOf(incoming);
-  if ((await deviceOf(folder)) === incomingDevice)
-    return { path: incoming, discard: async () => {} };
+      ? rootPlace(dataRoot)
+      : placeOf(path.dirname(incoming)),
+    existingFolder(dataRoot, path.dirname(target)).then(placeOf),
+  ]);
+  if (samePlace(from, to)) return { path: incoming, discard: async () => {} };
   const copy = path.join(
     await directoryFor(dataRoot, target),
     `${randomUUID()}.incoming`,
@@ -89,4 +145,21 @@ async function onFilesystemOf(
   return { path: copy, discard };
 }
 
-export const Staging = { directoryFor, onFilesystemOf } as const;
+/**
+ * Every staging folder that may exist: the data root's and one in each folder mounted inside
+ * the drive. Staging in a btrfs subvolume that is not a mount point is not listed.
+ */
+async function directories(dataRoot: string) {
+  const real = await realpath(dataRoot);
+  const mounted = ((await mountPoints()) ?? []).filter(
+    (point) => point !== real && within(real, point),
+  );
+  return [
+    rootStaging(dataRoot),
+    ...mounted.map((point) =>
+      rootStaging(path.join(dataRoot, path.relative(real, point))),
+    ),
+  ];
+}
+
+export const Staging = { directoryFor, onFilesystemOf, directories } as const;
