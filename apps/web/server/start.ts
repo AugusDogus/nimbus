@@ -221,8 +221,7 @@ const server = Bun.serve({
     );
     request.headers.set(clientIpHeader, ip);
     const userAgent = request.headers.get("user-agent") ?? undefined;
-    const events = EventStreams.untimed(request);
-    if (events) server.timeout(request, 0);
+    const events = EventStreams.requested(request);
     const incoming = events
       ? new Request(request, {
           signal: AbortSignal.any([request.signal, streams.signal]),
@@ -232,6 +231,8 @@ const server = Bun.serve({
       const response = await runWithAuditRequest({ ip, userAgent }, () =>
         route(incoming),
       );
+      // Only once the answer is an event stream; reading the request stays under the timeout.
+      if (EventStreams.untimed(request, response)) server.timeout(request, 0);
       return withHeaders(response, commonHeaders, { replace: true });
     } catch (error) {
       // Query strings can carry credentials, such as MCP download link tokens.
