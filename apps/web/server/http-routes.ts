@@ -80,6 +80,7 @@ const routes = ({ shell, mode }: PageContext): Route[] => [
   route("/api/share/:token", ([token]) => ({ token }), share),
   route("/api/trpc/:procedures", none, {
     GET: RequestBody.capped(trpcBodyBytes, trpc.GET),
+    HEAD: RequestBody.capped(trpcBodyBytes, trpc.HEAD),
     POST: RequestBody.capped(trpcBodyBytes, trpc.POST),
   }),
   route("/api/upload/*?", none, upload),
