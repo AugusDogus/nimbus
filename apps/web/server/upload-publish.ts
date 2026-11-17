@@ -8,6 +8,7 @@ import {
   type MutationCredentials,
 } from "@nimbus/api/file-mutations";
 import { FileVersions, type FileVersionStore } from "@nimbus/api/file-versions";
+import type { FileRequestStore } from "@nimbus/api/file-request";
 import { numberedName } from "@nimbus/api/numbered-name";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
@@ -42,6 +43,47 @@ export type PublishResult =
   | { kind: "published"; path: string; replaced: boolean }
   /** Published by an earlier attempt, at `path` when its marker names a place in the drive. */
   | { kind: "already-published"; path: string | null };
+
+/**
+ * Where an upload was published, from its completion marker: its path in the drive, or null
+ * when the marker names a place outside it. "unfinished" when it was never published.
+ */
+export async function publishedLocation(
+  store: UploadStore,
+  uploadId: string,
+): Promise<
+  { kind: "unfinished" } | { kind: "published"; path: string | null }
+> {
+  const published = await store.publishedTo(uploadId);
+  if (published === null) return { kind: "unfinished" };
+  const relative = path.relative(getDataRoot(), published);
+  return {
+    kind: "published",
+    path:
+      relative && !relative.startsWith("..") && !path.isAbsolute(relative)
+        ? relative.split(path.sep).join("/")
+        : null,
+  };
+}
+
+/**
+ * A file request upload's ledger entry, recorded once it is published. A crash between
+ * publishing and recording leaves the file published but uncounted; a resuming client's HEAD
+ * finds the marker and records it here. Recording a finished upload again changes nothing.
+ */
+export async function recordPublishedUpload(
+  store: UploadStore,
+  fileRequests: Pick<FileRequestStore, "finishUpload">,
+  uploadId: string,
+) {
+  const published = await publishedLocation(store, uploadId);
+  if (published.kind === "unfinished") return;
+  const name =
+    published.path ??
+    (await store.getUpload(uploadId)).metadata?.filename ??
+    uploadId;
+  await fileRequests.finishUpload(uploadId, name, Date.now());
+}
 
 /**
  * Put a staged upload at `destination`, replacing the file there. This is the
@@ -104,17 +146,9 @@ export async function publishUpload({
       code: "BAD_REQUEST",
       message: "Upload destination must be a folder.",
     });
-  const published = await store.publishedTo(uploadId);
-  if (published !== null) {
-    const relative = path.relative(getDataRoot(), published);
-    return {
-      kind: "already-published",
-      path:
-        relative && !relative.startsWith("..") && !path.isAbsolute(relative)
-          ? relative.split(path.sep).join("/")
-          : null,
-    };
-  }
+  const published = await publishedLocation(store, uploadId);
+  if (published.kind === "published")
+    return { kind: "already-published", path: published.path };
   for (let index = 0; ; index++) {
     const destination = await safePath(
       [folder, numberedName(filename, index, true)].filter(Boolean).join("/"),

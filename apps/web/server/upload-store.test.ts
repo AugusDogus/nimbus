@@ -13,6 +13,8 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createTestFileRequestStore } from "@nimbus/api/file-request-testing";
+import { recordPublishedUpload } from "./upload-publish";
 import { UploadStore } from "./upload-store";
 
 let root: string;
@@ -213,3 +215,52 @@ test.skipIf(!existsSync("/dev/shm"))(
     }
   },
 );
+
+test("a published file request upload is recorded in the ledger after a crash before recording it", async () => {
+  const previousRoot = process.env.NIMBUS_DATA_ROOT;
+  process.env.NIMBUS_DATA_ROOT = root;
+  try {
+    const fileRequests = createTestFileRequestStore();
+    await fileRequests.create({
+      id: "request",
+      token: "token",
+      path: "",
+      createdBy: "owner",
+      createdAt: 0,
+      expiresAt: null,
+      passwordHash: null,
+      note: null,
+      maxFileBytes: null,
+      maxFiles: null,
+      maxTotalBytes: null,
+    });
+    expect(
+      await fileRequests.reserve(
+        {
+          id: "upload",
+          requestId: "request",
+          uploaderHash: "browser",
+          size: 5,
+          createdAt: Date.now(),
+        },
+        { activeSince: 0, maxActive: 5, maxPendingBytes: null },
+      ),
+    ).toEqual({ kind: "reserved" });
+    await writeFile(path.join(store.directory, "upload"), "bytes");
+    // Nothing is published yet: nothing is recorded.
+    await recordPublishedUpload(store, fileRequests, "upload");
+    expect(await fileRequests.list("owner")).toMatchObject([
+      { received: { files: 0 } },
+    ]);
+    // Published, then the server stopped before recording it.
+    await store.publish("upload", destination);
+    await recordPublishedUpload(store, fileRequests, "upload");
+    await recordPublishedUpload(store, fileRequests, "upload");
+    expect(await fileRequests.list("owner")).toMatchObject([
+      { received: { files: 1, bytes: 5 } },
+    ]);
+  } finally {
+    if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
+    else process.env.NIMBUS_DATA_ROOT = previousRoot;
+  }
+});

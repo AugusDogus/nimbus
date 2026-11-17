@@ -21,6 +21,7 @@ import { tusFailure } from "@/server/tus-failure";
 import {
   createUploadFinisher,
   publishUpload,
+  recordPublishedUpload,
   uploadStaging,
 } from "@/server/upload-publish";
 
@@ -119,6 +120,8 @@ async function getServer() {
         await finisher.recover(request, id, (metadata) =>
           publish(request, id, metadata?.filename),
         );
+        if (request.method === "HEAD")
+          await recordPublishedUpload(store, httpDriveStore.fileRequests, id);
       } catch (error) {
         throw tusFailure(error);
       }
