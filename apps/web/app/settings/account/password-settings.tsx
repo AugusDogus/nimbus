@@ -58,7 +58,7 @@ export function PasswordSettings() {
               form.reset();
               setMessage({
                 kind: "success",
-                text: "Password changed. Other browser sessions have been signed out. Existing app passwords remain active.",
+                text: "Password changed. Other browser sessions have been signed out and MCP clients disconnected. Existing app passwords remain active.",
               });
             } catch {
               setMessage({

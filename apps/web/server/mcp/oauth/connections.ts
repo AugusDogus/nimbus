@@ -67,6 +67,34 @@ export async function revokeConnection(
   return true;
 }
 
+/**
+ * Disconnect every MCP client of `userId`, as account recovery, password changes and
+ * signing out everywhere do. Their tokens stop working because each use checks the grant.
+ * Returns how many clients were connected.
+ */
+export async function revokeUserConnections(
+  db: Database,
+  userId: string,
+  now: number,
+  by: string,
+) {
+  const revoked = await db
+    .update(mcpGrants)
+    .set({ revokedAt: now })
+    .where(and(eq(mcpGrants.userId, userId), isNull(mcpGrants.revokedAt)))
+    .returning({ clientId: mcpGrants.clientId });
+  if (revoked.length === 0) return 0;
+  const actor = await accountActor(db, userId);
+  for (const grant of revoked)
+    recordAudit({
+      action: "mcp.client_disconnected",
+      actor,
+      target: await clientTarget(db, grant.clientId),
+      details: { by },
+    });
+  return revoked.length;
+}
+
 /** The account behind a connection that is still approved and whose account is enabled, or null. */
 export async function liveConnectionUser(db: Database, grantId: string) {
   const [row] = await db

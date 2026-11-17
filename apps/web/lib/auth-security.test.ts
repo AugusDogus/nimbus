@@ -32,7 +32,10 @@ test("resetting sign-in methods revokes the account's WebDAV app passwords", asy
       admin(),
       twoFactor(),
       passkey(),
-      nimbusSecurity({ appPasswords: memory.store }),
+      nimbusSecurity({
+        appPasswords: memory.store,
+        disconnectMcpClients: async () => 0,
+      }),
     ],
   });
   const signUp = (email: string) =>

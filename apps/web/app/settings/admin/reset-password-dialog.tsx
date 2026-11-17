@@ -40,8 +40,8 @@ export function ResetPasswordDialog({
           />
           <DialogTitle className="text-balance">Reset password</DialogTitle>
           <DialogDescription className="break-words text-pretty">
-            Set a new password for {user.email}. Their other browser sessions
-            will be signed out.
+            Set a new password for {user.email}. Their browser sessions will be
+            signed out and their MCP clients disconnected.
           </DialogDescription>
         </DialogHeader>
         <form

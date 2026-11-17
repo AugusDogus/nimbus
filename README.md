@@ -213,9 +213,11 @@ Password sign-in can be followed by a second factor. In **Settings → Account �
 
 Passkeys sign in with your device's fingerprint, face, or PIN and count as both factors, so they skip the code. Add them under **Passkeys**, then use **Sign in with a passkey** or pick one from the email field's autofill. Nimbus requires user verification. Passkeys are bound to the host name in `BETTER_AUTH_URL`; changing it makes existing passkeys stop working.
 
-If someone loses every factor, an administrator selects **Reset sign-in methods** in that account's action menu. It removes two-factor authentication, recovery codes, passkeys, trusted browsers, and WebDAV app passwords, and signs the account out everywhere, so connected WebDAV devices are disconnected too. The person then signs in with their password, sets up their sign-in methods again, and creates new app passwords for their devices.
+If someone loses every factor, an administrator selects **Reset sign-in methods** in that account's action menu. It removes two-factor authentication, recovery codes, passkeys, trusted browsers, and WebDAV app passwords, signs the account out everywhere, and disconnects its MCP clients, so connected WebDAV devices and AI clients are disconnected too. The person then signs in with their password, sets up their sign-in methods again, and creates new app passwords for their devices.
 
-**Sessions** lists browsers signed in to your account with their last activity and address. Sign out any one, or every other session at once.
+**Sessions** lists browsers signed in to your account with their last activity and address. Sign out any one, or every other session at once; signing out other browsers leaves MCP clients connected.
+
+Changing your password, resetting it by email, an administrator setting a new one, and **Sign out everywhere** in **Users & groups** each disconnect every MCP client of the account, which must then be authorized again. WebDAV app passwords keep working through these; see below.
 
 ### WebDAV app passwords and two-factor authentication
 
@@ -223,7 +225,7 @@ WebDAV clients cannot show a code prompt, so app passwords bypass two-factor aut
 
 ### Password reset
 
-With SMTP configured, the sign-in page offers **Forgot password?**. The emailed link works once, for one hour, and resetting signs out every session. Requests always report success so they do not reveal which addresses have accounts. Without SMTP, administrators reset passwords from **Users & groups**.
+With SMTP configured, the sign-in page offers **Forgot password?**. The emailed link works once, for one hour, and resetting signs out every session and disconnects every MCP client. Requests always report success so they do not reveal which addresses have accounts. Without SMTP, administrators reset passwords from **Users & groups**.
 
 Nimbus does not send email verification messages. Registration is closed, so every address is entered by an administrator, or by the server owner for the first account, and Nimbus treats those addresses as verified. Verification would add a step without protecting against anything a closed server allows.
 
@@ -355,7 +357,7 @@ The client discovers Nimbus's OAuth server, registers itself, and opens Nimbus i
 
 These permissions only narrow what a client may attempt. Every tool runs the same checks as the browser: your file permissions, WebDAV locks, and path rules apply, and `.nimbus` and symbolic links stay hidden. `read_text` returns UTF-8 text in ranges of up to 256 KiB. `write_text` refuses to replace an existing file unless the client passes its current version tag or asks to overwrite. `get_download_link` returns a link that works for five minutes and only while the connection and your access remain.
 
-Disconnect a client in **Settings → MCP**; its tokens stop working immediately. Disabling an account cuts off its clients too. Access tokens last one hour and refresh tokens 30 days, rotating on each use; a reused refresh token disconnects the client. Nimbus stores only hashes of tokens. Registration, token, and MCP requests are rate limited per address and per connection. Set `NIMBUS_MCP_ENABLED=false` to turn MCP off.
+Disconnect a client in **Settings → MCP**; its tokens stop working immediately. Disabling an account cuts off its clients too, and changing or resetting the password, signing out everywhere, or an administrator resetting sign-in methods disconnects them all. Access tokens last one hour and refresh tokens 30 days, rotating on each use; a reused refresh token disconnects the client. Nimbus stores only hashes of tokens. Registration, token, and MCP requests are rate limited per address and per connection. Set `NIMBUS_MCP_ENABLED=false` to turn MCP off.
 
 ### WebMCP
 

@@ -12,6 +12,7 @@ import { clientIpHeader } from "../server/client-ip";
 import type { Database } from "../server/db";
 import type { MailMessage } from "../server/mail";
 import { createDriveStore } from "../server/drive-store";
+import { revokeUserConnections } from "../server/mcp/oauth/connections";
 import { RateLimiter } from "../server/rate-limit";
 import { nimbusAudit } from "./auth-audit";
 import { nimbusSecurity } from "./auth-security";
@@ -57,6 +58,8 @@ export function createNimbusAuth({
   secret,
 }: NimbusAuthOptions) {
   const publicOrigin = origin.url;
+  const disconnectMcpClients = (userId: string, by: string) =>
+    revokeUserConnections(db, userId, Date.now(), by);
   // Single sign-on is the only OAuth provider, so every OAuth callback belongs to it.
   // Better Auth may report the templated route ("/callback/:id") rather than the URL.
   const isOidcCallback = (path: string | undefined) =>
@@ -253,6 +256,9 @@ export function createNimbusAuth({
     emailAndPassword: {
       enabled: true,
       revokeSessionsOnPasswordReset: true,
+      async onPasswordReset({ user: account }) {
+        await disconnectMcpClients(account.id, "password_reset");
+      },
       resetPasswordTokenExpiresIn: 60 * 60,
       ...(sendMail && {
         async sendResetPassword({ user: account, url }) {
@@ -357,7 +363,10 @@ export function createNimbusAuth({
         },
       }),
       ...oidcPlugins,
-      nimbusSecurity({ appPasswords: createDriveStore(db) }),
+      nimbusSecurity({
+        appPasswords: createDriveStore(db),
+        disconnectMcpClients,
+      }),
       // Append new plugins above this line. Audit observes final results, so it stays last.
       nimbusAudit(),
     ],

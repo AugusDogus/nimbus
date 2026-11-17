@@ -31,14 +31,29 @@ const enableResult = z
   .loose();
 
 /**
+ * Actions after which an account's MCP clients must authorize again, as its browsers must.
+ * Password resets by email are handled by `onPasswordReset`, which knows the account.
+ * Signing out only other browsers leaves MCP clients connected; Settings lists them separately.
+ */
+const disconnectsMcp: Record<string, string> = {
+  "/change-password": "password_changed",
+  "/revoke-sessions": "signed_out_everywhere",
+  "/admin/revoke-user-sessions": "signed_out_everywhere",
+  "/admin/set-user-password": "password_set",
+};
+
+/**
  * Nimbus account-security endpoints that Better Auth does not provide:
  * revoking one of your sessions by ID (so session tokens never reach the browser),
  * and an administrator reset of every second factor and WebDAV app password for an account.
  */
 export const nimbusSecurity = ({
   appPasswords,
+  disconnectMcpClients,
 }: {
   appPasswords: Pick<DriveStore, "listAppPasswords" | "removeAppPassword">;
+  /** Revokes every MCP connection of an account; `by` names the action for the audit log. */
+  disconnectMcpClients: (userId: string, by: string) => Promise<number>;
 }) =>
   ({
     id: "nimbus-security",
@@ -142,11 +157,18 @@ export const nimbusSecurity = ({
           const revoked = await appPasswords.listAppPasswords(userId);
           for (const password of revoked)
             await appPasswords.removeAppPassword(password.id, userId);
+          const mcpClientsDisconnected = await disconnectMcpClients(
+            userId,
+            "sign_in_methods_reset",
+          );
           recordAudit({
             action: "account.second_factors_reset",
             actor: auditUser(actor),
             target: { type: "user", id: userId, label: target.email },
-            details: { appPasswordsRevoked: revoked.length },
+            details: {
+              appPasswordsRevoked: revoked.length,
+              mcpClientsDisconnected,
+            },
           });
           return ctx.json({ reset: true });
         },
@@ -154,6 +176,20 @@ export const nimbusSecurity = ({
     },
     hooks: {
       after: [
+        {
+          matcher: (context) => (context.path ?? "") in disconnectsMcp,
+          handler: createAuthMiddleware(async (ctx) => {
+            if (ctx.context.returned instanceof APIError) return;
+            const by = disconnectsMcp[ctx.path];
+            const target = z.object({ userId: z.string() }).safeParse(ctx.body);
+            const userId = ctx.path.startsWith("/admin/")
+              ? target.success
+                ? target.data.userId
+                : undefined
+              : ctx.context.session?.user.id;
+            if (by && userId) await disconnectMcpClients(userId, by);
+          }),
+        },
         {
           matcher: (context) => context.path === "/two-factor/enable",
           handler: createAuthMiddleware(async (ctx) => {
