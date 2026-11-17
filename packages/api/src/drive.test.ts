@@ -460,7 +460,15 @@ describe("drive workflows", () => {
     });
     await mkdir(path.join(root, "vault"));
     await symlink(root, path.join(root, "vault", "link"));
-    for (const folder of ["vault/link/inner", "vault/missing", "nowhere"])
+    // A name that starts with two dots is a name, not a way out of the drive.
+    await mkdir(path.join(root, "..vault"));
+    await symlink(root, path.join(root, "..vault", "link"));
+    for (const folder of [
+      "vault/link/inner",
+      "vault/missing",
+      "nowhere",
+      "..vault/link/inner",
+    ])
       expect(
         await caller("reader").catalog.search({
           query: "report",

@@ -65,7 +65,9 @@ export const catalogRouter = router({
         .normalize(input.path)
         .replace(/^(\.\/|\/)+|\/+$/g, "");
       const relative = written === "." ? "" : written;
-      if (!relative.startsWith("..") && !ctx.access.canBrowse(relative))
+      // Only a way out of the drive skips this: `safePath` refuses it anyway.
+      const outside = relative === ".." || relative.startsWith("../");
+      if (!outside && !ctx.access.canBrowse(relative))
         return {
           entries: [],
           truncated: false,
