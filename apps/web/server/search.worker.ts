@@ -14,6 +14,7 @@ import {
 } from "@nimbus/api/search-index";
 import { createScanPool, searchWithPool } from "@nimbus/api/search-scan-pool";
 import type { SearchInbound, SearchOutbound } from "./search-protocol";
+import { SearchQueue } from "./search-queue";
 
 declare const self: Worker;
 
@@ -131,11 +132,12 @@ async function rebuild(reason: "startup" | "reconcile") {
 }
 
 /**
- * Searches waiting to run, oldest first. One runs per task, so a cancel that
- * arrives meanwhile (the user typed on) removes its search before it runs,
- * and many users' searches take turns instead of piling up.
+ * Searches waiting to run, taken in turn by caller. One runs per task, so a
+ * cancel that arrives meanwhile (the user typed on, or the caller gave up)
+ * removes its search before it runs, and one caller's burst never makes
+ * everyone else's searches wait behind it.
  */
-const searches = new Map<number, SearchRequest>();
+const searches = SearchQueue.create<SearchRequest>();
 let searchScheduled = false;
 /** The search being answered, so a cancel can stop its scan workers. */
 let answering: number | null = null;
@@ -164,10 +166,14 @@ function scheduleSearch() {
 
 async function runNextSearch() {
   searchScheduled = false;
-  const next = searches.entries().next();
-  if (next.done) return;
-  const [id, request] = next.value;
-  searches.delete(id);
+  const next = searches.take();
+  if (!next) return;
+  const { id, item: request } = next;
+  // Its caller has stopped waiting already; the bridge's cancel is on the way.
+  if (request.deadline !== undefined && Date.now() > request.deadline) {
+    scheduleSearch();
+    return;
+  }
   answering = id;
   try {
     const answer = await searchWithPool(() => live, request, pool);
@@ -218,11 +224,11 @@ self.onmessage = (event: MessageEvent<SearchInbound>) => {
       );
       return;
     case "search":
-      searches.set(message.id, message.request);
+      searches.add(message.id, message.caller, message.request);
       scheduleSearch();
       return;
     case "cancel":
-      searches.delete(message.id);
+      searches.remove(message.id);
       if (answering === message.id) pool?.stop();
       return;
   }

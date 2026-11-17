@@ -23,10 +23,14 @@ export type SearchAnswer = SearchResult & {
  * web server runs it in a worker.
  */
 export type SearchService = {
-  /** `signal` aborts a search nobody waits for any more, so it stops using the index. */
+  /**
+   * `caller` (a user id) is who asks, for bounding each caller's searches;
+   * `signal` aborts a search nobody waits for any more, so it stops using
+   * the index.
+   */
   search: (
     request: SearchRequest,
-    signal?: AbortSignal,
+    options: { caller: string; signal?: AbortSignal },
   ) => Promise<SearchAnswer>;
   /** Bytes in every indexed file, once the first crawl after startup has finished. */
   usage: () => Promise<number>;
@@ -106,7 +110,7 @@ export async function searchEntries(
           : (SearchCursor.open(options.cursor, access.user.id) ?? ""),
       history: options.history,
     },
-    options.signal,
+    { caller: access.user.id, signal: options.signal },
   );
   const entries = await Promise.all(
     answer.hits.map(async (hit): Promise<SearchEntry | null> => {

@@ -5,7 +5,8 @@ import type { SearchAnswer } from "@nimbus/api/search-service";
 export type SearchInbound =
   | { type: "start"; root: string }
   | { type: "changed"; path: string }
-  | { type: "search"; id: number; request: SearchRequest }
+  /** `caller` (a user id) is who waits for it; the worker serves callers in turn. */
+  | { type: "search"; id: number; caller: string; request: SearchRequest }
   /** Nobody waits for this search any more: drop it if it has not run yet. */
   | { type: "cancel"; id: number }
   | { type: "usage"; id: number }
