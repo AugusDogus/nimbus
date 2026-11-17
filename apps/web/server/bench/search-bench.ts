@@ -19,6 +19,8 @@ import { availableParallelism } from "node:os";
 import { createSearchIndex } from "@nimbus/api/search-index";
 import {
   pathAt,
+  blindCases,
+  blindFiles,
   plantedFiles,
   plantedHistory,
   queryClasses,
@@ -51,6 +53,8 @@ type ClassResult = {
   matches: number;
 };
 type RelevanceResult = {
+  /** "first" was written with the engine; "blind" before seeing how it handles each case. */
+  set?: "first" | "blind";
   task: string;
   query: string;
   expected: string;
@@ -158,8 +162,15 @@ function compare(before: Results, after: Results) {
         format(query),
       );
     }
-    const score = (items: RelevanceResult[] | undefined, scope: string) => {
-      const scoped = items?.filter((item) => item.scope === scope) ?? [];
+    const score = (
+      items: RelevanceResult[] | undefined,
+      scope: string,
+      set: "first" | "blind",
+    ) => {
+      const scoped =
+        items?.filter(
+          (item) => item.scope === scope && (item.set ?? "first") === set,
+        ) ?? [];
       if (!scoped.length) return undefined;
       const reciprocal = scoped.reduce(
         (sum, item) => sum + (item.rank === null ? 0 : 1 / item.rank),
@@ -172,9 +183,14 @@ function compare(before: Results, after: Results) {
     for (const scope of ["admin", "user"])
       row(
         `relevance ${scope}`,
-        score(old?.relevance, scope),
-        score(size.relevance, scope),
+        score(old?.relevance, scope, "first"),
+        score(size.relevance, scope, "first"),
       );
+    row(
+      "blind relevance admin",
+      score(old?.relevance, "admin", "blind"),
+      score(size.relevance, "admin", "blind"),
+    );
   }
 }
 
@@ -249,7 +265,8 @@ async function measureSize(entries: number): Promise<SizeResult> {
   const started = now();
   const real = createSearchIndex(1 << 16);
   const index: BenchIndex = real;
-  for (const planted of plantedFiles) index.add(planted, "file", 1000);
+  for (const planted of [...plantedFiles, ...blindFiles])
+    index.add(planted, "file", 1000);
   let generated = 0;
   while (index.size < entries) {
     index.add(pathAt(generated), "file", 1 + (generated % 100_000));
@@ -342,6 +359,28 @@ async function measureSize(entries: number): Promise<SizeResult> {
         rank: position < 0 ? null : position + 1,
       });
     }
+  // The blind set's folders are mostly outside the user's grants: admin only.
+  for (const item of blindCases) {
+    const answer = await search({
+      query: item.query,
+      root: "",
+      limit: 50,
+      scope: admin,
+      depth: "full",
+      history: [],
+    });
+    const position = answer.hits.findIndex((hit) =>
+      item.expected.includes(hit.path),
+    );
+    relevance.push({
+      set: "blind",
+      task: item.task,
+      query: item.query,
+      expected: item.expected.join(" or "),
+      scope: "admin",
+      rank: position < 0 ? null : position + 1,
+    });
+  }
   console.log(
     `  relevance: ${relevance.map((item) => `${item.scope}:${item.query}=${item.rank ?? "-"}`).join(", ")}`,
   );
