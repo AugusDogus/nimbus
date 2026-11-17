@@ -1,6 +1,7 @@
 import { createContext } from "@nimbus/api/context";
 import { auth } from "@/lib/auth";
 import { fileListRequest } from "@/lib/file-list-request";
+import { parseSignedIn } from "@/lib/session-query";
 import type { Bootstrap } from "@/client/bootstrap";
 import { preferencesStore } from "./preferences";
 import type { PageKind } from "./route-preloads";
@@ -32,19 +33,9 @@ async function forRequest(request: Request) {
   };
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
 /** The signed-in account in the shape the app's session query returns. */
-function signedIn(session: unknown): Bootstrap["session"] {
-  if (!isRecord(session) || !isRecord(session.user)) return undefined;
-  const { id, name, email } = session.user;
-  return typeof id === "string" &&
-    typeof name === "string" &&
-    typeof email === "string"
-    ? { user: { id, name, email } }
-    : undefined;
-}
+const signedIn = (session: unknown): Bootstrap["session"] =>
+  parseSignedIn(session) ?? undefined;
 
 /**
  * The folder a file browser address shows, decoded as the router decodes it, or null for file

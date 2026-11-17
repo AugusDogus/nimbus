@@ -21,13 +21,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const oneOf = <T extends string>(value: unknown, options: readonly T[]) =>
   options.find((option) => option === value);
 
+/** The inlined session, in the `SignedIn` shape the server wrote. */
 function parseSession(value: unknown): SignedIn | undefined {
   if (!isRecord(value) || !isRecord(value.user)) return undefined;
   const { id, name, email } = value.user;
+  const { impersonatedBy } = value;
   return typeof id === "string" &&
     typeof name === "string" &&
-    typeof email === "string"
-    ? { user: { id, name, email } }
+    typeof email === "string" &&
+    (impersonatedBy === null || typeof impersonatedBy === "string")
+    ? { user: { id, name, email }, impersonatedBy }
     : undefined;
 }
 

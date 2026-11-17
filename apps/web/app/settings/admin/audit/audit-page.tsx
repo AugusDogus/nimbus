@@ -39,6 +39,10 @@ function describeDetails(
     parts.push(`${details.permission} permission`);
   if (typeof details.role === "string") parts.push(`role ${details.role}`);
   if (typeof details.service === "string") parts.push(details.service);
+  if (typeof details.mcpClientsDisconnected === "number")
+    parts.push(
+      `${details.mcpClientsDisconnected} AI client${details.mcpClientsDisconnected === 1 ? "" : "s"} disconnected`,
+    );
   if (typeof details.appPasswordsRevoked === "number")
     parts.push(
       `${details.appPasswordsRevoked} app password${details.appPasswordsRevoked === 1 ? "" : "s"} revoked`,
@@ -98,6 +102,11 @@ export function AuditPage({ search }: { search: AuditSearch }) {
                 ? auditLabels[event.action]
                 : event.action;
               const detail = describeDetails(event.details);
+              // Set on every event an administrator caused while signed in as someone else.
+              const impersonator =
+                typeof event.details?.impersonatedBy === "string"
+                  ? event.details.impersonatedBy
+                  : null;
               const actor =
                 event.actorType === "system"
                   ? "Nimbus"
@@ -135,6 +144,11 @@ export function AuditPage({ search }: { search: AuditSearch }) {
                         </span>
                       ) : null}
                     </p>
+                    {impersonator && (
+                      <p className="text-pretty text-xs font-medium text-amber-700 dark:text-amber-400">
+                        Done by {impersonator} while signed in as {actor}
+                      </p>
+                    )}
                     <p className="truncate text-xs text-muted-foreground">
                       {actor}
                       {event.ip && (

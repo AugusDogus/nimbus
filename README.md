@@ -202,7 +202,7 @@ Open the settings cog beside **Trash** to switch to the settings sidebar:
 - **Account:** view your name and email, change your password, set up two-factor authentication and passkeys, and review or sign out your browser sessions. Changing your password signs out other browser sessions; WebDAV app passwords remain active.
 - **WebDAV:** copy your server address and username, create a password for each device, and revoke passwords you no longer need.
 - **MCP:** copy the MCP server address and setup command, see connected AI clients with when they were last used, and disconnect them.
-- **Administration → Users & groups** (server administrators only): create accounts, manage group membership, grant drive access, and back up the database. Each user's action menu contains password reset, sign-in method reset, sign out everywhere, administrator role, and enable/disable controls.
+- **Administration → Users & groups** (server administrators only): create accounts, manage group membership, grant drive access, and back up the database. Each user's action menu contains sign in as user, password reset, sign-in method reset, sign out everywhere, administrator role, and enable/disable controls.
 - **Administration → Audit log** (server administrators only): review sign-ins and failures, account and role changes, group and permission changes, public links and file requests, version restores, deletions and emptied trash, database backups, app passwords, and connected AI clients. Filter by event, account, and date.
 
 Use **Back to files** to return to the drive. Active uploads continue while you browse Settings.
@@ -214,6 +214,8 @@ Password sign-in can be followed by a second factor. In **Settings → Account �
 Passkeys sign in with your device's fingerprint, face, or PIN and count as both factors, so they skip the code. Add them under **Passkeys**, then use **Sign in with a passkey** or pick one from the email field's autofill. Nimbus requires user verification. Passkeys are bound to the host name in `BETTER_AUTH_URL`; changing it makes existing passkeys stop working.
 
 If someone loses every factor, an administrator selects **Reset sign-in methods** in that account's action menu. It removes two-factor authentication, recovery codes, passkeys, trusted browsers, and WebDAV app passwords, signs the account out everywhere, and disconnects its MCP clients, so connected WebDAV devices and AI clients are disconnected too. The person then signs in with their password, sets up their sign-in methods again, and creates new app passwords for their devices.
+
+To see what a member sees or fix something for them, an administrator selects **Sign in as user** in that account's action menu. The session lasts at most one hour, and a banner on every page names the account and offers **Stop impersonating**, which returns to **Users & groups**. The audit log records the start and the end, and marks everything done meanwhile with the administrator's name. Administrators cannot sign in as other administrators, and while signed in as someone they cannot change that person's password, email, sign-in methods or sessions, create app passwords, or connect AI clients. Disabling the account or resetting its sign-in methods ends the session.
 
 **Sessions** lists browsers signed in to your account with their last activity and address. Sign out any one, or every other session at once; signing out other browsers leaves MCP clients connected.
 

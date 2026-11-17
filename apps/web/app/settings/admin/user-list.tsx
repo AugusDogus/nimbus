@@ -7,6 +7,7 @@ import {
   ShieldOff,
   UserRound,
   UserRoundCheck,
+  UserRoundCog,
   UserRoundX,
 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
@@ -102,6 +103,31 @@ export function UserList({
                   <KeyRound />
                   Reset password
                 </DropdownMenuItem>
+                {user.role !== "admin" && !user.banned && (
+                  <DropdownMenuItem
+                    onClick={() =>
+                      onConfirm({
+                        title: `Sign in as ${user.email}?`,
+                        description: `You will use Nimbus as ${user.email} for up to one hour, with their files and permissions, to see what they see or fix something for them. The audit log records when you start and stop and marks everything you do with your name. You cannot change their password, email, sign-in methods, sessions, app passwords or AI connections. Use Stop impersonating at the bottom of the page to return to your account.`,
+                        confirmLabel: "Sign in as user",
+                        action: async () => {
+                          const result = await authClient.admin.impersonateUser(
+                            { userId: user.id },
+                          );
+                          if (result.error)
+                            throw new Error(
+                              result.error.message ??
+                                "Nimbus could not sign you in as this person. You are still signed in as yourself.",
+                            );
+                          window.location.assign("/");
+                        },
+                      })
+                    }
+                  >
+                    <UserRoundCog />
+                    Sign in as user
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   onClick={() =>
                     onConfirm({

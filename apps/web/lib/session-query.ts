@@ -3,18 +3,30 @@ import { queryOptions } from "@tanstack/react-query";
 /** The signed-in account, as pages need it before the auth client has loaded. */
 export type SignedIn = {
   user: { id: string; name: string; email: string };
+  /** The administrator signed in as this account, or null in its owner's own session. */
+  impersonatedBy: string | null;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
-function parseSession(value: unknown): SignedIn | null {
+/** Better Auth's get-session answer as `SignedIn`, or null when signed out or malformed. */
+export function parseSignedIn(value: unknown): SignedIn | null {
   if (!isRecord(value) || !isRecord(value.user)) return null;
   const { id, name, email } = value.user;
+  const impersonatedBy = isRecord(value.session)
+    ? value.session.impersonatedBy
+    : null;
   return typeof id === "string" &&
     typeof name === "string" &&
     typeof email === "string"
-    ? { user: { id, name, email } }
+    ? {
+        user: { id, name, email },
+        impersonatedBy:
+          typeof impersonatedBy === "string" && impersonatedBy
+            ? impersonatedBy
+            : null,
+      }
     : null;
 }
 
@@ -32,7 +44,7 @@ export const sessionQuery = queryOptions({
       throw new Error(
         `Nimbus could not check your sign-in (HTTP ${response.status}). Reload the page to try again.`,
       );
-    return parseSession(await response.json());
+    return parseSignedIn(await response.json());
   },
   staleTime: Number.POSITIVE_INFINITY,
 });

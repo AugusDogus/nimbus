@@ -110,7 +110,7 @@ export function FilesShell({ children }: FilesShellProps) {
         isAdmin={capabilities.data?.isAdmin === true}
         newContent={newContent}
       />
-      <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto">
+      <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pb-(--impersonation-offset)">
         <header className="surface-grain sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-background px-4 md:gap-4 md:px-6">
           <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-4">
             {/* Desktop: sidebar trigger */}
@@ -225,7 +225,7 @@ export function FilesShell({ children }: FilesShellProps) {
           <>
             <Button
               size="lg"
-              className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-4 z-20 h-14 gap-2.5 rounded-full bg-create text-create-foreground shadow-lg hover:bg-create/90 has-[>svg]:px-6 md:hidden"
+              className="fixed bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px))] right-4 z-20 h-14 gap-2.5 rounded-full bg-create text-create-foreground shadow-lg hover:bg-create/90 has-[>svg]:px-6 md:hidden"
               onClick={() => setFabDrawerOpen(true)}
               aria-label="New file or folder"
             >

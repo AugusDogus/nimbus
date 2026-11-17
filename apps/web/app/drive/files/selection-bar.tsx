@@ -76,7 +76,7 @@ export function SelectionBar({
       className={cn(
         "z-20 flex items-center gap-1 bg-background",
         floating
-          ? "fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 rounded-full border px-2 py-1.5 shadow-lg"
+          ? "fixed bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px))] left-1/2 -translate-x-1/2 rounded-full border px-2 py-1.5 shadow-lg"
           : "absolute inset-0 px-2 md:px-4 lg:px-6",
       )}
     >

@@ -15,6 +15,8 @@ export type AdminConfirmation = {
   title: string;
   description: string;
   action: () => Promise<void>;
+  /** The confirm button's label; "Confirm" when omitted. */
+  confirmLabel?: string;
 };
 
 export function AdminConfirmationDialog({
@@ -75,7 +77,7 @@ export function AdminConfirmationDialog({
               })()
             }
           >
-            {busy ? "Saving…" : "Confirm"}
+            {busy ? "Saving…" : (confirmation.confirmLabel ?? "Confirm")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
