@@ -255,6 +255,8 @@ function DestinationDialog({
     type: "dir",
     // The server checks write access when the change is submitted.
     permission: "write",
+    // Moving into a home folder is allowed; only moving one is not.
+    fixed: false,
     mtime: null,
     size: null,
   };

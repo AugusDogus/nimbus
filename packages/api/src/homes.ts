@@ -278,15 +278,22 @@ function provisionUnlocked(
 }
 
 /**
- * Refuse to move, rename, or delete a home folder, a folder Nimbus created to hold homes, or a
- * folder that contains either.
+ * Whether a path is a home folder, a folder Nimbus created to hold homes, or a folder that
+ * contains either: what can never be moved, renamed or deleted. Read once, then asked per path,
+ * so a listing checks every entry with two queries.
  */
-async function requireNotHome(store: DriveStore, path: string) {
+async function protection(store: DriveStore) {
   const protectedPaths = [
     ...(await store.listHomes()).map((home) => home.path),
     ...(await store.listHomeContainers()),
   ];
-  if (protectedPaths.some((protectedPath) => covers(path, protectedPath)))
+  return (path: string) =>
+    protectedPaths.some((protectedPath) => covers(path, protectedPath));
+}
+
+/** Refuse to move, rename, or delete what `protection` covers. */
+async function requireNotHome(store: DriveStore, path: string) {
+  if ((await protection(store))(path))
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
@@ -310,6 +317,7 @@ export const Homes = {
   prepare,
   folderName,
   provision,
+  protection,
   requireNotHome,
   backfill,
 } as const;

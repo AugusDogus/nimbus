@@ -6,6 +6,7 @@ const file: FileEntry = {
   path: "projects/notes.txt",
   type: "file",
   permission: "write",
+  fixed: false,
   mtime: null,
   size: null,
 };
@@ -22,6 +23,11 @@ describe("file move eligibility", () => {
     expect(FileEntry.canMove(file)).toBe(true);
     expect(FileEntry.canMove(folder)).toBe(true);
     expect(FileEntry.canMove({ ...file, permission: "read" })).toBe(false);
+    // Home folders, and the folder holding them, stay where they are.
+    expect(FileEntry.canMove({ ...folder, fixed: true })).toBe(false);
+    expect(FileEntry.canTrash({ ...folder, fixed: true })).toBe(false);
+    expect(FileEntry.canTrash(folder)).toBe(true);
+    expect(FileEntry.canMoveInto(file, { ...folder, fixed: true })).toBe(true);
     expect(FileEntry.canMove({ ...folder, permission: "write" })).toBe(false);
     expect(FileEntry.canMove({ ...folder, path: "" })).toBe(false);
   });

@@ -73,7 +73,7 @@ export function selectionCapabilities(targets: readonly FileEntry[]) {
   if (!capabilities) {
     capabilities = {
       move: targets.every(FileEntry.canMove),
-      trash: targets.every((target) => target.permission !== "read"),
+      trash: targets.every(FileEntry.canTrash),
     };
     capabilityCache.set(targets, capabilities);
   }
@@ -180,7 +180,7 @@ export function entryMenuItems(
           },
         ]
       : []),
-    ...(entry.permission !== "read"
+    ...(FileEntry.canTrash(entry)
       ? [
           {
             label: "Move to trash",

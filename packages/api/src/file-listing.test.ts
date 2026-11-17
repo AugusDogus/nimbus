@@ -9,6 +9,7 @@ const entries: ListedEntry[] = [
     mtime: 10,
     size: 0,
     permission: "admin",
+    fixed: true,
   },
   {
     name: "a b.txt",
@@ -17,6 +18,7 @@ const entries: ListedEntry[] = [
     mtime: 1.5,
     size: 42,
     permission: "read",
+    fixed: false,
   },
   {
     name: "😀.md",
@@ -25,6 +27,7 @@ const entries: ListedEntry[] = [
     mtime: 2,
     size: 7,
     permission: "write",
+    fixed: false,
   },
 ];
 
@@ -35,6 +38,10 @@ describe("folder listings on the wire", () => {
       ok: true,
       entries,
     });
+  });
+
+  it("sends home folders as the indices of a short list", () => {
+    expect(FileListing.encode("team", entries, true).fixed).toEqual([0]);
   });
 
   it("round-trips entries without stats, and builds root paths from names alone", () => {
@@ -66,6 +73,9 @@ describe("folder listings on the wire", () => {
       { ...good, stats: { mtimes: [1, 2, 3], sizes: [1, "2", 3] } },
       { ...good, stats: { mtimes: [1, 2, Number.NaN], sizes: [1, 2, 3] } },
       { ...good, stats: "none" },
+      { ...good, fixed: [3] },
+      { ...good, fixed: [0.5] },
+      { ...good, fixed: null },
     ])
       expect(FileListing.decode(bad)).toMatchObject({
         ok: false,

@@ -257,9 +257,7 @@ export function EntriesView({
         setSelection(Selection.empty);
         break;
       case "trash": {
-        const targets = commandTargets().filter(
-          (entry) => entry.permission !== "read",
-        );
+        const targets = commandTargets().filter(FileEntry.canTrash);
         if (targets.length === 0) return;
         open({ action: "delete", entries: targets });
         break;

@@ -8,6 +8,7 @@ import type { HistoryEntry } from "./search-index";
 import { MAX_SEALED_CURSOR } from "./search-cursor";
 import { searchEntries } from "./search-service";
 import { safePath } from "./file-operations";
+import { Homes } from "./homes";
 import { isApiError } from "./safe-path";
 import { protectedProcedure, router } from "./index";
 
@@ -32,12 +33,14 @@ function searchHistory(bookmarks: readonly Bookmark[]): HistoryEntry[] {
 
 export const catalogRouter = router({
   shared: protectedProcedure.query(async ({ ctx }) => {
+    const isFixed = await Homes.protection(ctx.drive);
     const entries = [];
     for (const path of new Set(ctx.access.grants.map((grant) => grant.path))) {
       try {
         entries.push({
           ...(await entryAt(path)),
           permission: permissionFor(ctx.access, path),
+          fixed: isFixed(path),
         });
       } catch (error) {
         if (!isApiError(error, "NOT_FOUND")) throw error;
@@ -91,15 +94,18 @@ export const catalogRouter = router({
           signal,
         },
       );
+      const isFixed = await Homes.protection(ctx.drive);
       return {
         ...result,
         entries: result.entries.map((entry) => ({
           ...entry,
           permission: permissionFor(ctx.access, entry.path),
+          fixed: isFixed(entry.path),
         })),
       };
     }),
   bookmarks: protectedProcedure.query(async ({ ctx }) => {
+    const isFixed = await Homes.protection(ctx.drive);
     const results = [];
     for (const bookmark of await ctx.drive.listBookmarks(ctx.access.user.id)) {
       if (!ctx.access.canBrowse(bookmark.path)) continue;
@@ -107,6 +113,7 @@ export const catalogRouter = router({
         results.push({
           ...(await entryAt(bookmark.path)),
           permission: permissionFor(ctx.access, bookmark.path),
+          fixed: isFixed(bookmark.path),
           starred: bookmark.starred,
           accessedAt: bookmark.accessedAt,
         });

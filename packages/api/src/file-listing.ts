@@ -9,6 +9,8 @@ export type ListedEntry = {
   mtime: number | null;
   size: number | null;
   permission: Permission;
+  /** A home folder or one holding homes, which cannot be renamed, moved or trashed. */
+  fixed: boolean;
 };
 
 /**
@@ -26,6 +28,8 @@ export type FileListing = {
   permissions: (0 | 1 | 2)[];
   /** Modification times and sizes, or null when the listing was asked for without them. */
   stats: { mtimes: number[]; sizes: number[] } | null;
+  /** Indices of `fixed` entries, which are few, so a list of them stays short. */
+  fixed: number[];
 };
 
 export type ListingError = { kind: "invalid-listing"; message: string };
@@ -44,7 +48,9 @@ function encode(
   const permissions: (0 | 1 | 2)[] = [];
   const mtimes: number[] = [];
   const sizes: number[] = [];
-  for (const entry of entries) {
+  const fixed: number[] = [];
+  for (const [index, entry] of entries.entries()) {
+    if (entry.fixed) fixed.push(index);
     names.push(entry.name);
     folders.push(entry.type === "dir" ? 1 : 0);
     permissions.push(permissionCodes[entry.permission]);
@@ -59,6 +65,7 @@ function encode(
     folders,
     permissions,
     stats: includeStats ? { mtimes, sizes } : null,
+    fixed,
   };
 }
 
@@ -66,6 +73,7 @@ function encode(
 function entries(listing: FileListing): ListedEntry[] {
   const prefix = listing.folder ? `${listing.folder}/` : "";
   const result: ListedEntry[] = [];
+  const fixed = new Set(listing.fixed);
   for (let index = 0; index < listing.names.length; index++) {
     const name = listing.names[index] ?? "";
     result.push({
@@ -75,6 +83,7 @@ function entries(listing: FileListing): ListedEntry[] {
       mtime: listing.stats?.mtimes[index] ?? null,
       size: listing.stats?.sizes[index] ?? null,
       permission: permissionsByCode[listing.permissions[index] ?? 0],
+      fixed: fixed.has(index),
     });
   }
   return result;
@@ -114,7 +123,7 @@ function decode(
   value: unknown,
 ): { ok: true; entries: ListedEntry[] } | { ok: false; error: ListingError } {
   if (!isRecord(value)) return invalid("it is not an object");
-  const { folder, names, folders, permissions, stats } = value;
+  const { folder, names, folders, permissions, stats, fixed } = value;
   if (typeof folder !== "string") return invalid("its folder is missing");
   if (!column(names, Array.isArray(names) ? names.length : -1, isString))
     return invalid("its names are not all strings");
@@ -123,6 +132,13 @@ function decode(
     return invalid("its folder flags do not match its names");
   if (!column(permissions, length, isPermissionCode))
     return invalid("its permissions do not match its names");
+  const isIndex = (item: unknown): item is number =>
+    Number.isInteger(item) &&
+    typeof item === "number" &&
+    item >= 0 &&
+    item < length;
+  if (!column(fixed, Array.isArray(fixed) ? fixed.length : -1, isIndex))
+    return invalid("its home folder flags do not match its names");
   let checkedStats: FileListing["stats"] = null;
   if (stats !== null) {
     if (!isRecord(stats)) return invalid("its stats are malformed");
@@ -139,6 +155,7 @@ function decode(
       folders,
       permissions,
       stats: checkedStats,
+      fixed,
     }),
   };
 }

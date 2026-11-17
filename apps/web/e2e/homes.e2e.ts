@@ -18,3 +18,30 @@ test("My files opens the account's own home folder, which cannot be moved or del
     rpc.files.delete.mutate({ path: "users" }),
   ).rejects.toMatchObject({ data: { code: "BAD_REQUEST" } });
 });
+
+test("menus offer no rename, move or trash on home folders and the folder holding them", async ({
+  page,
+  isMobile,
+}) => {
+  const entry = (name: string) =>
+    page.locator(`[data-entry-name="${name}"]`).filter({ visible: true });
+  const menuItems = async (name: string) => {
+    await page
+      .getByRole("button", { name: `Actions for ${name}`, exact: true })
+      .click();
+    const items = page.getByRole(isMobile ? "button" : "menuitem");
+    await expect(items.filter({ hasText: "Copy to…" }).first()).toBeVisible();
+    const labels = await items.allTextContents();
+    await page.keyboard.press("Escape");
+    return labels.map((label) => label.trim());
+  };
+  await page.goto("/");
+  await expect(entry("users")).toBeVisible();
+  for (const label of ["Rename", "Move", "Move to trash"])
+    expect(await menuItems("users")).not.toContain(label);
+  await page.goto("/browse/users");
+  await expect(entry("admin")).toBeVisible();
+  for (const label of ["Rename", "Move", "Move to trash"])
+    expect(await menuItems("admin")).not.toContain(label);
+  expect(await entry("admin").getAttribute("draggable")).not.toBe("true");
+});

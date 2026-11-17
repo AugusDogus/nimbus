@@ -12,6 +12,7 @@ import { isApiError, isFsError } from "./safe-path";
 import { getAccess } from "./access";
 import type { DriveStore, Permission } from "./drive-store";
 import { FolderAccess } from "./folder-access";
+import { Homes } from "./homes";
 import { numberedName } from "./numbered-name";
 import { fileNameSchema } from "./file-name";
 import { mutateFiles, FileLockedError } from "./file-mutations";
@@ -151,11 +152,19 @@ export const appRouter = router({
               "You do not have access to this folder. Ask its owner to share it with you.",
           });
         const folderAccess = FolderAccess.of(ctx.access, relative);
+        const isFixed = await Homes.protection(ctx.drive);
+        const prefix = relative ? `${relative}/` : "";
         const allowed = <T extends { name: string }>(entries: T[]) => {
-          const visible: (T & { permission: Permission })[] = [];
+          const visible: (T & { permission: Permission; fixed: boolean })[] =
+            [];
           for (const entry of entries) {
             const permission = folderAccess.permissionOf(entry.name);
-            if (permission) visible.push({ ...entry, permission });
+            if (permission)
+              visible.push({
+                ...entry,
+                permission,
+                fixed: isFixed(prefix + entry.name),
+              });
           }
           return visible;
         };
