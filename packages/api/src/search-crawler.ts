@@ -204,7 +204,7 @@ export async function reconcile(
       // Removed by a watcher change since it was queued.
       if (!index.isFolder(id)) return [];
       const folder = openFolder(root, directory);
-      if (folder.type === "gone") index.removeId(id);
+      if (folder.type === "gone") forget(index, id);
       if (folder.type === "unreadable") report.unreadable++;
       if (folder.type !== "open") return [];
       index.setIdentity(id, folder.identity);
@@ -217,6 +217,15 @@ export async function reconcile(
     for (const subfolder of subfolders) pending.push(subfolder);
   }
   return report;
+}
+
+/**
+ * Drop a folder that is gone, with everything beneath it. The root stays,
+ * empty: the data root itself is gone, so nothing in it can be served.
+ */
+function forget(index: SearchIndex, id: number) {
+  if (id !== 0) index.removeId(id);
+  else for (const child of index.childrenOf(0)) index.removeId(child.id);
 }
 
 /** One reconcile slice: compare an open folder with what the index holds for it. */
@@ -232,7 +241,7 @@ async function reconcileFolder(
     entries = await readdir(listing, { withFileTypes: true });
   } catch (error) {
     if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR"))
-      index.removeId(id);
+      forget(index, id);
     else report.unreadable++;
     return [];
   }

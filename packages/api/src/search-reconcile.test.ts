@@ -336,3 +336,15 @@ for (const swapped of ["shared/docs", "shared"])
     expect(slices).toBeGreaterThan(at);
     expect(paths(index)).not.toContain("outside-secret");
   });
+
+test("empties the index when the data root itself is gone", async () => {
+  const drive = path.join(root, "drive");
+  await mkdir(path.join(drive, "docs"), { recursive: true });
+  await writeFile(path.join(drive, "docs", "a.txt"), "abc");
+  const index = createSearchIndex();
+  await crawl(index, drive);
+  expect(index.bytesAt("")).toBe(3);
+  await rm(drive, { recursive: true });
+  await reconcile(index, drive, direct);
+  expect(dump(index)).toEqual({ total: 0, entries: [] });
+});
