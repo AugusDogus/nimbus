@@ -167,14 +167,13 @@ export type DriveStore = {
    * it inherited at its source and inherits from its destination instead.
    */
   movePath(from: string, to: string): Promise<void>;
-  /** Delete links, direct grants, bookmarks, and dead properties at or under a path whose content is merged into another item. */
-  discardPath(path: string): Promise<void>;
   /**
    * Delete the links, direct grants, file requests, bookmarks, dead properties and file history
    * at or under a path where nothing exists, in one transaction. Only content removed outside
-   * Nimbus leaves records at a vacant path; Nimbus's own moves and trash take theirs along. Call
-   * it through `VacantPath.claim`, which checks the path is vacant. Payloads of dropped history
-   * are swept by version cleanup.
+   * Nimbus leaves records at a vacant path; Nimbus's own moves and trash take theirs along, and
+   * a file moved over another ends its records here once its content has moved. Call it through
+   * `VacantPath.claim`, which checks the path is vacant, unless the caller just emptied the path
+   * itself. Payloads of dropped history are swept by version cleanup.
    */
   claimVacant(path: string): Promise<void>;
   fileRequests: FileRequestStore;

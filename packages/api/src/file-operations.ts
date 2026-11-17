@@ -171,8 +171,6 @@ async function moveUnlocked(
   );
   try {
     if (replacement.kind === "content") {
-      // Discard the source's records before the content commits, failing closed if this fails.
-      await store.discardPath(source.relative);
       // The replaced content is kept as a version of the destination.
       await FileVersions.commitReplacement({
         drive: store,
@@ -181,12 +179,10 @@ async function moveUnlocked(
         incoming: source.absolute,
         archivedBy: access.user.id,
       });
-      // The destination keeps its own history; the merged file's ends with it.
-      await FileVersions.discard(
-        store.versions,
-        getDataRoot(),
-        source.relative,
-      );
+      // The destination keeps its own records and history; the merged file's end with it,
+      // only once its content has moved, so a failed commit leaves its sharing intact. Its
+      // path is vacant now, and records left there would never attach to new content.
+      await store.claimVacant(source.relative);
     } else {
       await rename(source.absolute, target.absolute);
       try {

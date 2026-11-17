@@ -330,7 +330,7 @@ test("file requests follow their folder through moves, and trash suspends them w
 
 test("file requests are discarded with content merged into another item, and with trash", async () => {
   await store.fileRequests.create(fileRequest("merged", "merged"));
-  await store.discardPath("merged");
+  await store.claimVacant("merged");
   expect(await store.fileRequests.getByToken("request-merged")).toBeNull();
   await store.fileRequests.create(fileRequest("purged", "purged"));
   await store.addTrash({

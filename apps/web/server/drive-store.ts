@@ -440,11 +440,6 @@ export function createDriveStore(database: Database): DriveStore {
     },
     fileRequests: createFileRequestStore(database),
     versions: createFileVersionStore(database),
-    async discardPath(path) {
-      database.transaction((tx) => {
-        detach(tx, path);
-      });
-    },
     async claimVacant(path) {
       // Deletes only: a vacant path usually has no records, and these are index range scans.
       database.transaction((tx) => {

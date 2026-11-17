@@ -286,9 +286,6 @@ export function createTestDriveStore() {
     },
     fileRequests,
     versions,
-    async discardPath(path) {
-      take(path);
-    },
     async claimVacant(path) {
       take(path);
       await versions.removeAt(path);
