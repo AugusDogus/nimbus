@@ -41,6 +41,7 @@ const trustedProxies = TrustedProxies.parse(process.env.NIMBUS_TRUSTED_PROXIES);
 const auditRetentionDays = AuditRetention.parse(
   process.env.NIMBUS_AUDIT_RETENTION_DAYS,
 );
+const homesPath = Homes.containerPath();
 console.info(
   mailConfig.kind === "smtp"
     ? `Nimbus email is enabled through ${mailConfig.host}:${mailConfig.port}.`
@@ -60,6 +61,10 @@ await upgradeDatabase(client, async () =>
 );
 setAuditSink(createAuditSink(db));
 const store = createDriveStore(db);
+const homesContainer = await Homes.prepare(store, homesPath);
+if (homesContainer.kind === "refused") throw new Error(homesContainer.message);
+if (homesContainer.created)
+  console.info(`Nimbus created ${homesContainer.path} to hold home folders.`);
 for (const home of await Homes.backfill(store))
   if (home.kind === "failed") console.error(home.message);
   else console.info(`Nimbus created the home folder ${home.path}.`);

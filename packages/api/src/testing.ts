@@ -47,6 +47,8 @@ export function createTestDriveStore() {
   const trash = new Map<string, TrashItem>();
   const properties = new Map<string, DavProperty[]>();
   const homes = new Map<string, Home>();
+  const homeContainers = new Set<string>();
+  const fileRequests = createTestFileRequestStore();
   type Detached = {
     grants: Grant[];
     shares: Share[];
@@ -179,6 +181,32 @@ export function createTestDriveStore() {
       homes.set(home.userId, home);
       grants.set(grant.id, grant);
     },
+    async listHomeContainers() {
+      return [...homeContainers];
+    },
+    async addHomeContainer(path) {
+      if (homeContainers.has(path))
+        throw new Error(`A home container is already recorded at ${path}.`);
+      homeContainers.add(path);
+    },
+    async removeHomeContainer(path) {
+      homeContainers.delete(path);
+    },
+    async sharedPaths() {
+      const requests = (
+        await Promise.all(
+          [...users.keys()].map((userId) => fileRequests.list(userId)),
+        )
+      ).flat();
+      return {
+        grants: [...grants.values()].map((grant) => grant.path),
+        links: [...shares.values()].map((share) => share.path),
+        fileRequests: requests.map((request) => request.path),
+        bookmarks: [...bookmarks.values()]
+          .flat()
+          .map((bookmark) => bookmark.path),
+      };
+    },
     async davProperties(paths) {
       return new Map(
         paths.flatMap((path) => {
@@ -237,7 +265,7 @@ export function createTestDriveStore() {
     async removeAppPassword(id, userId) {
       if (passwords.get(id)?.userId === userId) passwords.delete(id);
     },
-    fileRequests: createTestFileRequestStore(),
+    fileRequests,
     versions,
     async discardPath(path) {
       take(path);
@@ -292,7 +320,17 @@ export function createTestDriveStore() {
       }
     return taken;
   }
-  return { store, users, grants, groups, shares, trash, properties, homes };
+  return {
+    store,
+    users,
+    grants,
+    groups,
+    shares,
+    trash,
+    properties,
+    homes,
+    homeContainers,
+  };
 }
 
 /** Crawls `root` on every query, so tests always search the current disk. */

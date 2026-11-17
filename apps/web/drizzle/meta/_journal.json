@@ -57,6 +57,13 @@
       "when": 1794860632877,
       "tag": "0007_bookmark_visits",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794948116259,
+      "tag": "0008_home_containers",
+      "breakpoints": true
     }
   ]
 }

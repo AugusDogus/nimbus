@@ -528,3 +528,51 @@ test("cached access follows revoked grants and disabled accounts on the next req
     code: "UNAUTHORIZED",
   });
 });
+
+test("shared paths list each live path with sharing once, by kind, without trashed records", async () => {
+  expect(await store.sharedPaths()).toEqual({
+    grants: [],
+    links: [],
+    fileRequests: [],
+    bookmarks: [],
+  });
+  await store.saveGrant(grant("root", ""));
+  await store.saveGrant(grant("team", "team"));
+  await store.createShare(share("link", "team/users"));
+  await store.fileRequests.create(fileRequest("drop", "team/users"));
+  for (const userId of ["owner", "reader"])
+    await store.saveBookmark(userId, {
+      path: "team/users/a",
+      starred: false,
+      accessedAt: 1,
+      visits: 1,
+    });
+  await store.createShare(share("trashed", "old"));
+  await store.addTrash({
+    id: "trash-old",
+    path: "old",
+    deletedBy: "owner",
+    deletedAt: 1,
+    expiresAt: 2,
+  });
+  const shared = await store.sharedPaths();
+  expect({ ...shared, grants: [...shared.grants].sort() }).toEqual({
+    grants: ["", "team"],
+    links: ["team/users"],
+    fileRequests: ["team/users"],
+    bookmarks: ["team/users/a"],
+  });
+});
+
+test("home containers are recorded once and can be forgotten", async () => {
+  expect(await store.listHomeContainers()).toEqual([]);
+  await store.addHomeContainer("users");
+  await expect(store.addHomeContainer("users")).rejects.toThrow();
+  await store.addHomeContainer("team/people");
+  expect((await store.listHomeContainers()).sort()).toEqual([
+    "team/people",
+    "users",
+  ]);
+  await store.removeHomeContainer("users");
+  expect(await store.listHomeContainers()).toEqual(["team/people"]);
+});

@@ -69,6 +69,13 @@ export type AppPassword = {
 
 /** An account's personal folder, kept at a fixed path for the account's lifetime. */
 export type Home = { userId: string; path: string };
+/** Live paths that carry each kind of sharing record; records detached into trash are not live. */
+export type SharedPaths = {
+  grants: string[];
+  links: string[];
+  fileRequests: string[];
+  bookmarks: string[];
+};
 
 /** Persistence boundary. Filesystem content remains on disk, never in these records. */
 export type DriveStore = {
@@ -103,6 +110,14 @@ export type DriveStore = {
   hasHomeWithin(path: string): Promise<boolean>;
   /** Record a home and its owner's grant together. Fails if the account already has a home. */
   createHome(home: Home, grant: Grant): Promise<void>;
+  /** Folders Nimbus created to hold home folders. */
+  listHomeContainers(): Promise<string[]>;
+  /** Record that Nimbus is creating `path` to hold home folders. */
+  addHomeContainer(path: string): Promise<void>;
+  /** Forget a home container record whose folder could not be created. */
+  removeHomeContainer(path: string): Promise<void>;
+  /** Every live path with a grant, public link, upload link, or bookmark, by kind. */
+  sharedPaths(): Promise<SharedPaths>;
   /** Dead properties of each path. Paths without properties are absent from the map. */
   davProperties(paths: readonly string[]): Promise<Map<string, DavProperty[]>>;
   /** Set and remove dead properties of one path in a single transaction. */

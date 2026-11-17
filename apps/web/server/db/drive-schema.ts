@@ -127,6 +127,14 @@ export const homes = sqliteTable("nimbus_home", {
   path: text("path").notNull().unique(),
 });
 /**
+ * Folders Nimbus created to hold home folders. Home folders go only into a recorded folder,
+ * never into one that existed before, which may already be shared.
+ */
+export const homeContainers = sqliteTable("nimbus_home_container", {
+  path: text("path").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+});
+/**
  * One row (id 0) whose value triggers from migration 0006 bump whenever anything a permission
  * check reads changes. That migration declares the check on the column; it is named here so
  * a generated table rebuild keeps it.

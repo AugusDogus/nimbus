@@ -1,13 +1,162 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rmdir } from "node:fs/promises";
+import path from "node:path";
 import { TRPCError } from "@trpc/server";
-import type { DriveStore, DriveUser } from "./drive-store";
+import type { DriveStore, DriveUser, SharedPaths } from "./drive-store";
+import { fileNameSchema } from "./file-name";
 import { mutateFiles } from "./file-mutations";
-import { isFsError, PathError, resolveSafePath } from "./safe-path";
+import {
+  isFsError,
+  isWithinPath,
+  PathError,
+  resolveSafePath,
+} from "./safe-path";
 
-/** Data-root folder that holds every account's home. */
-const container = "homes";
+/** Data-root folder that holds every account's home unless NIMBUS_HOMES_PATH names another. */
+const defaultContainer = "users";
 const reservedWindowsNames = /^(con|prn|aux|nul|com\d|lpt\d)$/;
+
+/**
+ * The folder, relative to the data root, that holds every account's home: NIMBUS_HOMES_PATH,
+ * or `users`. Throws when the value is not a plain relative folder path, so startup fails.
+ */
+function containerPath(value = process.env.NIMBUS_HOMES_PATH) {
+  if (value === undefined || value === "") return defaultContainer;
+  const valid = value
+    .split("/")
+    .every(
+      (segment) =>
+        segment === segment.trim() && fileNameSchema.safeParse(segment).success,
+    );
+  if (!valid)
+    throw new Error(
+      `NIMBUS_HOMES_PATH must be a folder path relative to the data root, such as users or team/users: no leading or trailing slash or spaces, no "." or ".." segments, backslashes or control characters, and not the reserved .nimbus folder. It is "${value}". Nothing was changed; fix the value and restart.`,
+    );
+  return value;
+}
+
+export type HomeContainer =
+  | { kind: "ready"; path: string; created: boolean }
+  | { kind: "refused"; message: string };
+
+const plural = (count: number, one: string, many: string) =>
+  `${count} ${count === 1 ? one : many}`;
+
+/**
+ * Path comparisons for home folders ignore case: a volume shared over SMB or on a
+ * case-insensitive filesystem treats `Users` and `users` as one folder.
+ */
+const covers = (parent: string, child: string) =>
+  isWithinPath(parent.toLowerCase(), child.toLowerCase());
+
+/**
+ * Sharing that would reach a home created inside `container`: grants and public links on it or
+ * on a folder above it, including the drive root.
+ */
+function sharingOver(container: string, shared: SharedPaths) {
+  const over = (paths: string[]) =>
+    paths.filter((recorded) => covers(recorded, container)).length;
+  return [
+    plural(over(shared.grants), "sharing grant", "sharing grants") +
+      " on it or on a folder above it",
+    plural(over(shared.links), "public link", "public links") +
+      " on it or on a folder above it",
+  ].filter((found) => !found.startsWith("0 "));
+}
+
+/** Everything recorded at or inside `container`, which a folder new to Nimbus must not have. */
+function recordsWithin(container: string, shared: SharedPaths) {
+  const within = (paths: string[]) =>
+    paths.filter(
+      (recorded) =>
+        covers(container, recorded) &&
+        recorded.toLowerCase() !== container.toLowerCase(),
+    ).length;
+  const at = (paths: string[]) =>
+    paths.filter((recorded) => covers(container, recorded)).length;
+  return [
+    plural(within(shared.grants), "sharing grant", "sharing grants") +
+      " inside it",
+    plural(within(shared.links), "public link", "public links") + " inside it",
+    plural(at(shared.fileRequests), "upload link", "upload links") +
+      " on it or inside it",
+    plural(at(shared.bookmarks), "bookmark", "bookmarks") +
+      " on it or inside it",
+  ].filter((found) => !found.startsWith("0 "));
+}
+
+/** The existing entry at `absolute`, matching its name case-insensitively, and what it holds. */
+async function existingEntry(absolute: string) {
+  let siblings: string[];
+  try {
+    siblings = await readdir(path.dirname(absolute));
+  } catch (error) {
+    if (isFsError(error, "ENOENT")) return null;
+    throw error;
+  }
+  const name = path.basename(absolute).toLowerCase();
+  const match = siblings.find((sibling) => sibling.toLowerCase() === name);
+  if (match === undefined) return null;
+  const held = await readdir(path.join(path.dirname(absolute), match)).then(
+    (entries) => plural(entries.length, "item", "items"),
+    () => "not a readable folder",
+  );
+  return `the data root already has "${match}" (${held}), which Nimbus did not create`;
+}
+
+/**
+ * Make sure the configured container exists and is Nimbus's own before any home goes into it.
+ * A folder Nimbus recorded creating is reused, and recreated if it went missing. Otherwise it
+ * is created and recorded, unless something already exists there or sharing records already
+ * cover that path: home folders placed there would be exposed to whoever has that access.
+ */
+async function prepare(
+  store: DriveStore,
+  container = containerPath(),
+): Promise<HomeContainer> {
+  const refuse = (found: string[]): HomeContainer => ({
+    kind: "refused",
+    message: `Nimbus did not start because it cannot use "${container}" for home folders: ${found.join("; ")}. Home folders placed there could be seen by whoever already has access. No folders or sharing were changed. Set NIMBUS_HOMES_PATH to a folder that does not exist yet and is not inside a shared folder, or rename the existing "${container}" folder and remove its sharing, then restart.`,
+  });
+  let target: Awaited<ReturnType<typeof resolveSafePath>>;
+  try {
+    target = await resolveSafePath(container);
+  } catch (error) {
+    if (error instanceof PathError) return refuse([error.message]);
+    throw error;
+  }
+  if ((await store.listHomeContainers()).includes(container)) {
+    await mkdir(target.absolute, { recursive: true });
+    return { kind: "ready", path: container, created: false };
+  }
+  const shared = await store.sharedPaths();
+  const found = [
+    ...sharingOver(container, shared),
+    ...recordsWithin(container, shared),
+  ];
+  const existing = await existingEntry(target.absolute);
+  if (existing) found.unshift(existing);
+  if (found.length) return refuse(found);
+  // Created exclusively before it is recorded, so a recorded folder is always one Nimbus
+  // made. A crash in between leaves an empty folder that the next start refuses to adopt.
+  await mkdir(path.dirname(target.absolute), { recursive: true });
+  try {
+    await mkdir(target.absolute);
+  } catch (error) {
+    if (isFsError(error, "EEXIST"))
+      return refuse([
+        `"${container}" was created by something else while Nimbus was starting`,
+      ]);
+    throw error;
+  }
+  try {
+    await store.addHomeContainer(container);
+  } catch (error) {
+    await rmdir(target.absolute).catch(() => undefined);
+    throw error;
+  }
+  return { kind: "ready", path: container, created: true };
+}
 
 export type HomeProvisioning =
   | { kind: "created"; path: string }
@@ -55,9 +204,21 @@ function provisionUnlocked(
   store: DriveStore,
   user: Pick<DriveUser, "id" | "email">,
 ): Promise<HomeProvisioning> {
+  const container = containerPath();
   return mutateFiles([container], { userId: user.id }, async () => {
     const existing = await store.homeOf(user.id);
     if (existing) return { kind: "existing", path: existing };
+    if (!(await store.listHomeContainers()).includes(container))
+      return {
+        kind: "failed",
+        message: `Nimbus has not set up "${container}" for home folders, so ${user.email} got none. The account works without a home; restart Nimbus, which prepares the folder or says why it cannot.`,
+      };
+    const sharing = sharingOver(container, await store.sharedPaths());
+    if (sharing.length)
+      return {
+        kind: "failed",
+        message: `Nimbus did not create a home folder for ${user.email} because "${container}" has ${sharing.join(" and ")}, which would give others access to it. The account works without a home. Remove that sharing, or set NIMBUS_HOMES_PATH to a new folder, then restart Nimbus to retry.`,
+      };
     let created: string | null = null;
     try {
       const parent = await resolveSafePath(container);
@@ -110,13 +271,20 @@ function provisionUnlocked(
   });
 }
 
-/** Refuse to move, rename, or delete a home folder or a folder that contains one. */
+/**
+ * Refuse to move, rename, or delete a home folder, a folder Nimbus created to hold homes, or a
+ * folder that contains either.
+ */
 async function requireNotHome(store: DriveStore, path: string) {
-  if (await store.hasHomeWithin(path))
+  const protectedPaths = [
+    ...(await store.listHomes()).map((home) => home.path),
+    ...(await store.listHomeContainers()),
+  ];
+  if (protectedPaths.some((protectedPath) => covers(path, protectedPath)))
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:
-        "This is a personal home folder, or contains one, so it cannot be renamed, moved, or deleted. A server administrator can remove the account first; its files stay in place.",
+        "This is a personal home folder or the folder that holds them, or contains one, so it cannot be renamed, moved, or deleted. Its contents can be changed. A server administrator can remove an account first; its files stay in place.",
     });
 }
 
@@ -132,7 +300,8 @@ async function backfill(store: DriveStore) {
 }
 
 export const Homes = {
-  container,
+  containerPath,
+  prepare,
   folderName,
   provision,
   requireNotHome,

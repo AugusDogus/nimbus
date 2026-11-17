@@ -128,16 +128,16 @@ test("administrators create groups and members receive only their granted read o
     const memberRPC = await client(memberContext);
     expect(await memberRPC.access.me.query()).toMatchObject({
       isAdmin: false,
-      home: `homes/member-${suffix}`,
+      home: `users/member-${suffix}`,
     });
     expect(
       FileListing.entries(await memberRPC.files.list.query({}))
         .map((entry) => entry.name)
         .sort(),
-    ).toEqual([folder, "homes"].sort());
+    ).toEqual([folder, "users"].sort());
     expect(
       FileListing.entries(
-        await memberRPC.files.list.query({ path: "homes" }),
+        await memberRPC.files.list.query({ path: "users" }),
       ).map((entry) => entry.name),
     ).toEqual([`member-${suffix}`]);
     expect(

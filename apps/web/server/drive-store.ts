@@ -19,10 +19,12 @@ import {
   appPasswords,
   bookmarks,
   davProperties,
+  fileRequests,
   fileVersions,
   grants,
   groupMembers,
   groups,
+  homeContainers,
   homes,
   shares,
   trash,
@@ -477,6 +479,43 @@ export function createDriveStore(database: Database): DriveStore {
           })
           .run();
       });
+    },
+    async listHomeContainers() {
+      return (
+        await database
+          .select({ path: homeContainers.path })
+          .from(homeContainers)
+      ).map((row) => row.path);
+    },
+    async addHomeContainer(path) {
+      await database
+        .insert(homeContainers)
+        .values({ path, createdAt: Date.now() });
+    },
+    async removeHomeContainer(path) {
+      await database
+        .delete(homeContainers)
+        .where(eq(homeContainers.path, path));
+    },
+    async sharedPaths() {
+      const paths = (
+        table:
+          | typeof grants
+          | typeof shares
+          | typeof fileRequests
+          | typeof bookmarks,
+      ) =>
+        database
+          .selectDistinct({ path: table.path })
+          .from(table)
+          .all()
+          .map((row) => row.path);
+      return {
+        grants: paths(grants),
+        links: paths(shares),
+        fileRequests: paths(fileRequests),
+        bookmarks: paths(bookmarks),
+      };
     },
     async davProperties(paths) {
       const result = new Map<
