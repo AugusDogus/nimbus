@@ -240,8 +240,10 @@ describe("paging", () => {
         .search({ ...request, limit: 1000 })
         .hits.map((hit) => hit.path)
         .sort();
+      // A page continued across one compaction stays in the order the
+      // session started in; a second compaction would restart it.
       const { all: seen, restarted } = pages(index, request, (page) => {
-        if (page % 2 === 1) index.compact();
+        if (page === seed) index.compact();
       });
       expect(restarted).toBe(0);
       const flat = seen.flat();
@@ -251,6 +253,40 @@ describe("paging", () => {
       });
       expect([...flat].sort()).toEqual(expected);
     }
+  });
+
+  it("never repeats a result when a compaction reorders entries added since the last one", () => {
+    for (const limit of [1, 2, 3])
+      for (const compactAfter of [1, 2, 3]) {
+        const index = createSearchIndex();
+        for (const folder of ["a", "b", "c"])
+          index.add(`${folder}/note-0`, "file");
+        index.compact();
+        // Ranked after every compacted equal until a compaction places them
+        // in tree order among them.
+        for (const folder of ["c", "b", "a"])
+          for (const file of [1, 2])
+            index.add(`${folder}/note-${file}`, "file");
+        const request: SearchRequest = {
+          query: "note",
+          root: "",
+          limit,
+          scope: all,
+          depth: "full",
+          now: 1,
+        };
+        const { all: seen, restarted } = pages(index, request, (page) => {
+          if (page === compactAfter) index.compact();
+        });
+        const flat = seen.flat();
+        expect({ limit, compactAfter, restarted, flat }).toEqual({
+          limit,
+          compactAfter,
+          restarted: 0,
+          flat: [...new Set(flat)],
+        });
+        expect(flat).toHaveLength(9);
+      }
   });
 
   it("pages through accent, date and joined-word readings across a compaction", () => {
@@ -299,19 +335,21 @@ describe("paging", () => {
       now: 1,
     };
     // A restarted page is the first page again, so the layout moves on twice
-    // before the second page only; paging on from there must skip nothing.
-    const { all: seen, restarted } = pages(index, request, (page) => {
-      if (page !== 1) return;
-      index.compact();
-      index.compact();
-    });
-    expect(restarted).toBe(1);
-    expect([...new Set(seen.flat())].sort()).toEqual(
-      index
-        .search({ ...request, limit: 1000 })
-        .hits.map((hit) => hit.path)
-        .sort(),
-    );
+    // before the second page only, or across the second and third; paging
+    // on from there must skip nothing.
+    for (const spread of [false, true]) {
+      const { all: seen, restarted } = pages(index, request, (page) => {
+        if (page === 1) index.compact();
+        if (page === (spread ? 2 : 1)) index.compact();
+      });
+      expect({ spread, restarted }).toEqual({ spread, restarted: 1 });
+      expect([...new Set(seen.flat())].sort()).toEqual(
+        index
+          .search({ ...request, limit: 1000 })
+          .hits.map((hit) => hit.path)
+          .sort(),
+      );
+    }
   });
 
   it("starts again rather than skip when the caller's history changed", () => {

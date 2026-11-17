@@ -14,8 +14,11 @@
  * next page is the best matches ranked after it, read from the index as it is
  * then. Nothing is stored between pages, and no surviving match is repeated
  * or skipped. Compaction renumbers slots, so the index keeps the previous
- * layout's numbering to translate a cursor from just before one. A cursor
- * older than that, or one ranked with different history, restarts: its page
+ * layout's numbering to continue a cursor from just before one, ranked and
+ * continued in that layout's order (compaction moves entries added since
+ * the one before it, so the new order could put shown results after the
+ * cursor). A cursor older than that, one more compaction on, or one ranked
+ * with different history, restarts: its page
  * is the first page again, flagged `restarted`, and paging on from it skips
  * nothing. A restart costs what a first page costs, however deep the cursor.
  *
@@ -137,6 +140,8 @@ export type IndexView = {
     generation: number;
     slots: number;
     slotOf: Int32Array;
+    /** The id in each of its slots. */
+    slotId: Int32Array;
   } | null;
   /** Entries added since the layout was built, with folded names. */
   readonly delta: ReadonlyMap<number, { raw: string; folded: string }>;
@@ -311,7 +316,8 @@ function scanDelta(
   rootId: number,
   grants: Set<number> | null,
   boosts: ReadonlyMap<number, number>,
-  keep: (rank: number) => boolean,
+  /** The rank to collect for a match's, or -1 to leave it out. */
+  offered: (rank: number) => number,
   add: (rank: number) => void,
   counts: ScanCounts,
   corrections: DeltaFuzzy | null,
@@ -361,7 +367,8 @@ function scanDelta(
     const boost = boosts.get(id) ?? 0;
     const length = Buffer.byteLength(name.folded);
     const offer = (rank: number) => {
-      if (keep(rank)) add(rank);
+      const kept = offered(rank);
+      if (kept >= 0) add(kept);
     };
     if (literal !== null) {
       offer(Rank.of(literal, boost, length, slots + id));
@@ -452,7 +459,7 @@ const empty = (): SearchResult => ({
  * A search ready for its compacted scan: run `plan` over `layout` keeping the
  * best `limit` ranks, then pass them to `finish`, which matches the entries
  * added since compaction and returns the page, or a second scan when the
- * fuzzy layer should run too. `keep`, when set, filters ranks in a way scan
+ * fuzzy layer should run too. `translate`, when set, maps ranks in a way scan
  * workers cannot (a cursor from the previous layout): scan on this thread.
  */
 export type PreparedSearch =
@@ -462,7 +469,7 @@ export type PreparedSearch =
       layout: SearchLayout;
       plan: ScanPlan;
       limit: number;
-      keep: ((rank: number) => boolean) | null;
+      translate: ((rank: number) => number) | null;
       finish: (compacted: CompactRanks) => PreparedSearch;
     };
 
@@ -541,8 +548,13 @@ export function prepareSearch(
   const before = mode === "continue" || mode === "translate" ? shown : 0;
   const want = limit;
   const after = cursor && mode === "continue" ? cursor.after : -1;
-  /** For "translate": whether a rank in this layout came after the cursor in the previous one. */
-  const keep: ((rank: number) => boolean) | null =
+  /**
+   * For "translate": a rank in this layout as the previous one ranks it, or
+   * -1 when it came no later than the cursor there. The whole page is ranked
+   * and continued in that order, so what earlier pages showed stays before
+   * the cursor however this compaction reordered entries.
+   */
+  const translate: ((rank: number) => number) | null =
     cursor && previous && mode === "translate"
       ? (rank) => {
           const order = Rank.order(rank);
@@ -554,12 +566,20 @@ export function prepareSearch(
             id >= 0 && id < previous.slotOf.length
               ? (previous.slotOf[id] ?? NONE)
               : NONE;
-          return (
-            rank - order + (old === NONE ? previous.slots + id : old) >
-            cursor.after
-          );
+          const ranked =
+            rank - order + (old === NONE ? previous.slots + id : old);
+          return ranked > cursor.after ? ranked : -1;
         }
       : null;
+  /** The layout the page's ranks are in, to turn them back into entries. */
+  const rankedIn =
+    translate && previous
+      ? {
+          generation: previous.generation,
+          slots: previous.slots,
+          slotId: previous.slotId,
+        }
+      : layout;
 
   const boosts: number[] = [];
   const deltaBoosts = new Map<number, number>();
@@ -608,7 +628,7 @@ export function prepareSearch(
     layout,
     plan,
     limit: want,
-    keep,
+    translate,
     finish: (compacted) => {
       const results = collector(want);
       results.merge(compacted);
@@ -620,7 +640,7 @@ export function prepareSearch(
         rootId,
         grants,
         deltaBoosts,
-        keep ?? ((rank) => rank > plan.after),
+        translate ?? ((rank) => (rank > plan.after ? rank : -1)),
         (rank) => results.add(rank),
         counts,
         corrections,
@@ -699,9 +719,9 @@ export function prepareSearch(
         const rank = best[at] ?? 0;
         const order = Rank.order(rank);
         const id =
-          order < layout.slots
-            ? (layout.slotId[order] ?? NONE)
-            : order - layout.slots;
+          order < rankedIn.slots
+            ? (rankedIn.slotId[order] ?? NONE)
+            : order - rankedIn.slots;
         last = rank;
         hits.push({
           path: view.pathOf(id),
@@ -721,7 +741,7 @@ export function prepareSearch(
           restarted: mode === "again",
           next: more
             ? Cursor.format({
-                generation: layout.generation,
+                generation: rankedIn.generation,
                 after: last,
                 shown: before + hits.length,
                 now,
@@ -750,16 +770,17 @@ export function scanCompacted(
   layout: SearchLayout,
   plan: ScanPlan,
   limit: number,
-  keep: ((rank: number) => boolean) | null,
+  translate: ((rank: number) => number) | null,
 ): CompactRanks {
   const results = collector(limit);
   const counts = ScanCounts.none(plan.terms.length);
   state.scanHere(
     layout,
     plan,
-    keep
+    translate
       ? (rank) => {
-          if (keep(rank)) results.add(rank);
+          const kept = translate(rank);
+          if (kept >= 0) results.add(kept);
         }
       : (rank) => results.add(rank),
     counts,
@@ -781,7 +802,7 @@ export function runSearch(
         prepared.layout,
         prepared.plan,
         prepared.limit,
-        prepared.keep,
+        prepared.translate,
       ),
     );
   return prepared.done;

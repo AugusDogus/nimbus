@@ -290,15 +290,17 @@ export async function searchWithPool(
   const before = index.changes;
   let prepared = index.prepareSearch(request);
   while (!prepared.done) {
-    const { layout, plan, limit, keep } = prepared;
+    const { layout, plan, limit, translate } = prepared;
     // A cursor from the previous layout filters in a way workers cannot.
     if (
       !pool ||
-      keep !== null ||
+      translate !== null ||
       scanBytes(layout, plan) < minBytes ||
       !isShared(layout)
     ) {
-      prepared = prepared.finish(index.scanHere(layout, plan, limit, keep));
+      prepared = prepared.finish(
+        index.scanHere(layout, plan, limit, translate),
+      );
       continue;
     }
     const outcome = await pool.scan(layout, plan, limit);

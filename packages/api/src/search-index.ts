@@ -460,6 +460,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     previous = {
       generation: previousLayout.generation,
       slots: previousLayout.slots,
+      slotId: previousLayout.slotId,
       slotOf,
     };
     layout = {
@@ -692,9 +693,9 @@ export function createSearchIndex(initialCapacity = 1024) {
       layout: SearchLayout,
       plan: ScanPlan,
       limit: number,
-      keep: ((rank: number) => boolean) | null = null,
+      translate: ((rank: number) => number) | null = null,
     ) {
-      return scanCompacted(state, layout, plan, limit, keep);
+      return scanCompacted(state, layout, plan, limit, translate);
     },
 
     /** Changes so far; a different value after an await means the index moved meanwhile. */
