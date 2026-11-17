@@ -130,6 +130,9 @@ export default defineConfig(({ command }) => {
       outDir: "dist",
       emptyOutDir: true,
       manifest: true,
+      // Every browser the build targets but Safari 16.4 to 16.x preloads modules natively;
+      // without the polyfill those few simply skip preloading.
+      modulePreload: { polyfill: false },
       rolldownOptions: {
         // The public share and upload pages and the sign-in pages are server-rendered and
         // hydrate through entries of their own, which load none of the signed-in app.
