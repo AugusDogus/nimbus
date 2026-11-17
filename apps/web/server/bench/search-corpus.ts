@@ -444,3 +444,166 @@ export const queryClasses: Record<QueryClass, readonly string[]> = {
     "schdule",
   ],
 };
+
+/**
+ * A second relevance set, written before looking at how the engine handles
+ * any of it: the ways people look for files on a shared drive. Each case
+ * lists the answers that count, decided in advance; the first of them in the
+ * results is scored. Some ask for things the engine does not do (accent
+ * folding, date formats); they are here to be counted as misses honestly.
+ */
+export const blindFiles = [
+  "Documents/Personal/Insurance/HomeownersPolicy_2025.pdf",
+  "Work/Clients/Northwind/Q3 Review/slides-final-v3.pptx",
+  "Work/Clients/Northwind/contract.docx",
+  "Photos/2019/Japan trip/IMG_4821.HEIC",
+  "Documents/Taxes/2022/1040_return_2022.pdf",
+  "Scans/receipt 2024-03-15 costco.pdf",
+  "Documents/Work/Meeting 2024.03.15 notes.txt",
+  "Code/scripts/backup_photos_nightly.sh",
+  "Design/logo.final.v2.svg",
+  "Code/web/src/components/UserProfileCard.tsx",
+  "Documents/Recettes/Crème brûlée.md",
+  "Música/Canción de cuna.mp3",
+  "Fotos/Ålesund 2018/fjord.jpg",
+  "写真/東京タワー.jpg",
+  "Documents/report.pdf",
+  "Documents/Household/Warranty - Dishwasher Bosch SMS46.pdf",
+  "Documents/Personal/Passport scan.pdf",
+  "Invoices/INV-000123.pdf",
+  "Work/Hiring/Candidates/jane_doe_resume.pdf",
+  "Photos/Wedding/DSC_0042.JPG",
+] as const;
+
+export type BlindCase = {
+  task: string;
+  query: string;
+  /** Any of these, first in the results, counts. */
+  expected: readonly string[];
+};
+
+export const blindCases: readonly BlindCase[] = [
+  {
+    task: "partial word from the middle of a camel-case name",
+    query: "owners policy",
+    expected: ["Documents/Personal/Insurance/HomeownersPolicy_2025.pdf"],
+  },
+  {
+    task: "remembered client folder plus a vague name",
+    query: "northwind slides",
+    expected: ["Work/Clients/Northwind/Q3 Review/slides-final-v3.pptx"],
+  },
+  {
+    task: "trip folder plus a file type",
+    query: "japan heic",
+    expected: ["Photos/2019/Japan trip/IMG_4821.HEIC"],
+  },
+  {
+    task: "form number plus extension",
+    query: "1040 pdf",
+    expected: ["Documents/Taxes/2022/1040_return_2022.pdf"],
+  },
+  {
+    task: "date as written in the name",
+    query: "2024-03-15",
+    expected: ["Scans/receipt 2024-03-15 costco.pdf"],
+  },
+  {
+    task: "date without separators",
+    query: "20240315",
+    expected: [
+      "Scans/receipt 2024-03-15 costco.pdf",
+      "Documents/Work/Meeting 2024.03.15 notes.txt",
+    ],
+  },
+  {
+    task: "date with other separators than the name uses",
+    query: "2024.03.15 receipt",
+    expected: ["Scans/receipt 2024-03-15 costco.pdf"],
+  },
+  {
+    task: "words of an underscored name",
+    query: "backup photos nightly",
+    expected: ["Code/scripts/backup_photos_nightly.sh"],
+  },
+  {
+    task: "camel case typed for an underscored name",
+    query: "backupPhotos",
+    expected: ["Code/scripts/backup_photos_nightly.sh"],
+  },
+  {
+    task: "words of a dotted name",
+    query: "logo final",
+    expected: ["Design/logo.final.v2.svg"],
+  },
+  {
+    task: "words of a camel-case component",
+    query: "profile card",
+    expected: ["Code/web/src/components/UserProfileCard.tsx"],
+  },
+  {
+    task: "kebab case typed for a camel-case name",
+    query: "user-profile-card",
+    expected: ["Code/web/src/components/UserProfileCard.tsx"],
+  },
+  {
+    task: "accented name typed without accents",
+    query: "creme brulee",
+    expected: ["Documents/Recettes/Crème brûlée.md"],
+  },
+  {
+    task: "accented name typed with accents",
+    query: "canción",
+    expected: ["Música/Canción de cuna.mp3"],
+  },
+  {
+    task: "Nordic letter typed as plain a",
+    query: "alesund",
+    expected: ["Fotos/Ålesund 2018"],
+  },
+  {
+    task: "Japanese name by part",
+    query: "東京",
+    expected: ["写真/東京タワー.jpg"],
+  },
+  {
+    task: "very common word with an exact file",
+    query: "report.pdf",
+    expected: ["Documents/report.pdf"],
+  },
+  {
+    task: "query matching thousands of names: the year folder",
+    query: "2023",
+    expected: ["Photos/2023", "Finance/2023"],
+  },
+  {
+    task: "partial word from the middle",
+    query: "dishwash",
+    expected: ["Documents/Household/Warranty - Dishwasher Bosch SMS46.pdf"],
+  },
+  {
+    task: "misspelling plus a brand",
+    query: "warrenty bosch",
+    expected: ["Documents/Household/Warranty - Dishwasher Bosch SMS46.pdf"],
+  },
+  {
+    task: "letter dropped",
+    query: "pasport",
+    expected: ["Documents/Personal/Passport scan.pdf"],
+  },
+  {
+    task: "invoice number without its zeros",
+    query: "inv 123",
+    expected: ["Invoices/INV-000123.pdf"],
+  },
+  {
+    task: "person's name across an underscore",
+    query: "jane doe",
+    expected: ["Work/Hiring/Candidates/jane_doe_resume.pdf"],
+  },
+  {
+    task: "event folder plus camera name",
+    query: "wedding dsc",
+    expected: ["Photos/Wedding/DSC_0042.JPG"],
+  },
+];
