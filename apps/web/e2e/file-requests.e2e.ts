@@ -199,3 +199,59 @@ test("file request links follow their folder through moves, trash and restore", 
     await anonymous.close();
   }
 });
+
+test("the upload list stays when the link's details cannot be refreshed", async ({
+  context,
+  browser,
+}) => {
+  const folder = `inbox-refresh-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: folder });
+  const { token } = await rpc.fileRequests.create.mutate({
+    path: folder,
+    note: "",
+    expiresAt: null,
+    maxFileBytes: null,
+    maxFiles: null,
+    maxTotalBytes: null,
+  });
+  const anonymous = await browser.newContext({
+    storageState: { cookies: [], origins: [] },
+  });
+  try {
+    const visitor = await anonymous.newPage();
+    await visitor.goto(`/r/${token}`);
+    const files = visitor.getByLabel("Files to upload");
+    await files.setInputFiles({
+      name: "first.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("first"),
+    });
+    await expect(visitor.getByRole("img", { name: "Uploaded" })).toHaveCount(1);
+    // A proxy error page instead of the details, when the page refreshes them after uploading.
+    await visitor.route(
+      (url) => url.pathname === `/api/file-request/${token}`,
+      (route) =>
+        route.fulfill({ status: 502, body: "<html>Bad gateway</html>" }),
+    );
+    const refreshed = visitor.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === `/api/file-request/${token}`,
+    );
+    await files.setInputFiles({
+      name: "second.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("second"),
+    });
+    await refreshed;
+    await expect(visitor.getByRole("img", { name: "Uploaded" })).toHaveCount(2);
+    await expect(
+      visitor.getByRole("heading", { name: `Upload files to ${folder}` }),
+    ).toBeVisible();
+    await expect(
+      visitor.getByRole("alert").filter({ hasText: "could not be refreshed" }),
+    ).toBeVisible();
+  } finally {
+    await anonymous.close();
+  }
+});

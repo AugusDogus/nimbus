@@ -14,9 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 /** `all` lists the items the dialog counts, which are all that emptying deletes. */
-type Deletion =
-  | { kind: "item"; id: string }
-  | { kind: "all"; ids: string[] };
+type Deletion = { kind: "item"; id: string } | { kind: "all"; ids: string[] };
 
 export function TrashPage() {
   const trash = useQuery({

@@ -14,7 +14,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ByteSize } from "@/lib/byte-size";
 import { useLocalTime } from "@/lib/use-local-time";
-import { fileRequestEndpoint, fileRequestQuery } from "./file-request-result";
+import {
+  fileRequestEndpoint,
+  fileRequestQuery,
+  type FileRequestResult,
+} from "./file-request-result";
+
+type OpenRequest = Extract<FileRequestResult, { kind: "open" }>;
 
 const errorSchema = z.object({ error: z.string() });
 
@@ -48,6 +54,24 @@ export function FileRequestUpload({ token }: { token: string }) {
       ? details.data.message
       : null;
   const [items, setItems] = useState<Item[]>([]);
+  // The details are refetched after uploads and on focus. Once files are listed, an answer that
+  // fails or finds the link closed must not hide which of them arrived.
+  const [opened, setOpened] = useState<OpenRequest | null>(null);
+  const latest = details.data?.kind === "open" ? details.data : null;
+  if (latest && latest !== opened) setOpened(latest);
+  const open = latest ?? (items.length > 0 ? opened : null);
+  const refreshProblem =
+    open === null
+      ? null
+      : details.isError
+        ? "This link’s details could not be refreshed. The uploads below are unchanged; reload the page to check the link."
+        : details.data?.kind === "unavailable"
+          ? `${details.data.message} The uploads below are unchanged.`
+          : details.data?.kind === "locked"
+            ? "This link now needs its password again. The uploads below are unchanged; reload the page to unlock it."
+            : null;
+  // More files only while the latest answer says the link is open.
+  const accepting = details.data?.kind === "open";
   const [dragging, setDragging] = useState(false);
   const [password, setPassword] = useState("");
   // What was typed or autofilled before the page's code ran.
@@ -155,9 +179,10 @@ export function FileRequestUpload({ token }: { token: string }) {
       </header>
       {details.isPending ? (
         <p>Loading upload link…</p>
-      ) : unavailable !== null ||
-        !details.data ||
-        details.data.kind === "unavailable" ? (
+      ) : open === null &&
+        (unavailable !== null ||
+          !details.data ||
+          details.data.kind === "unavailable") ? (
         <div className="space-y-3 rounded-lg border p-6">
           <h1 className="text-balance text-xl font-semibold">
             Upload link unavailable
@@ -166,7 +191,7 @@ export function FileRequestUpload({ token }: { token: string }) {
             {unavailable}
           </p>
         </div>
-      ) : details.data.kind === "locked" ? (
+      ) : open === null ? (
         <form
           className="mx-auto max-w-sm space-y-4 rounded-lg border p-6"
           onSubmit={(event) =>
@@ -232,30 +257,36 @@ export function FileRequestUpload({ token }: { token: string }) {
         <main className="space-y-6">
           <div>
             <h1 className="text-balance break-words text-2xl font-semibold">
-              Upload files to {details.data.folder}
+              Upload files to {open.folder}
             </h1>
             <p className="mt-1 text-pretty text-sm text-muted-foreground">
               You can add files but cannot see what is already there.
-              {details.data.expiresAt !== null && (
-                <OpenUntil time={details.data.expiresAt} />
-              )}
+              {open.expiresAt !== null && <OpenUntil time={open.expiresAt} />}
             </p>
           </div>
-          {details.data.note && (
+          {refreshProblem && (
+            <p
+              role="alert"
+              className="text-pretty rounded-lg border border-destructive/50 p-4 text-sm"
+            >
+              {refreshProblem}
+            </p>
+          )}
+          {open.note && (
             <blockquote className="whitespace-pre-wrap break-words rounded-lg border-l-4 bg-muted p-4 text-sm">
-              {details.data.note}
+              {open.note}
             </blockquote>
           )}
           <div
             onDragOver={(event) => {
               event.preventDefault();
-              setDragging(true);
+              if (accepting) setDragging(true);
             }}
             onDragLeave={() => setDragging(false)}
             onDrop={(event) => {
               event.preventDefault();
               setDragging(false);
-              add(event.dataTransfer.files);
+              if (accepting) add(event.dataTransfer.files);
             }}
             data-dragging={dragging || undefined}
             className="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed p-8 text-center transition-colors data-[dragging]:border-primary data-[dragging]:bg-accent"
@@ -264,7 +295,11 @@ export function FileRequestUpload({ token }: { token: string }) {
             <p className="text-pretty text-sm text-muted-foreground">
               Drag files here, or
             </p>
-            <Button type="button" onClick={() => input.current?.click()}>
+            <Button
+              type="button"
+              disabled={!accepting}
+              onClick={() => input.current?.click()}
+            >
               Choose files
             </Button>
             <input
@@ -280,10 +315,10 @@ export function FileRequestUpload({ token }: { token: string }) {
               }}
             />
             <p className="text-pretty text-xs tabular-nums text-muted-foreground">
-              Up to {ByteSize.format(details.data.maxFileBytes)} per file
-              {details.data.remainingFiles === null
+              Up to {ByteSize.format(open.maxFileBytes)} per file
+              {open.remainingFiles === null
                 ? ""
-                : ` · ${details.data.remainingFiles} more ${details.data.remainingFiles === 1 ? "file" : "files"} accepted`}
+                : ` · ${open.remainingFiles} more ${open.remainingFiles === 1 ? "file" : "files"} accepted`}
             </p>
           </div>
           {items.length > 0 && (
