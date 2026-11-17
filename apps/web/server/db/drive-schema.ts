@@ -1,4 +1,6 @@
+import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -124,3 +126,16 @@ export const homes = sqliteTable("nimbus_home", {
     .references(() => user.id, { onDelete: "cascade" }),
   path: text("path").notNull().unique(),
 });
+/**
+ * One row (id 0) whose value triggers from migration 0006 bump whenever anything a permission
+ * check reads changes. That migration declares the check on the column; it is named here so
+ * a generated table rebuild keeps it.
+ */
+export const accessEpoch = sqliteTable(
+  "nimbus_access_epoch",
+  {
+    id: integer("id").primaryKey(),
+    value: integer("value").notNull(),
+  },
+  () => [check("nimbus_access_epoch_single_row", sql`id = 0`)],
+);

@@ -1953,6 +1953,35 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "nimbus_access_epoch": {
+      "name": "nimbus_access_epoch",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "nimbus_access_epoch_single_row": {
+          "name": "nimbus_access_epoch_single_row",
+          "value": "id = 0"
+        }
+      }
     }
   },
   "views": {},

@@ -11,7 +11,10 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getTableName, is } from "drizzle-orm";
+import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { openDatabase } from "./connection";
+import * as schema from "./schema";
 import { migrateDatabase, upgradeDatabase } from "./migrate-database";
 
 const migrationsFolder = fileURLToPath(
@@ -157,19 +160,15 @@ test("a database with tables but no migration history is snapshotted before migr
   ]);
   try {
     let snapshots = 0;
-    await upgradeDatabase(
-      client,
-      async () => `nimbus-${++snapshots}.sqlite`,
-      { migrationsFolder: folder },
-    );
+    await upgradeDatabase(client, async () => `nimbus-${++snapshots}.sqlite`, {
+      migrationsFolder: folder,
+    });
     expect(snapshots).toBe(1);
     // An empty history table does not make a populated database new either.
     client.run('DELETE FROM "__drizzle_migrations"');
-    await upgradeDatabase(
-      client,
-      async () => `nimbus-${++snapshots}.sqlite`,
-      { migrationsFolder: folder },
-    );
+    await upgradeDatabase(client, async () => `nimbus-${++snapshots}.sqlite`, {
+      migrationsFolder: folder,
+    });
     expect(snapshots).toBe(2);
   } finally {
     await rm(folder, { recursive: true, force: true });
@@ -246,4 +245,29 @@ test("upgrading discards inode-keyed version records, which cannot be mapped to 
   client.run(
     "INSERT INTO nimbus_file_version (id, path, name, size, modified_at, archived_at) VALUES ('w', 'docs/a.txt', 'a.txt', 1, 1, 1)",
   );
+});
+
+test("the schema declares every table the migrations create", () => {
+  migrateDatabase(client);
+  const created = client
+    .query<{ name: string }, []>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '__drizzle_migrations' ORDER BY name",
+    )
+    .all()
+    .map((table) => table.name);
+  const declared = Object.values(schema)
+    .filter((value) => is(value, SQLiteTable))
+    .map((table): string => getTableName(table))
+    .sort();
+  expect(declared).toEqual(created);
+});
+
+test("the access epoch keeps a single row, in the migrations and the schema", () => {
+  migrateDatabase(client);
+  expect(() =>
+    client.run("INSERT INTO nimbus_access_epoch (id, value) VALUES (1, 0)"),
+  ).toThrow("CHECK constraint failed");
+  expect(
+    getTableConfig(schema.accessEpoch).checks.map((check) => check.name),
+  ).toEqual(["nimbus_access_epoch_single_row"]);
 });
