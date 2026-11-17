@@ -1,8 +1,13 @@
+import path from "node:path";
+import { backups } from "../backup";
+import { getConfigRoot } from "../storage-paths";
 import { client } from "./index";
-import { migrateDatabase } from "./migrate-database";
+import { upgradeDatabase } from "./migrate-database";
 
 try {
-  migrateDatabase(client);
+  await upgradeDatabase(client, async () =>
+    path.join(getConfigRoot(), "backups", (await backups().run()).name),
+  );
 } finally {
   client.close();
 }

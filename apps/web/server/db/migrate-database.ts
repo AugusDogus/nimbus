@@ -10,28 +10,69 @@ const historyTable = "__drizzle_migrations";
 
 export type MigrationOptions = { migrationsFolder?: string };
 
-/** Migrations newer than the last one recorded, as Drizzle's migrator decides. */
-function pendingMigrations(
+/**
+ * Migrations newer than the last one recorded, as Drizzle's migrator decides, and
+ * whether the database already holds tables of its own. A database created by
+ * db:push has tables but no history, so history alone does not tell.
+ */
+function migrationPlan(
   sqlite: SQLite,
   migrationsFolder: string,
-): MigrationMeta[] {
+): { pending: MigrationMeta[]; existing: boolean } {
   const migrations = readMigrationFiles({ migrationsFolder });
   const history = sqlite
     .query<{ name: string }, [string]>(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
     )
     .get(historyTable);
-  if (!history) return migrations;
-  const last = sqlite
-    .query<{ created_at: number | string }, []>(
-      `SELECT created_at FROM "${historyTable}" ORDER BY created_at DESC LIMIT 1`,
-    )
-    .get();
-  return last
-    ? migrations.filter(
-        (migration) => Number(last.created_at) < migration.folderMillis,
+  const last = history
+    ? sqlite
+        .query<{ created_at: number | string }, []>(
+          `SELECT created_at FROM "${historyTable}" ORDER BY created_at DESC LIMIT 1`,
+        )
+        .get()
+    : null;
+  const existing =
+    sqlite
+      .query<{ name: string }, [string]>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> ? LIMIT 1",
       )
-    : migrations;
+      .get(historyTable) !== null;
+  if (!last) return { pending: migrations, existing };
+  return {
+    pending: migrations.filter(
+      (migration) => Number(last.created_at) < migration.folderMillis,
+    ),
+    existing: true,
+  };
+}
+
+/**
+ * Snapshot an existing database with `snapshot`, which resolves to the backup's
+ * name, before applying pending migrations. A new or current database is not
+ * snapshotted, and nothing is migrated when the snapshot fails.
+ */
+export async function upgradeDatabase(
+  sqlite: SQLite,
+  snapshot: () => Promise<string>,
+  { migrationsFolder = defaultMigrationsFolder }: MigrationOptions = {},
+) {
+  const { pending, existing } = migrationPlan(sqlite, migrationsFolder);
+  if (existing && pending.length) {
+    let backup: string;
+    try {
+      backup = await snapshot();
+    } catch (error) {
+      throw new Error(
+        `Nimbus did not apply ${pending.length} pending database migrations because the backup before them failed, so the database is unchanged. Free space or fix permissions in the config directory's backups folder, then restart.`,
+        { cause: error },
+      );
+    }
+    console.info(
+      `Nimbus backed up the database to ${backup} before applying ${pending.length} migrations.`,
+    );
+  }
+  migrateDatabase(sqlite, { migrationsFolder });
 }
 
 /**
@@ -47,7 +88,7 @@ export function migrateDatabase(
   sqlite.run(
     `CREATE TABLE IF NOT EXISTS "${historyTable}" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`,
   );
-  const pending = pendingMigrations(sqlite, migrationsFolder);
+  const { pending } = migrationPlan(sqlite, migrationsFolder);
   if (pending.length) {
     sqlite.run("PRAGMA foreign_keys = OFF");
     try {

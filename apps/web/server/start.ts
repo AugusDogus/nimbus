@@ -1,7 +1,8 @@
+import path from "node:path";
 import { getDataRoot } from "@nimbus/api/data-root";
 import { Homes } from "@nimbus/api/homes";
 import { client, db } from "./db";
-import { migrateDatabase } from "./db/migrate-database";
+import { upgradeDatabase } from "./db/migrate-database";
 import { createDriveStore } from "./drive-store";
 import { handleWebDAV } from "./webdav";
 import { cleanExpiredData } from "./maintenance";
@@ -22,6 +23,7 @@ import { PageBootstrap } from "./page-bootstrap";
 import { PageSkeleton } from "./page-skeleton";
 import { PublicPages } from "./public-pages";
 import { backups, backupsToKeep } from "./backup";
+import { getConfigRoot } from "./storage-paths";
 
 const port = Number(process.env.PORT ?? "3000");
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -53,7 +55,9 @@ const securityMode = {
 };
 const commonHeaders = SecurityHeaders.common(securityMode);
 backupsToKeep();
-migrateDatabase(client);
+await upgradeDatabase(client, async () =>
+  path.join(getConfigRoot(), "backups", (await backups().run()).name),
+);
 setAuditSink(createAuditSink(db));
 const store = createDriveStore(db);
 for (const home of await Homes.backfill(store))

@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "./connection";
-import { migrateDatabase } from "./migrate-database";
+import { migrateDatabase, upgradeDatabase } from "./migrate-database";
 
 const migrationsFolder = fileURLToPath(
   new URL("../../drizzle", import.meta.url),
@@ -109,6 +109,89 @@ test("a migration that leaves orphaned rows is rolled back before it is recorded
     expect(() =>
       client.run("INSERT INTO child (parent_id) VALUES ('missing')"),
     ).toThrow("FOREIGN KEY constraint failed");
+  } finally {
+    await rm(first, { recursive: true, force: true });
+    await rm(both, { recursive: true, force: true });
+  }
+});
+
+test("an existing database is snapshotted only when migrations are pending", async () => {
+  const parent = "CREATE TABLE parent (id text PRIMARY KEY);";
+  const child = "CREATE TABLE child (id text PRIMARY KEY);";
+  const first = await migrationsFixture([parent]);
+  const both = await migrationsFixture([parent, child]);
+  const snapshots: string[] = [];
+  const snapshot = async () => {
+    snapshots.push(
+      client
+        .query<{ name: string }, []>(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('parent', 'child') ORDER BY name",
+        )
+        .all()
+        .map((table) => table.name)
+        .join(","),
+    );
+    return "nimbus-20260101T000000Z.sqlite";
+  };
+  try {
+    // A new database has nothing to protect.
+    await upgradeDatabase(client, snapshot, { migrationsFolder: first });
+    // Nothing pending.
+    await upgradeDatabase(client, snapshot, { migrationsFolder: first });
+    expect(snapshots).toEqual([]);
+    await upgradeDatabase(client, snapshot, { migrationsFolder: both });
+    // Taken before the pending migration ran.
+    expect(snapshots).toEqual(["parent"]);
+  } finally {
+    await rm(first, { recursive: true, force: true });
+    await rm(both, { recursive: true, force: true });
+  }
+});
+
+test("a database with tables but no migration history is snapshotted before migrating", async () => {
+  // The original file manager created its schema with db:push, without history rows.
+  client.run("CREATE TABLE user (id text PRIMARY KEY)");
+  client.run("INSERT INTO user VALUES ('existing')");
+  const folder = await migrationsFixture([
+    "CREATE TABLE IF NOT EXISTS parent (id text PRIMARY KEY);",
+  ]);
+  try {
+    let snapshots = 0;
+    await upgradeDatabase(
+      client,
+      async () => `nimbus-${++snapshots}.sqlite`,
+      { migrationsFolder: folder },
+    );
+    expect(snapshots).toBe(1);
+    // An empty history table does not make a populated database new either.
+    client.run('DELETE FROM "__drizzle_migrations"');
+    await upgradeDatabase(
+      client,
+      async () => `nimbus-${++snapshots}.sqlite`,
+      { migrationsFolder: folder },
+    );
+    expect(snapshots).toBe(2);
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test("pending migrations are not applied when the snapshot before them fails", async () => {
+  const parent = "CREATE TABLE parent (id text PRIMARY KEY);";
+  const child = "CREATE TABLE child (id text PRIMARY KEY);";
+  const first = await migrationsFixture([parent]);
+  const both = await migrationsFixture([parent, child]);
+  try {
+    migrateDatabase(client, { migrationsFolder: first });
+    const failing = async (): Promise<string> => {
+      throw new Error("No space left on device");
+    };
+    await expect(
+      upgradeDatabase(client, failing, { migrationsFolder: both }),
+    ).rejects.toThrow("database is unchanged");
+    expect(
+      client.query("SELECT count(*) AS n FROM __drizzle_migrations").get(),
+    ).toEqual({ n: 1 });
   } finally {
     await rm(first, { recursive: true, force: true });
     await rm(both, { recursive: true, force: true });
