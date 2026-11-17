@@ -49,6 +49,11 @@ const adminChangeSchema = z.object({
 const includesAdmin = (role: string | string[]) =>
   (Array.isArray(role) ? role : role.split(",")).includes("admin");
 
+/** A social sign-in body that carries an ID token, in any shape. */
+const postsIdToken = z.object({
+  idToken: z.unknown().refine((value) => value !== undefined),
+});
+
 const registrationClosed = () =>
   new APIError("FORBIDDEN", {
     message:
@@ -203,6 +208,17 @@ export function createNimbusAuth({
       before: createAuthMiddleware(async (context) => {
         // Refused before Better Auth looks up the address, so the answer never reveals
         // whether an account uses it.
+        // Better Auth also accepts a provider's ID token posted here. Nimbus's single sign-on
+        // rules (verified email, administrator first, group sync, audit) apply to the
+        // provider's redirect, so that is the only way in.
+        if (
+          context.path === "/sign-in/social" &&
+          postsIdToken.safeParse(context.body).success
+        )
+          throw new APIError("BAD_REQUEST", {
+            message:
+              "Sign in with single sign-on from the Nimbus sign-in page. Posting an ID token is not supported, and no account was signed in or created.",
+          });
         if (context.path === "/sign-up/email") {
           const [existing] = await db
             .select({ id: user.id })
@@ -316,13 +332,16 @@ export function createNimbusAuth({
             if (context?.path === "/sign-up/email" && existing)
               throw registrationClosed();
             if (isOidcCallback(context?.path ?? undefined)) {
+              // A code sends the callback to the sign-in page, which explains it.
               if (!existing)
                 throw new APIError("FORBIDDEN", {
+                  code: "administrator_required",
                   message:
                     "Create the administrator account with a password before using single sign-on.",
                 });
               if (data.emailVerified !== true)
                 throw new APIError("FORBIDDEN", {
+                  code: "email_not_verified",
                   message:
                     "Your identity provider has not verified your email address, so Nimbus did not create an account. Verify it with your provider and try again.",
                 });

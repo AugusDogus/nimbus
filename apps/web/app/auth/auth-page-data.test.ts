@@ -48,3 +48,14 @@ test("malformed page data is refused", () => {
     expect(AuthPageData.parse(value)).toBeUndefined();
   expect(AuthPageData.parse({ page: "sign-up" })).toEqual({ page: "sign-up" });
 });
+
+test("sign-in explains the single sign-on refusals Nimbus sends back", () => {
+  const message = (error: string) => {
+    const page = AuthPageData.signIn(options, new URLSearchParams({ error }));
+    return page.page === "sign-in" ? page.error : null;
+  };
+  expect(message("email_not_verified")).toContain(
+    "Authentik has not verified your email address",
+  );
+  expect(message("administrator_required")).toContain("no administrator yet");
+});

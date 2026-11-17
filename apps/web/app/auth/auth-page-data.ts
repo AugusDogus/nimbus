@@ -35,6 +35,8 @@ function providerError(code: string | null, provider: string) {
       return `No Nimbus account uses the email address from ${provider}. Ask your server administrator to create one with that address, then try again.`;
     case "email_not_verified":
       return `${provider} has not verified your email address, so Nimbus cannot match it to an account. Verify it with ${provider} and try again.`;
+    case "administrator_required":
+      return "This Nimbus server has no administrator yet. Create the administrator account with a password first, then use single sign-on.";
     case "banned":
       return "This account is disabled. Ask your server administrator to enable it.";
     default:
