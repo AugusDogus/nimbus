@@ -10,9 +10,10 @@ export type CredentialAttempt<T> =
   | (Extract<RateLimitDecision, { allowed: false }> & { kind: "throttled" });
 
 /**
- * Limits wrong credentials per client. Only failures count, so a client making many
- * correct requests is never slowed. Each client's checks run one at a time, so parallel
- * guesses cannot all pass the limit before the first failure is counted.
+ * Limits wrong credentials per client. Each attempt is counted when it begins, so parallel
+ * guesses cannot all pass a check that counts failures only afterwards, and given back when
+ * the credentials are right, so a client making many correct requests is never slowed.
+ * This is the pattern of the link password limiter (`link-password-attempts.ts`).
  */
 export type CredentialAttempts = {
   /** Verifies with `verify` (null means wrong credentials) unless `key` is over the limit. */
@@ -27,27 +28,18 @@ export type CredentialAttempts = {
 export const CredentialAttempts = {
   create(rule: RateLimitRule): CredentialAttempts {
     const failures = RateLimiter.create(rule);
-    /** The tail of each client's queue of checks. */
-    const queues = new Map<string, Promise<unknown>>();
     return {
       async run<T>(key: string, verify: () => Promise<T | null>) {
-        const previous = queues.get(key) ?? Promise.resolve();
-        const attempt = previous.then(
-          async (): Promise<CredentialAttempt<T>> => {
-            const decision = failures.check(key);
-            if (!decision.allowed) return { kind: "throttled", ...decision };
-            const value = await verify();
-            if (value !== null) return { kind: "verified", value };
-            failures.consume(key);
-            return { kind: "rejected" };
-          },
-        );
-        const tail = attempt.catch(() => undefined);
-        queues.set(key, tail);
-        void tail.then(() => {
-          if (queues.get(key) === tail) queues.delete(key);
+        const decision = failures.consume(key);
+        if (!decision.allowed)
+          return { kind: "throttled", ...decision } as const;
+        const value = await verify().catch((error: unknown) => {
+          failures.refund(key);
+          throw error;
         });
-        return attempt;
+        if (value === null) return { kind: "rejected" } as const;
+        failures.refund(key);
+        return { kind: "verified", value } as const;
       },
       fail(key) {
         failures.consume(key);
