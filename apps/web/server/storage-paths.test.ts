@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { databaseFile, getConfigRoot, getDatabaseUrl } from "./storage-paths";
@@ -76,4 +76,22 @@ test("config cannot expose application state inside the browsable drive", () => 
   expect(getConfigRoot).toThrow("outside the data root");
   process.env.NIMBUS_CONFIG_ROOT = path.join(root, "data");
   expect(getConfigRoot).toThrow("outside the data root");
+});
+
+test("a config root that is the filesystem root or contains the data root is refused", () => {
+  for (const config of ["/", root]) {
+    process.env.NIMBUS_CONFIG_ROOT = config;
+    expect(getConfigRoot).toThrow("NIMBUS_CONFIG_ROOT");
+  }
+});
+
+test("a config root that reaches into the data root through a symbolic link, or is empty, is refused", async () => {
+  await mkdir(path.join(root, "data/Projects"), { recursive: true });
+  await symlink(path.join(root, "data/Projects"), path.join(root, "config"));
+  process.env.NIMBUS_CONFIG_ROOT = path.join(root, "config");
+  expect(getConfigRoot).toThrow("outside the data root");
+  process.env.NIMBUS_CONFIG_ROOT = path.join(root, "config", "state");
+  expect(getConfigRoot).toThrow("outside the data root");
+  process.env.NIMBUS_CONFIG_ROOT = "";
+  expect(getConfigRoot).toThrow("NIMBUS_CONFIG_ROOT is empty");
 });
