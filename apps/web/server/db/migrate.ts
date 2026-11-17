@@ -1,8 +1,8 @@
-import { client, db } from "./index";
+import { client } from "./index";
 import { migrateDatabase } from "./migrate-database";
 
 try {
-  migrateDatabase(client, db);
+  migrateDatabase(client);
 } finally {
   client.close();
 }

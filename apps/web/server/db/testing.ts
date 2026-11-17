@@ -4,6 +4,6 @@ import { openDatabase } from "./connection";
 /** A migrated in-memory database with Nimbus's connection settings. */
 export function createTestDatabase() {
   const opened = openDatabase(":memory:");
-  migrateDatabase(opened.sqlite, opened.db);
+  migrateDatabase(opened.sqlite);
   return opened;
 }

@@ -1,18 +1,26 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { Database as SQLite } from "bun:sqlite";
-import { readFile, readdir } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { openDatabase, type Database } from "./connection";
+import { openDatabase } from "./connection";
 import { migrateDatabase } from "./migrate-database";
 
 const migrationsFolder = fileURLToPath(
   new URL("../../drizzle", import.meta.url),
 );
 let client: SQLite;
-let db: Database;
 
 beforeEach(() => {
-  ({ sqlite: client, db } = openDatabase(":memory:"));
+  ({ sqlite: client } = openDatabase(":memory:"));
 });
 afterEach(() => {
   client.close();
@@ -29,8 +37,8 @@ async function runMigration(name: string) {
 }
 
 test("fresh database migrations can be rerun and preserve the last active administrator", () => {
-  migrateDatabase(client, db);
-  migrateDatabase(client, db);
+  migrateDatabase(client);
+  migrateDatabase(client);
   client.run(
     "INSERT INTO user (id, name, email, role) VALUES ('first', 'First', 'first@example.test', 'admin')",
   );
@@ -58,8 +66,57 @@ test("fresh database migrations can be rerun and preserve the last active admini
   );
 });
 
+/** A migrations folder holding `migrations`, in order. */
+async function migrationsFixture(migrations: string[]) {
+  const folder = await mkdtemp(path.join(os.tmpdir(), "nimbus-migrations-"));
+  await mkdir(path.join(folder, "meta"));
+  const entries = migrations.map((_, idx) => ({
+    idx,
+    version: "6",
+    when: 1000 + idx,
+    tag: `000${idx}_fixture`,
+    breakpoints: true,
+  }));
+  await writeFile(
+    path.join(folder, "meta", "_journal.json"),
+    JSON.stringify({ version: "7", dialect: "sqlite", entries }),
+  );
+  await Promise.all(
+    migrations.map((text, idx) =>
+      writeFile(path.join(folder, `000${idx}_fixture.sql`), text),
+    ),
+  );
+  return folder;
+}
+
+test("a migration that leaves orphaned rows is rolled back before it is recorded", async () => {
+  const parent =
+    "CREATE TABLE parent (id text PRIMARY KEY);--> statement-breakpoint\nCREATE TABLE child (parent_id text REFERENCES parent(id));";
+  const orphan = "INSERT INTO child (parent_id) VALUES ('missing');";
+  const first = await migrationsFixture([parent]);
+  const both = await migrationsFixture([parent, orphan]);
+  try {
+    migrateDatabase(client, { migrationsFolder: first });
+    expect(() => migrateDatabase(client, { migrationsFolder: both })).toThrow(
+      "rolled back",
+    );
+    expect(
+      client.query("SELECT count(*) AS n FROM __drizzle_migrations").get(),
+    ).toEqual({ n: 1 });
+    expect(client.query("SELECT count(*) AS n FROM child").get()).toEqual({
+      n: 0,
+    });
+    expect(() =>
+      client.run("INSERT INTO child (parent_id) VALUES ('missing')"),
+    ).toThrow("FOREIGN KEY constraint failed");
+  } finally {
+    await rm(first, { recursive: true, force: true });
+    await rm(both, { recursive: true, force: true });
+  }
+});
+
 test("connections enforce foreign keys after migrating", () => {
-  migrateDatabase(client, db);
+  migrateDatabase(client);
   expect(() =>
     client.run(
       "INSERT INTO nimbus_group_member (group_id, user_id) VALUES ('missing', 'missing')",
@@ -75,7 +132,7 @@ test("upgrading the original schema retains users and sessions and promotes its 
   client.run(
     "INSERT INTO session (id, expires_at, token, updated_at, user_id) VALUES ('session', 9999999999999, 'existing-session', 100, 'older')",
   );
-  migrateDatabase(client, db);
+  migrateDatabase(client);
   expect(
     client
       .query("SELECT id, name, role, banned FROM user ORDER BY created_at")

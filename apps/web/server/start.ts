@@ -53,7 +53,7 @@ const securityMode = {
 };
 const commonHeaders = SecurityHeaders.common(securityMode);
 backupsToKeep();
-migrateDatabase(client, db);
+migrateDatabase(client);
 setAuditSink(createAuditSink(db));
 const store = createDriveStore(db);
 for (const home of await Homes.backfill(store))

@@ -26,8 +26,8 @@ beforeAll(async () => {
   workspace = await mkdtemp(path.join(scratch, "nimbus-burst-"));
   await mkdir(path.join(workspace, "data/burst"), { recursive: true });
   await mkdir(path.join(workspace, "config"));
-  const { sqlite, db } = openDatabase(path.join(workspace, "config/db.sqlite"));
-  migrateDatabase(sqlite, db);
+  const { sqlite } = openDatabase(path.join(workspace, "config/db.sqlite"));
+  migrateDatabase(sqlite);
   sqlite.run(
     "INSERT INTO user (id, name, email, role) VALUES ('admin', 'Admin', 'admin@burst.test', 'admin')",
   );
