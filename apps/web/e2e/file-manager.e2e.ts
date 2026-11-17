@@ -499,3 +499,44 @@ test("Tab reaches an entry on screen after scrolling a long folder", async ({
   // Focus lands on an entry already on screen, so the list does not jump back to the top.
   await expect(page.locator(":focus")).toBeInViewport();
 });
+
+test("entries of the previous folder take no actions while the next one loads", async ({
+  page,
+}) => {
+  const { folder, directory } = await folderWithFiles(["report.txt"]);
+  await mkdir(path.join(directory, "next"));
+  await page.goto(`/browse/${folder}`);
+  const report = entry(page, "report.txt").filter({ visible: true });
+  await report.click();
+  const preview = page.getByRole("dialog", { name: "report.txt" });
+  await expect(preview).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(preview).toBeHidden();
+  // Select the file, then open the subfolder, whose listing is held back.
+  await report.click({ modifiers: ["ControlOrMeta"] });
+  await expect(bar(page)).toBeVisible();
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(
+    (url) =>
+      url.pathname.includes("files.list") &&
+      decodeURIComponent(url.search).includes(`${folder}/next`),
+    async (route) => {
+      await held;
+      await route.continue();
+    },
+  );
+  await entry(page, "next").filter({ visible: true }).click();
+  await expect(page).toHaveURL(`/browse/${folder}/next`);
+  // The selection belongs to the folder being left; nothing may act on it now.
+  await expect(bar(page)).toBeHidden();
+  await report.click({ timeout: 2_000 }).catch(() => undefined);
+  await page.keyboard.press("Delete");
+  await expect(preview).toBeHidden();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  release();
+  await expect(
+    page.getByRole("heading", { name: "This folder is empty" }),
+  ).toBeVisible();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+});

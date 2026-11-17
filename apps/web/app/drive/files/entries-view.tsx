@@ -13,6 +13,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { EntryMenu, EntryMenuHost, type EntryMenuTarget } from "./entry-menu";
 import { EntryRow, type EntryRowHandlers } from "./entry-row";
@@ -52,6 +53,11 @@ type Props = {
   /** The open dialog, owned by the page (`useEntryDialog`) so page tools (WebMCP) can open dialogs too. */
   dialog: EntryDialog | null;
   onDialog: (dialog: EntryDialog | null) => void;
+  /**
+   * The entries are a folder being left while the next one loads. They stay on screen but take
+   * no input, and their selection and menu are dropped, so nothing acts on items no longer shown.
+   */
+  stale?: boolean;
 };
 
 const longPressMs = 450;
@@ -70,6 +76,7 @@ export function EntriesView({
   renderName,
   dialog,
   onDialog,
+  stale = false,
 }: Props) {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -104,6 +111,8 @@ export function EntriesView({
   if (retained !== selection) setSelection(retained);
   if (focusPath !== null && !order.index.has(focusPath)) setFocusPath(null);
   if (touchSelecting && selection.paths.size === 0) setTouchSelecting(false);
+  if (stale && selection.paths.size > 0) setSelection(Selection.empty);
+  if (stale && menu !== null) setMenu(null);
   const focusIndex =
     focusPath === null ? -1 : (order.index.get(focusPath) ?? -1);
 
@@ -529,13 +538,19 @@ export function EntriesView({
       >
         <div
           ref={containerRef}
+          inert={stale}
+          aria-busy={stale}
           role="grid"
           aria-label={label}
           aria-multiselectable="true"
           aria-rowcount={layout.entries.length + headerRows.length}
           aria-colcount={1}
           aria-describedby="entries-keyboard-hint"
-          className="relative"
+          // Fades only when loading takes long enough to notice.
+          className={cn(
+            "relative transition-opacity",
+            stale && "opacity-60 delay-300",
+          )}
           style={{ height: layout.height }}
           onKeyDown={onKeyDown}
           onKeyUp={(event) => {

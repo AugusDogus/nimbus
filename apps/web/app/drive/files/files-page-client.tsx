@@ -171,6 +171,7 @@ export function FilesPageClient() {
               selectionSlot={selectionSlot}
               dialog={dialog}
               onDialog={onDialog}
+              stale={shownPath !== currentPath}
             />
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-center">
