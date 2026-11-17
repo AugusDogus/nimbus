@@ -11,7 +11,11 @@ import {
 } from "@nimbus/api/audit";
 import { clientIpHeader } from "../server/client-ip";
 import { createTestDatabase } from "../server/db/testing";
-import { createNimbusAuth, type NimbusAuthOptions } from "./nimbus-auth";
+import {
+  createNimbusAuth,
+  handleAuthRequest,
+  type NimbusAuthOptions,
+} from "./nimbus-auth";
 
 export const testOrigin = "http://files.example.test";
 
@@ -71,7 +75,8 @@ export async function createTestAuth(
     } = {},
   ) =>
     runWithAuditRequest({ ip }, () =>
-      auth.handler(
+      handleAuthRequest(
+        auth,
         new Request(`${testOrigin}/api/auth${endpoint}`, {
           method,
           headers: {

@@ -157,13 +157,30 @@ export const nimbusAudit = () =>
         },
       ],
     },
-    onResponse: async (response) => {
-      if (response.status === 429)
-        recordAudit({
-          action: "auth.rate_limited",
-          actor: { type: "anonymous" },
-          details: { service: "auth" },
-        });
-      return { response };
-    },
   }) satisfies BetterAuthPlugin;
+
+/**
+ * Finishes a response from Better Auth's handler. Better Auth answers its own rate limits
+ * before any plugin hook runs and names the wait only in X-Retry-After, so this records the
+ * refusal and adds the standard Retry-After header.
+ */
+export function finishAuthResponse(request: Request, response: Response) {
+  if (response.status !== 429) return response;
+  recordAudit({
+    action: "auth.rate_limited",
+    actor: { type: "anonymous" },
+    details: {
+      service: "auth",
+      path: new URL(request.url).pathname.replace(/^\/api\/auth/, ""),
+    },
+  });
+  const wait = response.headers.get("x-retry-after");
+  if (wait === null || response.headers.has("retry-after")) return response;
+  const headers = new Headers(response.headers);
+  headers.set("Retry-After", wait);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}

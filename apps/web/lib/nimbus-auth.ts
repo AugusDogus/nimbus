@@ -14,7 +14,7 @@ import type { MailMessage } from "../server/mail";
 import { createDriveStore } from "../server/drive-store";
 import { revokeUserConnections } from "../server/mcp/oauth/connections";
 import { RateLimiter } from "../server/rate-limit";
-import { nimbusAudit } from "./auth-audit";
+import { finishAuthResponse, nimbusAudit } from "./auth-audit";
 import { nimbusSecurity } from "./auth-security";
 import { OidcConfig, oidcProviderId } from "./oidc-config";
 
@@ -385,3 +385,9 @@ export function createNimbusAuth({
     ],
   });
 }
+
+/** Serves one /api/auth request, as the server's auth route does. */
+export const handleAuthRequest = async (
+  auth: { handler: (request: Request) => Promise<Response> },
+  request: Request,
+) => finishAuthResponse(request, await auth.handler(request));

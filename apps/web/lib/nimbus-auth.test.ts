@@ -163,3 +163,26 @@ describe("session tokens", () => {
     });
   });
 });
+
+describe("rate limits", () => {
+  test("a rate-limited sign-in is audited and says when to retry with Retry-After", async () => {
+    await t.createUser("first@example.test");
+    const attempt = () =>
+      t.request("POST", "/sign-in/email", {
+        body: { email: "first@example.test", password: "wrong password" },
+        ip: "203.0.113.7",
+      });
+    let response = await attempt();
+    for (let tries = 0; tries < 20 && response.status !== 429; tries++)
+      response = await attempt();
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
+    const events = await t.auditEvents();
+    expect(
+      events.find((event) => event.action === "auth.rate_limited"),
+    ).toMatchObject({
+      ip: "203.0.113.7",
+      details: { service: "auth", path: "/sign-in/email" },
+    });
+  });
+});
