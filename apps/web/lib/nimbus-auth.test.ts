@@ -63,6 +63,25 @@ describe("last administrator", () => {
 });
 
 describe("registration", () => {
+  test("only one of several simultaneous first sign-ups creates an account", async () => {
+    const responses = await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        t.request("POST", "/sign-up/email", {
+          body: {
+            email: `person${index}@example.test`,
+            password: t.password,
+            name: `Person ${index}`,
+          },
+          ip: `192.0.2.${index + 1}`,
+        }),
+      ),
+    );
+    expect(
+      responses.filter((response) => response.status === 200),
+    ).toHaveLength(1);
+    expect(await t.db.select({ id: user.id }).from(user)).toHaveLength(1);
+  });
+
   test("closed registration answers the same for existing and unknown addresses", async () => {
     await t.createUser("first@example.test");
     const attempt = async (email: string) => {
