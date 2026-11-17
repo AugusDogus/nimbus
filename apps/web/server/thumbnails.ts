@@ -77,10 +77,15 @@ function abortError() {
 function createLimiter(limit: number, maxQueued: number) {
   let running = 0;
   const queue: { start: () => void; signal: AbortSignal }[] = [];
+  // The slot is taken here, before the waiter resumes, so one finished task
+  // cannot release more waiters than there are free slots.
   const next = () => {
     while (running < limit && queue.length) {
       const item = queue.shift();
-      if (item && !item.signal.aborted) item.start();
+      if (item && !item.signal.aborted) {
+        running++;
+        item.start();
+      }
     }
   };
   return async <T>(task: () => Promise<T>, signal: AbortSignal) => {
@@ -105,8 +110,7 @@ function createLimiter(limit: number, maxQueued: number) {
           { once: true },
         );
       });
-    }
-    running++;
+    } else running++;
     try {
       return await task();
     } finally {

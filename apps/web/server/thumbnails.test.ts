@@ -118,6 +118,37 @@ test("bounds concurrent renders and rejects work beyond the queue limit", async 
   expect(peak).toBe(1);
 });
 
+test("keeps the limit when one finished render releases a long queue", async () => {
+  const renders = Array.from({ length: 12 }, deferred);
+  let running = 0;
+  let peak = 0;
+  const thumbnails = createThumbnailer({
+    cacheDirectory: path.join(root, "cache"),
+    concurrency: 2,
+    renderers: {
+      image: async (absolute) => {
+        running++;
+        peak = Math.max(peak, running);
+        const body = await renders[Number(path.parse(absolute).name)].promise;
+        running--;
+        return body;
+      },
+    },
+  });
+  const signal = new AbortController().signal;
+  const results = renders.map((_, index) =>
+    thumbnails.get(source(`${index}.png`), signal),
+  );
+  await tick();
+  expect(running).toBe(2);
+  renders[0].resolve(webp);
+  await tick();
+  expect(running).toBe(2);
+  for (const render of renders) render.resolve(webp);
+  await Promise.all(results);
+  expect(peak).toBe(2);
+});
+
 test("drops queued work when every requester has gone away", async () => {
   const blocker = deferred();
   const rendered: string[] = [];
