@@ -35,10 +35,12 @@ export async function safePath(requested: string) {
   }
 }
 
+/** The file or folder at a drive path. Pipes, sockets and devices are refused like symlinks. */
 export async function requireExisting(requested: string) {
   const target = await safePath(requested);
+  let stats: Stats;
   try {
-    return { ...target, stats: await lstat(target.absolute) };
+    stats = await lstat(target.absolute);
   } catch (error) {
     if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR"))
       throw new TRPCError({
@@ -47,6 +49,14 @@ export async function requireExisting(requested: string) {
       });
     throw error;
   }
+  // Opening a pipe would wait for a writer, and devices are not drive content.
+  if (!stats.isFile() && !stats.isDirectory())
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "Pipes, sockets and device files cannot be accessed through Nimbus. Only regular files and folders can.",
+    });
+  return { ...target, stats };
 }
 
 export async function requireUnused(absolute: string) {

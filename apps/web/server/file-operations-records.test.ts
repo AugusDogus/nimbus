@@ -86,6 +86,38 @@ describe("sharing records through file operations", () => {
     );
   });
 
+  test("pipes, sockets and devices are refused, and copying one never blocks", async () => {
+    const made = Bun.spawnSync(["mkfifo", drive.absolute("pipe")]);
+    expect(made.exitCode).toBe(0);
+    await mkdir(drive.absolute("into"));
+    const owner = drive.caller("owner");
+    const refused = { code: "FORBIDDEN" };
+    const settled = <T>(work: Promise<T>) =>
+      Promise.race([
+        work.then(
+          () => "resolved",
+          (error: unknown) => error,
+        ),
+        Bun.sleep(2000).then(() => "still blocked after 2 s"),
+      ]);
+    expect(
+      await settled(
+        owner.files.copy({ sourcePath: "pipe", destinationPath: "into" }),
+      ),
+    ).toMatchObject(refused);
+    expect(
+      await settled(
+        owner.files.move({ sourcePath: "pipe", destinationPath: "into" }),
+      ),
+    ).toMatchObject(refused);
+    expect(await settled(owner.files.delete({ path: "pipe" }))).toMatchObject(
+      refused,
+    );
+    expect(await settled(owner.versions.list({ path: "pipe" }))).toMatchObject(
+      refused,
+    );
+  });
+
   test("a move over a file that succeeds drops the moved file's sharing", async () => {
     await drive.write("src.txt", "incoming");
     await drive.write("dst.txt", "previous");
