@@ -747,6 +747,9 @@ export async function handleWebDAV(request: Request): Promise<Response> {
         }, change)
       : await change();
   } catch (error) {
+    // The client went away, for example by cancelling an upload: nothing was changed and
+    // there is nothing to fix, so it is not logged as a server error.
+    if (request.signal.aborted) return new Response(null, { status: 499 });
     if (isApiError(error, "UNAUTHORIZED"))
       return new Response("Use your email and a Nimbus app password.", {
         status: 401,
