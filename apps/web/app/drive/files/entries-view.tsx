@@ -106,7 +106,6 @@ export function EntriesView({
   if (touchSelecting && selection.paths.size === 0) setTouchSelecting(false);
   const focusIndex =
     focusPath === null ? -1 : (order.index.get(focusPath) ?? -1);
-  const tabStop = focusPath ?? order.paths[0] ?? null;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const fallbackToolbar = useRef<HTMLElement>(null);
@@ -379,6 +378,13 @@ export function EntriesView({
   )
     rendered.push(focusedRow);
   const selectionActive = selection.paths.size > 0;
+  // The list's one Tab stop. With nothing focused yet it is the first entry in the rendered
+  // window, so Tab reaches the list after scrolling and lands on what is on screen.
+  const tabStop =
+    focusPath ??
+    layout.entries[entriesBefore(virtual.range.start)]?.path ??
+    order.paths[0] ??
+    null;
 
   /**
    * Opening a menu on an entry focuses it, and selects only it unless it is already selected.

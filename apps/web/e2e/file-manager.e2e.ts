@@ -461,3 +461,41 @@ test("empties trash in one step after confirmation", async ({
     page.getByRole("button", { name: "Empty trash", exact: true }),
   ).toHaveCount(0);
 });
+
+test("Tab reaches an entry on screen after scrolling a long folder", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Keyboard navigation is a desktop interaction.");
+  await (
+    await client(context)
+  ).prefs.set.mutate({
+    view: "list",
+    sortField: "name",
+    sortDirection: "asc",
+    groupByType: false,
+  });
+  const names = Array.from(
+    { length: 500 },
+    (_, index) => `row ${String(index).padStart(3, "0")}.txt`,
+  );
+  const { folder } = await folderWithFiles(names);
+  await page.goto(`/browse/${folder}`);
+  await expect(entry(page, "row 000.txt")).toBeVisible();
+  const scroller = page.locator('[data-slot="sidebar-inset"]');
+  await scroller.evaluate((element) => element.scrollTo(0, 10_000));
+  await expect(entry(page, "row 000.txt")).toHaveCount(0);
+  // Start from the control just before the list, as someone tabbing through the page would.
+  await page.getByRole("combobox", { name: "Sort files" }).focus();
+  let reached = false;
+  for (let press = 0; press < 6 && !reached; press++) {
+    await page.keyboard.press("Tab");
+    reached = await page.evaluate(
+      () => document.activeElement?.closest("[data-entry-row]") !== null,
+    );
+  }
+  expect(reached).toBe(true);
+  // Focus lands on an entry already on screen, so the list does not jump back to the top.
+  await expect(page.locator(":focus")).toBeInViewport();
+});
