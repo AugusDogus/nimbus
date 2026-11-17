@@ -326,6 +326,35 @@ export function createDriveStore(database: Database): DriveStore {
         )[0] ?? null
       );
     },
+    async detachedGrantsFor(id, userId) {
+      const [row] = await database
+        .select({ detachedAccess: trash.detachedAccess })
+        .from(trash)
+        .where(eq(trash.id, id));
+      if (!row) return [];
+      const parsed = detachedAccessSchema
+        .pick({ grants: true })
+        .safeParse(JSON.parse(row.detachedAccess));
+      if (!parsed.success)
+        throw new Error(
+          `Nimbus could not read the saved grants of trash item ${id}: ${parsed.error.message}. The item is still in trash; nothing was changed.`,
+        );
+      const memberships = new Set(
+        (
+          await database
+            .select({ groupId: groupMembers.groupId })
+            .from(groupMembers)
+            .where(eq(groupMembers.userId, userId))
+        ).map((membership) => membership.groupId),
+      );
+      return parsed.data.grants
+        .filter((grant) =>
+          grant.subjectType === "user"
+            ? grant.subjectId === userId
+            : memberships.has(grant.subjectId),
+        )
+        .map(toGrant);
+    },
     async listTrash(userId) {
       return database
         .select(trashColumns)

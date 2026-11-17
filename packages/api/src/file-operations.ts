@@ -3,7 +3,7 @@ import { constants, type Stats } from "node:fs";
 import { copyFile, lstat, mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { getAccess, type Access } from "./access";
+import { accessFor, getAccess, type Access } from "./access";
 import { readDirectory } from "./file-browser";
 import { Homes } from "./homes";
 import {
@@ -400,7 +400,12 @@ export async function getOwnedTrash(
 async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
   const item = await getOwnedTrash(store, access, id);
   const target = await safePath(item.path);
-  access.require(target.relative, "write");
+  // Trash suspended the item's own grants, including any that let this person delete it, and
+  // restoring returns them. So they count here along with the live ones.
+  accessFor(access.user, [
+    ...access.grants,
+    ...(await store.detachedGrantsFor(id, access.user.id)),
+  ]).require(target.relative, "write");
   await requireUnused(target.absolute);
   const parent = await requireExisting(
     path.posix.dirname(item.path) === "." ? "" : path.posix.dirname(item.path),

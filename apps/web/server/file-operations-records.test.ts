@@ -41,6 +41,51 @@ describe("sharing records through file operations", () => {
     expect(await drive.store.getShare(link)).not.toBeNull();
   });
 
+  test("someone who deleted an item shared directly with them can restore it", async () => {
+    await drive.write("alice/report.docx", "report");
+    await drive.grant("alice", "alice", "admin");
+    await drive.grant("alice/report.docx", "bob", "write");
+    const bob = drive.caller("bob");
+    const { trashId } = await bob.files.delete({ path: "alice/report.docx" });
+    expect((await bob.trash.list()).map((item) => item.id)).toEqual([trashId]);
+    await bob.trash.restore({ id: trashId });
+    expect(await readFile(drive.absolute("alice/report.docx"), "utf8")).toBe(
+      "report",
+    );
+    expect((await drive.access("bob")).can("alice/report.docx", "write")).toBe(
+      true,
+    );
+    // Restoring needs the access the deleter had: Carol, with none, still cannot.
+    const { trashId: again } = await bob.files.delete({
+      path: "alice/report.docx",
+    });
+    await drive.sqlite.run("UPDATE nimbus_trash SET deleted_by = 'carol'");
+    await expect(
+      drive.caller("carol").trash.restore({ id: again }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  test("a group member who deleted an item shared with the group can restore it", async () => {
+    await drive.write("team/plan.txt", "plan");
+    await drive.store.saveGroup({
+      id: "team",
+      name: "Team",
+      memberIds: ["bob"],
+    });
+    await drive.store.saveGrant({
+      id: "team-grant",
+      path: "team/plan.txt",
+      subject: { type: "group", id: "team" },
+      permission: "write",
+    });
+    const bob = drive.caller("bob");
+    const { trashId } = await bob.files.delete({ path: "team/plan.txt" });
+    await bob.trash.restore({ id: trashId });
+    expect((await drive.access("bob")).can("team/plan.txt", "write")).toBe(
+      true,
+    );
+  });
+
   test("a move over a file that succeeds drops the moved file's sharing", async () => {
     await drive.write("src.txt", "incoming");
     await drive.write("dst.txt", "previous");

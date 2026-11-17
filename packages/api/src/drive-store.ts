@@ -138,6 +138,11 @@ export type DriveStore = {
    */
   addTrash(item: TrashItem): Promise<void>;
   getTrash(id: string): Promise<TrashItem | null>;
+  /**
+   * The grants detached with a trash item that apply to an account, directly or through a
+   * group it belongs to now. Empty when the item is not in trash.
+   */
+  detachedGrantsFor(id: string, userId: string): Promise<Grant[]>;
   listTrash(userId: string | null): Promise<TrashItem[]>;
   /** Delete a trash record and reattach its detached records at the item's original path. */
   restoreTrash(id: string): Promise<void>;

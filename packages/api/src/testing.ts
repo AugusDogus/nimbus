@@ -141,6 +141,13 @@ export function createTestDriveStore() {
     async getTrash(id) {
       return trash.get(id) ?? null;
     },
+    async detachedGrantsFor(id, userId) {
+      return (detached.get(id)?.grants ?? []).filter((grant) =>
+        grant.subject.type === "user"
+          ? grant.subject.id === userId
+          : groups.get(grant.subject.id)?.memberIds.includes(userId),
+      );
+    },
     async listTrash(userId) {
       return [...trash.values()].filter(
         (item) => userId === null || item.deletedBy === userId,
