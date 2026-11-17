@@ -588,3 +588,36 @@ test("files dropped outside an upload area never open in the tab, and leaving mi
   expect(dialog.type()).toBe("beforeunload");
   await dialog.accept();
 });
+
+test("starring a selection changes nothing when the starred items cannot be read", async ({
+  page,
+  context,
+}) => {
+  const { folder } = await folderWithFiles(["one.txt", "two.txt"]);
+  await page.goto(`/browse/${folder}`);
+  await entry(page, "one.txt")
+    .filter({ visible: true })
+    .click({
+      modifiers: ["ControlOrMeta"],
+    });
+  await entry(page, "two.txt")
+    .filter({ visible: true })
+    .click({
+      modifiers: ["Shift"],
+    });
+  await expect(bar(page)).toContainText("2 selected");
+  await page.route(
+    (url) => url.pathname.includes("catalog.bookmarks"),
+    (route) => route.fulfill({ status: 503, body: "Unavailable" }),
+  );
+  await bar(page).getByRole("button", { name: "Star", exact: true }).click();
+  await expect(
+    page.getByText("Nothing was starred or unstarred", { exact: false }),
+  ).toBeVisible();
+  const bookmarks = await (await client(context)).catalog.bookmarks.query();
+  expect(
+    bookmarks.filter(
+      (bookmark) => bookmark.starred && bookmark.path.startsWith(`${folder}/`),
+    ),
+  ).toEqual([]);
+});

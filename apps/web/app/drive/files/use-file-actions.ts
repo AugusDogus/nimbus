@@ -228,7 +228,18 @@ export function useFileActions({
 
   /** Star every entry, or unstar them all when every entry is already starred. */
   const starEntries = useCallback(async (entries: readonly FileEntry[]) => {
-    const existing = await trpcClient.catalog.bookmarks.query().catch(() => []);
+    let existing: Awaited<
+      ReturnType<typeof trpcClient.catalog.bookmarks.query>
+    >;
+    try {
+      existing = await trpcClient.catalog.bookmarks.query();
+    } catch {
+      // Whether to star or unstar depends on what is starred now; guessing could star everything.
+      toast.error(
+        "Nothing was starred or unstarred, because Nimbus could not check which items are already starred. Check your connection and try again.",
+      );
+      return { succeeded: 0, failed: [] };
+    }
     const starredPaths = new Set(
       existing.filter((entry) => entry.starred).map((entry) => entry.path),
     );
