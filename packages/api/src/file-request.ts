@@ -50,6 +50,8 @@ export type Reservation =
   | { kind: "file-limit" }
   | { kind: "byte-limit" }
   | { kind: "busy" }
+  /** The disk cannot hold this upload on top of every unfinished one. */
+  | { kind: "no-space" }
   | { kind: "unavailable" };
 
 export type FileRequestStore = {
@@ -66,10 +68,16 @@ export type FileRequestStore = {
   /**
    * Atomically reserve quota for one upload of `size` bytes. Unfinished uploads
    * created before `activeSince` are abandoned and no longer hold quota.
+   * `maxPendingBytes` bounds this upload plus every link's unfinished ones, so
+   * uploads admitted together cannot overrun the disk; null when unknown.
    */
   reserve(
     upload: FileRequestUpload,
-    options: { activeSince: number; maxActive: number },
+    options: {
+      activeSince: number;
+      maxActive: number;
+      maxPendingBytes: number | null;
+    },
   ): Promise<Reservation>;
   /** Finished uploads plus reservations of uploads active since `activeSince`. */
   usage(requestId: string, activeSince: number): Promise<FileRequestUsage>;

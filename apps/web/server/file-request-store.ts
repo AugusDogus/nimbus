@@ -77,8 +77,14 @@ export function createFileRequestStore(database: Database): FileRequestStore {
           and(eq(fileRequests.id, id), eq(fileRequests.createdBy, userId)),
         );
     },
-    async reserve(upload, { activeSince, maxActive }) {
+    async reserve(upload, { activeSince, maxActive, maxPendingBytes }) {
       const u = fileRequestUploads;
+      // Unfinished uploads of every link: their bytes are promised but not yet on disk.
+      const pending = sql`(SELECT coalesce(sum(size), 0) FROM ${u} WHERE finished_at IS NULL AND created_at >= ${activeSince})`;
+      const fits =
+        maxPendingBytes === null
+          ? sql``
+          : sql`AND ${pending} + ${upload.size} <= ${maxPendingBytes}`;
       // One statement, so concurrent uploads cannot both pass a limit check.
       const inserted = database.all<{ id: string }>(sql`
         INSERT INTO ${u} (id, request_id, uploader_hash, size, created_at)
@@ -88,6 +94,7 @@ export function createFileRequestStore(database: Database): FileRequestStore {
           AND (SELECT count(*) FROM ${u} WHERE request_id = r.id AND finished_at IS NULL AND created_at >= ${activeSince}) < ${maxActive}
           AND (r.max_files IS NULL OR (SELECT count(*) FROM ${u} WHERE request_id = r.id AND ${counted(activeSince)}) < r.max_files)
           AND (r.max_total_bytes IS NULL OR (SELECT coalesce(sum(size), 0) FROM ${u} WHERE request_id = r.id AND ${counted(activeSince)}) + ${upload.size} <= r.max_total_bytes)
+          ${fits}
         RETURNING id`);
       if (inserted.length) return { kind: "reserved" };
       const [request] = await database
@@ -103,6 +110,13 @@ export function createFileRequestStore(database: Database): FileRequestStore {
         used.bytes + upload.size > request.maxTotalBytes
       )
         return { kind: "byte-limit" };
+      if (maxPendingBytes !== null) {
+        const [row] = database.all<{ bytes: number }>(
+          sql`SELECT ${pending} AS bytes`,
+        );
+        if (Number(row?.bytes ?? 0) + upload.size > maxPendingBytes)
+          return { kind: "no-space" };
+      }
       return { kind: "busy" };
     },
     usage,

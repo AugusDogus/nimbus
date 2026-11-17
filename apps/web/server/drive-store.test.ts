@@ -300,7 +300,7 @@ test("file requests follow their folder through moves, and trash suspends them w
       size: 10,
       createdAt: 1,
     },
-    { activeSince: 0, maxActive: 5 },
+    { activeSince: 0, maxActive: 5, maxPendingBytes: null },
   );
   await store.fileRequests.finishUpload("upload-1", "docs/inbox/a.txt", 2);
   await store.movePath("docs", "moved");

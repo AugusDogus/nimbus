@@ -69,7 +69,7 @@ export function createTestFileRequestStore(): FileRequestStore {
       for (const [key, upload] of uploads)
         if (upload.requestId === id) uploads.delete(key);
     },
-    async reserve(upload, { activeSince, maxActive }) {
+    async reserve(upload, { activeSince, maxActive, maxPendingBytes }) {
       const request = requests.get(upload.requestId);
       if (!request) return { kind: "unavailable" };
       const active = [...uploads.values()].filter(
@@ -87,6 +87,13 @@ export function createTestFileRequestStore(): FileRequestStore {
         used.bytes + upload.size > request.maxTotalBytes
       )
         return { kind: "byte-limit" };
+      const pending = [...uploads.values()]
+        .filter(
+          (row) => row.finishedAt === null && row.createdAt >= activeSince,
+        )
+        .reduce((total, row) => total + row.size, 0);
+      if (maxPendingBytes !== null && pending + upload.size > maxPendingBytes)
+        return { kind: "no-space" };
       uploads.set(upload.id, { ...upload, finishedAt: null, name: null });
       return { kind: "reserved" };
     },

@@ -158,12 +158,8 @@ async function getServer() {
         )
           throw fail(413, "This file is larger than the link allows.");
         const capacity = await FilesystemCapacity.read(getDataRoot());
-        if (
-          capacity &&
-          capacity.availableBytes - upload.size <
-            FileRequestLimits.minimumFreeBytes(capacity.totalBytes)
-        )
-          throw fail(
+        const noSpace = () =>
+          fail(
             507,
             "The server does not have enough free space for this file. Tell the person who sent the link.",
           );
@@ -179,8 +175,14 @@ async function getServer() {
           {
             activeSince: now - reservationLifetimeMs,
             maxActive: FileRequestLimits.maxActiveUploads,
+            // Checked with the reservation, against every unfinished upload's promised bytes.
+            maxPendingBytes: capacity
+              ? capacity.availableBytes -
+                FileRequestLimits.minimumFreeBytes(capacity.totalBytes)
+              : null,
           },
         );
+        if (reservation.kind === "no-space") throw noSpace();
         if (reservation.kind === "file-limit")
           throw fail(413, "This link has received all the files it accepts.");
         if (reservation.kind === "byte-limit")

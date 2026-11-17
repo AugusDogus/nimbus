@@ -44,7 +44,7 @@ afterEach(() => {
   client.close();
 });
 
-const options = { activeSince: 0, maxActive: 10 };
+const options = { activeSince: 0, maxActive: 10, maxPendingBytes: null };
 
 test("concurrent reservations never exceed the byte or file limit", async () => {
   const results = await Promise.all(
@@ -62,6 +62,39 @@ test("concurrent reservations never exceed the byte or file limit", async () => 
   expect(await store.reserve(upload("f", 0), options)).toEqual({
     kind: "file-limit",
   });
+});
+
+test("free space counts every link's unfinished reservations", async () => {
+  await store.create({
+    ...request,
+    id: "other",
+    token: "other-token",
+    maxFiles: null,
+    maxTotalBytes: null,
+  });
+  const space = { ...options, maxPendingBytes: 150 };
+  expect(await store.reserve(upload("a", 100), space)).toEqual({
+    kind: "reserved",
+  });
+  // The first upload has not written its bytes yet, but they are promised.
+  expect(
+    await store.reserve({ ...upload("b", 100), requestId: "other" }, space),
+  ).toEqual({ kind: "no-space" });
+  expect(
+    await store.reserve({ ...upload("c", 50), requestId: "other" }, space),
+  ).toEqual({ kind: "reserved" });
+  // Finished uploads are on disk, so free space already reflects them.
+  await store.finishUpload("a", "a.txt", 2000);
+  expect(
+    await store.reserve({ ...upload("d", 100), requestId: "other" }, space),
+  ).toEqual({ kind: "reserved" });
+  // Abandoned reservations no longer hold space.
+  expect(
+    await store.reserve(
+      { ...upload("e", 140, 5000), requestId: "other" },
+      { ...space, activeSince: 4000 },
+    ),
+  ).toEqual({ kind: "reserved" });
 });
 
 test("abandoned reservations stop holding quota and finished uploads are counted", async () => {
@@ -84,7 +117,7 @@ test("abandoned reservations stop holding quota and finished uploads are counted
 });
 
 test("each link limits how many uploads may run at once", async () => {
-  const busy = { activeSince: 0, maxActive: 1 };
+  const busy = { activeSince: 0, maxActive: 1, maxPendingBytes: null };
   expect(await store.reserve(upload("a", 1), busy)).toEqual({
     kind: "reserved",
   });
