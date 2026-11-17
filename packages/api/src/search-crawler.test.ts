@@ -88,6 +88,21 @@ describe("search crawler", () => {
     expect(indexedPath(root, root)).toBeNull();
     expect(indexedPath(root, path.join(root, "a/b.txt"))).toBe("a/b.txt");
   });
+
+  it("applies changes to names that start with two dots", async () => {
+    const index = createSearchIndex();
+    await crawl(index, root);
+    await writeFile(path.join(root, "..notes-dotted.txt"), "");
+    await applyChange(index, root, path.join(root, "..notes-dotted.txt"));
+    await mkdir(path.join(root, "docs/..drafts"));
+    await writeFile(path.join(root, "docs/..drafts/notes-draft.txt"), "");
+    await applyChange(index, root, path.join(root, "docs/..drafts"));
+    expect(names(index, "notes")).toEqual([
+      "..notes-dotted.txt",
+      "docs/..drafts/notes-draft.txt",
+      "docs/deep/notes.txt",
+    ]);
+  });
 });
 
 describe("searchEntries", () => {

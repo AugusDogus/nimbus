@@ -170,7 +170,12 @@ async function statFiles(directory: string, names: readonly string[]) {
 /** Relative "/"-separated path inside `root`, or null when outside or private. */
 export function indexedPath(root: string, absolute: string) {
   const relative = path.relative(root, absolute);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative))
+  if (
+    !relative ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  )
     return null;
   const segments = relative.split(path.sep);
   return segments.some(isPrivate) ? null : segments.join("/");
