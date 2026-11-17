@@ -5,7 +5,7 @@ import { queryClient, trpcClient } from "@/lib/trpc";
 import { fileListQueryOptions } from "./use-file-list";
 
 import { BulkResult } from "./bulk-result";
-import type { FileEntry } from "./types";
+import { FileEntry } from "./types";
 
 function invalidateFileQueries() {
   void queryClient.invalidateQueries({ queryKey: ["files.list"] });
@@ -189,7 +189,7 @@ export function useFileActions({
   const moveEntries = useCallback(
     async (entries: readonly FileEntry[], destinationPath: string) =>
       reportBulk(
-        await BulkResult.run(entries, (entry) =>
+        await BulkResult.run(FileEntry.outermost(entries), (entry) =>
           trpcClient.files.move.mutate({
             sourcePath: entry.path,
             destinationPath,
@@ -203,7 +203,7 @@ export function useFileActions({
   const copyEntries = useCallback(
     async (entries: readonly FileEntry[], destinationPath: string) =>
       reportBulk(
-        await BulkResult.run(entries, (entry) =>
+        await BulkResult.run(FileEntry.outermost(entries), (entry) =>
           trpcClient.files.copy.mutate({
             sourcePath: entry.path,
             destinationPath,
@@ -217,7 +217,7 @@ export function useFileActions({
   const trashEntries = useCallback(
     async (entries: readonly FileEntry[]) =>
       reportBulk(
-        await BulkResult.run(entries, (entry) =>
+        await BulkResult.run(FileEntry.outermost(entries), (entry) =>
           trpcClient.files.delete.mutate({ path: entry.path }),
         ),
         "Moved",

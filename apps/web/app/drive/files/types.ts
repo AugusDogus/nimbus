@@ -35,7 +35,33 @@ function canTrash(entry: FileEntry) {
   return entry.permission !== "read" && !entry.fixed;
 }
 
-export const FileEntry = { canMove, canMoveInto, canTrash } as const;
+/**
+ * `entries` without those inside another of them: moving, copying or trashing a folder takes
+ * its contents along, and acting on both would conflict.
+ */
+function outermost<T extends Pick<FileEntry, "path" | "type">>(
+  entries: readonly T[],
+): T[] {
+  const folders = new Set(
+    entries.filter((entry) => entry.type === "dir").map((entry) => entry.path),
+  );
+  return entries.filter((entry) => {
+    for (
+      let slash = entry.path.lastIndexOf("/");
+      slash > 0;
+      slash = entry.path.lastIndexOf("/", slash - 1)
+    )
+      if (folders.has(entry.path.slice(0, slash))) return false;
+    return true;
+  });
+}
+
+export const FileEntry = {
+  canMove,
+  canMoveInto,
+  canTrash,
+  outermost,
+} as const;
 
 export const fileHref = (path: string) =>
   path ? `/browse/${path.split("/").map(encodeURIComponent).join("/")}` : "/";

@@ -61,4 +61,26 @@ describe("file move eligibility", () => {
       FileEntry.canMoveInto(folder, { ...folder, path: "archive-old" }),
     ).toBe(true);
   });
+
+  it("keeps only the outermost of selected items, since a folder's action covers its contents", () => {
+    const at = (path: string, type = "file") => ({
+      ...file,
+      path,
+      name: path.split("/").pop() ?? path,
+      type,
+    });
+    const selected = [
+      at("a", "dir"),
+      at("a/b.txt"),
+      at("a/c", "dir"),
+      at("a/c/d.txt"),
+      at("ab.txt"),
+      at("x/y.txt"),
+    ];
+    expect(FileEntry.outermost(selected).map((entry) => entry.path)).toEqual([
+      "a",
+      "ab.txt",
+      "x/y.txt",
+    ]);
+  });
 });
