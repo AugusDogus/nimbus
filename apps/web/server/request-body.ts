@@ -3,7 +3,7 @@
  * to disk, so every endpoint that buffers a body must cap it itself, before it is in memory.
  */
 export type RequestBody =
-  | { kind: "read"; bytes: Uint8Array }
+  | { kind: "read"; bytes: Uint8Array<ArrayBuffer> }
   | { kind: "too_large"; maxBytes: number };
 
 const formatBytes = (bytes: number) =>
