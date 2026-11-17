@@ -24,6 +24,7 @@ import { PageBootstrap } from "./page-bootstrap";
 import { PageSkeleton } from "./page-skeleton";
 import { PublicPages } from "./public-pages";
 import { backups, backupsToKeep } from "./backup";
+import { readMcpConfig } from "./mcp/config";
 import { getConfigRoot } from "./storage-paths";
 
 const port = Number(process.env.PORT ?? "3000");
@@ -43,6 +44,9 @@ const auditRetentionDays = AuditRetention.parse(
   process.env.NIMBUS_AUDIT_RETENTION_DAYS,
 );
 const homesPath = Homes.containerPath();
+const mcp = readMcpConfig();
+if (mcp.kind === "misconfigured")
+  throw new Error(`Nimbus did not start: ${mcp.message}`);
 console.info(
   mailConfig.kind === "smtp"
     ? `Nimbus email is enabled through ${mailConfig.host}:${mailConfig.port}.`
