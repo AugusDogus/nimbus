@@ -348,3 +348,37 @@ test("WebDAV GET and HEAD do not reveal whether a path the user cannot read exis
     await member.close();
   }
 });
+
+test("folder archives are only built for requests from Nimbus itself", async ({
+  context,
+}) => {
+  const post = async (headers: Record<string, string>) => {
+    const response = await context.request.post("/api/files/archive", {
+      headers,
+      form: { path: "docs" },
+    });
+    await response.dispose();
+    return response.status();
+  };
+  expect(await post({ "Sec-Fetch-Site": "same-origin", Origin: origin })).toBe(
+    200,
+  );
+  expect(await post({})).toBe(200);
+  // Nimbus pages send no referrer, so the browser's own form POST says Origin: null.
+  expect(await post({ "Sec-Fetch-Site": "same-origin", Origin: "null" })).toBe(
+    200,
+  );
+  expect(await post({ "Sec-Fetch-Site": "cross-site", Origin: "null" })).toBe(
+    403,
+  );
+  // A sibling subdomain is same-site, so the browser still sends the Lax session cookie.
+  expect(
+    await post({
+      "Sec-Fetch-Site": "same-site",
+      Origin: "https://evil.localhost",
+    }),
+  ).toBe(403);
+  expect(await post({ "Sec-Fetch-Site": "cross-site" })).toBe(403);
+  // Browsers without fetch metadata still send Origin on a form POST.
+  expect(await post({ Origin: "https://evil.example" })).toBe(403);
+});

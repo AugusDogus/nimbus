@@ -43,6 +43,12 @@ const publicOrigin = new URL(
     `http://localhost:${process.env.PORT ?? "3000"}`,
 );
 
+/** Origins whose pages may send cookie-authenticated form posts: Nimbus's own and trusted ones. */
+export const allowedOrigins: ReadonlySet<string> = new Set([
+  publicOrigin.origin,
+  ...trustedOrigins,
+]);
+
 const roleSchema = z.union([z.string(), z.array(z.string())]);
 const adminChangeSchema = z.object({
   userId: z.string(),
