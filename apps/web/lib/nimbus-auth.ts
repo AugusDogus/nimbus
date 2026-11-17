@@ -8,7 +8,7 @@ import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { auditUser, recordAudit } from "@nimbus/api/audit";
 import { Homes } from "@nimbus/api/homes";
 import { grants, groupMembers, groups, trash, user } from "../server/db/schema";
-import { clientIpHeader } from "../server/client-ip";
+import { ClientIp, clientIpHeader } from "../server/client-ip";
 import type { Database } from "../server/db";
 import type { MailMessage } from "../server/mail";
 import { createDriveStore } from "../server/drive-store";
@@ -17,6 +17,7 @@ import { RateLimiter } from "../server/rate-limit";
 import { finishAuthResponse, nimbusAudit } from "./auth-audit";
 import { nimbusSecurity } from "./auth-security";
 import { OidcConfig, oidcProviderId } from "./oidc-config";
+import { PasswordAttempts } from "./password-attempts";
 
 /**
  * What the Nimbus Better Auth configuration depends on. `auth.ts` builds it from the
@@ -54,6 +55,12 @@ const postsIdToken = z.object({
   idToken: z.unknown().refine((value) => value !== undefined),
 });
 
+const signInBody = z.object({ email: z.string() });
+
+/** The rate-limit bucket of the address the server derived for this request. */
+const clientAddress = (headers: Headers | undefined) =>
+  ClientIp.bucket(headers?.get(clientIpHeader) ?? "unknown");
+
 const registrationClosed = () =>
   new APIError("FORBIDDEN", {
     message:
@@ -69,6 +76,7 @@ export function createNimbusAuth({
   secret,
 }: NimbusAuthOptions) {
   const publicOrigin = origin.url;
+  const passwordAttempts = PasswordAttempts.create();
   const disconnectMcpClients = (userId: string, by: string) =>
     revokeUserConnections(db, userId, Date.now(), by);
   // Single sign-on is the only OAuth provider, so every OAuth callback belongs to it.
@@ -221,6 +229,24 @@ export function createNimbusAuth({
             message:
               "Sign in with single sign-on from the Nimbus sign-in page. Posting an ID token is not supported, and no account was signed in or created.",
           });
+        if (context.path === "/sign-in/email") {
+          const attempt = signInBody.safeParse(context.body);
+          if (!attempt.success) return;
+          const decision = passwordAttempts.admit(
+            attempt.data.email,
+            clientAddress(context.headers),
+          );
+          if (!decision.allowed)
+            throw new APIError(
+              "TOO_MANY_REQUESTS",
+              {
+                code: "too_many_attempts_for_account",
+                message: `Too many sign-in attempts for this account. Wait ${RateLimiter.seconds(decision.retryAfterSeconds)} and try again, or sign in with a passkey. The account is not locked, and your password is unchanged.`,
+              },
+              { "Retry-After": String(decision.retryAfterSeconds) },
+            );
+          return;
+        }
         if (context.path === "/sign-up/email") {
           const [existing] = await db
             .select({ id: user.id })
@@ -276,6 +302,18 @@ export function createNimbusAuth({
         }
       }),
       after: createAuthMiddleware(async (context) => {
+        if (
+          context.path === "/sign-in/email" &&
+          !(context.context.returned instanceof APIError)
+        ) {
+          const attempt = signInBody.safeParse(context.body);
+          if (attempt.success)
+            passwordAttempts.succeeded(
+              attempt.data.email,
+              clientAddress(context.headers),
+            );
+          return;
+        }
         if (!isOidcCallback(context.path)) return;
         const created = z
           .object({ user: z.object({ id: z.string(), email: z.string() }) })

@@ -250,3 +250,34 @@ describe("account endpoints", () => {
     });
   });
 });
+
+describe("password guessing across many addresses", () => {
+  const guess = (email: string, ip: string, password = "wrong password") =>
+    t.request("POST", "/sign-in/email", { body: { email, password }, ip });
+
+  test("slows guesses at one account from many addresses, without locking out its known addresses", async () => {
+    const owner = await t.createUser("owner@example.test");
+    await t.signIn("owner@example.test", "198.18.1.200");
+    let refused: Response | null = null;
+    for (let index = 0; index < 30 && !refused; index++) {
+      const response = await guess("owner@example.test", `198.18.0.${index}`);
+      if (response.status === 429) refused = response;
+      else expect(response.status).toBe(401);
+    }
+    expect(refused).not.toBeNull();
+    expect(Number(refused?.headers.get("retry-after"))).toBeGreaterThan(0);
+    // The right password from a new address waits too, so a correct guess is not revealed.
+    expect(
+      (await guess("owner@example.test", "198.18.0.250", t.password)).status,
+    ).toBe(429);
+    // An address the account signed in from before still works.
+    expect(
+      (await guess("owner@example.test", "198.18.1.200", t.password)).status,
+    ).toBe(200);
+    // Other accounts are not affected.
+    await t.createUser("other@example.test", { as: owner.cookie });
+    expect(
+      (await guess("other@example.test", "198.18.0.251", t.password)).status,
+    ).toBe(200);
+  });
+});

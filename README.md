@@ -237,7 +237,7 @@ With `NIMBUS_OIDC_GROUPS_CLAIM` set, every single sign-on sign-in makes the prov
 
 ### Rate limits
 
-Nimbus limits sign-in, sign-up, password reset, second-factor, and passkey attempts per client address, wrong public link and file request passwords, file request uploads, WebDAV authentication failures, and MCP registration, token, and tool requests. Limited requests receive `429 Too Many Requests` with a `Retry-After` header. Limits are kept in memory and reset when Nimbus restarts.
+Nimbus limits sign-in, sign-up, password reset, second-factor, and passkey attempts per client address, wrong public link and file request passwords, file request uploads, WebDAV authentication failures, and MCP registration, token, and tool requests. Password sign-in is also limited per account: after 10 attempts at one account from addresses it has not signed in from, further attempts from new addresses wait about 90 seconds each. The account is never locked, addresses where its owner signed in with the password before are exempt, and passkeys and single sign-on are not affected. Limited requests receive `429 Too Many Requests` with a `Retry-After` header. Limits are kept in memory and reset when Nimbus restarts.
 
 ### Reverse proxies and client addresses
 
