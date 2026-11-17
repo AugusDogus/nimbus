@@ -58,7 +58,8 @@ export async function resolveSafePath(
         );
       }
     } catch (error) {
-      if (isFsError(error, "ENOENT")) break;
+      // Nothing exists below a missing folder or a file, so the rest is a missing path.
+      if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR")) break;
       throw error;
     }
   }

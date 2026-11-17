@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getAccess } from "./access";
+import { getAccess, type Access } from "./access";
 import { auditUser, recordAudit } from "./audit";
 import { getDataRoot } from "./data-root";
 import { publishFileEvent } from "./file-events";
@@ -8,6 +8,19 @@ import { mutateFiles } from "./file-mutations";
 import { requireExisting, safePath } from "./file-operations";
 import { FileVersions } from "./file-versions";
 import { protectedProcedure, router } from "./index";
+
+/**
+ * The file at `requested`, once `access` may read it. Permission comes first, so someone
+ * without access cannot tell an existing file from a missing one or a folder.
+ */
+export async function readableFile(
+  access: Pick<Access, "require">,
+  requested: string,
+) {
+  const target = await safePath(requested);
+  access.require(target.relative, "read");
+  return requireFile(target.relative);
+}
 
 async function requireFile(requested: string) {
   const target = await requireExisting(requested);
@@ -23,8 +36,7 @@ export const versionsRouter = router({
   list: protectedProcedure
     .input(z.object({ path: z.string() }))
     .query(async ({ ctx, input }) => {
-      const target = await requireFile(input.path);
-      ctx.access.require(target.relative, "read");
+      const target = await readableFile(ctx.access, input.path);
       const versions = await FileVersions.history(
         ctx.drive.versions,
         target.relative,

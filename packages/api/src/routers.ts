@@ -281,9 +281,14 @@ export const appRouter = router({
     copy: protectedProcedure
       .input(z.object({ sourcePath: z.string(), destinationPath: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        // copyItem requires Read on the source and Write on the destination, as WebDAV COPY does.
-        const source = await requireExisting(input.sourcePath);
-        const destination = await requireExisting(input.destinationPath);
+        // Read on the source and Write on the destination, as WebDAV COPY requires, checked
+        // before either is looked up so neither reveals whether it exists.
+        const requested = await safePath(input.sourcePath);
+        ctx.access.require(requested.relative, "read");
+        const into = await safePath(input.destinationPath);
+        ctx.access.require(into.relative, "write");
+        const source = await requireExisting(requested.relative);
+        const destination = await requireExisting(into.relative);
         if (!destination.stats.isDirectory())
           throw new TRPCError({
             code: "BAD_REQUEST",

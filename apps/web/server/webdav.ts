@@ -235,8 +235,16 @@ async function entryOrNull(relative: string) {
  */
 const hasQueryOrFragment = (url: string) => /[?#]/.test(url);
 
-/** Whether the If header holds for this request (RFC 4918, section 10.4.2). */
-function ifHeaderHolds(lists: IfHeader, requestUrl: URL, target: string) {
+/**
+ * Whether the If header holds for this request (RFC 4918, section 10.4.2). A tagged resource
+ * the caller cannot browse counts as absent, so its conditions reveal nothing about it.
+ */
+function ifHeaderHolds(
+  lists: IfHeader,
+  requestUrl: URL,
+  target: string,
+  access: Pick<Access, "canBrowse">,
+) {
   return evaluateIfHeader(lists, async (resource) => {
     let relative = target;
     if (resource !== null) {
@@ -253,6 +261,7 @@ function ifHeaderHolds(lists: IfHeader, requestUrl: URL, target: string) {
         return null;
       }
     }
+    if (!access.canBrowse(relative)) return { etag: null, lockTokens: [] };
     const entry = await entryOrNull(relative);
     return {
       etag: entry ? fileTag(entry) : null,
@@ -740,7 +749,7 @@ export async function handleWebDAV(request: Request): Promise<Response> {
       return new Response(null, { status: 204 });
     }
     access.require(target, method === "COPY" ? "read" : "write");
-    if (!(await ifHeaderHolds(conditions.value, url, target)))
+    if (!(await ifHeaderHolds(conditions.value, url, target, access)))
       return textResponse(
         412,
         "A condition in the If header does not hold. The item was not changed.",
@@ -751,7 +760,7 @@ export async function handleWebDAV(request: Request): Promise<Response> {
     // the check above and this one's commit makes it fail instead of writing over it.
     return conditions.value.length
       ? await withMutationPrecondition(async () => {
-          if (!(await ifHeaderHolds(conditions.value, url, target)))
+          if (!(await ifHeaderHolds(conditions.value, url, target, access)))
             throw new TRPCError({
               code: "PRECONDITION_FAILED",
               message:

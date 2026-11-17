@@ -1,8 +1,8 @@
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
 import { getDataRoot } from "@nimbus/api/data-root";
-import { requireExisting } from "@nimbus/api/file-operations";
 import { FileVersions } from "@nimbus/api/file-versions";
+import { readableFile } from "@nimbus/api/versions-router";
 import { serveStoredFile } from "@/server/file-response";
 import { httpDriveStore, httpError, requestAccess } from "@/server/http-files";
 
@@ -11,8 +11,10 @@ export async function GET(request: Request) {
   try {
     const access = await requestAccess(request);
     const url = new URL(request.url);
-    const target = await requireExisting(url.searchParams.get("path") ?? "");
-    access.require(target.relative, "read");
+    const target = await readableFile(
+      access,
+      url.searchParams.get("path") ?? "",
+    );
     const found = await FileVersions.find(
       httpDriveStore.versions,
       target.relative,

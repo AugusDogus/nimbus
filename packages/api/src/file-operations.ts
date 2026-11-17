@@ -271,11 +271,13 @@ export async function copyItem(
   targetPath: string,
   options: CopyOptions = {},
 ) {
-  const source = await requireExisting(sourcePath);
+  const requested = await safePath(sourcePath);
   const target = await safePath(targetPath);
   requireMutable(target.relative);
-  access.require(source.relative, "read");
+  // Before the source is looked up, so it does not reveal whether it exists.
+  access.require(requested.relative, "read");
   access.require(target.relative, "write");
+  const source = await requireExisting(requested.relative);
   requireSeparate(source.relative, target.relative);
   const existingDestination = options.existing ?? "refuse";
   if (existingDestination === "refuse") await requireUnused(target.absolute);
