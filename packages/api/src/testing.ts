@@ -7,6 +7,7 @@ import type {
   Grant,
   Group,
   Home,
+  PendingChange,
   Share,
   TrashItem,
 } from "./drive-store";
@@ -58,6 +59,7 @@ export function createTestDriveStore() {
   const detached = new Map<string, Detached>();
   const bookmarks = new Map<string, Bookmark[]>();
   const passwords = new Map<string, AppPassword>();
+  const pending = new Map<string, PendingChange>();
   const versions = createTestFileVersionStore();
   // Tests edit the maps directly, so cached access is never reused.
   let epoch = 0;
@@ -314,7 +316,17 @@ export function createTestDriveStore() {
       take(path);
       await versions.removeAt(path);
     },
-    async movePath(from, to) {
+    async addPendingChange(change) {
+      pending.set(change.id, change);
+    },
+    async removePendingChange(id) {
+      pending.delete(id);
+    },
+    async listPendingChanges() {
+      return [...pending.values()];
+    },
+    async movePath(from, to, settles) {
+      if (settles !== undefined) pending.delete(settles);
       take(to);
       versions.relocate(from, to);
       const moved = (value: string) =>

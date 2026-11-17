@@ -24,6 +24,7 @@ import {
   PathError,
   resolveSafePath,
 } from "./safe-path";
+import { PendingChanges } from "./pending-changes";
 import { Staging } from "./staging";
 import { VacantPath } from "./vacant-path";
 
@@ -196,11 +197,25 @@ async function moveUnlocked(
       // path is vacant now, and records left there would never attach to new content.
       await store.claimVacant(source.relative);
     } else {
-      await rename(source.absolute, target.absolute);
+      // Recorded first, so startup can relocate the sharing of content that already moved.
+      const pending = randomUUID();
+      await store.addPendingChange({
+        id: pending,
+        kind: "move",
+        from: source.relative,
+        to: target.relative,
+      });
       try {
-        await store.movePath(source.relative, target.relative);
+        await rename(source.absolute, target.absolute);
+      } catch (error) {
+        await store.removePendingChange(pending);
+        throw error;
+      }
+      try {
+        await store.movePath(source.relative, target.relative, pending);
       } catch (error) {
         await rename(target.absolute, source.absolute);
+        await store.removePendingChange(pending);
         throw error;
       }
     }
@@ -387,13 +402,18 @@ async function trashUnlocked(
     deletedAt: Date.now(),
     expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
   };
+  // Recorded first, so startup can tell a trash record whose rename never ran; see PendingChanges.
+  const pending = PendingChanges.trashMarker(id);
+  await store.addPendingChange({ id: pending, kind: "trash", trashId: id });
   await store.addTrash(item);
   try {
     await rename(target.absolute, destination);
   } catch (error) {
     await store.restoreTrash(id);
+    await store.removePendingChange(pending);
     throw error;
   }
+  await store.removePendingChange(pending);
   forgetFileLocks(target.relative);
   publishFileEvent({ path: target.absolute, event: "delete", ts: Date.now() });
   recordAudit({
@@ -439,13 +459,23 @@ async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
         "Recreate the original parent folder before restoring this item.",
     });
   const source = path.join(getDataRoot(), ".nimbus", "trash", item.id);
-  await rename(source, target.absolute);
+  // Recorded first, so startup can finish a restore whose sharing was not yet reattached.
+  const pending = PendingChanges.restoreMarker(id);
+  await store.addPendingChange({ id: pending, kind: "restore", trashId: id });
+  try {
+    await rename(source, target.absolute);
+  } catch (error) {
+    await store.removePendingChange(pending);
+    throw error;
+  }
   try {
     await store.restoreTrash(id);
   } catch (error) {
     await rename(target.absolute, source);
+    await store.removePendingChange(pending);
     throw error;
   }
+  await store.removePendingChange(pending);
   publishFileEvent({ path: target.absolute, event: "rename", ts: Date.now() });
   recordAudit({
     action: "trash.restored",

@@ -280,8 +280,16 @@ async function commitReplacement({
       `${target} changed while its previous version was being saved. Nothing was replaced and the new content is still staged; try saving again.`,
     );
   }
-  await rename(incoming, target);
+  // Recorded before the content is replaced, so a crash in between leaves at worst a version
+  // identical to the current content, never replaced content without its version.
   await store.add(version);
+  try {
+    await rename(incoming, target);
+  } catch (error) {
+    await store.remove([version.id]);
+    await rm(payload, { force: true });
+    throw error;
+  }
   const excess = (await store.list(relative)).slice(versionRetention.maxCount);
   if (excess.length)
     await removePayloads(

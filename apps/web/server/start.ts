@@ -1,6 +1,7 @@
 import path from "node:path";
 import { getDataRoot } from "@nimbus/api/data-root";
 import { Homes } from "@nimbus/api/homes";
+import { PendingChanges } from "@nimbus/api/pending-changes";
 import { client, databasePath, db } from "./db";
 import { DatabaseFiles } from "./db/database-files";
 import { upgradeDatabase } from "./db/migrate-database";
@@ -70,6 +71,11 @@ DatabaseFiles.restrictDirectory(getConfigRoot());
 DatabaseFiles.restrict(databasePath);
 setAuditSink(createAuditSink(db));
 const store = createDriveStore(db);
+// Before any request: changes a crash cut between their filesystem and database steps.
+for (const recovered of await PendingChanges.recover(store, getDataRoot()))
+  (recovered.outcome === "unclear" ? console.warn : console.info)(
+    PendingChanges.describe(recovered),
+  );
 const homesContainer = await Homes.prepare(store, homesPath);
 if (homesContainer.kind === "refused") throw new Error(homesContainer.message);
 if (homesContainer.created)

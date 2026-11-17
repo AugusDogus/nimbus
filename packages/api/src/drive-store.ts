@@ -80,6 +80,14 @@ export type SharedPaths = {
   bookmarks: string[];
 };
 
+/**
+ * A change whose filesystem step and database step a crash could separate, recorded before its
+ * filesystem step and removed with its last step. See `PendingChanges`.
+ */
+export type PendingChange =
+  | { id: string; kind: "trash" | "restore"; trashId: string }
+  | { id: string; kind: "move"; from: string; to: string };
+
 /** Persistence boundary. Filesystem content remains on disk, never in these records. */
 export type DriveStore = {
   /**
@@ -171,7 +179,15 @@ export type DriveStore = {
    * removed outside Nimbus. Grants on ancestors are never rewritten: moved content loses what
    * it inherited at its source and inherits from its destination instead.
    */
-  movePath(from: string, to: string): Promise<void>;
+  movePath(
+    from: string,
+    to: string,
+    /** A pending move to settle in the same transaction. */
+    settles?: string,
+  ): Promise<void>;
+  addPendingChange(change: PendingChange): Promise<void>;
+  removePendingChange(id: string): Promise<void>;
+  listPendingChanges(): Promise<PendingChange[]>;
   /**
    * Delete the links, direct grants, file requests, bookmarks, dead properties and file history
    * at or under a path where nothing exists, in one transaction. Only content removed outside

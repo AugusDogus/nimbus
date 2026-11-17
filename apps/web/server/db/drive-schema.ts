@@ -135,6 +135,29 @@ export const homeContainers = sqliteTable("nimbus_home_container", {
   createdAt: integer("created_at").notNull(),
 });
 /**
+ * Changes whose filesystem step and database step a crash could separate: moving an item to
+ * trash, restoring it, and moving or renaming it. Each row is written in a transaction before
+ * or with the first step and deleted with the last, so a row left behind names a change that
+ * startup finishes or undoes. `trash_id` is set for trash and restore, the paths for moves.
+ */
+export const pendingChanges = sqliteTable(
+  "nimbus_pending_change",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: ["trash", "restore", "move"] }).notNull(),
+    trashId: text("trash_id"),
+    fromPath: text("from_path"),
+    toPath: text("to_path"),
+    createdAt: integer("created_at").notNull(),
+  },
+  () => [
+    check(
+      "nimbus_pending_change_shape",
+      sql`(kind IN ('trash', 'restore') AND trash_id IS NOT NULL AND from_path IS NULL AND to_path IS NULL) OR (kind = 'move' AND trash_id IS NULL AND from_path IS NOT NULL AND to_path IS NOT NULL)`,
+    ),
+  ],
+);
+/**
  * One row (id 0) whose value triggers from migration 0006 bump whenever anything a permission
  * check reads changes. That migration declares the check on the column; it is named here so
  * a generated table rebuild keeps it.
