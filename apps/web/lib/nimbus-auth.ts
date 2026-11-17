@@ -76,6 +76,12 @@ export function createNimbusAuth({
   secret,
 }: NimbusAuthOptions) {
   const publicOrigin = origin.url;
+  // Without a configured origin Better Auth builds links from the request's Host header,
+  // which anyone can set, so an emailed reset link could point at another site.
+  if (sendMail && origin.kind !== "configured")
+    throw new Error(
+      "Nimbus email is configured but BETTER_AUTH_URL is not set. Set BETTER_AUTH_URL to the public address of this server, such as https://files.example.com, so password reset links point at it. Nimbus did not start; no accounts or settings were changed.",
+    );
   const passwordAttempts = PasswordAttempts.create();
   const disconnectMcpClients = (userId: string, by: string) =>
     revokeUserConnections(db, userId, Date.now(), by);

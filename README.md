@@ -165,7 +165,7 @@ Set the deployment values in `apps/web/.env` before startup. For PDF and video t
 | Variable                      | Purpose                                                                                                                             |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`          | Required random secret of at least 32 characters. Protect it and keep it across restarts.                                           |
-| `BETTER_AUTH_URL`             | Public origin, including scheme and port when needed. Set it whenever other people reach Nimbus. Unset, Nimbus uses `http://localhost:<PORT>` for WebDAV, MCP, and its security headers, while Better Auth takes the origin for sign-in callbacks and password reset links from each request's `Host` header, which a client controls. |
+| `BETTER_AUTH_URL`             | Public origin, including scheme and port when needed. Set it whenever other people reach Nimbus. Unset, Nimbus uses `http://localhost:<PORT>` for WebDAV, MCP, and its security headers, while Better Auth takes the origin for sign-in callbacks from each request's `Host` header, which a client controls. Required when SMTP is set, so password reset links never come from that header. |
 | `BETTER_AUTH_TRUSTED_ORIGINS` | Optional comma-separated additional trusted origins. Compose defaults this to `BETTER_AUTH_URL`.                                    |
 | `NIMBUS_DATA_ROOT`            | Filesystem directory to manage. Local default: `apps/web/data` when launched with the supplied scripts. Container default: `/data`. |
 | `NIMBUS_CONFIG_ROOT`          | Database and thumbnail cache directory. Local default: `<data root>/.nimbus`. Container default: `/config`. |
@@ -225,7 +225,7 @@ WebDAV clients cannot show a code prompt, so app passwords bypass two-factor aut
 
 ### Password reset
 
-With SMTP configured, the sign-in page offers **Forgot password?**. The emailed link works once, for one hour, and resetting signs out every session and disconnects every MCP client. Requests always report success so they do not reveal which addresses have accounts. Without SMTP, administrators reset passwords from **Users & groups**.
+With SMTP configured, the sign-in page offers **Forgot password?**. SMTP requires `BETTER_AUTH_URL`, so reset links always point at the configured address rather than one taken from the request. The emailed link works once, for one hour, and resetting signs out every session and disconnects every MCP client. Requests always report success so they do not reveal which addresses have accounts. Without SMTP, administrators reset passwords from **Users & groups**.
 
 Nimbus does not send email verification messages. Registration is closed, so every address is entered by an administrator, or by the server owner for the first account, and Nimbus treats those addresses as verified. Verification would add a step without protecting against anything a closed server allows.
 

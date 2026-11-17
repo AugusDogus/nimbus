@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { user } from "../server/db/schema";
-import { createTestAuth, type TestAuth } from "./auth-testing";
+import { createTestDatabase } from "../server/db/testing";
+import { createTestAuth, testOrigin, type TestAuth } from "./auth-testing";
+import { createNimbusAuth } from "./nimbus-auth";
 
 let t: TestAuth;
 beforeEach(async () => {
@@ -279,5 +281,55 @@ describe("password guessing across many addresses", () => {
     expect(
       (await guess("other@example.test", "198.18.0.251", t.password)).status,
     ).toBe(200);
+  });
+});
+
+describe("password reset email", () => {
+  test("links point at the configured origin, whatever Host the request names", async () => {
+    const sent: string[] = [];
+    await t.close();
+    t = await createTestAuth({
+      sendMail: async (message) => {
+        sent.push(message.text);
+      },
+    });
+    await t.createUser("first@example.test");
+    const response = await t.auth.handler(
+      new Request("http://attacker.example/api/auth/request-password-reset", {
+        method: "POST",
+        headers: {
+          host: "attacker.example",
+          "content-type": "application/json",
+          "x-forwarded-host": "attacker.example",
+        },
+        body: JSON.stringify({
+          email: "first@example.test",
+          redirectTo: "/reset-password",
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    await Bun.sleep(10);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain(`${testOrigin}/api/auth/reset-password/`);
+    expect(sent[0]).not.toContain("attacker.example");
+  });
+
+  test("email is refused without BETTER_AUTH_URL, so links never come from the Host header", () => {
+    const { sqlite, db } = createTestDatabase();
+    expect(() =>
+      createNimbusAuth({
+        db,
+        oidc: { kind: "disabled" },
+        sendMail: async () => {},
+        origin: {
+          kind: "local-default",
+          url: new URL("http://localhost:3000"),
+        },
+        trustedOrigins: [],
+        secret: "test-secret-that-is-at-least-32-characters-long",
+      }),
+    ).toThrow("BETTER_AUTH_URL");
+    sqlite.close();
   });
 });
