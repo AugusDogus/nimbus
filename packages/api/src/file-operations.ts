@@ -197,6 +197,10 @@ async function moveUnlocked(
       // path is vacant now, and records left there would never attach to new content.
       await store.claimVacant(source.relative);
     } else {
+      // Records under another spelling of the vacant destination never attach to the
+      // arriving item; movePath drops those at its exact path in its own transaction.
+      if ((await VacantPath.claim(store, target)).kind === "occupied")
+        await requireUnused(target.absolute);
       // Recorded first, so startup can relocate the sharing of content that already moved.
       const pending = randomUUID();
       await store.addPendingChange({
@@ -458,6 +462,10 @@ async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
       message:
         "Recreate the original parent folder before restoring this item.",
     });
+  // Records under another spelling of the vacant path never attach to the restored item;
+  // restoreTrash drops those at its exact path in its own transaction.
+  if ((await VacantPath.claim(store, target)).kind === "occupied")
+    await requireUnused(target.absolute);
   const source = path.join(getDataRoot(), ".nimbus", "trash", item.id);
   // Recorded first, so startup can finish a restore whose sharing was not yet reattached.
   const pending = PendingChanges.restoreMarker(id);

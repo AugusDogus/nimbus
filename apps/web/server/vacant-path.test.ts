@@ -167,6 +167,25 @@ describe("content created where removed content left records", () => {
     expect(await drive.store.getShare(shareId)).toBeNull();
   });
 
+  test("moves and restores also drop records under a vacant other spelling of their destination", async () => {
+    await abandon("Shared", "dir");
+    await drive.write("incoming/a.txt", "a");
+    await drive.caller("owner").files.rename({
+      path: "incoming",
+      newName: "SHARED",
+    });
+    expect((await drive.access("carol")).can("Shared", "read")).toBe(false);
+
+    await abandon("Report.txt", "file");
+    await drive.write("REPORT.txt", "report");
+    const { trashId } = await drive
+      .caller("owner")
+      .files.delete({ path: "REPORT.txt" });
+    await drive.grant("Report.txt", "carol", "read");
+    await drive.caller("owner").trash.restore({ id: trashId });
+    expect((await drive.access("carol")).can("Report.txt", "read")).toBe(false);
+  });
+
   test("records of an existing item under another spelling are kept on case-sensitive storage", async () => {
     await mkdir(drive.absolute("Shared"));
     await drive.grant("Shared", "carol", "read");
