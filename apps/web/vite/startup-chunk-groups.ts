@@ -6,8 +6,9 @@
  * round trips than bytes. The build runs twice: a probe build (`NIMBUS_CHUNK_PROBE=1`) records
  * the emitted chunks, then this plan merges chunks the file browser loads at startup, pair by
  * pair, keeping a merge only when it lowers the file browser's file count and adds no module to
- * any other page's startup beyond `extraRawBudget` bytes (the public sign-in, share and
- * file-request pages always get zero). The real build then groups modules by that plan.
+ * any other page's startup, or to what the app loads on every page right after it starts,
+ * beyond `extraRawBudget` bytes (the sign-in, share and file-request pages always get zero,
+ * at startup and later). The real build then groups modules by that plan.
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -25,7 +26,13 @@ type Chunk = {
 type Groups = Map<string, Set<string>>;
 /** A grouping's startup files per page and the most bytes it adds to any page, or why not. */
 type State =
-  | { kind: "valid"; initial: Map<string, Set<string>>; extra: number }
+  | {
+      kind: "valid";
+      initial: Map<string, Set<string>>;
+      extra: number;
+      /** Bytes of other code each checked page loads, by page. */
+      added: Map<string, number>;
+    }
   | { kind: "rejected"; reason: string };
 const protectedRoutes = new Set([
   "/login",
@@ -145,6 +152,16 @@ function planGroups(
     protectedPages.add(name);
     protectedPages.add(`${name} later`);
   }
+  // What the app entry loads on every page right after it starts, such as the toast UI, is
+  // checked like a page, so no merge adds another page's code to what it fetches. In grouping it
+  // separates only the signed-in app's files, so the files protected pages share stay whole.
+  const checked = new Map(pages);
+  const routeFiles = new Set(routeEntries.values());
+  const afterStart = new Set<string>();
+  for (const file of entry.dynamicImports)
+    if (byFile.has(file) && !routeFiles.has(file)) closure(file, afterStart);
+  if (afterStart.size > 0)
+    checked.set("entry:index.html after start", afterStart);
   const browse = pages.get("/browse/$");
   if (!browse)
     throw new Error(
@@ -160,10 +177,15 @@ function planGroups(
       .filter(([, files]) => files.has(chunk.file))
       .map(([page]) => page)
       .sort(compare);
+    const later =
+      afterStart.has(chunk.file) &&
+      !consumers.some((page) => protectedPages.has(page))
+        ? ",after start"
+        : "";
     const key =
       chunk.facade || consumers.length === 0
         ? "facade:" + chunk.file
-        : `pages:${entryFiles.has(chunk.file) ? "entry:" : ""}${consumers.join(",")}`;
+        : `pages:${entryFiles.has(chunk.file) ? "entry:" : ""}${consumers.join(",")}${later}`;
     const files = groups.get(key) ?? new Set<string>();
     files.add(chunk.file);
     groups.set(key, files);
@@ -190,8 +212,9 @@ function planGroups(
         reason: `import each other in a cycle: ${cycle.join(" -> ")}`,
       };
     const initial = new Map<string, Set<string>>();
+    const added = new Map<string, number>();
     let extra = 0;
-    for (const [page, files] of pages) {
+    for (const [page, files] of checked) {
       const seen = new Set<string>();
       for (const file of files) {
         const group = owner.get(file);
@@ -207,19 +230,20 @@ function planGroups(
             stack.push(dependency);
           }
       }
-      let added = 0;
+      let bytes = 0;
       for (const group of seen)
         for (const file of candidate.get(group) ?? [])
-          if (!files.has(file)) added += byFile.get(file)?.bytes ?? 0;
-      if (protectedPages.has(page) && added > 0)
+          if (!files.has(file)) bytes += byFile.get(file)?.bytes ?? 0;
+      if (protectedPages.has(page) && bytes > 0)
         return {
           kind: "rejected",
-          reason: `add ${added} bytes to the protected page ${page}`,
+          reason: `add ${bytes} bytes to the protected page ${page}`,
         };
-      extra = Math.max(extra, added);
+      extra = Math.max(extra, bytes);
+      added.set(page, bytes);
       initial.set(page, seen);
     }
-    return { kind: "valid", initial, extra };
+    return { kind: "valid", initial, extra, added };
   };
   const scoreBefore = (
     a: [number, number, string, string],
@@ -263,12 +287,11 @@ function planGroups(
         const state = simulate(candidate);
         if (state.kind === "rejected") continue;
         const count = state.initial.get("/browse/$")?.size;
-        if (
-          count === undefined ||
-          state.extra > budget ||
-          count >= initial.size
-        )
-          continue;
+        // No page may load more of other pages' code than the current plan, plus the budget.
+        const heavier = [...state.added].some(
+          ([page, bytes]) => bytes > (current.added.get(page) ?? 0) + budget,
+        );
+        if (count === undefined || heavier || count >= initial.size) continue;
         const score: [number, number, string, string] = [
           count,
           state.extra,
