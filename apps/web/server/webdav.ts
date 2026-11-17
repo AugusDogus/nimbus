@@ -214,6 +214,12 @@ async function entryOrNull(relative: string) {
   }
 }
 
+/**
+ * URL parsing splits off a query or fragment, so a Destination or tagged If resource with a raw
+ * ? or # would name the parent folder. WebDAV never uses either.
+ */
+const hasQueryOrFragment = (url: string) => /[?#]/.test(url);
+
 /** Whether the If header holds for this request (RFC 4918, section 10.4.2). */
 function ifHeaderHolds(lists: IfHeader, requestUrl: URL, target: string) {
   return evaluateIfHeader(lists, async (resource) => {
@@ -520,6 +526,11 @@ async function transfer(
   const destinationHeader = request.headers.get("destination");
   if (!destinationHeader)
     return textResponse(400, "A Destination header is required.");
+  if (hasQueryOrFragment(destinationHeader))
+    return textResponse(
+      400,
+      "The Destination header cannot contain ? or #. Nothing was changed. Percent-encode them in file names as %3F and %23.",
+    );
   let destinationUrl: URL;
   try {
     destinationUrl = new URL(destinationHeader, request.url);
@@ -621,6 +632,15 @@ export async function handleWebDAV(request: Request): Promise<Response> {
     if (method === "PROPFIND") return await propfind(request, access, target);
     const conditions = parseIfHeader(request.headers.get("if"));
     if (!conditions.ok) return textResponse(400, conditions.error.message);
+    if (
+      conditions.value.some(
+        (list) => list.resource !== null && hasQueryOrFragment(list.resource),
+      )
+    )
+      return textResponse(
+        400,
+        "Resources in the If header cannot contain ? or #. Nothing was changed. Percent-encode them in file names as %3F and %23.",
+      );
     const credentials = {
       userId: access.user.id,
       lockTokens: submittedLockTokens(conditions.value),

@@ -124,18 +124,19 @@ function withHeaders(
 
 /** WebDAV compares Destination URLs with the request URL, which names the public origin. */
 function webDavRequest(request: Request, url: URL) {
-  return new Request(new URL(url.pathname + url.search, origin), request);
+  return new Request(new URL(url.pathname, origin), request);
 }
 
 async function route(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const { pathname } = url;
   if (pathname === "/dav" || pathname.startsWith("/dav/")) {
-    // URL parsing drops a fragment, which would retarget a DELETE or MOVE at the parent.
-    if (request.url.includes("#"))
+    // URL parsing splits off a query or fragment, which would retarget a DELETE or MOVE at the
+    // parent folder. WebDAV never uses either, so a raw ? or # is a file name sent unencoded.
+    if (/[?#]/.test(request.url))
       return textResponse(
         400,
-        "WebDAV request URLs cannot contain a fragment (#). Percent-encode # in file names as %23.",
+        "WebDAV request URLs cannot contain ? or #. Nothing was changed. Percent-encode them in file names as %3F and %23.",
       );
     return handleWebDAV(webDavRequest(request, url));
   }
