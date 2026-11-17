@@ -150,17 +150,52 @@ function score(
   );
 }
 
-/** Index of the first key in sorted `keys` that is not below `key`. */
-function lowerBound(keys: readonly string[], key: string) {
-  let low = 0;
-  let high = keys.length;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    if ((keys[middle] ?? "") < key) low = middle + 1;
-    else high = middle;
-  }
-  return low;
-}
+/**
+ * Sorted keys packed as UTF-8 in one buffer, key i at `bytes[start[i],
+ * start[i + 1])`, in byte order. Hundreds of thousands of long-lived small
+ * strings would pin the heap blocks around them, so keys are not kept as
+ * strings.
+ */
+export type PackedKeys = {
+  readonly bytes: Buffer;
+  readonly start: Int32Array;
+  readonly count: number;
+};
+
+const PackedKeys = {
+  at: (keys: PackedKeys, index: number) =>
+    keys.bytes.toString(
+      "utf8",
+      keys.start[index] ?? 0,
+      keys.start[index + 1] ?? 0,
+    ),
+  /** Key `index` compared with `probe`: negative, zero or positive. */
+  compare: (keys: PackedKeys, index: number, probe: Buffer) =>
+    probe.compare(
+      keys.bytes,
+      keys.start[index] ?? 0,
+      keys.start[index + 1] ?? 0,
+    ) * -1,
+  /** Index of the first key not below `probe`. */
+  lowerBound(keys: PackedKeys, probe: Buffer) {
+    let low = 0;
+    let high = keys.count;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (PackedKeys.compare(keys, middle, probe) < 0) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  },
+  /** Whether key `index` begins with `probe`. */
+  startsWith(keys: PackedKeys, index: number, probe: Buffer) {
+    const from = keys.start[index] ?? 0;
+    return (
+      (keys.start[index + 1] ?? 0) - from >= probe.length &&
+      probe.compare(keys.bytes, from, from + probe.length) === 0
+    );
+  },
+} as const;
 
 /** Index of the first slot in `slots[from, to)` that is not below `slot`. */
 export function lowerSlot(
@@ -181,7 +216,7 @@ export function lowerSlot(
 
 /** Compacted postings: sorted keys, and for key i the slots `postingSlots[postingStart[i], postingStart[i + 1])`. */
 export type BasePostings = {
-  readonly keys: readonly string[];
+  readonly keys: PackedKeys;
   readonly postingStart: Int32Array;
   readonly postingSlots: Int32Array;
   /**
@@ -194,7 +229,7 @@ export type BasePostings = {
 };
 
 const emptyBase = (): BasePostings => ({
-  keys: [],
+  keys: { bytes: Buffer.alloc(0), start: new Int32Array(1), count: 0 },
   postingStart: new Int32Array(new SharedArrayBuffer(4)),
   postingSlots: new Int32Array(new SharedArrayBuffer(0)),
   byFirst: new Map(),
@@ -212,19 +247,48 @@ export type Visibility = {
 /** A correction expanded to the keys whose names hold it: itself, longer words starting with it, its fragments. */
 export type Expansion = { base: number[]; delta: string[] };
 
+/** A reusable Int32Array of at least `length`, so compaction leaves no garbage behind. */
+function room(buffer: Int32Array<ArrayBuffer>, length: number) {
+  return buffer.length >= length
+    ? buffer
+    : new Int32Array(Math.max(length, buffer.length * 2));
+}
+
 function create() {
   let base = emptyBase();
-  /** Key → ids of names added since compaction holding it (removed ids stay; callers check liveness). */
-  let delta = new Map<string, number[]>();
+  // Names added since compaction, as a chain per key: key → its latest pair;
+  // each pair holds an id and the key's previous pair (-1 ends the chain).
+  // Removed ids stay; callers check liveness.
+  let heads = new Map<string, number>();
+  let pairId = new Int32Array(1 << 12);
+  let pairNext = new Int32Array(1 << 12);
+  let pairs = 0;
+  // Merge buffers, kept between compactions.
+  let kept = new Int32Array(1 << 12);
+  let fresh = new Int32Array(1 << 12);
+
+  const deltaIds = (key: string) => {
+    const ids: number[] = [];
+    for (let at = heads.get(key) ?? -1; at >= 0; at = pairNext[at] ?? -1)
+      ids.push(pairId[at] ?? 0);
+    return ids;
+  };
 
   const visibleCount = (key: string, visible: Visibility, cap: number) => {
     let count = 0;
-    const index = lowerBound(base.keys, key);
-    if (base.keys[index] === key) count += visible.baseCount(index, cap);
-    for (const id of delta.get(key) ?? []) {
-      if (count >= cap) break;
-      if (visible.deltaVisible(id)) count++;
-    }
+    const probe = Buffer.from(key);
+    const index = PackedKeys.lowerBound(base.keys, probe);
+    if (
+      index < base.keys.count &&
+      PackedKeys.compare(base.keys, index, probe) === 0
+    )
+      count += visible.baseCount(index, cap);
+    for (
+      let at = heads.get(key) ?? -1;
+      at >= 0 && count < cap;
+      at = pairNext[at] ?? -1
+    )
+      if (visible.deltaVisible(pairId[at] ?? 0)) count++;
     return count;
   };
 
@@ -236,14 +300,22 @@ function create() {
     /** Index a name added since compaction. */
     add(id: number, raw: string) {
       for (const key of keysOf(raw)) {
-        const ids = delta.get(key);
-        if (ids) ids.push(id);
-        else delta.set(key, [id]);
+        if (pairs === pairId.length) {
+          const grownId = new Int32Array(pairs * 2);
+          grownId.set(pairId);
+          pairId = grownId;
+          const grownNext = new Int32Array(pairs * 2);
+          grownNext.set(pairNext);
+          pairNext = grownNext;
+        }
+        pairId[pairs] = id;
+        pairNext[pairs] = heads.get(key) ?? -1;
+        heads.set(key, pairs++);
       }
     },
 
     /** Delta ids holding `key`, live or not. */
-    deltaIds: (key: string): readonly number[] => delta.get(key) ?? [],
+    deltaIds,
 
     /**
      * Fold the delta into new compacted postings. `oldSlotId` maps the old
@@ -252,68 +324,90 @@ function create() {
     compact(oldSlotId: Int32Array, slotOf: Int32Array) {
       const newSlot = (id: number) =>
         id >= 0 && id < slotOf.length ? (slotOf[id] ?? -1) : -1;
-      // Both key lists are sorted: merge them rather than sort the union.
-      const added = [...delta.keys()].sort();
-      const keys: string[] = [];
-      for (let a = 0, b = 0; a < base.keys.length || b < added.length;) {
-        const fromBase = base.keys[a];
-        const fromDelta = added[b];
-        if (
-          fromBase !== undefined &&
-          (fromDelta === undefined || fromBase <= fromDelta)
-        ) {
-          if (fromBase === fromDelta) b++;
-          keys.push(fromBase);
-          a++;
-        } else if (fromDelta !== undefined) {
-          keys.push(fromDelta);
-          b++;
-        }
-      }
-      let bound = base.postingSlots.length;
-      for (const ids of delta.values()) bound += ids.length;
+      // Both key lists are sorted by bytes: merge them rather than sort the union.
+      const added = [...heads.keys()]
+        .map((key) => ({ key, bytes: Buffer.from(key) }))
+        .sort((a, b) => Buffer.compare(a.bytes, b.bytes));
+      let byteBound = base.keys.bytes.length;
+      for (const item of added) byteBound += item.bytes.length;
+      const keyBytes = Buffer.alloc(byteBound);
+      const keyStart = new Int32Array(base.keys.count + added.length + 1);
       // Sized for every posting, live or not; the dead share is small.
-      const slots = new Int32Array(new SharedArrayBuffer(bound * 4));
-      const starts = new Int32Array(
-        new SharedArrayBuffer((keys.length + 1) * 4),
+      const slots = new Int32Array(
+        new SharedArrayBuffer((base.postingSlots.length + pairs) * 4),
       );
+      const starts = new Int32Array(
+        new SharedArrayBuffer((base.keys.count + added.length + 1) * 4),
+      );
+      let count = 0;
+      let written = 0;
       let used = 0;
-      let old = 0;
-      const merged: number[] = [];
-      for (let index = 0; index < keys.length; index++) {
-        const key = keys[index] ?? "";
-        starts[index] = used;
-        merged.length = 0;
-        while (old < base.keys.length && (base.keys[old] ?? "") < key) old++;
-        if (base.keys[old] === key) {
+      for (let a = 0, b = 0; a < base.keys.count || b < added.length;) {
+        const item = added[b];
+        const order =
+          a >= base.keys.count
+            ? 1
+            : item === undefined
+              ? -1
+              : PackedKeys.compare(base.keys, a, item.bytes);
+        const old = order <= 0 ? a++ : -1;
+        const key = order >= 0 && item ? item.key : null;
+        if (order >= 0) b++;
+        let keptCount = 0;
+        if (old >= 0) {
+          const from = base.postingStart[old] ?? 0;
+          const to = base.postingStart[old + 1] ?? 0;
+          kept = room(kept, to - from);
           // Compaction keeps surviving slots in the same order, so these stay sorted.
-          for (
-            let at = base.postingStart[old] ?? 0;
-            at < (base.postingStart[old + 1] ?? 0);
-            at++
-          ) {
+          for (let at = from; at < to; at++) {
             const slot = newSlot(oldSlotId[base.postingSlots[at] ?? 0] ?? -1);
-            if (slot >= 0) merged.push(slot);
+            if (slot >= 0) kept[keptCount++] = slot;
           }
         }
-        const fresh: number[] = [];
-        for (const id of delta.get(key) ?? []) {
-          const slot = newSlot(id);
-          if (slot >= 0) fresh.push(slot);
+        let freshCount = 0;
+        for (
+          let at = key === null ? -1 : (heads.get(key) ?? -1);
+          at >= 0;
+          at = pairNext[at] ?? -1
+        ) {
+          const slot = newSlot(pairId[at] ?? 0);
+          if (slot < 0) continue;
+          fresh = room(fresh, freshCount + 1);
+          fresh[freshCount++] = slot;
         }
-        fresh.sort((a, b) => a - b);
-        let a = 0;
-        let b = 0;
-        while (a < merged.length || b < fresh.length) {
-          const next =
-            b >= fresh.length ||
-            (a < merged.length && (merged[a] ?? 0) <= (fresh[b] ?? 0))
-              ? merged[a++]
-              : fresh[b++];
-          slots[used++] = next ?? 0;
+        // A key whose every name is gone leaves the index.
+        if (keptCount + freshCount === 0) continue;
+        fresh.subarray(0, freshCount).sort();
+        starts[count] = used;
+        keyStart[count] = written;
+        written +=
+          old >= 0
+            ? base.keys.bytes.copy(
+                keyBytes,
+                written,
+                base.keys.start[old] ?? 0,
+                base.keys.start[old + 1] ?? 0,
+              )
+            : (item?.bytes.copy(keyBytes, written) ?? 0);
+        count++;
+        let x = 0;
+        let y = 0;
+        while (x < keptCount || y < freshCount) {
+          slots[used++] =
+            y >= freshCount ||
+            (x < keptCount && (kept[x] ?? 0) <= (fresh[y] ?? 0))
+              ? (kept[x++] ?? 0)
+              : (fresh[y++] ?? 0);
         }
       }
-      starts[keys.length] = used;
+      starts[count] = used;
+      keyStart[count] = written;
+      const keys: PackedKeys = {
+        bytes: Buffer.from(keyBytes.subarray(0, written)),
+        start: keyStart.slice(0, count + 1),
+        count,
+      };
+      const postingStart = starts.subarray(0, count + 1);
       const postingSlots = slots.subarray(0, used);
       // Keys whose every name is gone take no part in corrections.
       const first = new Map<string, Map<number, number[]>>();
@@ -331,10 +425,9 @@ function create() {
         if (!list) byLength.set(key.length, (list = []));
         list.push(index);
       };
-      for (let index = 0; index < keys.length; index++) {
-        const key = keys[index] ?? "";
-        if (key.endsWith(FRAGMENT) || starts[index] === starts[index + 1])
-          continue;
+      for (let index = 0; index < count; index++) {
+        const key = PackedKeys.at(keys, index);
+        if (key.endsWith(FRAGMENT)) continue;
         file(first, key[0] ?? "", key, index);
         file(second, key[1] ?? "", key, index);
       }
@@ -352,12 +445,13 @@ function create() {
         );
       base = {
         keys,
-        postingStart: starts,
+        postingStart,
         postingSlots,
         byFirst: freeze(first),
         bySecond: freeze(second),
       };
-      delta = new Map();
+      heads = new Map();
+      pairs = 0;
     },
 
     /**
@@ -403,13 +497,13 @@ function create() {
         const typo = length <= term.length + typos;
         for (const letter of typo ? letters : [term[0] ?? ""])
           for (const index of base.byFirst.get(letter)?.get(length) ?? [])
-            consider(base.keys[index] ?? "");
+            consider(PackedKeys.at(base.keys, index));
         if (typo)
           for (const letter of letters)
             for (const index of base.bySecond.get(letter)?.get(length) ?? [])
-              consider(base.keys[index] ?? "");
+              consider(PackedKeys.at(base.keys, index));
       }
-      for (const key of delta.keys())
+      for (const key of heads.keys())
         if (!key.endsWith(FRAGMENT)) consider(key);
       return [...found]
         .sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1))
@@ -420,21 +514,17 @@ function create() {
     /** The keys whose names hold `word`: itself, longer words starting with it, and their fragments. */
     expand(word: string): Expansion {
       const result: Expansion = { base: [], delta: [] };
+      const probe = Buffer.from(word);
       for (
-        let index = lowerBound(base.keys, word);
-        index < base.keys.length && (base.keys[index] ?? "").startsWith(word);
+        let index = PackedKeys.lowerBound(base.keys, probe);
+        index < base.keys.count &&
+        PackedKeys.startsWith(base.keys, index, probe);
         index++
       )
         result.base.push(index);
-      for (const key of delta.keys())
+      for (const key of heads.keys())
         if (key.startsWith(word)) result.delta.push(key);
       return result;
-    },
-
-    /** Whether delta entry `id` holds any of `keys`. */
-    deltaHolds(id: number, keys: ReadonlySet<string>) {
-      for (const key of keys) if (delta.get(key)?.includes(id)) return true;
-      return false;
     },
   };
 }
