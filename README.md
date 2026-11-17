@@ -209,7 +209,7 @@ Use **Back to files** to return to the drive. Active uploads continue while you 
 
 ## Signing in and account security
 
-Password sign-in can be followed by a second factor. In **Settings → Account → Two-factor authentication**, select **Set up**, scan the QR code with an authenticator app, and enter its code. Save the ten recovery codes shown once; each signs you in one time if you lose the authenticator. **New recovery codes** replaces them. When signing in, **Trust this browser for 30 days** skips the code on that browser.
+Password sign-in can be followed by a second factor. In **Settings → Account → Two-factor authentication**, select **Set up**, scan the QR code with an authenticator app, and enter its code. Each authenticator code works once: a code already used to sign in or to set up the app is refused, so enter the next one. Save the ten recovery codes shown once; each signs you in one time if you lose the authenticator. **New recovery codes** replaces them. When signing in, **Trust this browser for 30 days** skips the code on that browser.
 
 Passkeys sign in with your device's fingerprint, face, or PIN and count as both factors, so they skip the code. Add them under **Passkeys**, then use **Sign in with a passkey** or pick one from the email field's autofill. Nimbus requires user verification. Passkeys are bound to the host name in `BETTER_AUTH_URL`; changing it makes existing passkeys stop working.
 

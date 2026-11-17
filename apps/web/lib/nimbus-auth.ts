@@ -18,6 +18,7 @@ import { finishAuthResponse, nimbusAudit } from "./auth-audit";
 import { nimbusSecurity } from "./auth-security";
 import { OidcConfig, oidcProviderId } from "./oidc-config";
 import { PasswordAttempts } from "./password-attempts";
+import { totpReplayGuard } from "./totp-replay";
 
 /**
  * What the Nimbus Better Auth configuration depends on. `auth.ts` builds it from the
@@ -441,6 +442,7 @@ export function createNimbusAuth({
     plugins: [
       admin(),
       twoFactor({ issuer: "Nimbus" }),
+      totpReplayGuard(),
       passkey({
         rpName: "Nimbus",
         rpID: publicOrigin.hostname,

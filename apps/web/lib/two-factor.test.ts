@@ -87,3 +87,69 @@ describe("recovery codes", () => {
     expect(statuses.filter((status) => status === 200)).toHaveLength(1);
   });
 });
+
+describe("authenticator codes", () => {
+  const verify = (cookie: string, code: string, ip: string) =>
+    t.request("POST", "/two-factor/verify-totp", {
+      cookie,
+      body: { code },
+      ip,
+    });
+
+  test("one authenticator code completes one sign-in", async () => {
+    const { secret } = await enrolledAccount();
+    const code = authenticatorCode(secret, Date.now() + 30_000);
+    const first = await challenge("198.18.3.1");
+    expect((await verify(first, code, "198.18.3.1")).status).toBe(200);
+    const second = await challenge("198.18.3.2");
+    const replayed = await verify(second, code, "198.18.3.2");
+    expect(replayed.status).toBe(401);
+    expect(await replayed.json()).toMatchObject({ code: "TOTP_ALREADY_USED" });
+    // The authenticator's next code still works.
+    expect(
+      (
+        await verify(
+          second,
+          authenticatorCode(secret, Date.now() - 30_000),
+          "198.18.3.2",
+        )
+      ).status,
+    ).toBe(200);
+  });
+
+  test("the code that confirmed the authenticator cannot sign in", async () => {
+    const { secret } = await enrolledAccount();
+    const replayed = await verify(
+      await challenge("198.18.3.3"),
+      authenticatorCode(secret),
+      "198.18.3.3",
+    );
+    expect(replayed.status).toBe(401);
+  });
+
+  test("one code sent to two sign-ins at once completes one", async () => {
+    const { secret } = await enrolledAccount();
+    const code = authenticatorCode(secret, Date.now() + 30_000);
+    const challenges = [
+      await challenge("198.18.3.4"),
+      await challenge("198.18.3.5"),
+    ];
+    const statuses = (
+      await Promise.all(
+        challenges.map((cookie, index) =>
+          verify(cookie, code, `198.18.3.${index + 4}`),
+        ),
+      )
+    ).map((response) => response.status);
+    expect(statuses.filter((status) => status === 200)).toHaveLength(1);
+  });
+
+  test("a wrong code does not use up the right one", async () => {
+    const { secret } = await enrolledAccount();
+    const cookie = await challenge("198.18.3.6");
+    const right = authenticatorCode(secret, Date.now() + 30_000);
+    const wrong = String((Number(right) + 1) % 1_000_000).padStart(6, "0");
+    expect((await verify(cookie, wrong, "198.18.3.6")).status).toBe(401);
+    expect((await verify(cookie, right, "198.18.3.6")).status).toBe(200);
+  });
+});
