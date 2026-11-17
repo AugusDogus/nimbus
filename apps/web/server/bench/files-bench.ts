@@ -92,7 +92,9 @@ process.env.NIMBUS_CONFIG_ROOT = configRoot;
 process.env.DATABASE_URL = `file:${path.join(configRoot, "db.sqlite")}`;
 process.env.BETTER_AUTH_SECRET ??=
   "benchmark-secret-benchmark-secret-0123456789";
-process.env.BETTER_AUTH_URL = "http://localhost:3201";
+/** The benchmark's HTTP servers listen here; `NIMBUS_BENCH_PORT` moves them off a busy port. */
+const benchPort = Number(process.env.NIMBUS_BENCH_PORT ?? "3201");
+process.env.BETTER_AUTH_URL = `http://localhost:${benchPort}`;
 process.env.NIMBUS_MCP_ENABLED = "false";
 
 const webRoot = path.resolve(import.meta.dir, "../..");
@@ -1165,7 +1167,7 @@ const scenarios: Record<string, () => Promise<void>> = {
     await writeFiles("server/small", 2000, 4096);
     const serverConfig = path.join(workspace, "server-config");
     await mkdir(serverConfig, { recursive: true });
-    const origin = "http://localhost:3201";
+    const origin = `http://localhost:${benchPort}`;
     const child = Bun.spawn(
       [
         "systemd-run",
@@ -1185,7 +1187,7 @@ const scenarios: Record<string, () => Promise<void>> = {
         env: {
           ...process.env,
           NODE_ENV: "production",
-          PORT: "3201",
+          PORT: String(benchPort),
           BETTER_AUTH_URL: origin,
           BETTER_AUTH_TRUSTED_ORIGINS: origin,
           NIMBUS_CONFIG_ROOT: serverConfig,
@@ -1457,7 +1459,7 @@ const scenarios: Record<string, () => Promise<void>> = {
         : httpFiles.serveFile(request, target, access);
     });
     try {
-      const base = "http://127.0.0.1:3201";
+      const base = `http://127.0.0.1:${benchPort}`;
       const curl = async (args: string[]) => {
         const process = Bun.spawn(
           [
@@ -1563,6 +1565,30 @@ const scenarios: Record<string, () => Promise<void>> = {
           `${base}/dav/http/put.bin`,
         ]),
       );
+      // Small files saved one after another, as a sync client uploads a folder.
+      const smallBody = absolute("http/put-small.txt");
+      await writeFile(smallBody, Buffer.alloc(4096, 120));
+      await mkdir(absolute("http/puts"));
+      const puts = performance.now();
+      const putResults = await curl([
+        "-H",
+        `Authorization: ${authorization}`,
+        ...Array.from({ length: 2000 }, (_, index) => [
+          "-T",
+          smallBody,
+          `${base}/dav/http/puts/file-${index}.txt`,
+        ]).flat(),
+      ]);
+      if (putResults.some((result) => result.status !== 201))
+        throw new Error("A benchmark WebDAV PUT did not create its file.");
+      record(
+        "WebDAV PUT 2000 x 4 KB (sequential)",
+        performance.now() - puts,
+        "ms",
+      );
+      // The ZIP of the whole folder below measures one large file only.
+      await rm(absolute("http/puts"), { recursive: true, force: true });
+      await rm(smallBody, { force: true });
       const propfind = performance.now();
       await curl([
         "-X",
@@ -1629,13 +1655,16 @@ function serve(
       else if (value !== undefined) headers.set(key, value);
     }
     const method = incoming.method ?? "GET";
-    return new Request(new URL(incoming.url ?? "/", "http://localhost:3201"), {
-      method,
-      headers,
-      ...(method === "GET" || method === "HEAD"
-        ? {}
-        : { body: httpFiles.streamBody(incoming), duplex: "half" }),
-    });
+    return new Request(
+      new URL(incoming.url ?? "/", `http://localhost:${benchPort}`),
+      {
+        method,
+        headers,
+        ...(method === "GET" || method === "HEAD"
+          ? {}
+          : { body: httpFiles.streamBody(incoming), duplex: "half" }),
+      },
+    );
   };
   const server = createServer((incoming, outgoing) => {
     void (async () => {
@@ -1651,7 +1680,7 @@ function serve(
     });
   });
   return new Promise((resolve) =>
-    server.listen(3201, "127.0.0.1", () => resolve(server)),
+    server.listen(benchPort, "127.0.0.1", () => resolve(server)),
   );
 }
 
