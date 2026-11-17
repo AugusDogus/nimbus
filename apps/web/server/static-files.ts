@@ -66,10 +66,32 @@ function matches(header: string | null, tag: string) {
   });
 }
 
+/** Written by the build: every file it put in the output directory. */
+export const builtFilesList = ".vite/files.json";
+
+async function builtFiles(root: string) {
+  const file = path.join(root, builtFilesList);
+  const parsed: unknown = await Bun.file(file)
+    .json()
+    .catch(() => null);
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every((name) => typeof name === "string")
+  )
+    throw new Error(
+      `The built client at ${root} has no valid ${builtFilesList}, which lists the files Nimbus may serve. Run \`bun run build\`, then start the server again. Nothing has been changed.`,
+    );
+  return new Set(parsed);
+}
+
 export const StaticFiles = {
-  /** Reads every file under `root` except `exclude`. */
+  /**
+   * Reads the files under `root` that the build listed, except `exclude`. Anything else placed
+   * there, such as source maps or configuration copied in by a deployment, is never served.
+   */
   async load(root: string, exclude: string[]): Promise<StaticFiles> {
-    const all = new Set(await files(root));
+    const listed = await builtFiles(root);
+    const all = new Set((await files(root)).filter((name) => listed.has(name)));
     const loaded: StaticFiles = new Map();
     for (const name of all) {
       const extension = path.extname(name);

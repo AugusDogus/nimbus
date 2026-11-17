@@ -9,6 +9,7 @@ import { defineConfig, type Plugin } from "vite";
 import { clientZodMini } from "./vite/client-zod-mini";
 import { startupChunkGroups } from "./vite/startup-chunk-groups";
 import { htmlNonce } from "./client/html-nonce";
+import { builtFilesList } from "./server/static-files";
 import { themeBoot } from "./lib/theme-boot-script";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
@@ -79,7 +80,7 @@ function preloadFonts(): Plugin {
 /**
  * Writes brotli and gzip variants beside each compressible file, at the highest levels, so the
  * server never compresses them per request. The HTML shell is compressed per response instead,
- * because every response carries its own nonce.
+ * because every response carries its own nonce. Then lists every file the build wrote.
  */
 function precompress(): Plugin {
   const compressible = /\.(js|css|svg|json|webmanifest|txt|html)$/;
@@ -115,6 +116,26 @@ function precompress(): Plugin {
                 writeFile(`${file}.gz`, gzip),
             ]);
           }),
+      );
+      // The server serves only these files, so nothing placed in the build directory later is
+      // ever published. This runs last, after every file the build writes.
+      const written = await readdir(outDir, {
+        recursive: true,
+        withFileTypes: true,
+      });
+      await writeFile(
+        path.join(outDir, builtFilesList),
+        JSON.stringify(
+          written
+            .filter((entry) => entry.isFile())
+            .map((entry) =>
+              path
+                .relative(outDir, path.join(entry.parentPath, entry.name))
+                .split(path.sep)
+                .join("/"),
+            )
+            .filter((name) => !name.startsWith(".vite/")),
+        ),
       );
     },
   };
