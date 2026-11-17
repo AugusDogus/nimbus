@@ -323,9 +323,35 @@ describe("drive workflows", () => {
   it("counts each open of a bookmarked item, but not starring it", async () => {
     await caller().catalog.bookmark({ path: "docs/report.txt" });
     await caller().catalog.bookmark({ path: "docs/report.txt" });
+    const [opened] = await memory.store.listBookmarks("user-1");
+    await Bun.sleep(2);
     await caller().catalog.bookmark({ path: "docs/report.txt", starred: true });
+    expect(await memory.store.listBookmarks("user-1")).toEqual([
+      {
+        path: "docs/report.txt",
+        starred: true,
+        visits: 2,
+        accessedAt: opened?.accessedAt ?? -1,
+      },
+    ]);
+  });
+
+  it("counts every one of many concurrent opens", async () => {
+    // Reads that take a moment, as a busy database's do, so concurrent
+    // opens overlap.
+    const list = memory.store.listBookmarks;
+    memory.store.listBookmarks = async (userId) => {
+      const rows = await list(userId);
+      await Bun.sleep(1);
+      return rows;
+    };
+    await Promise.all(
+      Array.from({ length: 10 }, () =>
+        caller().catalog.bookmark({ path: "docs/report.txt" }),
+      ),
+    );
     expect(await memory.store.listBookmarks("user-1")).toMatchObject([
-      { path: "docs/report.txt", starred: true, visits: 2 },
+      { path: "docs/report.txt", visits: 10 },
     ]);
   });
 

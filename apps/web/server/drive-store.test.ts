@@ -576,3 +576,38 @@ test("home containers are recorded once and can be forgotten", async () => {
   await store.removeHomeContainer("users");
   expect(await store.listHomeContainers()).toEqual(["team/people"]);
 });
+
+test("records opens and stars of a bookmark in one statement each", async () => {
+  await store.recordBookmark("reader", "docs/a.txt", { type: "open" }, 10);
+  await Promise.all(
+    Array.from({ length: 10 }, (_, at) =>
+      store.recordBookmark("reader", "docs/a.txt", { type: "open" }, 20 + at),
+    ),
+  );
+  await store.recordBookmark(
+    "reader",
+    "docs/a.txt",
+    { type: "star", starred: true },
+    99,
+  );
+  // Starring a path never opened makes a bookmark with no visits.
+  await store.recordBookmark(
+    "reader",
+    "docs/b.txt",
+    { type: "star", starred: true },
+    50,
+  );
+  expect(
+    (await store.listBookmarks("reader"))
+      .map(({ path, starred, accessedAt, visits }) => ({
+        path,
+        starred,
+        accessedAt,
+        visits,
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path)),
+  ).toEqual([
+    { path: "docs/a.txt", starred: true, accessedAt: 29, visits: 11 },
+    { path: "docs/b.txt", starred: true, accessedAt: 50, visits: 0 },
+  ]);
+});

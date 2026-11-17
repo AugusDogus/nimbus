@@ -396,6 +396,24 @@ export function createDriveStore(database: Database): DriveStore {
           set: bookmark,
         });
     },
+    async recordBookmark(userId, path, change, at) {
+      const opened = change.type === "open";
+      await database
+        .insert(bookmarks)
+        .values({
+          userId,
+          path,
+          starred: opened ? false : change.starred,
+          accessedAt: at,
+          visits: opened ? 1 : 0,
+        })
+        .onConflictDoUpdate({
+          target: [bookmarks.userId, bookmarks.path],
+          set: opened
+            ? { accessedAt: at, visits: sql`${bookmarks.visits} + 1` }
+            : { starred: change.starred },
+        });
+    },
     async listAppPasswords(userId) {
       return database
         .select()

@@ -56,6 +56,9 @@ export type Bookmark = {
   /** How many times this user opened the item. */
   visits: number;
 };
+export type BookmarkChange =
+  | { type: "open" }
+  | { type: "star"; starred: boolean };
 /** A WebDAV dead property: an arbitrary client-set XML element, keyed by expanded name. */
 export type DavProperty = { namespace: string; name: string; xml: string };
 export type DavPropertyName = Pick<DavProperty, "namespace" | "name">;
@@ -142,6 +145,17 @@ export type DriveStore = {
   removeTrash(id: string): Promise<void>;
   listBookmarks(userId: string): Promise<Bookmark[]>;
   saveBookmark(userId: string, bookmark: Bookmark): Promise<void>;
+  /**
+   * Record, in one statement, an open of `path` (one more visit, opened at
+   * `at`) or a change of its star (which is not an open), creating the
+   * bookmark if needed.
+   */
+  recordBookmark(
+    userId: string,
+    path: string,
+    change: BookmarkChange,
+    at: number,
+  ): Promise<void>;
   listAppPasswords(userId: string): Promise<AppPassword[]>;
   addAppPassword(password: AppPassword): Promise<void>;
   findAppPassword(tokenHash: string): Promise<AppPassword | null>;

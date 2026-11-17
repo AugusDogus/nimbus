@@ -247,6 +247,25 @@ export function createTestDriveStore() {
         bookmark,
       ]);
     },
+    async recordBookmark(userId, path, change, at) {
+      const list = bookmarks.get(userId) ?? [];
+      const existing = list.find((entry) => entry.path === path);
+      const opened = change.type === "open";
+      const next: Bookmark = existing
+        ? opened
+          ? { ...existing, accessedAt: at, visits: existing.visits + 1 }
+          : { ...existing, starred: change.starred }
+        : {
+            path,
+            starred: opened ? false : change.starred,
+            accessedAt: at,
+            visits: opened ? 1 : 0,
+          };
+      bookmarks.set(userId, [
+        ...list.filter((entry) => entry.path !== path),
+        next,
+      ]);
+    },
     async listAppPasswords(userId) {
       return [...passwords.values()].filter(
         (password) => password.userId === userId,

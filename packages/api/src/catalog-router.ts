@@ -124,15 +124,14 @@ export const catalogRouter = router({
           message: "This folder is not shared with you.",
         });
       await entryAt(target.relative);
-      const existing = (await ctx.drive.listBookmarks(ctx.access.user.id)).find(
-        (item) => item.path === target.relative,
+      // Starring is not an open; every other call records one.
+      await ctx.drive.recordBookmark(
+        ctx.access.user.id,
+        target.relative,
+        input.starred === undefined
+          ? { type: "open" }
+          : { type: "star", starred: input.starred },
+        Date.now(),
       );
-      await ctx.drive.saveBookmark(ctx.access.user.id, {
-        path: target.relative,
-        starred: input.starred ?? existing?.starred ?? false,
-        accessedAt: Date.now(),
-        // Starring is not an open; every other call records one.
-        visits: (existing?.visits ?? 0) + (input.starred === undefined ? 1 : 0),
-      });
     }),
 });
