@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { request as httpRequest } from "node:http";
 import {
   expect,
   type APIRequestContext,
@@ -142,11 +143,27 @@ test("link password endpoints refuse oversized bodies before reading them", asyn
       });
       expect(ok.status(), url).toBe(200);
     }
-    const trpc = await anonymous.request.post("/api/trpc/shares.list", {
-      headers: { "Content-Type": "application/json" },
-      data: "y".repeat(2 * 1024 * 1024),
+    // A declared length over the cap is refused before a byte is read, so nothing is sent.
+    const trpc = await new Promise<number | undefined>((resolve, reject) => {
+      const sent = httpRequest(
+        `${origin}/api/trpc/shares.create`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": String(64 * 1024 * 1024),
+          },
+        },
+        (response) => {
+          response.resume();
+          resolve(response.statusCode);
+          sent.destroy();
+        },
+      );
+      sent.on("error", reject);
+      sent.flushHeaders();
     });
-    expect(trpc.status()).toBe(413);
+    expect(trpc).toBe(413);
   } finally {
     await anonymous.close();
   }
@@ -229,5 +246,56 @@ test("a link's download limit counts ranges that do not continue a counted downl
   } finally {
     await first.close();
     await second.close();
+  }
+});
+
+test("a LOCK refused by the per-user lock limit leaves no empty file behind", async ({
+  context,
+  request,
+}) => {
+  const headers = await davHeaders(context);
+  const folder = await davFolder(request, headers);
+  const lockBody = `<?xml version="1.0"?><D:lockinfo xmlns:D="DAV:"><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>`;
+  const lock = (name: string) =>
+    request.fetch(`/dav/${folder}/${name}`, {
+      method: "LOCK",
+      headers: {
+        ...headers,
+        Depth: "0",
+        Timeout: "Second-300",
+        "Content-Type": "application/xml",
+      },
+      data: lockBody,
+    });
+  const tokens: [string, string][] = [];
+  try {
+    for (let batch = 0; batch < 1000; batch += 50) {
+      const granted = await Promise.all(
+        Array.from({ length: 50 }, async (_, offset) => {
+          const name = `l${batch + offset}`;
+          const response = await lock(name);
+          expect(response.status()).toBe(201);
+          return [name, response.headers()["lock-token"] ?? ""] as [
+            string,
+            string,
+          ];
+        }),
+      );
+      tokens.push(...granted);
+    }
+    expect((await lock("extra")).status()).toBe(429);
+    expect(
+      (await request.get(`/dav/${folder}/extra`, { headers })).status(),
+    ).toBe(404);
+  } finally {
+    for (let index = 0; index < tokens.length; index += 50)
+      await Promise.all(
+        tokens.slice(index, index + 50).map(([name, token]) =>
+          request.fetch(`/dav/${folder}/${name}`, {
+            method: "UNLOCK",
+            headers: { ...headers, "Lock-Token": token },
+          }),
+        ),
+      );
   }
 });

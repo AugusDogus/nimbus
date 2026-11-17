@@ -15,6 +15,7 @@ import {
   locksCovering,
   mutateFiles,
   refreshLock,
+  requireLockable,
   unlockFile,
   forgetFileMutationsForTest,
 } from "./file-mutations";
@@ -97,6 +98,23 @@ describe("filesystem mutation coordination", () => {
       async () => {},
     );
     expect(locksCovering("docs/first.txt")[0]?.token).toBe(lock.token);
+  });
+
+  it("caps active locks per user, so one user cannot use up everyone's locks", () => {
+    const bob = { userId: "bob" };
+    for (let index = 0; index < 1000; index++)
+      lockFile(`bob/file-${index}.txt`, bob);
+    const refused = { code: "TOO_MANY_REQUESTS" };
+    expect(() => requireLockable("bob/one-more.txt", bob)).toThrow(
+      expect.objectContaining(refused),
+    );
+    expect(() => lockFile("bob/one-more.txt", bob)).toThrow(
+      expect.objectContaining(refused),
+    );
+    // Other users still lock as usual.
+    expect(lockFile("docs/first.txt", { userId: "alice" }).userId).toBe(
+      "alice",
+    );
   });
 
   it("scopes depth-0 collection locks to membership and refuses overlapping locks", async () => {

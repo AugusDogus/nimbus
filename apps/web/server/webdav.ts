@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { TRPCError } from "@trpc/server";
 import { getAccess, type Access } from "@nimbus/api/access";
 import { getDataRoot } from "@nimbus/api/data-root";
@@ -16,8 +16,10 @@ import {
   maxLockSeconds,
   mutateFiles,
   refreshLock,
+  requireLockable,
   requireUnlocked,
   unlockFile,
+  type FileLock,
   type LockDepth,
   type LockScope,
   type MutationCredentials,
@@ -424,6 +426,8 @@ async function lock(
       const destination = await safePath(target);
       let entry = await entryOrNull(target);
       let created = false;
+      // A refused lock must not leave behind the empty file it would have created.
+      requireLockable(target, credentials, { scope, depth });
       if (!entry) {
         // Locking an unmapped URL creates an empty file (RFC 4918, section 7.3).
         requireMutable(target);
@@ -443,12 +447,26 @@ async function lock(
         });
         entry = await entryAt(target);
       }
-      const granted = lockFile(target, credentials, {
-        scope,
-        depth,
-        owner,
-        timeoutSeconds,
-      });
+      let granted: FileLock;
+      try {
+        granted = lockFile(target, credentials, {
+          scope,
+          depth,
+          owner,
+          timeoutSeconds,
+        });
+      } catch (error) {
+        // Another lock took the last place while the file was created.
+        if (created) {
+          await rm(destination.absolute, { force: true });
+          publishFileEvent({
+            path: destination.absolute,
+            event: "rename",
+            ts: Date.now(),
+          });
+        }
+        throw error;
+      }
       return xmlResponse(
         `<d:prop xmlns:d="DAV:">${lockDiscovery([granted], entry)}</d:prop>`,
         created ? 201 : 200,

@@ -158,6 +158,38 @@ export type LockRequest = {
   timeoutSeconds: number;
 };
 
+/** Active locks one user may hold, so one user cannot use up locks for everyone. */
+const maxLocksPerUser = 1000;
+
+/**
+ * Throw what `lockFile` would for this request, without creating a lock: a conflicting lock,
+ * or the user's lock limit. Run it before work a refused lock should not leave behind.
+ */
+export function requireLockable(
+  path: string,
+  credentials: MutationCredentials,
+  request: Pick<LockRequest, "scope" | "depth"> = {
+    scope: "exclusive",
+    depth: "infinity",
+  },
+) {
+  let held = 0;
+  for (const lock of state().locks.values()) {
+    if (
+      (lockCovers(lock, path) ||
+        (request.depth === "infinity" && isWithinPath(path, lock.path))) &&
+      (lock.scope === "exclusive" || request.scope === "exclusive")
+    )
+      throw new FileLockedError();
+    if (lock.userId === credentials.userId) held++;
+  }
+  if (held >= maxLocksPerUser)
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: `You have ${maxLocksPerUser} active WebDAV locks, the most one account may hold. Unlock files in your WebDAV client, or wait up to an hour for its locks to expire, then try again.`,
+    });
+}
+
 /** Create a write lock. Locks with overlapping scopes conflict unless both are shared. */
 export function lockFile(
   path: string,
@@ -169,20 +201,8 @@ export function lockFile(
     timeoutSeconds: maxLockSeconds,
   },
 ) {
+  requireLockable(path, credentials, request);
   const current = state();
-  for (const lock of current.locks.values())
-    if (
-      (lockCovers(lock, path) ||
-        (request.depth === "infinity" && isWithinPath(path, lock.path))) &&
-      (lock.scope === "exclusive" || request.scope === "exclusive")
-    )
-      throw new FileLockedError();
-  if (current.locks.size >= 1000)
-    throw new TRPCError({
-      code: "TOO_MANY_REQUESTS",
-      message:
-        "Too many active file locks. Release an existing WebDAV lock and try again.",
-    });
   const lock: FileLock = {
     path,
     token: `opaquelocktoken:${randomUUID()}`,
