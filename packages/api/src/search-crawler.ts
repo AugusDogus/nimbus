@@ -1,4 +1,12 @@
-import type { Dirent } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  openSync,
+  readlinkSync,
+  realpathSync,
+  type Dirent,
+} from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { isFsError } from "./safe-path";
@@ -14,47 +22,125 @@ const unservableName = (name: string) =>
 /** Files stated at once per folder: bounded so a huge folder cannot flood the filesystem. */
 const statConcurrency = 64;
 
+/** Linux names every open descriptor by a path that reaches the same file. */
+const descriptorPaths = existsSync("/proc/self/fd");
+
+/** Each data root's real path, read again whenever a folder seems to have moved. */
+const realRoots = new Map<string, string>();
+
+/**
+ * A folder opened for listing, as `path`: lists and stats through it reach
+ * that folder even if its path is changed meanwhile.
+ */
+type OpenFolder =
+  | { type: "open"; path: string; close: () => void }
+  /** Gone, no longer a folder, a symlink, or below one. */
+  | { type: "gone" }
+  /** Unreadable for another reason (permissions, I/O): keep what was seen. */
+  | { type: "unreadable" };
+
+/**
+ * Open the folder at `relative` inside `root`, only while it is a real folder
+ * there: a host process may have swapped it, or a folder above it, for a
+ * symlink since it was queued. The last part is opened without following a
+ * symlink; where the open folder really is then catches a symlink above it.
+ */
+function openFolder(root: string, relative: string): OpenFolder {
+  const absolute = path.join(root, relative);
+  let fd;
+  try {
+    fd = openSync(
+      absolute,
+      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+    );
+  } catch (error) {
+    return isFsError(error, "ENOENT") ||
+      isFsError(error, "ENOTDIR") ||
+      isFsError(error, "ELOOP")
+      ? { type: "gone" }
+      : { type: "unreadable" };
+  }
+  const opened = fd;
+  const close = () => closeSync(opened);
+  try {
+    // Without descriptor paths, as on macOS, the folder is listed by its path,
+    // checked just before.
+    const listing = descriptorPaths ? `/proc/self/fd/${opened}` : absolute;
+    const actual = descriptorPaths
+      ? readlinkSync(listing)
+      : realpathSync(absolute);
+    const expected = (fresh: boolean) => {
+      let real = realRoots.get(root);
+      if (real === undefined || fresh) {
+        real = realpathSync(root);
+        realRoots.set(root, real);
+      }
+      return path.join(real, relative);
+    };
+    if (actual === expected(false) || actual === expected(true))
+      return { type: "open", path: listing, close };
+    close();
+    return { type: "gone" };
+  } catch (error) {
+    close();
+    return isFsError(error, "ENOENT")
+      ? { type: "gone" }
+      : { type: "unreadable" };
+  }
+}
+
+/** Join "/"-separated index paths. */
+const childPath = (parent: string, name: string) =>
+  parent ? `${parent}/${name}` : name;
+
 /**
  * Same visibility rules as browsing: no `.nimbus`, names with control
- * characters or backslashes, symlinks or special files.
- * Files are stated with lstat for their size, which also confirms they are
- * still regular files.
+ * characters or backslashes, symlinks or special files. Files are stated with
+ * lstat for their size, which also confirms they are still regular files.
  */
 async function crawlInto(
   index: SearchIndex,
-  absolute: string,
+  root: string,
+  relative: string,
   parentId: number,
   shouldStop: () => boolean,
 ) {
-  const pending: [string, number][] = [[absolute, parentId]];
+  const pending: [string, number][] = [[relative, parentId]];
   let listed = 0;
   while (pending.length && !shouldStop()) {
     const next = pending.pop();
     if (next === undefined) break;
     const [directory, id] = next;
-    let entries: Dirent[];
+    // Removed or unreadable while crawling; reconciliation retries later.
+    const folder = openFolder(root, directory);
+    if (folder.type !== "open") continue;
     try {
-      entries = await readdir(directory, { withFileTypes: true });
-    } catch {
-      // Removed or unreadable while crawling; reconciliation retries later.
-      continue;
+      let entries: Dirent[];
+      try {
+        entries = await readdir(folder.path, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      const files: string[] = [];
+      for (const entry of entries) {
+        if (unservableName(entry.name)) continue;
+        if (entry.isDirectory()) {
+          const child = index.addChild(id, entry.name, "dir");
+          if (child >= 0)
+            pending.push([childPath(directory, entry.name), child]);
+        } else if (entry.isFile()) files.push(entry.name);
+      }
+      // Added in listing order, not as stats finish, so equal matches rank the
+      // same way after every crawl and a later page continues where one ended.
+      const { sizes } = await statFiles(folder.path, files);
+      for (const name of files) {
+        const size = sizes.get(name);
+        if (size !== undefined) index.addChild(id, name, "file", size);
+      }
+      listed += entries.length;
+    } finally {
+      folder.close();
     }
-    const files: string[] = [];
-    for (const entry of entries) {
-      if (unservableName(entry.name)) continue;
-      if (entry.isDirectory()) {
-        const child = index.addChild(id, entry.name, "dir");
-        if (child >= 0) pending.push([path.join(directory, entry.name), child]);
-      } else if (entry.isFile()) files.push(entry.name);
-    }
-    // Added in listing order, not as stats finish, so equal matches rank the
-    // same way after every crawl and a later page continues where one ended.
-    const { sizes } = await statFiles(directory, files);
-    for (const name of files) {
-      const size = sizes.get(name);
-      if (size !== undefined) index.addChild(id, name, "file", size);
-    }
-    listed += entries.length;
     if (listed >= 50_000) {
       listed = 0;
       index.maybeCompact();
@@ -96,62 +182,81 @@ export async function reconcile(
     unreadable: 0,
     longestSliceMs: 0,
   };
-  const pending: [string, number][] = [[root, 0]];
+  const pending: [string, number][] = [["", 0]];
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
     const [directory, id] = next;
     const subfolders = await serialize(async () => {
       // Removed by a watcher change since it was queued.
       if (!index.isFolder(id)) return [];
-      let entries: Dirent[];
+      const folder = openFolder(root, directory);
+      if (folder.type === "gone") index.removeId(id);
+      if (folder.type === "unreadable") report.unreadable++;
+      if (folder.type !== "open") return [];
       try {
-        entries = await readdir(directory, { withFileTypes: true });
-      } catch (error) {
-        if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR"))
-          index.removeId(id);
-        else report.unreadable++;
-        return [];
+        return await reconcileFolder(index, report, folder.path, directory, id);
+      } finally {
+        folder.close();
       }
-      const { sizes, unstated } = await statFiles(
-        directory,
-        entries
-          .filter((entry) => entry.isFile() && !unservableName(entry.name))
-          .map((entry) => entry.name),
-      );
-      const started = performance.now();
-      const seen = new Set<string>();
-      const found: [string, number][] = [];
-      for (const entry of entries) {
-        if (unservableName(entry.name)) continue;
-        if (entry.isDirectory()) {
-          const child = index.addChild(id, entry.name, "dir");
-          if (child < 0) continue;
-          seen.add(entry.name);
-          found.push([path.join(directory, entry.name), child]);
-        } else if (entry.isFile()) {
-          const size = sizes.get(entry.name);
-          if (size === undefined) {
-            // Not stated, but not gone either: keep what was last seen.
-            if (unstated.has(entry.name)) seen.add(entry.name);
-            continue;
-          }
-          index.addChild(id, entry.name, "file", size);
-          seen.add(entry.name);
-        }
-      }
-      if (unstated.size) report.unreadable++;
-      for (const child of index.childrenOf(id))
-        if (!seen.has(child.name)) index.removeId(child.id);
-      index.maybeCompact();
-      report.folders++;
-      report.longestSliceMs = Math.max(
-        report.longestSliceMs,
-        performance.now() - started,
-      );
-      return found;
     });
     for (const subfolder of subfolders) pending.push(subfolder);
   }
   return report;
+}
+
+/** One reconcile slice: compare an open folder with what the index holds for it. */
+async function reconcileFolder(
+  index: SearchIndex,
+  report: ReconcileReport,
+  listing: string,
+  directory: string,
+  id: number,
+): Promise<[string, number][]> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(listing, { withFileTypes: true });
+  } catch (error) {
+    if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR"))
+      index.removeId(id);
+    else report.unreadable++;
+    return [];
+  }
+  const { sizes, unstated } = await statFiles(
+    listing,
+    entries
+      .filter((entry) => entry.isFile() && !unservableName(entry.name))
+      .map((entry) => entry.name),
+  );
+  const started = performance.now();
+  const seen = new Set<string>();
+  const found: [string, number][] = [];
+  for (const entry of entries) {
+    if (unservableName(entry.name)) continue;
+    if (entry.isDirectory()) {
+      const child = index.addChild(id, entry.name, "dir");
+      if (child < 0) continue;
+      seen.add(entry.name);
+      found.push([childPath(directory, entry.name), child]);
+    } else if (entry.isFile()) {
+      const size = sizes.get(entry.name);
+      if (size === undefined) {
+        // Not stated, but not gone either: keep what was last seen.
+        if (unstated.has(entry.name)) seen.add(entry.name);
+        continue;
+      }
+      index.addChild(id, entry.name, "file", size);
+      seen.add(entry.name);
+    }
+  }
+  if (unstated.size) report.unreadable++;
+  for (const child of index.childrenOf(id))
+    if (!seen.has(child.name)) index.removeId(child.id);
+  index.maybeCompact();
+  report.folders++;
+  report.longestSliceMs = Math.max(
+    report.longestSliceMs,
+    performance.now() - started,
+  );
+  return found;
 }
 
 /**
@@ -202,7 +307,7 @@ export async function crawl(
   root: string,
   shouldStop: () => boolean = () => false,
 ) {
-  await crawlInto(index, root, 0, shouldStop);
+  await crawlInto(index, root, "", 0, shouldStop);
   index.compact();
 }
 
@@ -218,17 +323,30 @@ export async function applyChange(
 ) {
   const relative = indexedPath(root, absolute);
   if (relative === null) return;
-  let stats;
-  try {
-    stats = await lstat(absolute);
-  } catch {
+  // The path is stated through its folder, so a symlink above it is never followed.
+  const slash = relative.lastIndexOf("/");
+  const parent = openFolder(root, relative.slice(0, Math.max(0, slash)));
+  if (parent.type === "unreadable") return;
+  if (parent.type === "gone") {
     index.remove(relative);
     return;
+  }
+  let stats;
+  try {
+    stats = await lstat(path.join(parent.path, relative.slice(slash + 1)));
+  } catch (error) {
+    // Kept as last seen when it exists but cannot be stated.
+    if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR"))
+      index.remove(relative);
+    return;
+  } finally {
+    parent.close();
   }
   if (stats.isDirectory()) {
     const known = index.kindOf(relative) === "dir";
     const id = index.add(relative, "dir");
-    if (!known && id >= 0) await crawlInto(index, absolute, id, () => false);
+    if (!known && id >= 0)
+      await crawlInto(index, root, relative, id, () => false);
   } else if (stats.isFile()) index.add(relative, "file", stats.size);
   else index.remove(relative);
   index.maybeCompact();

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync, symlinkSync } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -286,3 +286,53 @@ test("keeps files it cannot state, and counts their folder as unreadable", async
     await chmod(path.join(root, "locked"), 0o755);
   }
 });
+
+/** `shared/docs/a.txt` inside the root, and `outside/docs/outside-secret.txt` beside it. */
+async function swapTree() {
+  await mkdir(path.join(root, "drive/shared/docs"), { recursive: true });
+  await writeFile(path.join(root, "drive/shared/docs/a.txt"), "a");
+  await mkdir(path.join(root, "outside/docs"), { recursive: true });
+  await writeFile(path.join(root, "outside/docs/outside-secret.txt"), "12345");
+  await writeFile(path.join(root, "outside/outside-secret.txt"), "12345");
+  return path.join(root, "drive");
+}
+
+/** Index text of every entry, to look for anything from outside the drive. */
+const paths = (index: SearchIndex) => dump(index).entries.join("\n");
+
+for (const swapped of ["shared/docs", "shared"])
+  test(`never follows ${swapped} swapped for a symlink after it was queued`, async () => {
+    // Folders are read root first, then shared, then shared/docs: the swap
+    // lands after the folder above the swapped one was listed.
+    const at = swapped === "shared" ? 1 : 2;
+    const swap = (drive: string) => {
+      rmSync(path.join(drive, swapped), { recursive: true });
+      symlinkSync(
+        path.join(root, swapped === "shared" ? "outside" : "outside/docs"),
+        path.join(drive, swapped),
+      );
+    };
+    let drive = await swapTree();
+    let reads = 0;
+    const crawled = createSearchIndex();
+    await crawl(crawled, drive, () => {
+      if (reads++ === at) swap(drive);
+      return false;
+    });
+    expect(reads).toBeGreaterThan(at);
+    expect(paths(crawled)).not.toContain("outside-secret");
+
+    await rm(path.join(root, "drive"), { recursive: true });
+    await rm(path.join(root, "outside"), { recursive: true });
+    drive = await swapTree();
+    const index = createSearchIndex();
+    await crawl(index, drive);
+    let slices = 0;
+    const swapping: Serialize = async (work) => {
+      if (slices++ === at) swap(drive);
+      return work();
+    };
+    await reconcile(index, drive, swapping);
+    expect(slices).toBeGreaterThan(at);
+    expect(paths(index)).not.toContain("outside-secret");
+  });
