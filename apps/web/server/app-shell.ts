@@ -4,7 +4,7 @@ import { brotliCompressSync, constants } from "node:zlib";
 import { Bootstrap, bootstrapElementId } from "@/client/bootstrap";
 import { htmlNonce } from "@/client/html-nonce";
 import { RoutePreloads, type PageRoute } from "./route-preloads";
-import { StaticFiles } from "./static-files";
+import { accepted, StaticFiles } from "./static-files";
 
 /**
  * Serves the browser app: the HTML page for every app address, with a fresh script nonce, and
@@ -226,9 +226,9 @@ export const AppShell = {
     headers.set("Content-Type", "text/html; charset=utf-8");
     headers.set("Cache-Control", "no-store");
     headers.set("Vary", "Accept-Encoding");
-    const accepts = request.headers.get("accept-encoding") ?? "";
+    const accepts = accepted(request.headers.get("accept-encoding"));
     const body = new TextEncoder().encode(html);
-    if (/\bbr\b/.test(accepts)) {
+    if (accepts.br) {
       headers.set("Content-Encoding", "br");
       return new Response(
         brotliCompressSync(body, {
@@ -237,7 +237,7 @@ export const AppShell = {
         { headers },
       );
     }
-    if (/\bgzip\b/.test(accepts)) {
+    if (accepts.gzip) {
       headers.set("Content-Encoding", "gzip");
       return new Response(Bun.gzipSync(body, { level: 6 }), { headers });
     }

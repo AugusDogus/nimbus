@@ -6,6 +6,7 @@ import { createContext } from "@nimbus/api/context";
 
 import { auth } from "@/lib/auth";
 import { preferencesStore } from "@/server/preferences";
+import { accepted } from "@/server/static-files";
 import { webRouter } from "@/server/web-router";
 
 // The server does not compress responses on its own. A 50,000-entry listing, sent as columns,
@@ -20,7 +21,7 @@ async function compress(request: Request, response: Response) {
     !response.body ||
     response.headers.has("content-encoding") ||
     !response.headers.get("content-type")?.startsWith("application/json") ||
-    !/\bgzip\b/.test(request.headers.get("accept-encoding") ?? "")
+    !accepted(request.headers.get("accept-encoding")).gzip
   )
     return response;
   const body = new Uint8Array(await response.arrayBuffer());
@@ -60,7 +61,13 @@ const handler = async (req: Request) => {
       console.error(`>>> tRPC Error on '${path ?? "unknown"}'`, error);
     },
   });
-  return await compress(req, response);
+  const compressed = await compress(req, response);
+  // Results are per user, so no shared cache may store them, and none is worth keeping.
+  compressed.headers.set("Cache-Control", "private, no-store");
+  return compressed;
 };
 
-export { handler as GET, handler as POST };
+/** HEAD answers as GET would; tRPC itself has no HEAD and answers 204. */
+const head = (req: Request) => handler(new Request(req, { method: "GET" }));
+
+export { handler as GET, head as HEAD, handler as POST };

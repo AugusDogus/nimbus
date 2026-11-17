@@ -43,7 +43,7 @@ async function files(root: string, directory = ""): Promise<string[]> {
 }
 
 /** Which encodings the client accepts, from `Accept-Encoding`, honoring `q=0`. */
-function accepted(header: string | null) {
+export function accepted(header: string | null) {
   const weights = new Map<string, number>();
   for (const part of (header ?? "").split(",")) {
     const [name = "", ...parameters] = part.trim().toLowerCase().split(";");
