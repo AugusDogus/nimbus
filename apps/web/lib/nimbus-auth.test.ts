@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { user } from "../server/db/schema";
 import { createTestAuth, type TestAuth } from "./auth-testing";
 
@@ -88,7 +89,7 @@ describe("registration", () => {
       const response = await t.request("POST", "/sign-up/email", {
         body: { email, password: t.password, name: "Someone" },
       });
-      return { status: response.status, body: await response.json() };
+      return { status: response.status, body: await response.text() };
     };
     const existing = await attempt("first@example.test");
     const unknown = await attempt("nobody@example.test");
@@ -106,5 +107,59 @@ describe("registration", () => {
       },
     });
     expect(response.status).toBe(403);
+  });
+});
+
+describe("session tokens", () => {
+  /** Every session token stored in the database. */
+  const storedTokens = () =>
+    t.sqlite
+      .query("SELECT token FROM session")
+      .values()
+      .map(([token]) => String(token));
+
+  test("responses never give a session token to page scripts", async () => {
+    const signUp = await t.request("POST", "/sign-up/email", {
+      body: {
+        email: "first@example.test",
+        password: t.password,
+        name: "First",
+      },
+    });
+    const admin = t.cookieFrom(signUp);
+    const signIn = await t.request("POST", "/sign-in/email", {
+      body: { email: "first@example.test", password: t.password },
+    });
+    const signInBody = await signIn.text();
+    const userId = z
+      .object({ user: z.object({ id: z.string() }) })
+      .parse(JSON.parse(signInBody)).user.id;
+    const bodies = [
+      await signUp.text(),
+      signInBody,
+      await (await t.request("GET", "/get-session", { cookie: admin })).text(),
+      await (
+        await t.request("GET", "/list-sessions", { cookie: admin })
+      ).text(),
+      await (
+        await t.request("POST", "/admin/list-user-sessions", {
+          cookie: admin,
+          body: { userId },
+        })
+      ).text(),
+    ];
+    const tokens = storedTokens();
+    expect(tokens.length).toBeGreaterThan(1);
+    for (const body of bodies) {
+      expect(body).toContain(userId);
+      for (const token of tokens) expect(body).not.toContain(token);
+    }
+    // The cookie still signs the browser in.
+    const session = await t.request("GET", "/get-session", {
+      cookie: t.cookieFrom(signIn),
+    });
+    expect(await session.json()).toMatchObject({
+      user: { email: "first@example.test" },
+    });
   });
 });

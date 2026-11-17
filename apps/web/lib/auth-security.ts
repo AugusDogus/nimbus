@@ -30,6 +30,46 @@ const enableResult = z
   .object({ totpURI: z.string().startsWith("otpauth://totp/") })
   .loose();
 
+/** A plain JSON object, not a Date or other class instance. */
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
+
+/** A session row: Better Auth returns these from get-session and the session lists. */
+const isSession = (value: Record<string, unknown>) =>
+  "token" in value && "userId" in value && "expiresAt" in value;
+
+const omitToken = ({ token: _, ...rest }: Record<string, unknown>) => rest;
+
+/**
+ * `value` with every session token removed, or null when it holds none. The session cookie
+ * is HttpOnly; returning the same token in JSON would hand it to any script on the page.
+ * Sign-in and sign-up answers carry it as `token` beside `user`; session rows carry it too.
+ */
+export function withoutSessionTokens(
+  value: unknown,
+): Record<string, unknown> | unknown[] | null {
+  const strip = (item: unknown, depth: number): unknown => {
+    if (Array.isArray(item)) return item.map((entry) => strip(entry, depth));
+    if (!isRecord(item) || depth > 2) return item;
+    const record =
+      isSession(item) || ("token" in item && "user" in item)
+        ? omitToken(item)
+        : item;
+    return Object.fromEntries(
+      Object.entries(record).map(([key, entry]) => [
+        key,
+        strip(entry, depth + 1),
+      ]),
+    );
+  };
+  const stripped = strip(value, 0);
+  if (JSON.stringify(stripped) === JSON.stringify(value)) return null;
+  return Array.isArray(stripped) || isRecord(stripped) ? stripped : null;
+}
+
 /**
  * Actions after which an account's MCP clients must authorize again, as its browsers must.
  * Password resets by email are handled by `onPasswordReset`, which knows the account.
@@ -176,6 +216,16 @@ export const nimbusSecurity = ({
     },
     hooks: {
       after: [
+        {
+          matcher: () => true,
+          handler: createAuthMiddleware(async (ctx) => {
+            const returned: unknown = ctx.context.returned;
+            if (returned instanceof Response || returned instanceof APIError)
+              return;
+            const stripped = withoutSessionTokens(returned);
+            if (stripped !== null) return ctx.json(stripped);
+          }),
+        },
         {
           matcher: (context) => (context.path ?? "") in disconnectsMcp,
           handler: createAuthMiddleware(async (ctx) => {
