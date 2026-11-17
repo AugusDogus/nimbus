@@ -9,7 +9,7 @@ import { auditUser, recordAudit } from "@nimbus/api/audit";
 import { Homes } from "@nimbus/api/homes";
 import { grants, groupMembers, groups, trash, user } from "../server/db/schema";
 import { ClientIp, clientIpHeader } from "../server/client-ip";
-import type { Database } from "../server/db";
+import type { Database } from "../server/db/connection";
 import type { MailMessage } from "../server/mail";
 import { createDriveStore } from "../server/drive-store";
 import { revokeUserConnections } from "../server/mcp/oauth/connections";
