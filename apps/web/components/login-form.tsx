@@ -80,15 +80,16 @@ async function endAutofill(
   void autofill.ended.then(() => {
     ended = true;
   });
-  const deadline = Date.now() + 5_000;
-  while (!ended && Date.now() < deadline) {
+  // No deadline: giving up early would let a slow autofill request cancel the button's
+  // ceremony after all. The autofill request ends once its options request does.
+  while (!ended) {
     ceremonies.cancelCeremony();
     await Promise.race([
       autofill.ended,
       new Promise((resolve) => setTimeout(resolve, 50)),
     ]);
   }
-  return ended && (await autofill.ended);
+  return autofill.ended;
 }
 
 const isAbort = (error: unknown) =>
