@@ -167,6 +167,8 @@ export default defineConfig(({ command }) => {
         output: { codeSplitting: startup?.codeSplitting ?? true },
       },
     },
+    // Web Workers are a separate build, which the app's plugins do not see.
+    worker: { plugins: () => [clientZodMini()] },
     optimizeDeps: {
       // Scan every client module up front, including ones loaded only when a preview or dialog
       // opens, so the dev server never finds a new dependency mid-session and reloads the page.
