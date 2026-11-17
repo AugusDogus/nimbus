@@ -337,6 +337,22 @@ test("sign-in keeps what is typed before its code has loaded", async ({
   }
 });
 
+test("someone already signed in is sent on from sign-in to a destination on the site", async ({
+  page,
+}) => {
+  const answer = (callbackURL: string) =>
+    page.request.get(`/login?${new URLSearchParams({ callbackURL })}`, {
+      headers: { "Sec-Fetch-Dest": "document" },
+      maxRedirects: 0,
+    });
+  const inside = await answer("/settings/account");
+  expect(inside.status()).toBe(307);
+  expect(inside.headers().location).toBe(`${origin}/settings/account`);
+  const outside = await answer("https://elsewhere.example/");
+  expect(outside.status()).toBe(307);
+  expect(outside.headers().location).toBe(`${origin}/`);
+});
+
 test("passkeys sign in without a password", async ({
   browser,
   page,
