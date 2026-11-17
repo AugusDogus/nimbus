@@ -607,3 +607,158 @@ export const blindCases: readonly BlindCase[] = [
     expected: ["Photos/Wedding/DSC_0042.JPG"],
   },
 ];
+
+/**
+ * A third relevance set for accents, dates and joined words, written before
+ * any of them was built. Each feature has cases it must answer and cases it
+ * must leave as they were.
+ */
+export const matchingFiles = [
+  "Menus/cafe.txt",
+  "Menus/café.txt",
+  "Travel/Zürich 2019/hotel.pdf",
+  "Music/Røyksopp/Melody AM.mp3",
+  "Documents/Housing/Straße 12 lease.pdf",
+  "Photos/Łódź trip/old town.jpg",
+  "Documents/Отчёт за год.docx",
+  "Documents/Мой план.txt",
+  "Documents/Мои план.txt",
+  "Logs/20230704.log",
+  "Photos/2023/2023-07-04 fireworks.jpg",
+  "Scans/visa 2024-04-03.pdf",
+  "Scans/statement_2023_11_30.pdf",
+] as const;
+
+export const matchingCases: readonly BlindCase[] = [
+  {
+    task: "accents: folded query, accented name",
+    query: "creme brulee",
+    expected: ["Documents/Recettes/Crème brûlée.md"],
+  },
+  {
+    task: "accents: accented query still finds it",
+    query: "brûlée",
+    expected: ["Documents/Recettes/Crème brûlée.md"],
+  },
+  {
+    task: "accents: folder by its plain spelling",
+    query: "zurich",
+    expected: ["Travel/Zürich 2019"],
+  },
+  {
+    task: "accents: accent-exact name first",
+    query: "café",
+    expected: ["Menus/café.txt"],
+  },
+  {
+    task: "accents: plain name first for a plain query",
+    query: "cafe",
+    expected: ["Menus/cafe.txt"],
+  },
+  {
+    task: "accents: Nordic letter that does not decompose",
+    query: "royksopp",
+    expected: ["Music/Røyksopp"],
+  },
+  {
+    task: "accents: German sharp s",
+    query: "strasse lease",
+    expected: ["Documents/Housing/Straße 12 lease.pdf"],
+  },
+  {
+    task: "accents: Polish letters",
+    query: "lodz",
+    expected: ["Photos/Łódź trip"],
+  },
+  {
+    task: "accents: Cyrillic yo typed as ye",
+    query: "отчет",
+    expected: ["Documents/Отчёт за год.docx"],
+  },
+  {
+    task: "accents: Cyrillic short i keeps its exact match first",
+    query: "мой",
+    expected: ["Documents/Мой план.txt"],
+  },
+  {
+    task: "dates: day first with dashes",
+    query: "15-03-2024",
+    expected: [
+      "Scans/receipt 2024-03-15 costco.pdf",
+      "Documents/Work/Meeting 2024.03.15 notes.txt",
+    ],
+  },
+  {
+    task: "dates: underscores",
+    query: "2024_03_15",
+    expected: [
+      "Scans/receipt 2024-03-15 costco.pdf",
+      "Documents/Work/Meeting 2024.03.15 notes.txt",
+    ],
+  },
+  {
+    task: "dates: year and month with a word",
+    query: "2024-03 costco",
+    expected: ["Scans/receipt 2024-03-15 costco.pdf"],
+  },
+  {
+    task: "dates: underscored name found by a dashed date",
+    query: "2023-11-30",
+    expected: ["Scans/statement_2023_11_30.pdf"],
+  },
+  {
+    task: "dates: ambiguous order finds the day-first reading",
+    query: "03-04-2024 visa",
+    expected: ["Scans/visa 2024-04-03.pdf"],
+  },
+  {
+    task: "dates: a literal number name stays first",
+    query: "20230704",
+    expected: ["Logs/20230704.log"],
+  },
+  {
+    task: "dates: the date-named photo is found too",
+    query: "20230704 fireworks",
+    expected: ["Photos/2023/2023-07-04 fireworks.jpg"],
+  },
+  {
+    task: "dates: a bare year still finds the year folder",
+    query: "2024",
+    expected: ["Photos/2024", "Finance/2024"],
+  },
+  {
+    task: "dates: month name (optional feature)",
+    query: "march 2024 costco",
+    expected: ["Scans/receipt 2024-03-15 costco.pdf"],
+  },
+  {
+    task: "joined words: camel case for a hyphenated folder",
+    query: "photoSorter",
+    expected: ["Code/photo-sorter"],
+  },
+  {
+    task: "joined words: underscores for a camel-case name",
+    query: "profile_card",
+    expected: ["Code/web/src/components/UserProfileCard.tsx"],
+  },
+  {
+    task: "joined words: literal hyphenated folder stays first",
+    query: "photo-sorter",
+    expected: ["Code/photo-sorter"],
+  },
+  {
+    task: "joined words: literal underscored name stays first",
+    query: "jane_doe",
+    expected: ["Work/Hiring/Candidates/jane_doe_resume.pdf"],
+  },
+  {
+    task: "joined words: literal camera name stays first",
+    query: "IMG_4821",
+    expected: ["Photos/2019/Japan trip/IMG_4821.HEIC"],
+  },
+  {
+    task: "joined words: literal camel-case name stays first",
+    query: "homeownersPolicy",
+    expected: ["Documents/Personal/Insurance/HomeownersPolicy_2025.pdf"],
+  },
+];
