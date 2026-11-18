@@ -40,7 +40,7 @@ const swapped = () =>
   new TRPCError({
     code: "FORBIDDEN",
     message:
-      "Symbolic links cannot be accessed through Nimbus. Part of this path was replaced by one; refresh the folder.",
+      "Part of this path was just replaced by a symbolic link on the server. Symbolic links are never followed, so nothing was read through it. Nothing was changed. Refresh the folder; if the link stays, ask a server administrator to replace it with the real folder.",
   });
 
 /** Whether descriptor `fd` opened the file at `absolute`, a path inside `dataRoot`. */
@@ -203,7 +203,7 @@ async function renameChecked(
   throw new TRPCError({
     code: "FORBIDDEN",
     message: restored
-      ? "Part of this path was replaced by a symbolic link while Nimbus changed it, so the change was undone. Symbolic links cannot be accessed through Nimbus; refresh the folder."
+      ? "Part of this path was replaced by a symbolic link while Nimbus changed it, so the change was undone. Symbolic links are never followed. Refresh the folder; if the link stays, ask a server administrator to replace it with the real folder."
       : "Part of this path was replaced by a symbolic link while Nimbus changed it, and the item could not be put back. Ask a server administrator to check both locations on the server.",
   });
 }

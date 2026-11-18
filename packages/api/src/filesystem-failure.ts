@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { symbolicLinkRefused } from "./safe-path";
 
 /**
  * Expected filesystem failures as typed API errors.
@@ -50,17 +51,17 @@ const failures: Record<string, Failure> = {
   },
   ELOOP: {
     code: "FORBIDDEN",
-    message: "Symbolic links cannot be accessed through Nimbus.",
+    message: symbolicLinkRefused,
   },
   EACCES: {
     code: "FORBIDDEN",
     message:
-      "The server's own permissions on its disk do not allow this, even though your Nimbus permissions do. Nothing was changed. Ask a server administrator to let the Nimbus service account write to this folder.",
+      "The server's own permissions on its disk do not allow this, even though your Nimbus permissions do. Nothing was changed. Ask a server administrator to give the Nimbus service account access to this item and its folder.",
   },
   EPERM: {
     code: "FORBIDDEN",
     message:
-      "The server's own permissions on its disk do not allow this, even though your Nimbus permissions do. Nothing was changed. Ask a server administrator to let the Nimbus service account write to this folder.",
+      "The server's own permissions on its disk do not allow this, even though your Nimbus permissions do. Nothing was changed. Ask a server administrator to give the Nimbus service account access to this item and its folder.",
   },
   EROFS: {
     code: "FORBIDDEN",

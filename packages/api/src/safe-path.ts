@@ -16,6 +16,10 @@ export class PathError extends Error {
 
 export type SafePathResult = { absolute: string; relative: string };
 
+/** Why a path through a symbolic link is refused, and the way to reach what it points to. */
+export const symbolicLinkRefused =
+  "This path goes through a symbolic link on the server. Symbolic links are never followed, so they cannot reach files outside the drive. Nothing was changed. To use what the link points to, ask a server administrator to replace it with the real file or folder, or to mount that folder inside the drive.";
+
 export const isWithinPath = (parent: string, child: string) =>
   parent === "" || parent === child || child.startsWith(`${parent}/`);
 
@@ -52,10 +56,7 @@ export async function resolveSafePath(
     current = path.join(current, segment);
     try {
       if ((await lstat(current)).isSymbolicLink()) {
-        throw new PathError(
-          "FORBIDDEN",
-          "Symbolic links cannot be accessed through Nimbus.",
-        );
+        throw new PathError("FORBIDDEN", symbolicLinkRefused);
       }
     } catch (error) {
       // Nothing exists below a missing folder or a file, so the rest is a missing path.
