@@ -145,6 +145,36 @@ describe("home folders", () => {
     await caller("reader").files.delete({ path: "users/reader/renamed" });
   });
 
+  it("covers homes, their container and every folder above them, in any case, but not what they hold", async () => {
+    await memory.store.addHomeContainer("Team/People");
+    await memory.store.createHome(
+      { userId: "user-1", path: "Team/People/Ada" },
+      {
+        id: "grant-1",
+        subject: { type: "user", id: "user-1" },
+        path: "Team/People/Ada",
+        permission: "admin",
+      },
+    );
+    const isFixed = await Homes.protection(memory.store);
+    for (const path of ["", "Team", "team/people", "Team/People/ADA"])
+      expect({ path, fixed: isFixed(path) }).toEqual({ path, fixed: true });
+    for (const path of [
+      "Team/People/Ada/notes",
+      "Team/Peopl",
+      "Team/People-old",
+      "Other",
+      "Team/People/Adam",
+    ])
+      expect({ path, fixed: isFixed(path) }).toEqual({ path, fixed: false });
+  });
+
+  it("covers nothing before any home exists", async () => {
+    const isFixed = await Homes.protection(memory.store);
+    expect(isFixed("")).toBe(false);
+    expect(isFixed("users")).toBe(false);
+  });
+
   it("reads the container from NIMBUS_HOMES_PATH and rejects unsafe values", () => {
     expect(Homes.containerPath(undefined)).toBe("users");
     expect(Homes.containerPath("")).toBe("users");

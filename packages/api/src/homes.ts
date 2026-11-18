@@ -287,8 +287,22 @@ async function protection(store: DriveStore) {
     ...(await store.listHomes()).map((home) => home.path),
     ...(await store.listHomeContainers()),
   ];
-  return (path: string) =>
-    protectedPaths.some((protectedPath) => covers(path, protectedPath));
+  // A path covers a protected one when it is that path or a folder above it (`covers`), so the
+  // covering paths are each protected path and its ancestors, the drive root included. A set of
+  // them answers each path at once: listings ask for every entry, and there is a home per account.
+  const covering = new Set<string>();
+  for (const protectedPath of protectedPaths) {
+    const lower = protectedPath.toLowerCase();
+    covering.add("");
+    for (
+      let slash = lower.indexOf("/");
+      slash !== -1;
+      slash = lower.indexOf("/", slash + 1)
+    )
+      covering.add(lower.slice(0, slash));
+    covering.add(lower);
+  }
+  return (path: string) => covering.has(path.toLowerCase());
 }
 
 /** Refuse to move, rename, or delete what `protection` covers. */
