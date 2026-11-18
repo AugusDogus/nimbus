@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  openSync,
+  writeFileSync,
+} from "node:fs";
 import {
   chmod,
   mkdir,
@@ -33,6 +40,32 @@ let data: string;
 /** Folders and files made unreadable, opened again before cleanup. */
 const locked: string[] = [];
 let socket: ReturnType<typeof Bun.listen> | null = null;
+/** Why this system could not make the path longer than PATH_MAX, or null when it could. */
+let noDeepPath: string | null = null;
+
+/**
+ * Make `levels` nested folders named `name` in `root`, and a file at the bottom, through open
+ * descriptors: a path past PATH_MAX cannot be named whole, and shells and runtimes that track
+ * the working directory (dash's cd, Bun's chdir) refuse to go below it.
+ */
+function makeDeepPath(root: string, name: string, levels: number) {
+  let folder = openSync(root, constants.O_RDONLY | constants.O_DIRECTORY);
+  try {
+    for (let level = 0; level < levels; level++) {
+      const child = `/proc/self/fd/${folder}/${name}`;
+      mkdirSync(child);
+      const opened = openSync(
+        child,
+        constants.O_RDONLY | constants.O_DIRECTORY,
+      );
+      closeSync(folder);
+      folder = opened;
+    }
+    writeFileSync(`/proc/self/fd/${folder}/deep.txt`, "deep");
+  } finally {
+    closeSync(folder);
+  }
+}
 
 async function lock(target: string, mode: number) {
   await chmod(target, mode);
@@ -81,17 +114,15 @@ beforeAll(async () => {
   );
   await mkdir(path.join(data, "new\nline"));
   await writeFile(path.join(data, "new\nline/file.txt"), "x");
-  // Deeper than PATH_MAX (4096 bytes): only reachable one folder at a time.
-  const long = "l".repeat(200);
-  const deep = Bun.spawnSync([
-    "sh",
-    "-c",
-    'cd "$1" && for i in $(seq 25); do mkdir "$2" && cd "$2" || exit 1; done && echo deep > deep.txt',
-    "sh",
-    data,
-    long,
-  ]);
-  expect(deep.exitCode).toBe(0);
+  // Deeper than PATH_MAX (4096 bytes): 25 folders of 200 characters.
+  try {
+    makeDeepPath(data, "l".repeat(200), 25);
+  } catch (error) {
+    noDeepPath = `this system cannot make a path longer than PATH_MAX through /proc/self/fd (${error instanceof Error ? error.message : String(error)})`;
+    console.warn(
+      `The hostile data root test runs without its over-long path: ${noDeepPath}.`,
+    );
+  }
   await mkdir(path.join(data, "large"));
   for (let index = 0; index < 20_000; index++)
     writeFileSync(path.join(data, "large", `entry-${index}`), "");
@@ -233,7 +264,7 @@ test.skipIf(asRoot)(
         expect(
           output.split(`folder ${path.join(data, folder)} `).length - 1,
         ).toBe(1);
-      expect(output).toContain("ENAMETOOLONG");
+      if (noDeepPath === null) expect(output).toContain("ENAMETOOLONG");
       expect(output).not.toMatch(/\n\s+at .*watch/);
       expect(output).not.toContain("Unhandled");
     } finally {
