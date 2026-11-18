@@ -153,6 +153,8 @@ export const pendingChanges = sqliteTable(
     trashId: text("trash_id"),
     fromPath: text("from_path"),
     toPath: text("to_path"),
+    /** The item's device and inode, so recovery never acts on other content found there. */
+    identity: text("identity").notNull(),
     createdAt: integer("created_at").notNull(),
   },
   () => [

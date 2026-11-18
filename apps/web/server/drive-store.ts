@@ -549,6 +549,7 @@ export function createDriveStore(database: Database): DriveStore {
       await database.insert(pendingChanges).values({
         id: change.id,
         kind: change.kind,
+        identity: change.identity,
         trashId: change.kind === "move" ? null : change.trashId,
         fromPath: change.kind === "move" ? change.from : null,
         toPath: change.kind === "move" ? change.to : null,
@@ -568,12 +569,18 @@ export function createDriveStore(database: Database): DriveStore {
           )
             return {
               id: row.id,
+              identity: row.identity,
               kind: "move",
               from: row.fromPath,
               to: row.toPath,
             };
           if (row.kind !== "move" && row.trashId !== null)
-            return { id: row.id, kind: row.kind, trashId: row.trashId };
+            return {
+              id: row.id,
+              identity: row.identity,
+              kind: row.kind,
+              trashId: row.trashId,
+            };
           // The table's check constraint rules this out.
           throw new Error(
             `Pending change ${row.id} (${row.kind}) is missing its trash id or paths, so Nimbus cannot finish or undo it. Nothing was changed; delete the row from nimbus_pending_change after checking the item by hand.`,

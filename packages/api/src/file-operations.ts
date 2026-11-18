@@ -205,6 +205,7 @@ async function moveUnlocked(
       const pending = randomUUID();
       await store.addPendingChange({
         id: pending,
+        identity: PendingChanges.identityOf(existing.stats),
         kind: "move",
         from: source.relative,
         to: target.relative,
@@ -408,7 +409,7 @@ async function trashUnlocked(
   const target = await safePath(requested);
   requireMutable(target.relative);
   access.require(target.relative, "write");
-  await requireExisting(target.relative);
+  const existing = await requireExisting(target.relative);
   await Homes.requireNotHome(store, target.relative);
   const trashDir = path.join(getDataRoot(), ".nimbus", "trash");
   await mkdir(trashDir, { recursive: true });
@@ -422,7 +423,12 @@ async function trashUnlocked(
   };
   // Recorded first, so startup can tell a trash record whose rename never ran; see PendingChanges.
   const pending = PendingChanges.trashMarker(id);
-  await store.addPendingChange({ id: pending, kind: "trash", trashId: id });
+  await store.addPendingChange({
+    id: pending,
+    identity: PendingChanges.identityOf(existing.stats),
+    kind: "trash",
+    trashId: id,
+  });
   await store.addTrash(item);
   try {
     await DriveFile.renameChecked(target.absolute, destination);
@@ -483,7 +489,12 @@ async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
   const source = path.join(getDataRoot(), ".nimbus", "trash", item.id);
   // Recorded first, so startup can finish a restore whose sharing was not yet reattached.
   const pending = PendingChanges.restoreMarker(id);
-  await store.addPendingChange({ id: pending, kind: "restore", trashId: id });
+  await store.addPendingChange({
+    id: pending,
+    identity: PendingChanges.identityOf(await lstat(source)),
+    kind: "restore",
+    trashId: id,
+  });
   try {
     await DriveFile.renameChecked(source, target.absolute);
   } catch (error) {

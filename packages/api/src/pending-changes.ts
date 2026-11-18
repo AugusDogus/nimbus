@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import { lstat } from "node:fs/promises";
 import path from "node:path";
 import type { DriveStore, PendingChange } from "./drive-store";
@@ -22,6 +23,25 @@ const restoreMarker = (trashId: string) => `restore:${trashId}`;
 const trashedAt = (dataRoot: string, trashId: string) =>
   path.join(dataRoot, ".nimbus", "trash", trashId);
 
+/**
+ * An item's device and inode, recorded with its pending change. A rename keeps both, so after
+ * a crash the item is recognised wherever it ended up, and other content that another program
+ * put there meanwhile is not mistaken for it. Where inodes are not stable across restarts, such
+ * as Unraid user shares, recovery then reports the change as unclear and leaves its records.
+ */
+const identityOf = (stats: Pick<Stats, "dev" | "ino">) =>
+  `${stats.dev}:${stats.ino}`;
+
+/** Whether the item recorded as `identity` is at `absolute`. */
+async function holds(absolute: string, identity: string) {
+  try {
+    return identityOf(await lstat(absolute)) === identity;
+  } catch (error) {
+    if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR")) return false;
+    throw error;
+  }
+}
+
 async function exists(absolute: string) {
   try {
     await lstat(absolute);
@@ -37,8 +57,9 @@ export type Recovery = {
   /**
    * `finished`: the filesystem step had happened and the database step was completed now.
    * `undone`: the filesystem step had not happened and the database step was reverted or
-   * never needed. `unclear`: neither state was found on disk, for example because another
-   * program changed the item meanwhile; the records were left as they are.
+   * never needed. `unclear`: the item was found at neither place, or at both, or other
+   * content stands where it was, for example because another program changed it meanwhile;
+   * the records were left as they are.
    */
   outcome: "finished" | "undone" | "unclear";
 };
@@ -50,8 +71,8 @@ async function recoverOne(
 ): Promise<Recovery["outcome"]> {
   if (change.kind === "move") {
     const [from, to] = await Promise.all([
-      exists(path.join(dataRoot, change.from)),
-      exists(path.join(dataRoot, change.to)),
+      holds(path.join(dataRoot, change.from), change.identity),
+      holds(path.join(dataRoot, change.to), change.identity),
     ]);
     if (!from && to) {
       // Settles the record in the same transaction, so this never runs twice.
@@ -64,7 +85,8 @@ async function recoverOne(
   const item = await store.getTrash(change.trashId);
   const trashed = await exists(trashedAt(dataRoot, change.trashId));
   const original =
-    item !== null && (await exists(path.join(dataRoot, item.path)));
+    item !== null &&
+    (await holds(path.join(dataRoot, item.path), change.identity));
   let outcome: Recovery["outcome"];
   if (change.kind === "trash") {
     if (trashed) outcome = "finished";
@@ -114,6 +136,7 @@ function describe({ change, outcome }: Recovery) {
 }
 
 export const PendingChanges = {
+  identityOf,
   trashMarker,
   restoreMarker,
   recover,

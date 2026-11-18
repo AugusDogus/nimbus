@@ -84,9 +84,14 @@ export type SharedPaths = {
  * A change whose filesystem step and database step a crash could separate, recorded before its
  * filesystem step and removed with its last step. See `PendingChanges`.
  */
-export type PendingChange =
-  | { id: string; kind: "trash" | "restore"; trashId: string }
-  | { id: string; kind: "move"; from: string; to: string };
+export type PendingChange = {
+  id: string;
+  /** The moved item's device and inode, as `PendingChanges.identityOf` gives it. */
+  identity: string;
+} & (
+  | { kind: "trash" | "restore"; trashId: string }
+  | { kind: "move"; from: string; to: string }
+);
 
 /** Persistence boundary. Filesystem content remains on disk, never in these records. */
 export type DriveStore = {

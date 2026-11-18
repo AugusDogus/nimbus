@@ -95,6 +95,35 @@ describe("changes interrupted by a crash", () => {
     });
   });
 
+  test("moving to trash, killed, then replaced by other content before the restart", async () => {
+    await shareWithCarol();
+    await crashDuring("trash");
+    // While Nimbus was down, another program replaced the file with unrelated content.
+    await rm(path.join(root, "doc.txt"));
+    await writeFile(path.join(root, "doc.txt"), "someone else's");
+    await withStore(async (store) => {
+      const [recovered] = await PendingChanges.recover(store, root);
+      expect(recovered?.outcome).toBe("unclear");
+      expect((await getAccess(store, "carol")).can("doc.txt", "read")).toBe(
+        false,
+      );
+    });
+  });
+
+  test("moving, killed, then the destination replaced before the restart", async () => {
+    await shareWithCarol();
+    await crashDuring("move");
+    await rm(path.join(root, "moved.txt"));
+    await writeFile(path.join(root, "moved.txt"), "someone else's");
+    await withStore(async (store) => {
+      const [recovered] = await PendingChanges.recover(store, root);
+      expect(recovered?.outcome).toBe("unclear");
+      expect((await getAccess(store, "carol")).can("moved.txt", "read")).toBe(
+        false,
+      );
+    });
+  });
+
   test("restoring from trash, killed before sharing was reattached", async () => {
     await shareWithCarol();
     await withStore(async (store) =>
