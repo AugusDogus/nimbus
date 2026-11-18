@@ -742,10 +742,11 @@ const DIRECT_COST = 256;
  * layer ranked are skipped, and those this ranks are flagged FOUND. Counts
  * visible names per word when given `counts`.
  *
- * Without counts to keep, the longest word is scanned first: every name this
- * can rank holds it, or sits below a folder that does. When those names are
- * few, each is checked for the other words directly instead of scanning the
- * range once more per word; the ranks are the same either way.
+ * Without counts to keep, the longest words are scanned first: every name
+ * this can rank holds each word, or sits below a folder that does. Once the
+ * names covered by every word scanned so far are few, each is checked for
+ * the remaining words directly instead of scanning the range once more per
+ * word; the ranks are the same either way.
  */
 function words(
   layout: SearchLayout,
@@ -773,12 +774,9 @@ function words(
       termBits(slotName(layout, slot), terms),
     );
     const outer = above.get(range.outside) ?? 0;
-    const first = order[0] ?? 0;
-    /** Every slot the first word's scan matched, while a direct check may still follow. */
-    let matched: number[] | null =
-      counts === null && terms.length > 1 && (outer & (1 << first)) === 0
-        ? []
-        : null;
+    /** Slot intervals that may hold every word scanned so far, while a direct check may follow. */
+    let cover: number[] | null = null;
+    let scanned = 0;
     let count = 0;
     let direct = false;
     for (const term of order) {
@@ -786,7 +784,9 @@ function words(
       // Folders above the range show in every result's path, so they count as seen.
       if (counts && outer & bit)
         counts.terms[term] = (counts.terms[term] ?? 0) + 1;
-      const seen = matched;
+      /** Every slot this word's scan matched, when a direct check could still follow it. */
+      const seen: number[] | null =
+        counts === null && scanned + 1 < terms.length ? [] : null;
       const finished = scanWord(
         layout,
         range,
@@ -806,15 +806,28 @@ function words(
         stopped,
       );
       if (!finished) return false;
+      scanned++;
       if (seen) {
-        // As typed, then without accents: in slot order once sorted.
+        // As typed, then without accents: in slot order once sorted. A word
+        // a folder above the range holds covers all of it.
         seen.sort((a, b) => a - b);
+        const covered =
+          outer & bit ? [range.first, range.end] : coverOf(layout, range, seen);
+        cover = cover === null ? covered : intersect(cover, covered);
         direct =
-          span(layout, range, seen) * DIRECT_COST <
-          (terms.length - 1) * (range.end - range.first);
-        matched = null;
+          sizeOf(cover) * DIRECT_COST <
+          (terms.length - scanned) * (range.end - range.first);
         if (direct) {
-          checkDirectly(layout, range, seen, terms, above, tiers, scratch, add);
+          checkDirectly(
+            layout,
+            range,
+            cover,
+            terms,
+            above,
+            tiers,
+            scratch,
+            add,
+          );
           break;
         }
       }
@@ -859,31 +872,56 @@ function found(
   );
 }
 
-/** How many slots in `range` the matched slots (in slot order) and the subtrees of matched folders cover. */
-function span(
+/**
+ * The slots in `range` that matched slots (in slot order) and the subtrees
+ * of matched folders cover, as flat [start, end, start, end, ...] intervals
+ * in slot order.
+ */
+function coverOf(
   layout: SearchLayout,
   range: VisibleRange,
   matched: readonly number[],
 ) {
-  let total = 0;
-  let end = range.first;
+  const intervals: number[] = [];
   for (const slot of matched) {
     const stop = Math.min(range.end, layout.subtreeEnd[slot] ?? slot + 1);
-    if (stop > Math.max(slot, end)) total += stop - Math.max(slot, end);
-    end = Math.max(end, stop);
+    const last = intervals.length - 1;
+    if (last > 0 && slot <= (intervals[last] ?? 0))
+      intervals[last] = Math.max(intervals[last] ?? 0, stop);
+    else intervals.push(slot, stop);
   }
-  return total;
+  return intervals;
 }
 
+/** The slots both interval lists cover. */
+function intersect(a: readonly number[], b: readonly number[]) {
+  const both: number[] = [];
+  for (let i = 0, j = 0; i < a.length && j < b.length;) {
+    const start = Math.max(a[i] ?? 0, b[j] ?? 0);
+    const end = Math.min(a[i + 1] ?? 0, b[j + 1] ?? 0);
+    if (start < end) both.push(start, end);
+    if ((a[i + 1] ?? 0) < (b[j + 1] ?? 0)) i += 2;
+    else j += 2;
+  }
+  return both;
+}
+
+/** How many slots interval lists cover. */
+const sizeOf = (intervals: readonly number[]) => {
+  let total = 0;
+  for (let i = 0; i < intervals.length; i += 2)
+    total += (intervals[i + 1] ?? 0) - (intervals[i] ?? 0);
+  return total;
+};
+
 /**
- * The words pass over `range` by checking, for every word, only the names
- * the first word's scan matched and those below the folders it matched:
- * names elsewhere hold the first word neither themselves nor above them.
+ * The words pass over `range` by checking, for every word, only the slots in
+ * `cover`: names elsewhere lack some word both themselves and above them.
  */
 function checkDirectly(
   layout: SearchLayout,
   range: VisibleRange,
-  matched: readonly number[],
+  cover: readonly number[],
   terms: readonly string[],
   above: ReadonlyMap<number, number>,
   tiers: readonly [number, number],
@@ -902,10 +940,8 @@ function checkDirectly(
     }
     return held;
   };
-  let end = range.first;
-  for (const from of matched) {
-    const stop = Math.min(range.end, layout.subtreeEnd[from] ?? from + 1);
-    for (let slot = Math.max(from, end); slot < stop; slot++) {
+  for (let at = 0; at < cover.length; at += 2) {
+    for (let slot = cover[at] ?? 0; slot < (cover[at + 1] ?? 0); slot++) {
       if (dead[slot] || (marks[slot] ?? 0) & (LITERAL | FOUND)) continue;
       const inName = bitsAt(slot);
       if (inName === 0) continue;
@@ -919,7 +955,6 @@ function checkDirectly(
       if (held === all)
         found(layout, slot, inName === all, tiers, scratch, add);
     }
-    end = Math.max(end, stop);
   }
 }
 
