@@ -43,6 +43,24 @@ const get = (headers: HeadersInit = {}, method = "GET") =>
     headers,
   });
 
+/** The cookie a browser holds after `responses` set theirs, as `name=value` pairs. */
+const jar = (current: string, ...responses: Response[]) => {
+  const cookies = new Map(
+    current
+      .split("; ")
+      .filter(Boolean)
+      .map((pair) => [pair.slice(0, pair.indexOf("=")), pair] as const),
+  );
+  for (const served of responses)
+    for (const header of served.headers.getSetCookie()) {
+      const pair = header.split(";")[0] ?? "";
+      const name = pair.slice(0, pair.indexOf("="));
+      if (/Max-Age=0/.test(header)) cookies.delete(name);
+      else cookies.set(name, pair);
+    }
+  return [...cookies.values()].join("; ");
+};
+
 test("ranges count unless they continue a transfer this browser already made", () => {
   process.env.BETTER_AUTH_SECRET ??= "test-secret-test-secret-test-secret";
   const counts = (request: Request, served: Response) =>
@@ -64,7 +82,7 @@ test("ranges count unless they continue a transfer this browser already made", (
   const counted = response(200, { ETag: '"1-1000"' });
   SharePolicy.allowContinuation(get(), counted, share, "docs/a.txt");
   const cookie = counted.headers.get("set-cookie")?.split(";")[0] ?? "";
-  expect(cookie).toStartWith("nimbus-transfer=");
+  expect(cookie).toStartWith("nimbus-transfer-");
   expect(counts(get({ cookie }), range(100))).toBe(false);
   expect(counts(get({ cookie }), range(0))).toBe(false);
   // Never another full copy, another file, or a changed file.
@@ -100,7 +118,7 @@ test("downloading another file of the link keeps the earlier transfer continuabl
   ] as const) {
     const counted = tagged(etag);
     SharePolicy.allowContinuation(get({ cookie }), counted, share, name);
-    cookie = counted.headers.get("set-cookie")?.split(";")[0] ?? "";
+    cookie = jar(cookie, counted);
   }
   for (const [name, etag] of [
     ["docs/a.txt", '"a"'],
@@ -109,6 +127,60 @@ test("downloading another file of the link keeps the earlier transfer continuabl
     expect(
       SharePolicy.countsAsTransfer(get({ cookie }), range(etag), share, name),
     ).toBe(false);
+});
+
+test("transfers started at the same time stay continuable", () => {
+  process.env.BETTER_AUTH_SECRET ??= "test-secret-test-secret-test-secret";
+  const range = (etag: string) =>
+    response(206, { "Content-Range": "bytes 100-999/1000", ETag: etag });
+  // Both requests carry the cookie from before either transfer.
+  const a = response(200, { ETag: '"a"' });
+  const b = response(200, { ETag: '"b"' });
+  SharePolicy.allowContinuation(get(), a, share, "docs/a.txt");
+  SharePolicy.allowContinuation(get(), b, share, "docs/b.txt");
+  const cookie = jar("", a, b);
+  expect(
+    SharePolicy.countsAsTransfer(
+      get({ cookie }),
+      range('"a"'),
+      share,
+      "docs/a.txt",
+    ),
+  ).toBe(false);
+  expect(
+    SharePolicy.countsAsTransfer(
+      get({ cookie }),
+      range('"b"'),
+      share,
+      "docs/b.txt",
+    ),
+  ).toBe(false);
+});
+
+test("a browser keeps at most 16 transfers continuable, dropping the oldest", () => {
+  process.env.BETTER_AUTH_SECRET ??= "test-secret-test-secret-test-secret";
+  let cookie = "";
+  for (let index = 0; index < 20; index++) {
+    const counted = response(200, { ETag: `"${index}"` });
+    SharePolicy.allowContinuation(
+      get({ cookie }),
+      counted,
+      share,
+      `docs/${index}.txt`,
+    );
+    cookie = jar(cookie, counted);
+  }
+  expect(cookie.split("; ")).toHaveLength(16);
+  const continues = (index: number) =>
+    !SharePolicy.countsAsTransfer(
+      get({ cookie }),
+      response(206, { "Content-Range": "bytes 1-9/10", ETag: `"${index}"` }),
+      share,
+      `docs/${index}.txt`,
+    );
+  expect(continues(19)).toBe(true);
+  expect(continues(4)).toBe(true);
+  expect(continues(3)).toBe(false);
 });
 
 test("view-only links serve inline previews and refuse attachments", () => {

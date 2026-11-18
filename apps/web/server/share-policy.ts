@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Share, ShareMode } from "@nimbus/api/drive-store";
 import { UnlockCookie, type UnlockScope } from "./unlock-cookie";
 
@@ -17,13 +18,23 @@ function availability(
   return { kind: "available" };
 }
 
-/** The proof that this browser already made a counted transfer of one version of a file. */
+/** Prefix of the cookies proving this browser's counted transfers, one cookie per transfer. */
+const transferCookies = "nimbus-transfer";
+
+/**
+ * The proof that this browser already made a counted transfer of one version of a file. Each
+ * transfer has a cookie of its own, named by the file and version: responses served at once
+ * then never overwrite each other's proofs, as they would writing one shared cookie.
+ */
 const continuationScope = (
   share: Pick<Share, "token">,
   relative: string,
   etag: string,
 ): UnlockScope => ({
-  name: "nimbus-transfer",
+  name: `${transferCookies}-${createHash("sha256")
+    .update(`${relative}\0${etag}`)
+    .digest("hex")
+    .slice(0, 16)}`,
   path: `/api/share/${share.token}`,
   token: share.token,
   binding: `transfer:${relative}:${etag}`,
@@ -57,7 +68,8 @@ const continuableTransfers = 16;
 
 /**
  * Let later ranges of a counted file response continue its transfer without counting. The
- * proof joins those of the browser's other recent transfers on this link in one cookie.
+ * browser's oldest transfer cookies on this link beyond `continuableTransfers` are removed, so
+ * the cookies it sends stay few.
  */
 function allowContinuation(
   request: Request,
@@ -66,13 +78,19 @@ function allowContinuation(
   relative: string,
 ) {
   const etag = response.headers.get("etag");
-  if (etag)
+  if (!etag) return;
+  const scope = continuationScope(share, relative, etag);
+  response.headers.append("Set-Cookie", UnlockCookie.issue(scope));
+  const others = UnlockCookie.family(transferCookies, request).filter(
+    (cookie) => cookie.name !== scope.name,
+  );
+  for (const old of others.slice(
+    0,
+    Math.max(0, others.length - (continuableTransfers - 1)),
+  ))
     response.headers.append(
       "Set-Cookie",
-      UnlockCookie.issue(continuationScope(share, relative, etag), {
-        request,
-        count: continuableTransfers - 1,
-      }),
+      UnlockCookie.expire(old.name, scope.path),
     );
 }
 

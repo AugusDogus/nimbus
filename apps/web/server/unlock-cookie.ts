@@ -33,14 +33,19 @@ const secureAttribute = (process.env.BETTER_AUTH_URL ?? "").startsWith("https:")
   ? "; Secure"
   : "";
 
+/** The request's cookies as name and value, in the order the browser sent them. */
+const cookies = (request: Request) =>
+  (request.headers.get("cookie")?.split(";") ?? []).flatMap((part) => {
+    const pair = part.trim();
+    const equals = pair.indexOf("=");
+    return equals > 0
+      ? [{ name: pair.slice(0, equals), value: pair.slice(equals + 1) }]
+      : [];
+  });
+
 /** The well-formed, unexpired proofs in the request's cookie named `name`, newest first. */
 function proofs(name: string, request: Request) {
-  const cookie = request.headers
-    .get("cookie")
-    ?.split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${name}=`))
-    ?.slice(name.length + 1);
+  const cookie = cookies(request).find((entry) => entry.name === name)?.value;
   return (cookie?.split("~") ?? []).flatMap((proof) => {
     const [expires, received] = proof.split(".");
     return expires &&
@@ -71,6 +76,27 @@ function issue(scope: UnlockScope, keep?: { request: Request; count: number }) {
   return `${scope.name}=${value}; HttpOnly; SameSite=Lax; Path=${scope.path}; Max-Age=${lifetimeMs / 1000}${secureAttribute}`;
 }
 
+/**
+ * The request's cookies whose name starts with `prefix`, oldest first by their newest proof's
+ * expiry; equal ones keep the browser's order, which sends older cookies first.
+ */
+function family(prefix: string, request: Request) {
+  return cookies(request)
+    .filter((entry) => entry.name.startsWith(prefix))
+    .map((entry) => ({
+      name: entry.name,
+      expires: Math.max(
+        0,
+        ...proofs(entry.name, request).map((proof) => Number(proof.expires)),
+      ),
+    }))
+    .sort((a, b) => a.expires - b.expires);
+}
+
+/** The Set-Cookie value that removes the cookie `name` at `path`. */
+const expire = (name: string, path: string) =>
+  `${name}=; HttpOnly; SameSite=Lax; Path=${path}; Max-Age=0${secureAttribute}`;
+
 function verify(scope: UnlockScope, request: Request) {
   return proofs(scope.name, request).some((proof) =>
     timingSafeEqual(
@@ -80,4 +106,10 @@ function verify(scope: UnlockScope, request: Request) {
   );
 }
 
-export const UnlockCookie = { issue, verify, secureAttribute } as const;
+export const UnlockCookie = {
+  issue,
+  verify,
+  family,
+  expire,
+  secureAttribute,
+} as const;
