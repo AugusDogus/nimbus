@@ -78,4 +78,24 @@ describe("filesystem capacity", () => {
     expect(capacity.availableBytes).toBeGreaterThanOrEqual(0);
     expect(capacity.availableBytes).toBeLessThanOrEqual(capacity.totalBytes);
   });
+
+  it("spares only what the fullest of several filesystems can take above its floor", () => {
+    const floor = (totalBytes: number) => totalBytes / 10;
+    expect(
+      FilesystemCapacity.spareBytes(
+        [
+          { totalBytes: 1000, availableBytes: 900 },
+          { totalBytes: 1000, availableBytes: 150 },
+        ],
+        floor,
+      ),
+    ).toBe(50);
+    expect(
+      FilesystemCapacity.spareBytes(
+        [null, { totalBytes: 1000, availableBytes: 900 }],
+        floor,
+      ),
+    ).toBe(800);
+    expect(FilesystemCapacity.spareBytes([null, null], floor)).toBeNull();
+  });
 });

@@ -27,8 +27,23 @@ function fromStats(
   };
 }
 
+/**
+ * Bytes that may still be promised to writes that land on every one of `filesystems`, keeping
+ * `floor(totalBytes)` free on each: the least any of them can spare. Null when none was read.
+ */
+function spareBytes(
+  filesystems: readonly (FilesystemCapacity | null)[],
+  floor: (totalBytes: number) => number,
+): number | null {
+  const spare = filesystems.flatMap((capacity) =>
+    capacity ? [capacity.availableBytes - floor(capacity.totalBytes)] : [],
+  );
+  return spare.length ? Math.min(...spare) : null;
+}
+
 export const FilesystemCapacity = {
   fromStats,
+  spareBytes,
   /** Host filesystem capacity, shared with other applications, not a Nimbus quota. */
   async read(directory: string): Promise<FilesystemCapacity | null> {
     try {

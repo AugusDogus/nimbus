@@ -1,3 +1,4 @@
+import path from "node:path";
 import { RateLimiter } from "@/server/rate-limit";
 import { EVENTS, Server } from "@tus/server";
 import { TRPCError } from "@trpc/server";
@@ -161,7 +162,12 @@ async function getServer() {
           upload.size > fileRequest.maxFileBytes
         )
           throw fail(413, "This file is larger than the link allows.");
-        const capacity = await FilesystemCapacity.read(getDataRoot());
+        // Staged on the data root's filesystem, then published onto the folder's, which a mount
+        // inside the drive can make another one: both keep their floor of free space.
+        const capacities = await Promise.all([
+          FilesystemCapacity.read(getDataRoot()),
+          FilesystemCapacity.read(path.join(getDataRoot(), fileRequest.path)),
+        ]);
         const noSpace = () =>
           fail(
             507,
@@ -180,10 +186,10 @@ async function getServer() {
             activeSince: now - reservationLifetimeMs,
             maxActive: FileRequestLimits.maxActiveUploads,
             // Checked with the reservation, against every unfinished upload's promised bytes.
-            maxPendingBytes: capacity
-              ? capacity.availableBytes -
-                FileRequestLimits.minimumFreeBytes(capacity.totalBytes)
-              : null,
+            maxPendingBytes: FilesystemCapacity.spareBytes(
+              capacities,
+              FileRequestLimits.minimumFreeBytes,
+            ),
           },
         );
         if (reservation.kind === "no-space") throw noSpace();
