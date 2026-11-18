@@ -248,6 +248,35 @@ async function upload(
       410,
       `This link already uploaded ${destination.relative}. Nothing was saved this time. ${newLink}`,
     );
+  if (running.has(key))
+    return refuse(
+      409,
+      "Another upload of this path with this link is still running. Nothing was saved. Wait for it to finish, or call get_upload_link for a new link.",
+    );
+  running.add(key);
+  try {
+    return await receiveAndCommit(
+      context,
+      request,
+      link,
+      destination,
+      key,
+      authorize,
+    );
+  } finally {
+    running.delete(key);
+  }
+}
+
+/** Stream the body to staging, within the free-space floor, then commit it. */
+async function receiveAndCommit(
+  context: McpUploadContext,
+  request: Request,
+  link: UploadLink,
+  destination: { absolute: string; relative: string },
+  key: string,
+  authorize: () => ReturnType<typeof getAccess>,
+): Promise<Response> {
   // Refused before any byte is received when the outcome is already known; checked again at commit.
   const early = conflict(
     link.destination.rule,
@@ -285,8 +314,13 @@ async function upload(
     throw error;
   }
   try {
-    return await commit(context, link, destination.relative, staged, key, () =>
-      authorize(),
+    return await commit(
+      context,
+      link,
+      destination.relative,
+      staged,
+      key,
+      authorize,
     );
   } finally {
     await staged.discard();
@@ -434,23 +468,20 @@ async function handle(
   const { link } = check;
   const target = place(link.destination, params.rest);
   if (target.kind === "refused") return refuse(target.status, target.message);
-  const key = UploadLink.commitKey(link, target.relative);
-  if (running.has(key))
-    return refuse(
-      409,
-      "Another upload of this path with this link is still running. Nothing was saved. Wait for it to finish, or call get_upload_link for a new link.",
-    );
-  running.add(key);
   try {
-    return await upload(context, request, link, target, key);
+    return await upload(
+      context,
+      request,
+      link,
+      target,
+      UploadLink.commitKey(link, target.relative),
+    );
   } catch (error) {
     if (isFsError(error, "ENOSPC") || isFsError(error, "EDQUOT")) {
       console.warn("[mcp] upload failed: the disk is full.");
       return noSpace();
     }
     return httpError(error);
-  } finally {
-    running.delete(key);
   }
 }
 
