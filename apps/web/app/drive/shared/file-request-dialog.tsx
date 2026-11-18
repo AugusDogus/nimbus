@@ -20,6 +20,11 @@ import {
 import { ByteSize } from "@/lib/byte-size";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { localDateTimeInput } from "./link-settings";
+import {
+  HomeFoldersNotice,
+  HomesExposureGate,
+  useHomesExposure,
+} from "./home-folders-notice";
 
 export type EditableFileRequest = {
   id: string;
@@ -99,6 +104,14 @@ export default function FileRequestDialog({
   const [link, setLink] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const folderPath =
+    mode.kind === "create" ? mode.folder.path : mode.request.path;
+  const exposure = useHomesExposure(folderPath);
+  const [acknowledged, setAcknowledged] = useState(false);
+  // Editing keeps an existing request's folder, so only creating one is gated.
+  const gated = mode.kind === "create" ? exposure : undefined;
+  const blocked =
+    mode.kind === "create" && HomesExposureGate.blocked(exposure, acknowledged);
   const field = (key: keyof Draft) => ({
     value: draft[key],
     onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -113,6 +126,7 @@ export default function FileRequestDialog({
           path: mode.folder.path,
           ...settingsFor(draft),
           ...(password ? { password } : {}),
+          ...HomesExposureGate.input(gated, acknowledged),
         });
         setLink(`${window.location.origin}/r/${result.token}`);
       } else {
@@ -140,7 +154,11 @@ export default function FileRequestDialog({
     }
   };
   const name =
-    mode.kind === "create" ? mode.folder.name : mode.request.path || "My Drive";
+    mode.kind === "create"
+      ? mode.folder.path
+        ? mode.folder.name
+        : "My Drive"
+      : mode.request.path || "My Drive";
   return (
     <Dialog
       open
@@ -301,6 +319,16 @@ export default function FileRequestDialog({
               Leave limits empty for none. Uploads never replace existing files;
               matching names get a number added.
             </p>
+            {mode.kind === "create" && (
+              <HomeFoldersNotice
+                id="file-request-homes"
+                name={name}
+                sharing="uploadLink"
+                exposure={exposure}
+                acknowledged={acknowledged}
+                onAcknowledgedChange={setAcknowledged}
+              />
+            )}
             {error && (
               <p role="alert" className="text-pretty text-sm text-destructive">
                 {error}
@@ -315,7 +343,15 @@ export default function FileRequestDialog({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={busy}>
+              <Button
+                type="submit"
+                disabled={busy || blocked}
+                aria-describedby={
+                  gated === undefined || gated.kind === "none"
+                    ? undefined
+                    : "file-request-homes"
+                }
+              >
                 {mode.kind === "create" ? "Create upload link" : "Save changes"}
               </Button>
             </DialogFooter>

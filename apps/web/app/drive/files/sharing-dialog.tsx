@@ -22,6 +22,11 @@ import { queryClient, trpcClient } from "@/lib/trpc";
 import type { Permission } from "@nimbus/api/drive-store";
 import type { FileEntry } from "./types";
 import { LinkSettingsDraft, LinkSettingsFields } from "../shared/link-settings";
+import {
+  HomeFoldersNotice,
+  HomesExposureGate,
+  useHomesExposure,
+} from "../shared/home-folders-notice";
 
 const permissions: Record<Permission, string> = {
   read: "View and download",
@@ -73,6 +78,9 @@ export function SharingDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const exposure = useHomesExposure(entry.path);
+  const [grantAcknowledged, setGrantAcknowledged] = useState(false);
+  const [linkAcknowledged, setLinkAcknowledged] = useState(false);
   const perform = async (action: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);
@@ -114,13 +122,15 @@ export function SharingDialog({
               event.preventDefault();
               const [type, id] = subject?.split(":") ?? [];
               if (id && (type === "user" || type === "group"))
-                void perform(() =>
-                  trpcClient.access.grant.mutate({
+                void perform(async () => {
+                  await trpcClient.access.grant.mutate({
                     path: entry.path,
                     subject: { type, id },
                     permission,
-                  }),
-                );
+                    ...HomesExposureGate.input(exposure, grantAcknowledged),
+                  });
+                  setGrantAcknowledged(false);
+                });
             }}
           >
             <Label htmlFor="share-person">Person or group</Label>
@@ -159,7 +169,25 @@ export function SharingDialog({
                 ))}
               </SelectContent>
             </Select>
-            <Button type="submit" disabled={busy || !subject}>
+            <HomeFoldersNotice
+              id="share-grant-homes"
+              name={entry.path ? entry.name : "My Drive"}
+              sharing="grant"
+              exposure={exposure}
+              acknowledged={grantAcknowledged}
+              onAcknowledgedChange={setGrantAcknowledged}
+            />
+            <Button
+              type="submit"
+              aria-describedby={
+                exposure?.kind === "none" ? undefined : "share-grant-homes"
+              }
+              disabled={
+                busy ||
+                !subject ||
+                HomesExposureGate.blocked(exposure, grantAcknowledged)
+              }
+            >
               Grant access
             </Button>
           </form>
@@ -212,7 +240,9 @@ export function SharingDialog({
                   path: entry.path,
                   ...LinkSettingsDraft.toSettings(settings),
                   ...(password ? { password } : {}),
+                  ...HomesExposureGate.input(exposure, linkAcknowledged),
                 });
+                setLinkAcknowledged(false);
                 setLink(`${window.location.origin}/s/${result.token}`);
                 await queryClient.invalidateQueries({ queryKey: ["shares"] });
               });
@@ -234,7 +264,23 @@ export function SharingDialog({
               value={settings}
               onChange={setSettings}
             />
-            <Button type="submit" disabled={busy}>
+            <HomeFoldersNotice
+              id="share-link-homes"
+              name={entry.path ? entry.name : "My Drive"}
+              sharing="link"
+              exposure={exposure}
+              acknowledged={linkAcknowledged}
+              onAcknowledgedChange={setLinkAcknowledged}
+            />
+            <Button
+              type="submit"
+              aria-describedby={
+                exposure?.kind === "none" ? undefined : "share-link-homes"
+              }
+              disabled={
+                busy || HomesExposureGate.blocked(exposure, linkAcknowledged)
+              }
+            >
               Create link
             </Button>
             {link && (

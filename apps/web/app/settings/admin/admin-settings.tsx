@@ -15,6 +15,7 @@ import { SettingsSection } from "../settings-section";
 import { CreateAccountDialog } from "./create-account-dialog";
 import { GroupDialog, type GroupEditor } from "./group-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
+import { HomeSharingSettings } from "./home-sharing-settings";
 
 // Opens on demand; keep it out of the page's first load.
 const SharingDialog = lazyComponent(async () => ({
@@ -202,8 +203,9 @@ export function AdminSettings() {
           <div className="space-y-1">
             <p className="text-sm font-medium">Who can access My Drive</p>
             <p className="max-w-prose text-pretty text-sm text-muted-foreground">
-              New accounts start without file access. Grant permissions to the
-              drive or share individual folders.
+              New accounts start with only their own home folder. Share
+              individual folders with them. Sharing all of My Drive also shares
+              every home folder; see Home folders below.
             </p>
           </div>
           <Button
@@ -215,6 +217,7 @@ export function AdminSettings() {
           </Button>
         </div>
       </SettingsSection>
+      <HomeSharingSettings onConfirm={setConfirmation} />
       {creating && <CreateAccountDialog onClose={() => setCreating(false)} />}
       {editor && users.data && (
         <GroupDialog
