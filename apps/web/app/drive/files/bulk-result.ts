@@ -39,19 +39,25 @@ async function run<T extends { name: string }>(
 const count = (n: number) =>
   n === 1 ? "1 item" : `${n.toLocaleString()} items`;
 
-/** A one-line summary for a toast, e.g. "Moved 10 of 12 items to trash. “a.txt”: reason (and 1 more)". */
+/**
+ * A summary for a toast, e.g. "Moved 10 of 12 items to trash. “a.txt”: reason 1 more item also
+ * failed." The server's reason says what happened to the item and what to do, so nothing is
+ * claimed here about the failed items beyond it.
+ */
 function describe(result: BulkResult, verb: string, place = "") {
   const total = result.succeeded + result.failed.length;
   const [first, ...rest] = result.failed;
   if (!first)
     return { ok: true, message: `${verb} ${count(total)}${place}` } as const;
-  const more = rest.length ? ` (and ${rest.length.toLocaleString()} more)` : "";
+  const more = rest.length
+    ? ` ${rest.length === 1 ? "1 more item" : `${rest.length.toLocaleString()} more items`} also failed.`
+    : "";
   const head = result.succeeded
     ? `${verb} ${result.succeeded.toLocaleString()} of ${count(total)}${place}.`
     : `Nothing was ${verb.toLowerCase()}${place}.`;
   return {
     ok: false,
-    message: `${head} “${first.name}”: ${first.reason}${more} Failed items were not changed.`,
+    message: `${head} “${first.name}”: ${first.reason}${more}`,
   } as const;
 }
 

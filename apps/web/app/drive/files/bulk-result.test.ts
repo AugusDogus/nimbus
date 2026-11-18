@@ -28,7 +28,7 @@ it("runs every item with bounded concurrency and reports failures by name", asyn
   expect(BulkResult.describe(result, "Moved")).toEqual({
     ok: false,
     message:
-      "Moved 38 of 40 items. “item 3”: It is locked. (and 1 more) Failed items were not changed.",
+      "Moved 38 of 40 items. “item 3”: It is locked. 1 more item also failed.",
   });
   expect(BulkResult.describe({ succeeded: 1, failed: [] }, "Moved")).toEqual({
     ok: true,
@@ -42,8 +42,7 @@ it("runs every item with bounded concurrency and reports failures by name", asyn
     ),
   ).toEqual({
     ok: false,
-    message:
-      "Nothing was moved to trash. “a”: No access. Failed items were not changed.",
+    message: "Nothing was moved to trash. “a”: No access.",
   });
   expect(
     BulkResult.describe({ succeeded: 3, failed: [] }, "Moved", " to trash"),
