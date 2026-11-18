@@ -730,43 +730,69 @@ function foldersAbove(
 }
 
 /**
+ * A name a direct check costs about as much as this many names a scan
+ * passes over, per word scanned (measured with the search benchmark).
+ */
+const DIRECT_COST = 256;
+
+/**
  * Names holding every one of `terms`, or some with the rest in folders above,
  * with word bits kept in `bits` (the marks themselves for the query's words,
  * or another scratch array for another reading of them). Names an earlier
  * layer ranked are skipped, and those this ranks are flagged FOUND. Counts
  * visible names per word when given `counts`.
+ *
+ * Without counts to keep, the longest word is scanned first: every name this
+ * can rank holds it, or sits below a folder that does. When those names are
+ * few, each is checked for the other words directly instead of scanning the
+ * range once more per word; the ranks are the same either way.
  */
 function words(
   layout: SearchLayout,
   ranges: readonly VisibleRange[],
   terms: readonly string[],
   bits: Uint8Array,
-  [inNameTier, inPathTier]: readonly [number, number],
-  { boosts, marks }: ScanScratch,
+  tiers: readonly [number, number],
+  scratch: ScanScratch,
   add: (rank: number) => void,
   counts: ScanCounts | null,
   stopped: Stopped,
 ) {
-  const { foldedStarts, parentSlot, dead } = layout;
+  const { parentSlot, dead } = layout;
+  const { marks } = scratch;
   const all = (1 << terms.length) - 1;
   const own = bits !== marks;
+  const order = terms.map((_, term) => term);
+  if (counts === null)
+    order.sort(
+      (a, b) => (terms[b] ?? "").length - (terms[a] ?? "").length || a - b,
+    );
   for (const range of ranges) {
     if (own) bits.fill(0, range.first, range.end);
     const above = foldersAbove(layout, range, (slot) =>
       termBits(slotName(layout, slot), terms),
     );
     const outer = above.get(range.outside) ?? 0;
+    const first = order[0] ?? 0;
+    /** Every slot the first word's scan matched, while a direct check may still follow. */
+    let matched: number[] | null =
+      counts === null && terms.length > 1 && (outer & (1 << first)) === 0
+        ? []
+        : null;
     let count = 0;
-    for (let term = 0; term < terms.length; term++) {
+    let direct = false;
+    for (const term of order) {
       const bit = 1 << term;
       // Folders above the range show in every result's path, so they count as seen.
       if (counts && outer & bit)
         counts.terms[term] = (counts.terms[term] ?? 0) + 1;
+      const seen = matched;
       const finished = scanWord(
         layout,
         range,
         terms[term] ?? "",
         (slot) => {
+          seen?.push(slot);
           const held = bits[slot] ?? 0;
           if (counts && !dead[slot] && (held & bit) === 0)
             counts.terms[term] = (counts.terms[term] ?? 0) + 1;
@@ -780,7 +806,20 @@ function words(
         stopped,
       );
       if (!finished) return false;
+      if (seen) {
+        // As typed, then without accents: in slot order once sorted.
+        seen.sort((a, b) => a - b);
+        direct =
+          span(layout, range, seen) * DIRECT_COST <
+          (terms.length - 1) * (range.end - range.first);
+        matched = null;
+        if (direct) {
+          checkDirectly(layout, range, seen, terms, above, tiers, scratch, add);
+          break;
+        }
+      }
     }
+    if (direct) continue;
     for (let at = 0; at < count; at++) {
       const slot = candidates[at] ?? 0;
       if (dead[slot] || (marks[slot] ?? 0) & (LITERAL | FOUND)) continue;
@@ -793,19 +832,95 @@ function words(
       }
       if (held !== all) held |= above.get(parent) ?? 0;
       if (held !== all) continue;
-      marks[slot] = (marks[slot] ?? 0) | FOUND;
-      const start = foldedStarts[slot] ?? 0;
-      add(
-        Rank.of(
-          inName === all ? inNameTier : inPathTier,
-          boosts[slot] ?? 0,
-          (foldedStarts[slot + 1] ?? 0) - start - 1,
-          slot,
-        ),
-      );
+      found(layout, slot, inName === all, tiers, scratch, add);
     }
   }
   return true;
+}
+
+/** Rank `slot`, found by a words pass, and flag it FOUND for later layers. */
+function found(
+  layout: SearchLayout,
+  slot: number,
+  inName: boolean,
+  [inNameTier, inPathTier]: readonly [number, number],
+  { boosts, marks }: ScanScratch,
+  add: (rank: number) => void,
+) {
+  marks[slot] = (marks[slot] ?? 0) | FOUND;
+  const start = layout.foldedStarts[slot] ?? 0;
+  add(
+    Rank.of(
+      inName ? inNameTier : inPathTier,
+      boosts[slot] ?? 0,
+      (layout.foldedStarts[slot + 1] ?? 0) - start - 1,
+      slot,
+    ),
+  );
+}
+
+/** How many slots in `range` the matched slots (in slot order) and the subtrees of matched folders cover. */
+function span(
+  layout: SearchLayout,
+  range: VisibleRange,
+  matched: readonly number[],
+) {
+  let total = 0;
+  let end = range.first;
+  for (const slot of matched) {
+    const stop = Math.min(range.end, layout.subtreeEnd[slot] ?? slot + 1);
+    if (stop > Math.max(slot, end)) total += stop - Math.max(slot, end);
+    end = Math.max(end, stop);
+  }
+  return total;
+}
+
+/**
+ * The words pass over `range` by checking, for every word, only the names
+ * the first word's scan matched and those below the folders it matched:
+ * names elsewhere hold the first word neither themselves nor above them.
+ */
+function checkDirectly(
+  layout: SearchLayout,
+  range: VisibleRange,
+  matched: readonly number[],
+  terms: readonly string[],
+  above: ReadonlyMap<number, number>,
+  tiers: readonly [number, number],
+  scratch: ScanScratch,
+  add: (rank: number) => void,
+) {
+  const { parentSlot, dead } = layout;
+  const { marks } = scratch;
+  const all = (1 << terms.length) - 1;
+  const known = new Map<number, number>();
+  const bitsAt = (slot: number) => {
+    let held = known.get(slot);
+    if (held === undefined) {
+      held = termBits(slotName(layout, slot), terms);
+      known.set(slot, held);
+    }
+    return held;
+  };
+  let end = range.first;
+  for (const from of matched) {
+    const stop = Math.min(range.end, layout.subtreeEnd[from] ?? from + 1);
+    for (let slot = Math.max(from, end); slot < stop; slot++) {
+      if (dead[slot] || (marks[slot] ?? 0) & (LITERAL | FOUND)) continue;
+      const inName = bitsAt(slot);
+      if (inName === 0) continue;
+      let held = inName;
+      let parent = parentSlot[slot] ?? -1;
+      while (held !== all && parent >= range.first) {
+        held |= bitsAt(parent);
+        parent = parentSlot[parent] ?? -1;
+      }
+      if (held !== all) held |= above.get(parent) ?? 0;
+      if (held === all)
+        found(layout, slot, inName === all, tiers, scratch, add);
+    }
+    end = Math.max(end, stop);
+  }
 }
 
 /** Whether compacted `slot` is among the postings of any of `keys`. */
