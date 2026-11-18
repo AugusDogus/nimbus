@@ -42,6 +42,12 @@ export type SearchLayout = {
   readonly plain: Buffer;
   readonly plainStarts: Int32Array;
   readonly plainSlot: Int32Array;
+  /**
+   * 1 for plain names whose first letter differs from the folded name's
+   * (`école`, read `ecole`): the only ones a one-letter query can find
+   * through plain names that it does not find as typed.
+   */
+  readonly plainLead: Uint8Array;
   /** Word-to-name postings for these slots (search-words.ts): key i's slots, sorted. */
   readonly postingStart: Int32Array;
   readonly postingSlots: Int32Array;
@@ -286,25 +292,42 @@ function plainEntry(layout: SearchLayout, slot: number) {
 /**
  * Call `visit(slot, at, entry)` for each slot in `range` whose plain name
  * (kept only where it differs from the folded one) holds `pattern`; `at`
- * is the byte offset in the plain names.
+ * is the byte offset in the plain names. A one-letter `pattern` is looked
+ * for only in plain names whose first letter differs from the folded
+ * name's: the others start with that letter as typed, where callers find
+ * them already.
  */
-const scanPlain = (
+function scanPlain(
   layout: SearchLayout,
   range: VisibleRange,
   pattern: Buffer,
   prefixOnly: boolean,
   visit: (slot: number, at: number, entry: number) => void,
   stopped: Stopped,
-) =>
-  scanText(
-    { bytes: layout.plain, starts: layout.plainStarts },
-    plainEntry(layout, range.first),
-    plainEntry(layout, range.end),
-    pattern,
-    prefixOnly,
-    (entry, at) => visit(layout.plainSlot[entry] ?? 0, at, entry),
-    stopped,
-  );
+) {
+  const first = plainEntry(layout, range.first);
+  const end = plainEntry(layout, range.end);
+  if (!prefixOnly)
+    return scanText(
+      { bytes: layout.plain, starts: layout.plainStarts },
+      first,
+      end,
+      pattern,
+      prefixOnly,
+      (entry, at) => visit(layout.plainSlot[entry] ?? 0, at, entry),
+      stopped,
+    );
+  if (stopped()) return false;
+  const { plain, plainStarts, plainLead, plainSlot } = layout;
+  for (let entry = first; entry < end; entry++) {
+    if (!plainLead[entry]) continue;
+    // The pattern starts with the separator before the name.
+    const at = plainStarts[entry] ?? 0;
+    if (pattern.compare(plain, at - 1, at - 1 + pattern.length) === 0)
+      visit(plainSlot[entry] ?? 0, at, entry);
+  }
+  return true;
+}
 
 const never: Stopped = () => false;
 

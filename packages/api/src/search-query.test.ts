@@ -1163,6 +1163,43 @@ describe("corrections cost what the caller's own names cost", () => {
 });
 
 describe("accents", () => {
+  it("finds names by their first letter as typed or without its accent", () => {
+    // Before compaction, once, and again with the plain names carried over.
+    for (const compacted of [0, 1, 2]) {
+      const index = createSearchIndex();
+      for (const path of [
+        "x/école.txt",
+        "x/Ecole2.txt",
+        "x/résumé.pdf",
+        "x/rapport.pdf",
+        "x/Øre.md",
+        "x/ore.md",
+      ])
+        index.add(path, "file");
+      for (let pass = 0; pass < compacted; pass++) {
+        index.compact();
+        index.add(`x/later ${pass}.txt`, "file");
+      }
+      const found = (query: string) =>
+        index
+          .search({ query, root: "", limit: 50, scope: all, depth: "full" })
+          .hits.map((hit) => hit.path)
+          .sort();
+      expect({
+        compacted,
+        e: found("e"),
+        r: found("r"),
+        o: found("o"),
+      }).toEqual({
+        compacted,
+        e: ["x/Ecole2.txt", "x/école.txt"],
+        r: ["x/rapport.pdf", "x/résumé.pdf"],
+        o: ["x/ore.md", "x/Øre.md"],
+      });
+      expect(found("é")).toEqual(["x/Ecole2.txt", "x/école.txt"]);
+    }
+  });
+
   const composed = "Résumé.pdf";
   const decomposed = "Résumé.pdf";
   function drive() {

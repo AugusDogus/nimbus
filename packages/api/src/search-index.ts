@@ -147,6 +147,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     plain: Buffer.from(SEPARATOR),
     plainStarts: new Int32Array([1]),
     plainSlot: new Int32Array(0),
+    plainLead: new Uint8Array(0),
   };
   // Names for entries added since compaction.
   const deltaNames = new Map<
@@ -413,6 +414,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     // their order.
     const plainSlots: number[] = [];
     const plainSources: (string | number)[] = [];
+    const plainLeads: number[] = [];
     let plainBytes = 1;
     let oldEntry = 0;
     const oldPlainSlot = previousLayout.plainSlot;
@@ -423,6 +425,9 @@ export function createSearchIndex(initialCapacity = 1024) {
         if (delta.plain === null) continue;
         plainSlots.push(slot);
         plainSources.push(delta.plain);
+        plainLeads.push(
+          delta.plain.codePointAt(0) === delta.folded.codePointAt(0) ? 0 : 1,
+        );
         plainBytes += Buffer.byteLength(delta.plain) + 1;
         continue;
       }
@@ -435,6 +440,7 @@ export function createSearchIndex(initialCapacity = 1024) {
       if (oldPlainSlot[oldEntry] !== previous) continue;
       plainSlots.push(slot);
       plainSources.push(oldEntry);
+      plainLeads.push(previousLayout.plainLead[oldEntry] ?? 0);
       plainBytes +=
         (previousLayout.plainStarts[oldEntry + 1] ?? 0) -
         (previousLayout.plainStarts[oldEntry] ?? 0);
@@ -457,6 +463,10 @@ export function createSearchIndex(initialCapacity = 1024) {
     nextPlainStarts[plainSlots.length] = plainAt;
     const nextPlainSlot = sharedInt32(plainSlots.length);
     nextPlainSlot.set(plainSlots);
+    const nextPlainLead = new Uint8Array(
+      new SharedArrayBuffer(plainSlots.length),
+    );
+    nextPlainLead.set(plainLeads);
     const parentSlot = sharedInt32(used);
     for (let slot = 0; slot < used; slot++) {
       const id = order[slot];
@@ -483,6 +493,7 @@ export function createSearchIndex(initialCapacity = 1024) {
       plain: nextPlain,
       plainStarts: nextPlainStarts,
       plainSlot: nextPlainSlot,
+      plainLead: nextPlainLead,
     };
     slotOf = nextSlotOf;
     deltaNames.clear();
