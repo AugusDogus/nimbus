@@ -12,10 +12,19 @@ const names = (plugins: PluginOption[] | undefined): string[] =>
   );
 
 test("the full-Zod check also runs on the Web Worker build", async () => {
-  const resolved: UserConfig =
-    typeof config === "function"
-      ? await config({ command: "build", mode: "production" })
-      : config;
+  // The probe build reads no chunk plan, so this runs before any build has written one.
+  const previous = process.env.NIMBUS_CHUNK_PROBE;
+  process.env.NIMBUS_CHUNK_PROBE = "1";
+  let resolved: UserConfig;
+  try {
+    resolved =
+      typeof config === "function"
+        ? await config({ command: "build", mode: "production" })
+        : config;
+  } finally {
+    if (previous === undefined) delete process.env.NIMBUS_CHUNK_PROBE;
+    else process.env.NIMBUS_CHUNK_PROBE = previous;
+  }
   expect(names(resolved.plugins)).toContain("nimbus-client-zod-mini");
   expect(names(await resolved.worker?.plugins?.())).toContain(
     "nimbus-client-zod-mini",
