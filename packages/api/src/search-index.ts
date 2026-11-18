@@ -641,6 +641,21 @@ export function createSearchIndex(initialCapacity = 1024) {
         identities.set(id, identity);
     },
 
+    /** The folders directly inside a folder, without reading the names of its files. */
+    foldersIn(parentId: number) {
+      const folders: { id: number; name: string }[] = [];
+      if (parentId < 0 || parentId >= count || kinds[parentId] !== DIR)
+        return folders;
+      for (
+        let child = firstChild[parentId];
+        child !== NONE;
+        child = nextSibling[child]
+      )
+        if (kinds[child] === DIR)
+          folders.push({ id: child, name: nameOf(child) });
+      return folders;
+    },
+
     /** Remove an entry by id, with everything beneath it. */
     removeId(id: number) {
       if (id > ROOT && id < count) remove(id);

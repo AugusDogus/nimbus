@@ -229,8 +229,7 @@ async function reconcileFrom(
       try {
         if (changedOnly && index.identityOf(folderId) === folder.identity)
           return index
-            .childrenOf(folderId)
-            .filter((child) => child.kind === "dir")
+            .foldersIn(folderId)
             .map((child): [string, number] => [
               childPath(directory, child.name),
               child.id,
