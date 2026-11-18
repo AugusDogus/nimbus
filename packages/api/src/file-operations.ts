@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { constants, type Stats } from "node:fs";
-import { lstat, mkdir, rename, rm } from "node:fs/promises";
+import { lstat, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { accessFor, getAccess, type Access } from "./access";
@@ -174,6 +174,19 @@ async function moveUnlocked(
   if (existing.stats.isDirectory()) access.require(source.relative, "admin");
   requireSeparate(source.relative, target.relative);
   await Homes.requireNotHome(store, source.relative);
+  // Two names of one file (hard links): renaming one over the other removes nothing, so the
+  // source would stay while its records were discarded as if it had moved.
+  const current = await statOrNull(target.absolute);
+  if (
+    current !== null &&
+    current.dev === existing.stats.dev &&
+    current.ino === existing.stats.ino
+  )
+    throw new TRPCError({
+      code: "CONFLICT",
+      message:
+        "These two names are hard links to the same file on the server, so moving one onto the other would change nothing. Nothing was changed. Delete the name you no longer need instead.",
+    });
   const replacement = await prepareDestination(
     store,
     access,
@@ -219,7 +232,8 @@ async function moveUnlocked(
       try {
         await store.movePath(source.relative, target.relative, pending);
       } catch (error) {
-        await rename(target.absolute, source.absolute);
+        // Checked like the move itself, so a folder swapped meanwhile cannot redirect it.
+        await DriveFile.renameChecked(target.absolute, source.absolute);
         await store.removePendingChange(pending);
         throw error;
       }
@@ -465,6 +479,12 @@ export async function getOwnedTrash(
 
 async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
   const item = await getOwnedTrash(store, access, id);
+  if (await PendingChanges.blocksRestore(store, id))
+    throw new TRPCError({
+      code: "CONFLICT",
+      message:
+        "Nimbus was interrupted while changing this item, and other content now stands in its place in trash, so restoring it could give that content this item's sharing. It was not restored. Delete it for good, or ask a server administrator to check the server's trash folder.",
+    });
   const target = await safePath(item.path);
   // Trash suspended the item's own grants, including any that let this person delete it, and
   // restoring returns them. So they count here along with the live ones.
@@ -504,7 +524,7 @@ async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
   try {
     await store.restoreTrash(id);
   } catch (error) {
-    await rename(target.absolute, source);
+    await DriveFile.renameChecked(target.absolute, source);
     await store.removePendingChange(pending);
     throw error;
   }
@@ -532,6 +552,7 @@ async function purgeUnlocked(store: DriveStore, access: Access, id: string) {
     force: true,
   });
   await store.removeTrash(id);
+  await PendingChanges.forgetTrashItem(store, id);
   recordAudit({
     action: "trash.purged",
     actor: auditUser(access.user),
@@ -549,6 +570,10 @@ export async function moveItem(
 ) {
   const source = await safePath(sourcePath);
   const target = await safePath(targetPath);
+  // Before the lock check, so a WebDAV lock on a path the caller cannot change does not
+  // reveal that it exists. Checked again inside, with current access.
+  access.require(source.relative, "write");
+  access.require(target.relative, "write");
   // A replaced folder goes to trash under this id.
   const trashId = randomUUID();
   return mutateFiles(
@@ -574,6 +599,9 @@ export async function trashItem(
   lockTokens?: MutationCredentials["lockTokens"],
 ) {
   const target = await safePath(requested);
+  // Before the lock check, so a WebDAV lock on a path the caller cannot change does not
+  // reveal that it exists. Checked again inside, with current access.
+  access.require(target.relative, "write");
   const id = randomUUID();
   return mutateFiles(
     [target.relative],

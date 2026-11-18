@@ -3,7 +3,7 @@
  * data root the test prepared, and kills itself with SIGKILL between the operation's
  * filesystem and database steps, as a power cut or OOM kill would.
  *
- *   CRASH_DATABASE=… NIMBUS_DATA_ROOT=… CRASH_AT=trash|restore|move|version bun crash-recovery.fixture.ts
+ *   CRASH_DATABASE=… NIMBUS_DATA_ROOT=… CRASH_AT=trash|trashed|restore|move|version bun crash-recovery.fixture.ts
  */
 import { getAccess } from "@nimbus/api/access";
 import type { DriveStore } from "@nimbus/api/drive-store";
@@ -31,6 +31,10 @@ const store: DriveStore = {
     await real.addTrash(item);
     return at === "trash" ? crash() : undefined;
   },
+  // After the rename into trash, before its pending change is settled.
+  async removePendingChange(id) {
+    return at === "trashed" ? crash() : real.removePendingChange(id);
+  },
   // After the rename out of trash, before sharing is reattached.
   async restoreTrash(id) {
     return at === "restore" ? crash() : real.restoreTrash(id);
@@ -48,7 +52,8 @@ const store: DriveStore = {
   },
 };
 const access = await getAccess(store, "owner");
-if (at === "trash") await trashItem(store, access, "doc.txt");
+if (at === "trash" || at === "trashed")
+  await trashItem(store, access, "doc.txt");
 if (at === "restore") {
   const [item] = await store.listTrash(null);
   if (!item) throw new Error("The test did not put doc.txt in trash.");

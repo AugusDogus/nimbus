@@ -127,6 +127,8 @@ async function prepare(
     throw error;
   }
   if ((await store.listHomeContainers()).includes(container)) {
+    // Recreated if it went missing: records left there would reach the homes put into it.
+    await VacantPath.claim(store, target);
     await mkdir(target.absolute, { recursive: true });
     return { kind: "ready", path: container, created: false };
   }

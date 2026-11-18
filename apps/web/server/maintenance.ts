@@ -6,6 +6,7 @@ import { recordAudit } from "@nimbus/api/audit";
 import { reservationLifetimeMs } from "@nimbus/api/file-request";
 import { FileVersions } from "@nimbus/api/file-versions";
 import { mutateFiles } from "@nimbus/api/file-mutations";
+import { PendingChanges } from "@nimbus/api/pending-changes";
 import { isFsError } from "@nimbus/api/safe-path";
 import { getConfigRoot } from "./storage-paths";
 
@@ -60,7 +61,12 @@ async function cleanFiles(
 export async function cleanExpiredData(
   store: Pick<
     DriveStore,
-    "listTrash" | "getTrash" | "removeTrash" | "fileRequests" | "versions"
+    | "listTrash"
+    | "getTrash"
+    | "removeTrash"
+    | "removePendingChange"
+    | "fileRequests"
+    | "versions"
   >,
   dataRoot: string,
   now = Date.now(),
@@ -84,6 +90,7 @@ export async function cleanExpiredData(
         );
         await rm(trashed, { recursive: true, force: true });
         await store.removeTrash(item.id);
+        await PendingChanges.forgetTrashItem(store, item.id);
         recordAudit({
           action: "trash.expired",
           actor: { type: "system" },

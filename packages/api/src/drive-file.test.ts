@@ -114,6 +114,15 @@ describe("drive files opened after their path was checked", () => {
     expect(await readFile(incoming, "utf8")).toBe("new");
   });
 
+  test("a live file whose name ends in (deleted) opens normally", async () => {
+    await writeFile(path.join(root, "docs/report (deleted)"), "still here");
+    const opened = await DriveFile.openFile(
+      path.join(root, "docs/report (deleted)"),
+    );
+    await opened.handle.close();
+    expect(opened.stats.size).toBe("still here".length);
+  });
+
   test("copying refuses to read through a symlink", async () => {
     await expect(
       DriveFile.copy(

@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { getDataRoot } from "@nimbus/api/data-root";
+import { DriveFile } from "@nimbus/api/drive-file";
 import { isFsError } from "@nimbus/api/safe-path";
 import { Staging } from "@nimbus/api/staging";
 
@@ -65,12 +66,14 @@ export class UploadStore extends FileStore {
     if (await this.isFinished(id)) return;
     const source = path.join(this.directory, id);
     let copied = false;
+    let created = true;
     try {
       // link is atomic and refuses to overwrite an existing destination. Retain
       // the staging name for tus HEAD/PATCH retries without duplicating bytes.
       await link(source, destination);
     } catch (error) {
       if (isFsError(error, "EEXIST")) {
+        created = false;
         // Recover a completion interrupted after linking but before its marker.
         if (!(await this.isPublishedAt(id, destination))) {
           throw error;
@@ -97,7 +100,26 @@ export class UploadStore extends FileStore {
         throw error;
       }
     }
+    if (created) await this.requireLandedAt(destination);
     await this.markFinished(id, destination, copied);
+  }
+
+  /**
+   * Publishing names the destination by path, so a folder on it swapped for a symlink would put
+   * the file elsewhere. Check through a descriptor that the new file is where it was meant to
+   * be, and remove it otherwise. The staging folder sits at `<data root>/.nimbus/uploads`.
+   */
+  private async requireLandedAt(destination: string) {
+    const placed = await lstat(destination);
+    const landed = await DriveFile.identityAt(
+      destination,
+      path.resolve(this.directory, "..", ".."),
+    );
+    if (landed?.dev === placed.dev && landed.ino === placed.ino) return;
+    const now = await lstat(destination).catch(() => null);
+    if (now?.dev === placed.dev && now.ino === placed.ino)
+      await unlink(destination);
+    throw DriveFile.swapped();
   }
 
   /**

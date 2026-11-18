@@ -7,6 +7,7 @@ import { getDataRoot } from "./data-root";
 import type { DriveStore } from "./drive-store";
 import { mutateFiles } from "./file-mutations";
 import { FileVersions } from "./file-versions";
+import { PendingChanges } from "./pending-changes";
 
 /**
  * Permanently delete every trash item the caller can manage: their own items, or all items for
@@ -33,6 +34,7 @@ export async function emptyTrash(store: DriveStore, access: Access) {
           );
           await rm(trashed, { recursive: true, force: true });
           await store.removeTrash(item.id);
+          await PendingChanges.forgetTrashItem(store, item.id);
           recordAudit({
             action: "trash.purged",
             actor: auditUser(current.user),

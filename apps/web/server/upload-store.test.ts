@@ -9,6 +9,7 @@ import {
   readdir,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -262,5 +263,23 @@ test("a published file request upload is recorded in the ledger after a crash be
   } finally {
     if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
     else process.env.NIMBUS_DATA_ROOT = previousRoot;
+  }
+});
+
+test("publishing into a folder swapped for a symlink leaves nothing outside the drive", async () => {
+  // On the drive's own filesystem, so the file is published by hard link.
+  const outside = await mkdtemp(
+    path.join(os.tmpdir(), "nimbus-upload-outside-"),
+  );
+  try {
+    await symlink(outside, path.join(root, "swapped"));
+    await writeFile(path.join(store.directory, "upload"), "uploaded bytes");
+    await expect(
+      store.publish("upload", path.join(root, "swapped/uploaded.txt")),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await readdir(outside)).toEqual([]);
+    expect(await store.isFinished("upload")).toBe(false);
+  } finally {
+    await rm(outside, { recursive: true, force: true });
   }
 });

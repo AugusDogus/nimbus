@@ -237,6 +237,19 @@ describe("content created where removed content left records", () => {
     expect(carol.can("docs/plan.txt", "read")).toBe(false);
   });
 
+  test("a home container recreated after it was removed outside Nimbus starts without sharing", async () => {
+    expect(await Homes.prepare(drive.store, "users")).toMatchObject({
+      kind: "ready",
+    });
+    shareId = await drive.share("users");
+    await rm(drive.absolute("users"), { recursive: true });
+    expect(await Homes.prepare(drive.store, "users")).toMatchObject({
+      kind: "ready",
+      created: false,
+    });
+    expect(await drive.store.getShare(shareId)).toBeNull();
+  });
+
   test("existing content keeps its records: only a vacant path is claimed", async () => {
     await drive.write("kept.txt", "kept");
     await drive.grant("kept.txt", "carol", "read");

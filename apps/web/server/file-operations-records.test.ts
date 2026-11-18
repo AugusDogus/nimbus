@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, readFile } from "node:fs/promises";
+import { chmod, link, mkdir, readFile } from "node:fs/promises";
 import { moveItem } from "@nimbus/api/file-operations";
 import { openTestDrive, type TestDrive } from "./drive-testing";
 
@@ -116,6 +116,21 @@ describe("sharing records through file operations", () => {
     expect(await settled(owner.versions.list({ path: "pipe" }))).toMatchObject(
       refused,
     );
+  });
+
+  test("moving one hard link of a file onto another is refused and keeps both names' sharing", async () => {
+    await drive.write("one.txt", "shared bytes");
+    await link(drive.absolute("one.txt"), drive.absolute("two.txt"));
+    await drive.grant("one.txt", "carol", "read");
+    await expect(
+      moveItem(drive.store, await drive.access("owner"), "one.txt", "two.txt", {
+        existing: "replace",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await readFile(drive.absolute("one.txt"), "utf8")).toBe(
+      "shared bytes",
+    );
+    expect((await drive.access("carol")).can("one.txt", "read")).toBe(true);
   });
 
   test("a move over a file that succeeds drops the moved file's sharing", async () => {

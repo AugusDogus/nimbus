@@ -209,6 +209,8 @@ export const appRouter = router({
         const relative = parent.relative
           ? `${parent.relative}/${input.name}`
           : input.name;
+        // Before the lock check, so a WebDAV lock does not reveal an unwritable path exists.
+        ctx.access.require(relative, "write");
         return mutateFiles(
           [relative],
           { userId: ctx.access.user.id },

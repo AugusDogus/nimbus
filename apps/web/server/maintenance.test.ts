@@ -21,7 +21,12 @@ let root: string;
 let trash: TrashItem[];
 const store: Pick<
   DriveStore,
-  "listTrash" | "getTrash" | "removeTrash" | "fileRequests" | "versions"
+  | "listTrash"
+  | "getTrash"
+  | "removeTrash"
+  | "removePendingChange"
+  | "fileRequests"
+  | "versions"
 > = {
   fileRequests: createTestFileRequestStore(),
   versions: createTestFileVersionStore(),
@@ -34,6 +39,7 @@ const store: Pick<
   async removeTrash(id) {
     trash = trash.filter((item) => item.id !== id);
   },
+  async removePendingChange() {},
 };
 
 beforeEach(async () => {

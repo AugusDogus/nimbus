@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
 import type { DriveStore } from "@nimbus/api/drive-store";
-import { trashItem } from "@nimbus/api/file-operations";
+import { restoreItem, trashItem } from "@nimbus/api/file-operations";
 import { FileVersions } from "@nimbus/api/file-versions";
 import { PendingChanges } from "@nimbus/api/pending-changes";
 import { openDatabase } from "./db/connection";
@@ -51,7 +51,9 @@ describe("changes interrupted by a crash", () => {
     }
   }
 
-  async function crashDuring(at: "trash" | "restore" | "move" | "version") {
+  async function crashDuring(
+    at: "trash" | "trashed" | "restore" | "move" | "version",
+  ) {
     const child = Bun.spawn(
       ["bun", path.join(import.meta.dir, "crash-recovery.fixture.ts")],
       {
@@ -119,6 +121,27 @@ describe("changes interrupted by a crash", () => {
       const [recovered] = await PendingChanges.recover(store, root);
       expect(recovered?.outcome).toBe("unclear");
       expect((await getAccess(store, "carol")).can("moved.txt", "read")).toBe(
+        false,
+      );
+    });
+  });
+
+  test("moved to trash, killed, then other content put in its trash place before the restart", async () => {
+    await shareWithCarol();
+    await crashDuring("trashed");
+    await withStore(async (store) => {
+      const [item] = await store.listTrash(null);
+      if (!item) throw new Error("doc.txt did not reach trash.");
+      const payload = path.join(root, ".nimbus/trash", item.id);
+      await rm(payload);
+      await writeFile(payload, "someone else's");
+      const [recovered] = await PendingChanges.recover(store, root);
+      expect(recovered?.outcome).toBe("unclear");
+      // Restoring would give the other content doc.txt's sharing.
+      await expect(
+        restoreItem(store, await getAccess(store, "owner"), item.id),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect((await getAccess(store, "carol")).can("doc.txt", "read")).toBe(
         false,
       );
     });

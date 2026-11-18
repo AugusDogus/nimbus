@@ -66,13 +66,12 @@ async function opensPath(
 ) {
   const relative = path.relative(dataRoot, absolute);
   if (descriptorPaths) {
-    // A file renamed over or deleted since it was opened is reported with this suffix.
     // A procfs lookup that never waits on storage, so it runs synchronously, sparing a
-    // thread-pool round trip on every open.
-    const opened = readlinkSync(`/proc/self/fd/${fd}`).replace(
-      / \(deleted\)$/,
-      "",
-    );
+    // thread-pool round trip on every open. A file renamed over or deleted since it was
+    // opened has no names left and is reported with a suffix; a live file's own name may
+    // end the same way, so the suffix is removed only from a file without names.
+    const link = readlinkSync(`/proc/self/fd/${fd}`);
+    const opened = stats.nlink === 0 ? link.replace(/ \(deleted\)$/, "") : link;
     const expected = path.join(await realRoot(dataRoot), relative);
     // Compared exactly: a symlink to a differently cased folder is another folder on
     // case-sensitive storage. On case-insensitive storage a path spelled differently from the
@@ -248,5 +247,6 @@ export const DriveFile = {
   copyOpened,
   copy,
   renameChecked,
+  identityAt: identify,
   swapped,
 } as const;

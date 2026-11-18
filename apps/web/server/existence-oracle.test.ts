@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { copyItem } from "@nimbus/api/file-operations";
+import { lockFile } from "@nimbus/api/file-mutations";
 import { readableFile } from "@nimbus/api/versions-router";
 import { openTestDrive, type TestDrive } from "./drive-testing";
 
@@ -78,6 +79,21 @@ describe("paths the caller cannot read", () => {
     expect(await drive.caller("owner").access.groups()).toEqual([
       { id: "finance", name: "Finance", memberIds: ["alice", "bob"] },
     ]);
+  });
+
+  test("a WebDAV lock on a path the caller cannot change does not reveal it exists", async () => {
+    lockFile("private/salary.xlsx", { userId: "owner" });
+    const carol = drive.caller("carol");
+    await expect(
+      carol.files.delete({ path: "private/salary.xlsx" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      carol.files.rename({ path: "private/salary.xlsx", newName: "x.xlsx" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    lockFile("private/new", { userId: "owner" });
+    await expect(
+      carol.files.createFolder({ path: "private", name: "new" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   test("a path running through a file is a missing item, not a server error", async () => {

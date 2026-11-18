@@ -83,10 +83,16 @@ async function recoverOne(
     return from && !to ? "undone" : "unclear";
   }
   const item = await store.getTrash(change.trashId);
-  const trashed = await exists(trashedAt(dataRoot, change.trashId));
+  const payload = trashedAt(dataRoot, change.trashId);
+  // In trash only as the item itself: other content there is not taken for it.
+  const trashed = await holds(payload, change.identity);
+  const somethingInTrash = trashed || (await exists(payload));
   const original =
     item !== null &&
     (await holds(path.join(dataRoot, item.path), change.identity));
+  // Other content in the item's trash place: restoring it would give that content the item's
+  // sharing, so the record stays and blocks restoring until the item is purged.
+  if (somethingInTrash && !trashed) return "unclear";
   let outcome: Recovery["outcome"];
   if (change.kind === "trash") {
     if (trashed) outcome = "finished";
@@ -119,6 +125,22 @@ async function recover(
   return recovered;
 }
 
+/** Whether a change to trash item `trashId` was interrupted and could not be settled. */
+async function blocksRestore(store: DriveStore, trashId: string) {
+  return (await store.listPendingChanges()).some(
+    (change) => change.kind !== "move" && change.trashId === trashId,
+  );
+}
+
+/** Forget the unsettled changes of a trash item that is being deleted for good. */
+async function forgetTrashItem(
+  store: Pick<DriveStore, "removePendingChange">,
+  trashId: string,
+) {
+  await store.removePendingChange(trashMarker(trashId));
+  await store.removePendingChange(restoreMarker(trashId));
+}
+
 /** One line per recovered change, for the server log. */
 function describe({ change, outcome }: Recovery) {
   const what =
@@ -131,12 +153,14 @@ function describe({ change, outcome }: Recovery) {
     case "undone":
       return `Nimbus undid ${what}, which was interrupted before the item moved. The item and its sharing are as they were.`;
     case "unclear":
-      return `Nimbus could not tell how far ${what} got before it was interrupted: the item is at neither place, or at both. Its records were left unchanged; check the item and its sharing.`;
+      return `Nimbus could not tell how far ${what} got before it was interrupted: the item is at neither place, at both, or other content stands where it was. Its records were left unchanged; check the item and its sharing. A trash item in this state cannot be restored, only deleted for good.`;
   }
 }
 
 export const PendingChanges = {
   identityOf,
+  blocksRestore,
+  forgetTrashItem,
   trashMarker,
   restoreMarker,
   recover,
