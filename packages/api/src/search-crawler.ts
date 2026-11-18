@@ -87,12 +87,13 @@ function openFolder(root: string, relative: string): OpenFolder {
 /**
  * Which folder on disk a stat describes, as it was then: its inode, with its
  * device and birth time so a number reused for another folder reads
- * differently, and its modification time, which changes whenever an entry
- * is added, removed or renamed in it. Taken before the folder is listed, so a
- * change during the listing reads as a change later.
+ * differently, and its change time, which moves on whenever an entry is
+ * added, removed or renamed in it (and which, unlike its modification time,
+ * no process can set back). Taken before the folder is listed, so a change
+ * during the listing reads as a change later.
  */
 const identityOf = (stats: Stats) =>
-  `${stats.dev}:${stats.ino}:${stats.birthtimeMs}:${stats.mtimeMs}`;
+  `${stats.dev}:${stats.ino}:${stats.birthtimeMs}:${stats.ctimeMs}`;
 
 /** Join "/"-separated index paths. */
 const childPath = (parent: string, name: string) =>
@@ -126,7 +127,6 @@ async function crawlInto(
       } catch {
         continue;
       }
-      index.setIdentity(id, folder.identity);
       const files: string[] = [];
       for (const entry of entries) {
         if (unservableName(entry.name)) continue;
@@ -143,6 +143,8 @@ async function crawlInto(
         const size = sizes.get(name);
         if (size !== undefined) index.addChild(id, name, "file", size);
       }
+      // Listed in full: a reconcile can trust its entries until it changes.
+      if (sizes.size === files.length) index.setIdentity(id, folder.identity);
       listed += entries.length;
     } finally {
       folder.close();
@@ -172,6 +174,10 @@ export type ReconcileReport = {
  * size update their folders' totals, and a file replaced by a folder (or the
  * reverse) changes kind. Unchanged entries are never removed, so searches keep
  * finding them throughout.
+ *
+ * A folder whose identity is the one recorded when it was last listed in
+ * full holds the same entries, so it is not listed again: only its files are
+ * stated, for their sizes.
  *
  * Each folder is one slice: listed, stated and applied inside `serialize`, so a
  * watcher change can never land between reading a folder and pruning it, and
@@ -215,13 +221,22 @@ async function reconcileFrom(
       if (folder.type === "unreadable") report.unreadable++;
       if (folder.type !== "open") return [];
       try {
-        if (changedOnly && index.identityOf(folderId) === folder.identity)
+        const unchanged = index.identityOf(folderId) === folder.identity;
+        if (unchanged && changedOnly)
           return index
             .foldersIn(folderId)
             .map((child): [string, number] => [
               childPath(directory, child.name),
               child.id,
             ]);
+        if (unchanged)
+          return await restateFolder(
+            index,
+            report,
+            folder,
+            directory,
+            folderId,
+          );
         return await reconcileFolder(
           index,
           report,
@@ -245,6 +260,49 @@ async function reconcileFrom(
 function forget(index: SearchIndex, id: number) {
   if (id !== 0) index.removeId(id);
   else for (const child of index.childrenOf(0)) index.removeId(child.id);
+}
+
+/**
+ * One reconcile slice for a folder whose identity is the one recorded when
+ * it was last listed in full: it holds the same entries, so only its files'
+ * sizes are read again, by the ids the index already has. A file gone or no
+ * longer regular even so (changed during the pass) is removed; the folder is
+ * listed in full next time.
+ */
+async function restateFolder(
+  index: SearchIndex,
+  report: ReconcileReport,
+  folder: { path: string },
+  directory: string,
+  id: number,
+): Promise<[string, number][]> {
+  const files = index.filesIn(id);
+  const { sizes, unstated } = await statFiles(
+    folder.path,
+    files.map((file) => file.name),
+  );
+  const started = performance.now();
+  for (const file of files) {
+    const size = sizes.get(file.name);
+    if (size !== undefined) index.setFileSize(file.id, size);
+    else if (!unstated.has(file.name)) index.removeId(file.id);
+  }
+  if (unstated.size || sizes.size !== files.length) {
+    if (unstated.size) report.unreadable++;
+    index.setIdentity(id, "");
+  }
+  index.maybeCompact();
+  report.folders++;
+  report.longestSliceMs = Math.max(
+    report.longestSliceMs,
+    performance.now() - started,
+  );
+  return index
+    .foldersIn(id)
+    .map((child): [string, number] => [
+      childPath(directory, child.name),
+      child.id,
+    ]);
 }
 
 /** One reconcile slice: compare an open folder with what the index holds for it. */

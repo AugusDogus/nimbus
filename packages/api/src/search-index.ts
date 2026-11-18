@@ -656,6 +656,27 @@ export function createSearchIndex(initialCapacity = 1024) {
       return folders;
     },
 
+    /** The files directly inside a folder, by id and name. */
+    filesIn(parentId: number) {
+      const files: { id: number; name: string }[] = [];
+      if (parentId < 0 || parentId >= count || kinds[parentId] !== DIR)
+        return files;
+      for (
+        let child = firstChild[parentId];
+        child !== NONE;
+        child = nextSibling[child]
+      )
+        if (kinds[child] === FILE)
+          files.push({ id: child, name: nameOf(child) });
+      return files;
+    },
+
+    /** Set file `id`'s size, for walkers that already hold its id. */
+    setFileSize(id: number, size: number) {
+      if (id >= 0 && id < count && kinds[id] === FILE)
+        addBytes(id, size - bytes[id]);
+    },
+
     /** Remove an entry by id, with everything beneath it. */
     removeId(id: number) {
       if (id > ROOT && id < count) remove(id);

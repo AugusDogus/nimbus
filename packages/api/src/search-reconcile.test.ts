@@ -9,6 +9,7 @@ import {
   rm,
   stat,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -347,4 +348,23 @@ test("empties the index when the data root itself is gone", async () => {
   await rm(drive, { recursive: true });
   await reconcile(index, drive, direct);
   expect(dump(index)).toEqual({ total: 0, entries: [] });
+});
+
+test("finds entries added behind its back even when the folder's time is set back", async () => {
+  await mkdir(path.join(root, "docs"));
+  await writeFile(path.join(root, "docs", "a.txt"), "a");
+  // Times a host process can set back exactly; it cannot set the change time.
+  const time = 1_700_000_000;
+  await utimes(path.join(root, "docs"), time, time);
+  const index = createSearchIndex();
+  await crawl(index, root);
+  await writeFile(path.join(root, "docs", "b.txt"), "bb");
+  await rm(path.join(root, "docs", "a.txt"));
+  await utimes(path.join(root, "docs"), time, time);
+  // Sizes change without any entry changing.
+  await reconcile(index, root, direct);
+  expect(dump(index)).toEqual(await fresh());
+  await writeFile(path.join(root, "docs", "b.txt"), "bigger now");
+  await reconcile(index, root, direct);
+  expect(dump(index)).toEqual(await fresh());
 });
