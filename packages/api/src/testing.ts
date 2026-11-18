@@ -305,6 +305,8 @@ export function createTestDriveStore() {
       for (const recorded of [
         ...[...grants.values()].map((grant) => grant.path),
         ...[...shares.values()].map((share) => share.path),
+        ...[...bookmarks.values()].flat().map((bookmark) => bookmark.path),
+        ...properties.keys(),
       ]) {
         const prefix = recorded.slice(0, path.length);
         if (

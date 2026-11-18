@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d5c7c175-fa1d-4b0e-8d06-c4b9f72d5d01",
+  "id": "f48ac48e-b9e7-4efd-aa1d-c8734fda7531",
   "prevId": "6dd243d9-c131-444c-b036-307c64ba56d2",
   "tables": {
     "nimbus_note": {
@@ -872,6 +872,13 @@
             "path"
           ],
           "isUnique": false
+        },
+        "nimbus_bookmark_path_nocase": {
+          "name": "nimbus_bookmark_path_nocase",
+          "columns": [
+            "\"path\" COLLATE NOCASE"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -933,7 +940,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "nimbus_dav_property_path_nocase": {
+          "name": "nimbus_dav_property_path_nocase",
+          "columns": [
+            "\"path\" COLLATE NOCASE"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "nimbus_dav_property_path_namespace_name_pk": {
@@ -1817,6 +1832,13 @@
             "archived_at"
           ],
           "isUnique": false
+        },
+        "nimbus_file_version_path_nocase": {
+          "name": "nimbus_file_version_path_nocase",
+          "columns": [
+            "\"path\" COLLATE NOCASE"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -2131,6 +2153,20 @@
   },
   "internal": {
     "indexes": {
+      "nimbus_bookmark_path_nocase": {
+        "columns": {
+          "\"path\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      },
+      "nimbus_dav_property_path_nocase": {
+        "columns": {
+          "\"path\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      },
       "nimbus_grant_path_nocase": {
         "columns": {
           "\"path\" COLLATE NOCASE": {
@@ -2146,6 +2182,13 @@
         }
       },
       "nimbus_file_request_path_nocase": {
+        "columns": {
+          "\"path\" COLLATE NOCASE": {
+            "isExpression": true
+          }
+        }
+      },
+      "nimbus_file_version_path_nocase": {
         "columns": {
           "\"path\" COLLATE NOCASE": {
             "isExpression": true

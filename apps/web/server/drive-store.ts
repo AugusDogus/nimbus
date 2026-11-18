@@ -157,26 +157,23 @@ const atOrUnderPath = (
   `SELECT ${columns} FROM ${table} WHERE path >= ?2${collation} AND path < ?3${collation}${extra}`,
 ];
 
-/** Tables of the access records whose other spellings `VacantPath.claim` also claims. */
+/** Every table of records that belong to a path, all deleted by `claimVacant`. */
 const caseFoldedTables = [
   "nimbus_grant",
   "nimbus_share",
   "nimbus_file_request",
+  "nimbus_bookmark",
+  "nimbus_dav_property",
+  "nimbus_file_version",
 ];
 
 /** Whether any record may need claiming at a vacant path: indexed probes, stopping at one. */
-const recordsNear = [
-  ...caseFoldedTables.flatMap((table) =>
-    atOrUnderPath("1 AS found", table, " COLLATE NOCASE"),
-  ),
-  ...["nimbus_bookmark", "nimbus_dav_property", "nimbus_file_version"].flatMap(
-    (table) => atOrUnderPath("1 AS found", table, ""),
-  ),
-]
+const recordsNear = caseFoldedTables
+  .flatMap((table) => atOrUnderPath("1 AS found", table, " COLLATE NOCASE"))
   .join(" UNION ALL ")
   .concat(" LIMIT 1");
 
-/** Other spellings of ?1 that grants, links or file requests are recorded at or under. */
+/** Other spellings of ?1 that any record is kept at or under. */
 const caseVariants = caseFoldedTables
   .flatMap((table) =>
     atOrUnderPath(

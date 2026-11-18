@@ -162,9 +162,26 @@ describe("content created where removed content left records", () => {
     // On case-insensitive storage "SHARED" opens what "Shared" names, so Carol's stale grant
     // there would reach the new folder.
     await abandon("Shared", "dir");
+    await drive.store.saveBookmark("carol", {
+      path: "Shared",
+      starred: true,
+      accessedAt: 1,
+      visits: 1,
+    });
+    await drive.store.patchDavProperties(
+      "Shared",
+      [{ namespace: "urn:x", name: "note", xml: "<x:note>old</x:note>" }],
+      [],
+    );
     await drive.caller("owner").files.createFolder({ name: "SHARED" });
     expect((await drive.access("carol")).can("Shared", "read")).toBe(false);
     expect(await drive.store.getShare(shareId)).toBeNull();
+    // Stars, dead properties and history there would show for the new folder too.
+    expect(await drive.store.listBookmarks("carol")).toEqual([]);
+    expect((await drive.store.davProperties(["Shared"])).size).toBe(0);
+    expect(await FileVersions.history(drive.store.versions, "Shared")).toEqual(
+      [],
+    );
   });
 
   test("moves and restores also drop records under a vacant other spelling of their destination", async () => {
@@ -184,6 +201,35 @@ describe("content created where removed content left records", () => {
     await drive.grant("Report.txt", "carol", "read");
     await drive.caller("owner").trash.restore({ id: trashId });
     expect((await drive.access("carol")).can("Report.txt", "read")).toBe(false);
+  });
+
+  test("stars, dead properties and history alone under another spelling are dropped too", async () => {
+    await drive.store.saveBookmark("carol", {
+      path: "Notes",
+      starred: true,
+      accessedAt: 1,
+      visits: 1,
+    });
+    await drive.store.patchDavProperties(
+      "Notes",
+      [{ namespace: "urn:x", name: "note", xml: "<x:note>old</x:note>" }],
+      [],
+    );
+    await drive.store.versions.add({
+      id: crypto.randomUUID(),
+      path: "Notes",
+      name: "Notes",
+      size: 3,
+      modifiedAt: 1,
+      archivedAt: Date.now(),
+      archivedBy: "owner",
+    });
+    await drive.caller("owner").files.createFolder({ name: "NOTES" });
+    expect(await drive.store.listBookmarks("carol")).toEqual([]);
+    expect((await drive.store.davProperties(["Notes"])).size).toBe(0);
+    expect(await FileVersions.history(drive.store.versions, "Notes")).toEqual(
+      [],
+    );
   });
 
   test("records of an existing item under another spelling are kept on case-sensitive storage", async () => {

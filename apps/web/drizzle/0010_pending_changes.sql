@@ -10,6 +10,9 @@ CREATE TABLE `nimbus_pending_change` (
 	CONSTRAINT "nimbus_pending_change_shape" CHECK((kind IN ('trash', 'restore') AND trash_id IS NOT NULL AND from_path IS NULL AND to_path IS NULL) OR (kind = 'move' AND trash_id IS NULL AND from_path IS NOT NULL AND to_path IS NOT NULL))
 );
 --> statement-breakpoint
+CREATE INDEX `nimbus_bookmark_path_nocase` ON `nimbus_bookmark` ("path" COLLATE NOCASE);--> statement-breakpoint
+CREATE INDEX `nimbus_dav_property_path_nocase` ON `nimbus_dav_property` ("path" COLLATE NOCASE);--> statement-breakpoint
 CREATE INDEX `nimbus_grant_path_nocase` ON `nimbus_grant` ("path" COLLATE NOCASE);--> statement-breakpoint
 CREATE INDEX `nimbus_share_path_nocase` ON `nimbus_share` ("path" COLLATE NOCASE);--> statement-breakpoint
-CREATE INDEX `nimbus_file_request_path_nocase` ON `nimbus_file_request` ("path" COLLATE NOCASE);
+CREATE INDEX `nimbus_file_request_path_nocase` ON `nimbus_file_request` ("path" COLLATE NOCASE);--> statement-breakpoint
+CREATE INDEX `nimbus_file_version_path_nocase` ON `nimbus_file_version` ("path" COLLATE NOCASE);

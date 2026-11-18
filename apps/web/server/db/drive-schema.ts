@@ -100,6 +100,7 @@ export const bookmarks = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.userId, table.path] }),
     index("nimbus_bookmark_path").on(table.path),
+    index("nimbus_bookmark_path_nocase").on(sql`${table.path} COLLATE NOCASE`),
   ],
 );
 export const appPasswords = sqliteTable("nimbus_app_password", {
@@ -122,6 +123,9 @@ export const davProperties = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.path, table.namespace, table.name] }),
+    index("nimbus_dav_property_path_nocase").on(
+      sql`${table.path} COLLATE NOCASE`,
+    ),
   ],
 );
 /** Each account's personal folder. Files stay on disk when the account is removed. */
