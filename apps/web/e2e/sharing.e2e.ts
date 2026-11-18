@@ -1,7 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { test } from "./helpers";
-import { action, client, createFolder, downloadText, upload } from "./helpers";
+import {
+  action,
+  client,
+  createFolder,
+  downloadText,
+  login,
+  origin,
+  password,
+  upload,
+} from "./helpers";
 
 test("public folder links require passwords, confine downloads and honor revocation and expiry", async ({
   page,
@@ -162,5 +171,62 @@ test("public folder links require passwords, confine downloads and honor revocat
       .toBe(404);
   } finally {
     await anonymous.close();
+  }
+});
+
+test("someone who may share a folder, but is not an administrator, shares it with a group", async ({
+  page,
+  browser,
+  context,
+  isMobile,
+}) => {
+  const suffix = randomUUID().slice(0, 8);
+  const email = `sharer-${suffix}@nimbus.test`;
+  const created = await context.request.post("/api/auth/admin/create-user", {
+    headers: { Origin: origin },
+    data: { name: "Lee Sharer", email, password, role: "user" },
+  });
+  expect(created.ok()).toBe(true);
+  const body: unknown = await created.json();
+  const id =
+    typeof body === "object" &&
+    body !== null &&
+    "user" in body &&
+    typeof body.user === "object" &&
+    body.user !== null &&
+    "id" in body.user &&
+    typeof body.user.id === "string"
+      ? body.user.id
+      : null;
+  if (!id) throw new Error("Creating the member returned no user id.");
+  const rpc = await client(context);
+  const folder = `group-share-${suffix}`;
+  const group = `Reviewers ${suffix}`;
+  await rpc.files.createFolder.mutate({ name: folder });
+  await rpc.access.saveGroup.mutate({ name: group, memberIds: [] });
+  await rpc.access.grant.mutate({
+    path: folder,
+    subject: { type: "user", id },
+    permission: "admin",
+  });
+  const member = await browser.newContext({
+    storageState: { cookies: [], origins: [] },
+    viewport: page.viewportSize(),
+  });
+  try {
+    const sharer = await member.newPage();
+    await login(sharer, email);
+    await sharer.goto("/shared");
+    await action(sharer, folder, "Share", isMobile);
+    const dialog = sharer.getByRole("dialog", { name: new RegExp(folder) });
+    await dialog.getByRole("combobox", { name: "Person or group" }).click();
+    await sharer.getByRole("option", { name: `Group: ${group}` }).click();
+    await dialog
+      .getByRole("button", { name: "Grant access", exact: true })
+      .click();
+    // The grant is listed by the group's name, which is all a non-administrator is told.
+    await expect(dialog.getByText(`${group} · read`)).toBeVisible();
+  } finally {
+    await member.close();
   }
 });
