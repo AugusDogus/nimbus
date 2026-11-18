@@ -437,6 +437,14 @@ test("an MCP client uploads a large binary through an upload link and reads it b
   const fetched = await fetch(download.url);
   expect(fetched.status).toBe(200);
   expect(await sha256Of(fetched)).toBe(body.digest());
+  const tail = await fetch(download.url, {
+    headers: { Range: `bytes=${size - 10}-` },
+  });
+  expect(tail.status).toBe(206);
+  expect(tail.headers.get("content-range")).toBe(
+    `bytes ${size - 10}-${size - 1}/${size}`,
+  );
+  expect((await tail.arrayBuffer()).byteLength).toBe(10);
 
   const again = await fetch(link.url, { method: "PUT", body: "again" });
   expect(again.status).toBe(410);

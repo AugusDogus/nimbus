@@ -10,6 +10,7 @@ const instructions = [
   "Nimbus is the user's self-hosted file drive. You act as the signed-in user, with their file permissions.",
   'Paths are relative to the drive root and use "/" separators; "" is the root. Start with list_folder or search_files.',
   "Read files in ranges with read_text. Before replacing a file, read it or call get_item and pass its etag as expectedEtag.",
+  "Move file bytes over HTTP, never in tool arguments: get_download_link to fetch, get_upload_link to PUT files of any size or type, or a folder of them.",
   "Moves, renames, trashing, public links, and permission changes affect other people's access. Confirm them with the user first.",
 ].join("\n");
 
