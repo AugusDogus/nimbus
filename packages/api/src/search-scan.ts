@@ -617,21 +617,32 @@ function names(
   // Folding changes only letters: a query without any reads the same plain.
   const plainCanDiffer = /\p{L}/u.test(plainNeedle);
   for (const range of plan.ranges) {
+    // Nearly every match is found as typed: ranked inline, without a call.
     const asTyped = scan(
       layout,
       range,
       pattern(exact),
       prefixOnly,
-      (slot, at) =>
-        found(
-          slot,
-          folded,
-          foldedStarts[slot] ?? 0,
-          foldedLength(slot),
-          exact,
-          at,
-          false,
-        ),
+      (slot, at) => {
+        if (dead[slot]) return;
+        counts.literal++;
+        if (marking) marks[slot] = (marks[slot] ?? 0) | LITERAL;
+        const start = foldedStarts[slot] ?? 0;
+        const length = (foldedStarts[slot + 1] ?? 0) - start - 1;
+        add(
+          Rank.of(
+            Rank.literalTier(
+              length === exact.length,
+              at - start,
+              folded[at - 1] ?? 0,
+              false,
+            ),
+            boosts[slot] ?? 0,
+            length,
+            slot,
+          ),
+        );
+      },
       stopped,
     );
     if (!asTyped) return false;
