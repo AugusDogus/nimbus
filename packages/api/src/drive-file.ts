@@ -70,10 +70,10 @@ async function opensPath(
       "",
     );
     const expected = path.join(await realRoot(dataRoot), relative);
-    // Case-insensitive volumes may report the name as stored on disk.
-    return (
-      opened === expected || opened.toLowerCase() === expected.toLowerCase()
-    );
+    // Compared exactly: a symlink to a differently cased folder is another folder on
+    // case-sensitive storage. On case-insensitive storage a path spelled differently from the
+    // disk may be refused too, as grants match only the spelling Nimbus lists.
+    return opened === expected;
   }
   let current = dataRoot;
   for (const segment of relative ? relative.split(path.sep) : []) {

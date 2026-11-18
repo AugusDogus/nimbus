@@ -62,6 +62,16 @@ describe("drive files opened after their path was checked", () => {
     }
   });
 
+  test("a folder swapped for a symlink to a differently cased folder is refused", async () => {
+    // On case-sensitive storage "PRIVATE" is another folder, perhaps one the reader may not see.
+    await mkdir(path.join(root, "PRIVATE"));
+    await writeFile(path.join(root, "PRIVATE/salary.txt"), "private");
+    await symlink(path.join(root, "PRIVATE"), path.join(root, "private"));
+    await expect(
+      DriveFile.openForReading(path.join(root, "private/salary.txt")),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   test("copying refuses to read through a symlink", async () => {
     await expect(
       DriveFile.copy(
