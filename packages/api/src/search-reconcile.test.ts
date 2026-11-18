@@ -18,6 +18,7 @@ import path from "node:path";
 import {
   applyChange,
   crawl,
+  fullListingEvery,
   reconcile,
   useCrawlerEnvironmentForTest,
   type Serialize,
@@ -394,13 +395,40 @@ test("a folder changed in the same clock tick as its listing is listed again", a
     await reconcile(index, root, direct);
     expect(dump(index).entries).toContain("docs/b.txt file 1");
     // Once its change time is old enough to tell changes apart, a settled folder is trusted:
-    // later passes only state the files it had instead of listing it. (Here that shows as a
-    // file slipped in without a new change time going unseen, which a real change never does.)
+    // later passes only state its files, listing each folder in full once every
+    // `fullListingEvery` passes.
     now = tick + 10_000;
     await reconcile(index, root, direct);
-    await writeFile(path.join(root, "docs/c.txt"), "c");
-    await reconcile(index, root, direct);
-    expect(dump(index).entries).not.toContain("docs/c.txt file 1");
+    let listed = 0;
+    for (let pass = 0; pass < fullListingEvery; pass++)
+      listed += (await reconcile(index, root, direct)).listed;
+    // The root and docs.
+    expect(listed).toBe(2);
+  } finally {
+    restore();
+  }
+});
+
+test("a trusted folder is still listed in full within a bounded number of passes", async () => {
+  // Storage whose clock runs behind can make a fresh change look settled; with a coarse
+  // timestamp, an entry added in that same tick leaves the identity as recorded.
+  await mkdir(path.join(root, "docs"));
+  await writeFile(path.join(root, "docs/a.txt"), "a");
+  const tick = (await stat(path.join(root, "docs"))).ctimeMs;
+  const restore = useCrawlerEnvironmentForTest({
+    now: () => tick + 60_000,
+    statFolder: (fd) => ({ ...fstatSync(fd), ctimeMs: tick }),
+  });
+  try {
+    const index = createSearchIndex();
+    await crawl(index, root);
+    await writeFile(path.join(root, "docs/b.txt"), "b");
+    let passes = 0;
+    while (!dump(index).entries.includes("docs/b.txt file 1") && passes < 64) {
+      await reconcile(index, root, direct);
+      passes++;
+    }
+    expect(passes).toBeLessThanOrEqual(fullListingEvery);
   } finally {
     restore();
   }

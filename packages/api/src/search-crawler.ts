@@ -199,6 +199,8 @@ export type Serialize = <T>(work: () => Promise<T>) => Promise<T>;
 
 export type ReconcileReport = {
   folders: number;
+  /** Folders listed in full; the others were unchanged, so only their files were stated. */
+  listed: number;
   /** Folders that could not be read, so their previous contents were kept. */
   unreadable: number;
   /** The longest time one folder held the index, a bound on the pause it caused. */
@@ -226,8 +228,28 @@ export const reconcile = (
   index: SearchIndex,
   root: string,
   serialize: Serialize,
-): Promise<ReconcileReport> =>
-  reconcileFrom(index, root, "", 0, serialize, false);
+): Promise<ReconcileReport> => {
+  const turn = passes++ % fullListingEvery;
+  return reconcileFrom(
+    index,
+    root,
+    "",
+    0,
+    serialize,
+    false,
+    (id) => id % fullListingEvery === turn,
+  );
+};
+
+/**
+ * Each pass lists one in this many unchanged folders in full anyway, taking turns by index id,
+ * so every folder is listed again within this many passes. A recorded identity can mislead:
+ * storage whose clock runs behind Nimbus's makes a fresh change look settled, and an entry
+ * added in the same coarse timestamp tick leaves the change time as recorded. This bounds how
+ * long such an entry can stay missing, for about 6% more listing per pass.
+ */
+export const fullListingEvery = 16;
+let passes = 0;
 
 /**
  * `reconcile`, from the folder `relative` (index id `id`) down. With
@@ -242,9 +264,12 @@ async function reconcileFrom(
   id: number,
   serialize: Serialize,
   changedOnly: boolean,
+  /** Unchanged folders to list in full anyway. */
+  listAnyway: (id: number) => boolean = () => false,
 ): Promise<ReconcileReport> {
   const report: ReconcileReport = {
     folders: 0,
+    listed: 0,
     unreadable: 0,
     longestSliceMs: 0,
   };
@@ -259,7 +284,9 @@ async function reconcileFrom(
       if (folder.type === "unreadable") report.unreadable++;
       if (folder.type !== "open") return [];
       try {
-        const unchanged = index.identityOf(folderId) === folder.identity;
+        const unchanged =
+          index.identityOf(folderId) === folder.identity &&
+          !listAnyway(folderId);
         if (unchanged && changedOnly)
           return index
             .foldersIn(folderId)
@@ -396,6 +423,7 @@ async function reconcileFolder(
     if (!seen.has(child.name)) index.removeId(child.id);
   index.maybeCompact();
   report.folders++;
+  report.listed++;
   report.longestSliceMs = Math.max(
     report.longestSliceMs,
     performance.now() - started,
