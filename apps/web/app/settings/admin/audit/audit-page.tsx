@@ -38,6 +38,8 @@ function describeDetails(
   if (typeof details.permission === "string")
     parts.push(`${details.permission} permission`);
   if (typeof details.role === "string") parts.push(`role ${details.role}`);
+  if (typeof details.allowed === "boolean")
+    parts.push(details.allowed ? "turned on" : "turned off");
   if (typeof details.service === "string") parts.push(details.service);
   if (typeof details.mcpClientsDisconnected === "number")
     parts.push(

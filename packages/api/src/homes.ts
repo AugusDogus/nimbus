@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rmdir } from "node:fs/promises";
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
-import type { DriveStore, DriveUser, SharedPaths } from "./drive-store";
+import type {
+  DriveStore,
+  DriveUser,
+  SharedPaths,
+  SharingRecords,
+} from "./drive-store";
 import { fileNameSchema } from "./file-name";
 import { mutateFiles } from "./file-mutations";
 import { VacantPath } from "./vacant-path";
@@ -44,11 +49,17 @@ const plural = (count: number, one: string, many: string) =>
   `${count} ${count === 1 ? one : many}`;
 
 /**
- * Path comparisons for home folders ignore case: a volume shared over SMB or on a
- * case-insensitive filesystem treats `Users` and `users` as one folder.
+ * The spelling-independent form of a path for home-folder comparisons. A volume shared over
+ * SMB, or a casefolding or normalizing filesystem, can treat `Users`, `uſers` (long s) and a
+ * decomposed `café` as the folder it shows as `users` or `café`. Compatibility normalization and
+ * upper-then-lower casing fold those together; folding too much only refuses or protects more.
  */
+const spelling = (path: string) =>
+  path.normalize("NFKC").toUpperCase().toLowerCase().normalize("NFKC");
+
+/** Whether `child` is `parent` or inside it, under any spelling `spelling` equates. */
 const covers = (parent: string, child: string) =>
-  isWithinPath(parent.toLowerCase(), child.toLowerCase());
+  isWithinPath(spelling(parent), spelling(child));
 
 /**
  * Sharing that would reach a home created inside `container`: grants and public links on it or
@@ -71,7 +82,7 @@ function recordsWithin(container: string, shared: SharedPaths) {
     paths.filter(
       (recorded) =>
         covers(container, recorded) &&
-        recorded.toLowerCase() !== container.toLowerCase(),
+        spelling(recorded) !== spelling(container),
     ).length;
   const at = (paths: string[]) =>
     paths.filter((recorded) => covers(container, recorded)).length;
@@ -262,9 +273,12 @@ function provisionUnlocked(
         (await readdir(parent.absolute)).map((name) => name.toLowerCase()),
       );
       const base = folderName(user.email);
+      // A home path, or a folder that held homes before, is never reused even when its folder
+      // is gone: its records would give the new account's grant reach over other homes.
+      const reserved = await protection(store);
       for (let attempt = 1; attempt <= 1000 && !created; attempt++) {
         const name = attempt === 1 ? base : `${base}-${attempt}`;
-        if (taken.has(name)) continue;
+        if (taken.has(name) || reserved(`${container}/${name}`)) continue;
         const target = await resolveSafePath(`${container}/${name}`);
         // Records left by content removed outside Nimbus never attach to the new home.
         if ((await VacantPath.claim(store, target)).kind === "occupied")
@@ -324,7 +338,7 @@ async function protection(store: DriveStore) {
   // them answers each path at once: listings ask for every entry, and there is a home per account.
   const covering = new Set<string>();
   for (const protectedPath of protectedPaths) {
-    const lower = protectedPath.toLowerCase();
+    const lower = spelling(protectedPath);
     covering.add("");
     for (
       let slash = lower.indexOf("/");
@@ -334,7 +348,46 @@ async function protection(store: DriveStore) {
       covering.add(lower.slice(0, slash));
     covering.add(lower);
   }
-  return (path: string) => covering.has(path.toLowerCase());
+  return (path: string) => covering.has(spelling(path));
+}
+
+/**
+ * The folders that hold home folders: the configured one and any Nimbus created before
+ * NIMBUS_HOMES_PATH changed, which keep the homes made there.
+ */
+async function containers(store: DriveStore) {
+  const configured = containerPath();
+  const recorded = await store.listHomeContainers();
+  return recorded.includes(configured) ? recorded : [...recorded, configured];
+}
+
+/**
+ * What sharing `path` would reach: the containers it is or lies above, and how many home folders
+ * they hold. Sharing reaches everything inside a folder, so those homes would all be exposed.
+ */
+async function exposedBy(store: DriveStore, path: string) {
+  const covered = (await containers(store)).filter((container) =>
+    covers(path, container),
+  );
+  if (!covered.length) return { containers: covered, homes: 0 };
+  const homes = (await store.listHomes()).filter((home) =>
+    covered.some((container) => covers(container, home.path)),
+  ).length;
+  return { containers: covered, homes };
+}
+
+/** Grants, public links and upload links on a container or a folder above one. */
+async function sharingOverContainers(
+  store: DriveStore,
+): Promise<SharingRecords> {
+  const all = await containers(store);
+  const shared = await store.sharedPaths();
+  const over = new Set(
+    [...shared.grants, ...shared.links, ...shared.fileRequests].filter(
+      (recorded) => all.some((container) => covers(recorded, container)),
+    ),
+  );
+  return store.sharingAt([...over]);
 }
 
 /** Refuse to move, rename, or delete what `protection` covers. */
@@ -344,6 +397,20 @@ async function requireNotHome(store: DriveStore, path: string) {
       code: "BAD_REQUEST",
       message:
         "This is a personal home folder or the folder that holds them, or contains one, so it cannot be renamed, moved, or deleted. Its contents can be changed. A server administrator can remove an account first; its files stay in place.",
+    });
+}
+
+/**
+ * Refuse to move or restore an item to what `protection` covers. Those paths exist while Nimbus
+ * runs; one removed outside Nimbus must not be taken by an item that brings its links and
+ * grants along, which would then cover home folders.
+ */
+async function requireNotReserved(store: DriveStore, path: string) {
+  if ((await protection(store))(path))
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "This name and place are reserved for a personal home folder or the folder that holds them, so nothing can be moved or restored there. Nothing was changed. Choose another name or folder.",
     });
 }
 
@@ -359,11 +426,16 @@ async function backfill(store: DriveStore) {
 }
 
 export const Homes = {
+  spelling,
   containerPath,
   prepare,
   folderName,
   provision,
   protection,
+  containers,
+  exposedBy,
+  sharingOverContainers,
   requireNotHome,
+  requireNotReserved,
   backfill,
 } as const;

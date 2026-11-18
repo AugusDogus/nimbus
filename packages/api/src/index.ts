@@ -36,7 +36,9 @@ export const publicProcedure = t.procedure.use(filesystemFailures);
 /** Built once: Zod compiles a schema on its first parse, which per request costs more than the parse. */
 const signedInSession = z.object({
   user: z.object({ id: z.string().min(1) }),
-  session: z.object({ impersonatedBy: z.string().nullish() }).optional(),
+  session: z
+    .object({ id: z.string().optional(), impersonatedBy: z.string().nullish() })
+    .optional(),
 });
 
 export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
@@ -54,6 +56,13 @@ export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
       session: session.data,
       /** The administrator signed in as this user, or null in the user's own session. */
       impersonatedBy: session.data.session?.impersonatedBy ?? null,
+      /**
+       * Whether the request carries the account's own browser session: signed in with a
+       * session row and not impersonated. MCP tools call without one.
+       */
+      ownSession:
+        session.data.session?.id !== undefined &&
+        (session.data.session.impersonatedBy ?? null) === null,
       access: await getAccess(ctx.drive, session.data.user.id),
     },
   });

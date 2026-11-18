@@ -7,6 +7,10 @@ import { shareModeSchema, type Share } from "./drive-store";
 import { requireExisting, safePath } from "./file-operations";
 import { protectedProcedure, router } from "./index";
 import { auditUser, recordAudit } from "./audit";
+import {
+  acknowledgementSchema,
+  HomeContainerSharing,
+} from "./home-container-sharing";
 
 const passwordSchema = z.string().min(8).max(128);
 const settingsSchema = z.object({
@@ -42,6 +46,7 @@ export const sharesRouter = router({
       createSettingsSchema.extend({
         path: z.string(),
         password: passwordSchema.optional(),
+        acknowledgeAllHomeFolders: acknowledgementSchema,
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -60,18 +65,25 @@ export const sharesRouter = router({
           await requireExisting(target.relative);
           const token = randomBytes(32).toString("base64url");
           const id = randomUUID();
-          await ctx.drive.createShare({
-            id,
-            token,
-            path: target.relative,
-            createdBy: access.user.id,
-            createdAt: Date.now(),
-            expiresAt: input.expiresAt,
-            passwordHash,
-            downloadCount: 0,
-            maxDownloads: input.maxDownloads,
-            mode: input.mode,
-          });
+          await HomeContainerSharing.share(
+            ctx.drive,
+            target.relative,
+            "link",
+            input.acknowledgeAllHomeFolders,
+            () =>
+              ctx.drive.createShare({
+                id,
+                token,
+                path: target.relative,
+                createdBy: access.user.id,
+                createdAt: Date.now(),
+                expiresAt: input.expiresAt,
+                passwordHash,
+                downloadCount: 0,
+                maxDownloads: input.maxDownloads,
+                mode: input.mode,
+              }),
+          );
           recordAudit({
             action: "share.created",
             actor: auditUser(access.user),

@@ -13,9 +13,15 @@ import {
 } from "./file-operations";
 import { protectedProcedure, router } from "./index";
 import { auditUser, recordAudit } from "./audit";
+import { homeContainerSharingProcedures } from "./home-container-sharing-router";
+import {
+  acknowledgementSchema,
+  HomeContainerSharing,
+} from "./home-container-sharing";
 import { emptyTrash } from "./trash-empty";
 
 export const managementRouter = router({
+  ...homeContainerSharingProcedures,
   capabilities: protectedProcedure
     .input(z.object({ path: z.string() }))
     .query(async ({ ctx, input }) => {
@@ -55,6 +61,7 @@ export const managementRouter = router({
         path: z.string(),
         subject: subjectSchema,
         permission: permissionSchema,
+        acknowledgeAllHomeFolders: acknowledgementSchema,
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -78,12 +85,19 @@ export const managementRouter = router({
               message: "The selected user or group no longer exists.",
             });
           const id = randomUUID();
-          await ctx.drive.saveGrant({
-            id,
-            path: target.relative,
-            subject: input.subject,
-            permission: input.permission,
-          });
+          await HomeContainerSharing.share(
+            ctx.drive,
+            target.relative,
+            "grant",
+            input.acknowledgeAllHomeFolders,
+            () =>
+              ctx.drive.saveGrant({
+                id,
+                path: target.relative,
+                subject: input.subject,
+                permission: input.permission,
+              }),
+          );
           recordAudit({
             action: "grant.added",
             actor: auditUser(access.user),

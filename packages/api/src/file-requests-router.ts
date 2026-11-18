@@ -4,6 +4,10 @@ import { z } from "zod";
 import { getAccess } from "./access";
 import { auditUser, recordAudit } from "./audit";
 import {
+  acknowledgementSchema,
+  HomeContainerSharing,
+} from "./home-container-sharing";
+import {
   fileRequestLimitsSchema,
   type FileRequest,
   type FileRequestSummary,
@@ -43,6 +47,7 @@ export const fileRequestsRouter = router({
       fileRequestLimitsSchema.extend({
         path: z.string(),
         password: passwordSchema.optional(),
+        acknowledgeAllHomeFolders: acknowledgementSchema,
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -77,7 +82,13 @@ export const fileRequestsRouter = router({
             maxFiles: input.maxFiles,
             maxTotalBytes: input.maxTotalBytes,
           };
-          await ctx.drive.fileRequests.create(request);
+          await HomeContainerSharing.share(
+            ctx.drive,
+            target.relative,
+            "uploadLink",
+            input.acknowledgeAllHomeFolders,
+            () => ctx.drive.fileRequests.create(request),
+          );
           recordAudit({
             action: "file_request.created",
             actor: auditUser(access.user),

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { safePath } from "./file-operations";
+import { acknowledgementSchema } from "./home-container-sharing";
 import { McpScope } from "./mcp-scope";
 import {
   additive,
@@ -71,7 +72,7 @@ const createLink = defineTool({
   name: "create_public_link",
   title: "Create public link",
   description:
-    "Create a read-only public link to a file or folder you administer. Anyone with the URL can view and download it (a folder link includes everything inside) until it expires or is revoked. Confirm with the user before sharing content publicly.",
+    "Create a read-only public link to a file or folder you administer. Anyone with the URL can view and download it (a folder link includes everything inside) until it expires or is revoked. Confirm with the user before sharing content publicly. Sharing the folder that holds every user's home folder, or a folder above it such as the drive root, is refused unless a server administrator allowed it; then the call is refused until you confirm with the user and pass acknowledgeAllHomeFolders: true.",
   scope: McpScope.share,
   annotations: additive,
   input: z.object({
@@ -88,6 +89,7 @@ const createLink = defineTool({
       .max(128)
       .optional()
       .describe("Optional password visitors must enter"),
+    acknowledgeAllHomeFolders: acknowledgementSchema,
   }),
   output: linkOutput,
   async run({ caller, context }, input) {
@@ -96,6 +98,7 @@ const createLink = defineTool({
       expiresAt:
         input.expiresAt === undefined ? null : Date.parse(input.expiresAt),
       password: input.password,
+      acknowledgeAllHomeFolders: input.acknowledgeAllHomeFolders,
     });
     const link = (await caller.shares.list()).find(
       (entry) => entry.token === token,
@@ -189,7 +192,7 @@ const grantPermission = defineTool({
   name: "grant_permission",
   title: "Grant permission",
   description:
-    "Give an existing Nimbus user (by email) or group (by name) read, write, or admin access to a file or folder you administer, including everything inside it. Granting again replaces that subject's permission on this path. Confirm with the user before widening access.",
+    "Give an existing Nimbus user (by email) or group (by name) read, write, or admin access to a file or folder you administer, including everything inside it. Granting again replaces that subject's permission on this path. Confirm with the user before widening access. Sharing the folder that holds every user's home folder, or a folder above it such as the drive root, is refused unless a server administrator allowed it; then the call is refused until you confirm with the user and pass acknowledgeAllHomeFolders: true.",
   scope: McpScope.share,
   annotations: idempotentChange,
   input: z.object({
@@ -199,6 +202,7 @@ const grantPermission = defineTool({
       z.object({ type: z.literal("group"), name: z.string().min(1).max(100) }),
     ]),
     permission: permissionSchema,
+    acknowledgeAllHomeFolders: acknowledgementSchema,
   }),
   output: z.object({ path: z.string(), permission: permissionSchema }),
   async run({ caller }, input) {
@@ -224,6 +228,7 @@ const grantPermission = defineTool({
       path: target.relative,
       subject: { type: input.subject.type, id },
       permission: input.permission,
+      acknowledgeAllHomeFolders: input.acknowledgeAllHomeFolders,
     });
     return { path: target.relative, permission: input.permission };
   },

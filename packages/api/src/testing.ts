@@ -49,6 +49,7 @@ export function createTestDriveStore() {
   const properties = new Map<string, DavProperty[]>();
   const homes = new Map<string, Home>();
   const homeContainers = new Set<string>();
+  const settings = { allowHomeContainerSharing: false };
   const fileRequests = createTestFileRequestStore();
   type Detached = {
     grants: Grant[];
@@ -200,6 +201,33 @@ export function createTestDriveStore() {
     },
     async removeHomeContainer(path) {
       homeContainers.delete(path);
+    },
+    async sharingAt(paths) {
+      const at = new Set(paths);
+      const requests = (
+        await Promise.all(
+          [...users.keys()].map((userId) => fileRequests.list(userId)),
+        )
+      ).flat();
+      return {
+        grants: [...grants.values()].filter((grant) => at.has(grant.path)),
+        links: [...shares.values()].filter((share) => at.has(share.path)),
+        fileRequests: (
+          await Promise.all(
+            requests
+              .filter((request) => at.has(request.path))
+              .map((request) => fileRequests.getById(request.id)),
+          )
+        ).filter((request) => request !== null),
+      };
+    },
+    async homeContainerSharingAllowed() {
+      return settings.allowHomeContainerSharing;
+    },
+    async setHomeContainerSharingAllowed(allowed) {
+      const previous = settings.allowHomeContainerSharing;
+      settings.allowHomeContainerSharing = allowed;
+      return previous;
     },
     async sharedPaths() {
       const requests = (

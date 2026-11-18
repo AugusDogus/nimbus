@@ -24,6 +24,7 @@
     "./file-listing": "./src/file-listing.ts",
     "./file-mutations": "./src/file-mutations.ts",
     "./homes": "./src/homes.ts",
+    "./home-container-sharing": "./src/home-container-sharing.ts",
     "./file-request": "./src/file-request.ts",
     "./file-request-testing": "./src/file-request-testing.ts",
     "./filesystem-capacity": "./src/filesystem-capacity.ts",

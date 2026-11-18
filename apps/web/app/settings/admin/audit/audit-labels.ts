@@ -52,4 +52,5 @@ export const auditLabels: Record<AuditAction, string> = {
   "app_password.created": "Created app password",
   "app_password.revoked": "Revoked app password",
   "webdav.auth_failed": "WebDAV sign-in failed",
+  "setting.changed": "Changed server setting",
 };

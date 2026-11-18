@@ -28,6 +28,7 @@ import {
   homeContainers,
   homes,
   pendingChanges,
+  serverSettings,
   shares,
   trash,
   user,
@@ -663,6 +664,63 @@ export function createDriveStore(database: Database): DriveStore {
       await database
         .delete(homeContainers)
         .where(eq(homeContainers.path, path));
+    },
+    async sharingAt(paths) {
+      if (!paths.length) return { grants: [], links: [], fileRequests: [] };
+      const at = [...paths];
+      return {
+        grants: database
+          .select()
+          .from(grants)
+          .where(inArray(grants.path, at))
+          .all()
+          .map(toGrant),
+        links: database
+          .select()
+          .from(shares)
+          .where(inArray(shares.path, at))
+          .all(),
+        fileRequests: database
+          .select()
+          .from(fileRequests)
+          .where(inArray(fileRequests.path, at))
+          .all(),
+      };
+    },
+    async homeContainerSharingAllowed() {
+      const row = database
+        .select({ allowed: serverSettings.allowHomeContainerSharing })
+        .from(serverSettings)
+        .where(eq(serverSettings.id, 0))
+        .get();
+      return row?.allowed ?? false;
+    },
+    async setHomeContainerSharingAllowed(allowed, by) {
+      return database.transaction((tx) => {
+        const previous =
+          tx
+            .select({ allowed: serverSettings.allowHomeContainerSharing })
+            .from(serverSettings)
+            .where(eq(serverSettings.id, 0))
+            .get()?.allowed ?? false;
+        tx.insert(serverSettings)
+          .values({
+            id: 0,
+            allowHomeContainerSharing: allowed,
+            updatedAt: Date.now(),
+            updatedBy: by,
+          })
+          .onConflictDoUpdate({
+            target: serverSettings.id,
+            set: {
+              allowHomeContainerSharing: allowed,
+              updatedAt: Date.now(),
+              updatedBy: by,
+            },
+          })
+          .run();
+        return previous;
+      });
     },
     async sharedPaths() {
       const paths = (

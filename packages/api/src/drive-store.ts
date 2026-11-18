@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { FileRequestStore } from "./file-request";
+import type { FileRequest, FileRequestStore } from "./file-request";
 import type { FileVersionStore } from "./file-versions";
 
 export const permissionSchema = z.enum(["read", "write", "admin"]);
@@ -93,6 +93,13 @@ export type PendingChange = {
   | { kind: "move"; from: string; to: string }
 );
 
+/** Sharing records found at some paths, by kind. */
+export type SharingRecords = {
+  grants: Grant[];
+  links: Share[];
+  fileRequests: FileRequest[];
+};
+
 /** Persistence boundary. Filesystem content remains on disk, never in these records. */
 export type DriveStore = {
   /**
@@ -134,6 +141,15 @@ export type DriveStore = {
   removeHomeContainer(path: string): Promise<void>;
   /** Every live path with a grant, public link, upload link, or bookmark, by kind. */
   sharedPaths(): Promise<SharedPaths>;
+  /** Live grants, public links and upload links recorded exactly at one of `paths`. */
+  sharingAt(paths: readonly string[]): Promise<SharingRecords>;
+  /** Whether administrators allowed sharing the home-folder container and folders above it. */
+  homeContainerSharingAllowed(): Promise<boolean>;
+  /** Change that setting for `by`, returning the previous value read in the same transaction. */
+  setHomeContainerSharingAllowed(
+    allowed: boolean,
+    by: string,
+  ): Promise<boolean>;
   /** Dead properties of each path. Paths without properties are absent from the map. */
   davProperties(paths: readonly string[]): Promise<Map<string, DavProperty[]>>;
   /** Set and remove dead properties of one path in a single transaction. */

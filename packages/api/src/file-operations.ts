@@ -177,6 +177,7 @@ async function moveUnlocked(
   const target = await safePath(targetPath);
   requireMutable(source.relative);
   requireMutable(target.relative);
+  await Homes.requireNotReserved(store, target.relative);
   access.require(source.relative, "write");
   access.require(target.relative, "write");
   // A moved item keeps its own links, direct grants, and bookmarks, but stops inheriting from its
@@ -499,6 +500,7 @@ async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
         "Nimbus was interrupted while changing this item, and other content now stands in its place in trash, so restoring it could give that content this item's sharing. It was not restored. Delete it for good, or ask a server administrator to check the server's trash folder.",
     });
   const target = await safePath(item.path);
+  await Homes.requireNotReserved(store, target.relative);
   // Trash suspended the item's own grants, including any that let this person delete it, and
   // restoring returns them. So they count here along with the live ones.
   accessFor(access.user, [

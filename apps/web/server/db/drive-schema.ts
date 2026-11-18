@@ -144,6 +144,26 @@ export const homeContainers = sqliteTable("nimbus_home_container", {
   createdAt: integer("created_at").notNull(),
 });
 /**
+ * Server-wide settings administrators change in Settings, one row (id 0). Sharing the folder
+ * that holds every home folder, or a folder above it, is refused unless it is allowed here.
+ */
+export const serverSettings = sqliteTable(
+  "nimbus_server_setting",
+  {
+    id: integer("id").primaryKey(),
+    allowHomeContainerSharing: integer("allow_home_container_sharing", {
+      mode: "boolean",
+    })
+      .notNull()
+      .default(false),
+    updatedAt: integer("updated_at"),
+    updatedBy: text("updated_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+  },
+  () => [check("nimbus_server_setting_single_row", sql`id = 0`)],
+);
+/**
  * Changes whose filesystem step and database step a crash could separate: moving an item to
  * trash, restoring it, and moving or renaming it. Each row is written in a transaction before
  * or with the first step and deleted with the last, so a row left behind names a change that

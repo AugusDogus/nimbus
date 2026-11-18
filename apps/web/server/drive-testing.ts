@@ -39,10 +39,27 @@ export async function openTestDrive() {
     sqlite: opened.sqlite,
     root,
     absolute: (relative: string) => path.join(root, relative),
-    caller: (id: TestAccount) =>
+    /**
+     * A tRPC caller for `id`. `session` is how the request signed in: "browser" with the
+     * account's own session, "impersonated" with an administrator's session as that account,
+     * or "none" (the default) with no session row, as MCP tools and the older tests call.
+     */
+    caller: (
+      id: TestAccount,
+      session: "browser" | "impersonated" | "none" = "none",
+    ) =>
       appRouter.createCaller({
         headers: new Headers(),
-        session: { user: { id } },
+        session:
+          session === "none"
+            ? { user: { id } }
+            : {
+                user: { id },
+                session: {
+                  id: `session-${id}`,
+                  impersonatedBy: session === "impersonated" ? "owner" : null,
+                },
+              },
         sessionStillValid: async () => true,
         drive: store,
         preferences: {
