@@ -176,11 +176,13 @@ export default function SearchSuggestions({
           onClick={showAll}
           className="cursor-default rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         >
-          {query && results.settled && entries.length === 0
-            ? "No matching names. Press Enter to search again."
-            : results.total && results.total.count > entries.length
-              ? `Show all ${count.format(results.total.count)}${results.total.exact ? "" : "+"} results for “${value.trim()}”`
-              : `Show all results for “${value.trim()}”`}
+          {query && results.problem && entries.length === 0
+            ? results.problem.message
+            : query && results.settled && entries.length === 0
+              ? "No matching names. Press Enter to search again."
+              : results.total && results.total.count > entries.length
+                ? `Show all ${count.format(results.total.count)}${results.total.exact ? "" : "+"} results for “${value.trim()}”`
+                : `Show all results for “${value.trim()}”`}
         </div>
       </div>
       {preview && (

@@ -1,6 +1,7 @@
 import { Link } from "@/components/link";
 import { useCallback, useMemo } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { EntriesView } from "../files/entries-view";
 import type { FileEntry } from "../files/types";
 import { useEntryDialog } from "../files/use-entry-dialog";
@@ -60,13 +61,10 @@ export function SearchResultsPage({ query }: { query: string }) {
   return (
     <div className="space-y-6">
       <h1 className="text-balance text-2xl font-semibold">{title}</h1>
-      {search.error ? (
-        <p role="alert" className="text-pretty text-destructive">
-          {search.error.message}
-        </p>
-      ) : (search.pending || !search.settled) &&
-        query &&
-        !search.entries.length ? (
+      {(search.pending || !search.settled) &&
+      query &&
+      !search.entries.length &&
+      !search.problem ? (
         <p>Loading files…</p>
       ) : search.entries.length ? (
         <EntriesView
@@ -79,7 +77,7 @@ export function SearchResultsPage({ query }: { query: string }) {
           dialog={dialog}
           onDialog={onDialog}
         />
-      ) : (
+      ) : search.problem ? null : (
         <div className="space-y-3 rounded-lg border p-8 text-center">
           <p className="text-pretty text-muted-foreground">
             No matching files. Try a different filename.
@@ -87,6 +85,25 @@ export function SearchResultsPage({ query }: { query: string }) {
           <Link to="/" className={buttonVariants({ variant: "outline" })}>
             Open My Drive
           </Link>
+        </div>
+      )}
+      {/* Results already shown stay; the problem is said below them, calmly when a moment fixes it. */}
+      {search.problem && (
+        <div className="flex flex-wrap items-center gap-3">
+          <p
+            role={search.problem.kind === "failed" ? "alert" : "status"}
+            className={cn(
+              "text-pretty text-sm",
+              search.problem.kind === "failed"
+                ? "text-destructive"
+                : "text-muted-foreground",
+            )}
+          >
+            {search.problem.message}
+          </p>
+          <Button variant="outline" size="sm" onClick={search.retry}>
+            Search again
+          </Button>
         </div>
       )}
       {!search.complete && (
@@ -97,6 +114,15 @@ export function SearchResultsPage({ query }: { query: string }) {
       )}
       {total && search.entries.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
+          {search.restarted && (
+            <p
+              role="status"
+              className="w-full text-pretty text-sm text-muted-foreground"
+            >
+              The results changed while you were looking through them, so the
+              list was rebuilt from the top.
+            </p>
+          )}
           <p
             role="status"
             className="text-pretty text-sm text-muted-foreground"

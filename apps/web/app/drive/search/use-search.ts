@@ -1,11 +1,28 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { inferRouterOutputs } from "@trpc/server";
 import { useEffect, useMemo, useState } from "react";
-import { queryClient, trpcClient } from "@/lib/trpc";
+import { trpcClient } from "@/lib/trpc";
 import type { WebRouter } from "@/server/web-router";
+import { SearchPages, type LaterPages } from "./search-pages";
+import { SearchProblem } from "./search-problem";
 
 type SearchOutput = inferRouterOutputs<WebRouter>["catalog"]["search"];
 export type SearchResultEntry = SearchOutput["entries"][number];
+
+/** Fetches the full-depth page after `cursor`. */
+const pageAfter =
+  (query: string, limit: number, signal?: AbortSignal) => (cursor: string) =>
+    trpcClient.catalog.search.query(
+      { query, path: "", limit, depth: "full", cursor },
+      { signal },
+    );
+
+/**
+ * A search the server refused or stopped for pacing is not retried at once, which would only
+ * add to the load; the page offers to search again. Other failures retry as usual.
+ */
+const retryable = (failures: number, error: unknown) =>
+  SearchProblem.of(error).kind === "failed" && failures < 3;
 
 /** Results and counts, as far as the search has got. */
 export type SearchState = {
@@ -21,7 +38,15 @@ export type SearchState = {
   /** Every layer has answered, so an empty list really means no matches. */
   settled: boolean;
   loadingMore: boolean;
-  error: Error | null;
+  /**
+   * The search changed while paging (a restart), so the list was rebuilt from a fresh first
+   * page. Said until the next page is asked for.
+   */
+  restarted: boolean;
+  /** Why the search, or the last page asked for, has no answer. */
+  problem: SearchProblem | null;
+  /** Asks again for what failed. */
+  retry: () => void;
   loadMore: () => void;
 };
 
@@ -29,7 +54,8 @@ export type SearchState = {
  * A search in two steps: names containing the query come back first (the
  * instant layer), then every layer, which starts with those same results in
  * the same order and continues below them. Each later page continues after
- * the last result shown, so loading more only appends.
+ * the last result shown, unless the server cannot continue it: then it sends a
+ * fresh first page (a restart), which replaces the list.
  */
 export function useSearch(query: string, limit: number): SearchState {
   const enabled = query.length > 0;
@@ -43,6 +69,7 @@ export function useSearch(query: string, limit: number): SearchState {
     enabled,
     placeholderData: keepPreviousData,
     staleTime: 5_000,
+    retry: retryable,
   });
   // Waits for the instant answer, so the two are separate requests and the
   // fast one is never held back by the slow one in a batch.
@@ -56,45 +83,66 @@ export function useSearch(query: string, limit: number): SearchState {
       ),
     enabled: enabled && instantReady,
     staleTime: 5_000,
+    retry: retryable,
   });
   // Later pages, for the search they continue. (Plain queries rather than
   // useInfiniteQuery, whose code would join the chunk every page loads.)
   // `base` is when the first page they continue was fetched.
-  const [later, setLater] = useState<{
-    query: string;
-    base: number;
-    pages: SearchOutput[];
-    loading: boolean;
-    error: Error | null;
-  }>({ query: "", base: 0, pages: [], loading: false, error: null });
+  const [later, setLater] = useState<
+    LaterPages<SearchOutput> & {
+      query: string;
+      base: number;
+      loading: boolean;
+      error: unknown;
+      /** The last fill met a restart and rebuilt the list from a fresh first page. */
+      restarted: boolean;
+    }
+  >({
+    ...SearchPages.none,
+    query: "",
+    base: 0,
+    loading: false,
+    error: null,
+    restarted: false,
+  });
   const own = later.query === query ? later : null;
   const base = full.dataUpdatedAt;
   const first = full.data;
-  const loaded = own?.pages.length ?? 0;
+  const shown = useMemo(
+    () => (first ? SearchPages.shown(first, own ?? SearchPages.none) : []),
+    [first, own],
+  );
+  const settle = (
+    filled: LaterPages<SearchOutput> & { restarted: boolean; query: string },
+    since: number,
+  ) =>
+    setLater((previous) =>
+      previous.query === filled.query
+        ? { ...filled, base: since, loading: false, error: null }
+        : previous,
+    );
   // A change refetches the first page, so the later pages may list items that were trashed,
-  // renamed or moved. Fetch the same number of pages again after the new first page, keeping
-  // the old ones on screen until the new ones replace them.
-  const stale = first !== undefined && loaded > 0 && own?.base !== base;
+  // renamed or moved. Fetch as many pages again after the new first page, keeping the old ones
+  // on screen until the new ones replace them.
+  const loaded = shown.length;
+  const stale =
+    first !== undefined &&
+    own !== null &&
+    (own.head !== null || own.pages.length > 0) &&
+    own.base !== base;
   useEffect(() => {
     if (!stale) return;
     const controller = new AbortController();
-    void (async () => {
-      const pages: SearchOutput[] = [];
-      let cursor = first.next;
-      while (cursor && pages.length < loaded) {
-        const page = await trpcClient.catalog.search.query(
-          { query, path: "", limit, depth: "full", cursor },
-          { signal: controller.signal },
-        );
-        pages.push(page);
-        cursor = page.next;
-      }
-      return pages;
-    })().then(
-      (pages) =>
+    SearchPages.fill(
+      first,
+      SearchPages.none,
+      loaded,
+      pageAfter(query, limit, controller.signal),
+    ).then(
+      (filled) =>
         setLater((previous) =>
           previous.query === query
-            ? { query, base, pages, loading: false, error: null }
+            ? { ...filled, query, base, loading: false, error: null }
             : previous,
         ),
       (error: unknown) => {
@@ -102,18 +150,7 @@ export function useSearch(query: string, limit: number): SearchState {
         // Results that may be wrong are dropped; Show more loads them again.
         setLater((previous) =>
           previous.query === query
-            ? {
-                query,
-                base,
-                pages: [],
-                loading: false,
-                error:
-                  error instanceof Error
-                    ? error
-                    : new Error(
-                        "The results changed and the later ones could not be reloaded. Show more to try again.",
-                      ),
-              }
+            ? { ...previous, ...SearchPages.none, base, loading: false, error }
             : previous,
         );
       },
@@ -121,75 +158,43 @@ export function useSearch(query: string, limit: number): SearchState {
     return () => controller.abort();
   }, [stale, first, base, loaded, query, limit]);
 
-  const fullPages = useMemo(
-    () => (full.data ? [full.data, ...(own?.pages ?? [])] : undefined),
-    [full.data, own?.pages],
-  );
   const entries = useMemo(() => {
     if (!enabled) return [];
-    if (!fullPages) return instant.data?.entries ?? [];
-    // A page continued after the index was compacted may repeat a path.
-    const seen = new Set<string>();
-    const merged: SearchResultEntry[] = [];
-    for (const page of fullPages)
-      for (const entry of page.entries)
-        if (!seen.has(entry.path)) {
-          seen.add(entry.path);
-          merged.push(entry);
-        }
-    return merged;
-  }, [enabled, fullPages, instant.data]);
+    if (!first) return instant.data?.entries ?? [];
+    return SearchPages.entries(shown);
+  }, [enabled, first, shown, instant.data]);
 
-  const last = fullPages?.[fullPages.length - 1];
-  const summary = first ?? instant.data;
+  const last = shown.at(-1);
+  // After a restart the fresh first page counts every match as the search stands now.
+  const summary = own?.head ?? first ?? instant.data;
   const loadMore = () => {
-    const cursor = last?.next;
-    if (!cursor || own?.loading || stale) return;
+    if (!first || !last?.next || own?.loading || stale) return;
+    const current = own ?? SearchPages.none;
     setLater({
+      ...current,
       query,
       base,
-      pages: own?.pages ?? [],
       loading: true,
       error: null,
+      restarted: false,
     });
-    queryClient
-      .fetchQuery({
-        queryKey: ["catalog", "search", query, limit, "full", cursor],
-        queryFn: ({ signal }) =>
-          trpcClient.catalog.search.query(
-            { query, path: "", limit, depth: "full", cursor },
-            { signal },
-          ),
-        staleTime: 5_000,
-      })
-      .then(
-        (page) =>
-          setLater((previous) =>
-            previous.query === query && previous.base === base
-              ? {
-                  ...previous,
-                  pages: [...previous.pages, page],
-                  loading: false,
-                }
-              : previous,
-          ),
-        (error: unknown) =>
-          setLater((previous) =>
-            previous.query === query
-              ? {
-                  ...previous,
-                  loading: false,
-                  error:
-                    error instanceof Error
-                      ? error
-                      : new Error(
-                          "More results could not be loaded. The results shown are unchanged; try again.",
-                        ),
-                }
-              : previous,
-          ),
-      );
+    // One page more than shown; a restart rebuilds from a fresh first page to as many pages.
+    void SearchPages.fill(
+      first,
+      current,
+      shown.length + 1,
+      pageAfter(query, limit),
+    ).then(
+      (filled) => settle({ ...filled, query }, base),
+      (error: unknown) =>
+        setLater((previous) =>
+          previous.query === query
+            ? { ...previous, loading: false, error }
+            : previous,
+        ),
+    );
   };
+  const failure = instant.error ?? full.error ?? own?.error ?? null;
   return {
     entries,
     total:
@@ -201,7 +206,13 @@ export function useSearch(query: string, limit: number): SearchState {
     pending: enabled && instant.isPending,
     settled: !enabled || first !== undefined || full.isError || instant.isError,
     loadingMore: (own?.loading ?? false) || stale,
-    error: instant.error ?? full.error ?? own?.error ?? null,
+    restarted: own?.restarted ?? false,
+    problem: failure === null ? null : SearchProblem.of(failure),
+    retry: () => {
+      if (instant.isError) void instant.refetch();
+      else if (full.isError) void full.refetch();
+      else loadMore();
+    },
     loadMore,
   };
 }

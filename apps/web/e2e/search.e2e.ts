@@ -161,3 +161,83 @@ test("drops a trashed result loaded by Show more and updates the count", async (
     page.locator(`[data-entry-path="${last}"]`).filter({ visible: true }),
   ).toHaveCount(0);
 });
+
+test("a page that restarts replaces the results instead of piling onto them", async ({
+  page,
+  context,
+}) => {
+  const token = randomUUID().slice(0, 8);
+  const folder = `restart-${token}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: folder });
+  const directory = path.join(await dataRoot(), folder);
+  for (let i = 0; i < 230; i++)
+    await writeFile(path.join(directory, `memo-${token}-${i}.txt`), "x");
+  const status = page.getByRole("status").filter({ hasText: "matches" });
+  await expect(async () => {
+    await page.goto(`/search?q=memo-${token}`);
+    await expect(status).toHaveText("Showing 200 of 230 matches.", {
+      timeout: 2_000,
+    });
+  }).toPass();
+  // Starring changes the caller's history, so the next page cannot continue this one.
+  await rpc.catalog.bookmark.mutate({
+    path: `${folder}/memo-${token}-229.txt`,
+    starred: true,
+  });
+  const more = page.getByRole("button", { name: "Show 30 more", exact: true });
+  await more.click();
+  await expect(status).toHaveText("230 matches.");
+  await expect(
+    page.getByRole("status").filter({ hasText: "rebuilt from the top" }),
+  ).toBeVisible();
+  const shown = await page
+    .locator(`[data-entry-path^="${folder}/"]`)
+    .evaluateAll((rows) =>
+      rows.map((row) => row.getAttribute("data-entry-path")),
+    );
+  // Rows render in a window; every rendered one is distinct.
+  expect(new Set(shown).size).toBe(shown.length);
+  await expect(
+    page.getByRole("button", { name: /^Show \d+ more$/ }),
+  ).toHaveCount(0);
+});
+
+test("a search the server is pacing says to wait a moment, without alarm", async ({
+  page,
+}) => {
+  // The batched answer tRPC sends when the per-person search limit refuses a search.
+  const searches = (url: URL) =>
+    url.pathname.startsWith("/api/trpc/catalog.search");
+  await page.route(searches, (route) => {
+    const url = new URL(route.request().url());
+    const calls = url.pathname.slice("/api/trpc/".length).split(",").length;
+    const error = {
+      error: {
+        message: "Too many searches.",
+        code: -32029,
+        data: { code: "TOO_MANY_REQUESTS", httpStatus: 429 },
+      },
+    };
+    return route.fulfill({
+      status: 429,
+      contentType: "application/json",
+      body: JSON.stringify(
+        url.searchParams.has("batch")
+          ? Array.from({ length: calls }, () => error)
+          : error,
+      ),
+    });
+  });
+  await page.goto(`/search?q=${randomUUID().slice(0, 8)}`);
+  const notice = page
+    .getByRole("status")
+    .filter({ hasText: "still answering your earlier searches" });
+  await expect(notice).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByText("No matching files")).toHaveCount(0);
+  await page.unroute(searches);
+  await page.getByRole("button", { name: "Search again", exact: true }).click();
+  await expect(notice).toBeHidden();
+  await expect(page.getByText("No matching files")).toBeVisible();
+});
