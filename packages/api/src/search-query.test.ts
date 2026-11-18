@@ -1114,6 +1114,28 @@ describe("corrections cost what the caller's own names cost", () => {
       }
     });
 
+  it("corrects at most two words of a query, the first ones no name holds", () => {
+    const index = createSearchIndex();
+    index.add("docs/alpha bravo charlie delta.txt", "file");
+    index.compact();
+    const terms = (query: string) =>
+      index.search({
+        query,
+        root: "",
+        limit: 50,
+        scope: all,
+        depth: "full",
+        now: 1,
+      }).terms;
+    // Two misspelled words: both read as the words the name holds.
+    expect(terms("alpah bravo charlei")).toContain("charlie");
+    // Three: only the first two are corrected, so the third finds nothing.
+    const three = terms("alpah bravvo charlei");
+    expect(three).toContain("alpha");
+    expect(three).toContain("bravo");
+    expect(three).not.toContain("charlie");
+  });
+
   it("costs no more for hidden words sharing a long query word's letters", () => {
     const index = createSearchIndex();
     for (const name of junk("a", 40, 60_000))

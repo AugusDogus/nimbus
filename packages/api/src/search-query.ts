@@ -196,6 +196,13 @@ export type IndexView = {
  */
 export const MAX_CORRECTIONS = 4;
 
+/**
+ * Words of one query the typo layer corrects at most: each costs a pass over
+ * the vocabulary near it, so this bounds what one search can cost by the
+ * query alone. Queries rarely misspell more.
+ */
+export const MAX_CORRECTED_WORDS = 2;
+
 const NONE = -1;
 const ROOT = 0;
 const DAY_MS = 86_400_000;
@@ -818,8 +825,10 @@ function prepare(
             ? [`M${year}${String(month).padStart(2, "0")}`]
             : [];
         });
+        // The first few words no name holds, as the query alone decides.
+        let correcting = MAX_CORRECTED_WORDS;
         const fixes = allTerms.map((term, index) =>
-          missing[index] && !dates[index]?.length
+          missing[index] && !dates[index]?.length && correcting-- > 0
             ? view.words.corrections(term, visibility, MAX_CORRECTIONS, stopped)
             : [],
         );
