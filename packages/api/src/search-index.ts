@@ -149,6 +149,8 @@ export function createSearchIndex(initialCapacity = 1024) {
     plainSlot: new Int32Array(0),
     plainLead: new Uint8Array(0),
   };
+  /** Entries added since compaction whose plain name differs from their folded one. */
+  const deltaPlain = new Set<number>();
   // Names for entries added since compaction.
   const deltaNames = new Map<
     number,
@@ -286,6 +288,7 @@ export function createSearchIndex(initialCapacity = 1024) {
       bytes[current] = 0;
       slotOf[current] = NONE;
       deltaNames.delete(current);
+      deltaPlain.delete(current);
       live--;
     }
   }
@@ -320,6 +323,7 @@ export function createSearchIndex(initialCapacity = 1024) {
       folded: foldedName,
       plain: plainName === foldedName ? null : plainName,
     });
+    if (plainName !== foldedName) deltaPlain.add(id);
     words.add(id, name);
     const { slot } = probe(parentId, name);
     table[slot] = id;
@@ -363,8 +367,9 @@ export function createSearchIndex(initialCapacity = 1024) {
     let bytes = 1;
     for (let slot = 0; slot < used; slot++) {
       const id = order[slot];
-      const delta = deltaNames.get(id);
       const previous = slotOf[id];
+      // Only entries added since the last compaction have no slot in it.
+      const delta = previous === NONE ? deltaNames.get(id) : undefined;
       nextFoldedStarts[slot] = bytes;
       bytes +=
         (delta
@@ -376,8 +381,8 @@ export function createSearchIndex(initialCapacity = 1024) {
     const rawParts = new Array<string>(used);
     for (let slot = 0; slot < used; slot++) {
       const id = order[slot];
-      const delta = deltaNames.get(id);
       const previous = slotOf[id];
+      const delta = previous === NONE ? deltaNames.get(id) : undefined;
       if (delta) {
         rawParts[slot] = delta.raw;
         nextFolded.write(delta.folded, nextFoldedStarts[slot]);
@@ -409,42 +414,45 @@ export function createSearchIndex(initialCapacity = 1024) {
     subtreeEnd = ends;
     slots = used;
     deadSlots = 0;
-    // Plain names, kept only where they differ: added ones carry theirs, and
-    // the rest are copied from the old layout, whose surviving slots keep
-    // their order.
-    const plainSlots: number[] = [];
-    const plainSources: (string | number)[] = [];
-    const plainLeads: number[] = [];
+    // Plain names, kept only where they differ, a small share: the old
+    // layout's that survive, copied, and those added since, put in slot
+    // order without visiting every slot.
+    const plainEntries: {
+      slot: number;
+      source: string | number;
+      lead: number;
+    }[] = [];
     let plainBytes = 1;
-    let oldEntry = 0;
     const oldPlainSlot = previousLayout.plainSlot;
-    for (let slot = 0; slot < used; slot++) {
-      const id = order[slot];
-      const delta = deltaNames.get(id);
-      if (delta) {
-        if (delta.plain === null) continue;
-        plainSlots.push(slot);
-        plainSources.push(delta.plain);
-        plainLeads.push(
-          delta.plain.codePointAt(0) === delta.folded.codePointAt(0) ? 0 : 1,
-        );
-        plainBytes += Buffer.byteLength(delta.plain) + 1;
-        continue;
-      }
-      const previous = slotOf[id];
-      while (
-        oldEntry < oldPlainSlot.length &&
-        (oldPlainSlot[oldEntry] ?? 0) < previous
-      )
-        oldEntry++;
-      if (oldPlainSlot[oldEntry] !== previous) continue;
-      plainSlots.push(slot);
-      plainSources.push(oldEntry);
-      plainLeads.push(previousLayout.plainLead[oldEntry] ?? 0);
+    for (let entry = 0; entry < oldPlainSlot.length; entry++) {
+      const id = previousLayout.slotId[oldPlainSlot[entry] ?? 0] ?? NONE;
+      const slot = id === NONE ? NONE : nextSlotOf[id];
+      if (slot === NONE) continue;
+      plainEntries.push({
+        slot,
+        source: entry,
+        lead: previousLayout.plainLead[entry] ?? 0,
+      });
       plainBytes +=
-        (previousLayout.plainStarts[oldEntry + 1] ?? 0) -
-        (previousLayout.plainStarts[oldEntry] ?? 0);
+        (previousLayout.plainStarts[entry + 1] ?? 0) -
+        (previousLayout.plainStarts[entry] ?? 0);
     }
+    for (const id of deltaPlain) {
+      const delta = deltaNames.get(id);
+      const slot = nextSlotOf[id];
+      if (!delta || delta.plain === null || slot === NONE) continue;
+      plainEntries.push({
+        slot,
+        source: delta.plain,
+        lead:
+          delta.plain.codePointAt(0) === delta.folded.codePointAt(0) ? 0 : 1,
+      });
+      plainBytes += Buffer.byteLength(delta.plain) + 1;
+    }
+    plainEntries.sort((a, b) => a.slot - b.slot);
+    const plainSlots = plainEntries.map((entry) => entry.slot);
+    const plainSources = plainEntries.map((entry) => entry.source);
+    const plainLeads = plainEntries.map((entry) => entry.lead);
     const nextPlain = Buffer.from(new SharedArrayBuffer(plainBytes));
     const nextPlainStarts = sharedInt32(plainSlots.length + 1);
     let plainAt = 1;
@@ -497,6 +505,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     };
     slotOf = nextSlotOf;
     deltaNames.clear();
+    deltaPlain.clear();
     // Ids are unchanged, so the table stays valid; only shed tombstones.
     if (tableUsed > live * 2)
       rehash(Math.max(2048, 2 ** Math.ceil(Math.log2((live + 1) * 2))));
