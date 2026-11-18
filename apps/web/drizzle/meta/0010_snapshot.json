@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f48ac48e-b9e7-4efd-aa1d-c8734fda7531",
+  "id": "93e2b51a-2c87-4ab4-97af-ae811c4e8a54",
   "prevId": "6dd243d9-c131-444c-b036-307c64ba56d2",
   "tables": {
     "nimbus_note": {
@@ -1832,13 +1832,6 @@
             "archived_at"
           ],
           "isUnique": false
-        },
-        "nimbus_file_version_path_nocase": {
-          "name": "nimbus_file_version_path_nocase",
-          "columns": [
-            "\"path\" COLLATE NOCASE"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -2182,13 +2175,6 @@
         }
       },
       "nimbus_file_request_path_nocase": {
-        "columns": {
-          "\"path\" COLLATE NOCASE": {
-            "isExpression": true
-          }
-        }
-      },
-      "nimbus_file_version_path_nocase": {
         "columns": {
           "\"path\" COLLATE NOCASE": {
             "isExpression": true

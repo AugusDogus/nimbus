@@ -1,4 +1,4 @@
--- Changes whose filesystem and database steps a crash could separate (trash, restore, move); startup finishes or undoes each row left behind, recognising the item by its device and inode. Case-insensitive path indexes find records under any spelling of a path Nimbus creates.
+-- Changes whose filesystem and database steps a crash could separate (trash, restore, move); startup finishes or undoes each row left behind, recognising the item by its device and inode. Case-insensitive path indexes find sharing records, stars and dead properties under any spelling of a path Nimbus creates.
 CREATE TABLE `nimbus_pending_change` (
 	`id` text PRIMARY KEY NOT NULL,
 	`kind` text NOT NULL,
@@ -14,5 +14,4 @@ CREATE INDEX `nimbus_bookmark_path_nocase` ON `nimbus_bookmark` ("path" COLLATE 
 CREATE INDEX `nimbus_dav_property_path_nocase` ON `nimbus_dav_property` ("path" COLLATE NOCASE);--> statement-breakpoint
 CREATE INDEX `nimbus_grant_path_nocase` ON `nimbus_grant` ("path" COLLATE NOCASE);--> statement-breakpoint
 CREATE INDEX `nimbus_share_path_nocase` ON `nimbus_share` ("path" COLLATE NOCASE);--> statement-breakpoint
-CREATE INDEX `nimbus_file_request_path_nocase` ON `nimbus_file_request` ("path" COLLATE NOCASE);--> statement-breakpoint
-CREATE INDEX `nimbus_file_version_path_nocase` ON `nimbus_file_version` ("path" COLLATE NOCASE);
+CREATE INDEX `nimbus_file_request_path_nocase` ON `nimbus_file_request` ("path" COLLATE NOCASE);

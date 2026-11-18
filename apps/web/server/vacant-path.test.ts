@@ -203,7 +203,7 @@ describe("content created where removed content left records", () => {
     expect((await drive.access("carol")).can("Report.txt", "read")).toBe(false);
   });
 
-  test("stars, dead properties and history alone under another spelling are dropped too", async () => {
+  test("stars and dead properties alone under another spelling are dropped too", async () => {
     await drive.store.saveBookmark("carol", {
       path: "Notes",
       starred: true,
@@ -215,21 +215,9 @@ describe("content created where removed content left records", () => {
       [{ namespace: "urn:x", name: "note", xml: "<x:note>old</x:note>" }],
       [],
     );
-    await drive.store.versions.add({
-      id: crypto.randomUUID(),
-      path: "Notes",
-      name: "Notes",
-      size: 3,
-      modifiedAt: 1,
-      archivedAt: Date.now(),
-      archivedBy: "owner",
-    });
     await drive.caller("owner").files.createFolder({ name: "NOTES" });
     expect(await drive.store.listBookmarks("carol")).toEqual([]);
     expect((await drive.store.davProperties(["Notes"])).size).toBe(0);
-    expect(await FileVersions.history(drive.store.versions, "Notes")).toEqual(
-      [],
-    );
   });
 
   test("records of an existing item under another spelling are kept on case-sensitive storage", async () => {

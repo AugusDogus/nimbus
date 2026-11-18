@@ -157,19 +157,26 @@ const atOrUnderPath = (
   `SELECT ${columns} FROM ${table} WHERE path >= ?2${collation} AND path < ?3${collation}${extra}`,
 ];
 
-/** Every table of records that belong to a path, all deleted by `claimVacant`. */
+/**
+ * Tables of records claimed under any spelling of a new path. File history is claimed at the
+ * exact path only: a case-insensitive index on it would slow every rename and trash of a large
+ * folder, whose history rows are all rewritten, and history grants no access.
+ */
 const caseFoldedTables = [
   "nimbus_grant",
   "nimbus_share",
   "nimbus_file_request",
   "nimbus_bookmark",
   "nimbus_dav_property",
-  "nimbus_file_version",
 ];
 
 /** Whether any record may need claiming at a vacant path: indexed probes, stopping at one. */
-const recordsNear = caseFoldedTables
-  .flatMap((table) => atOrUnderPath("1 AS found", table, " COLLATE NOCASE"))
+const recordsNear = [
+  ...caseFoldedTables.flatMap((table) =>
+    atOrUnderPath("1 AS found", table, " COLLATE NOCASE"),
+  ),
+  ...atOrUnderPath("1 AS found", "nimbus_file_version", ""),
+]
   .join(" UNION ALL ")
   .concat(" LIMIT 1");
 
