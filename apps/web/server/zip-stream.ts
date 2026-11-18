@@ -32,13 +32,16 @@ export function zipStream(
   });
   signal?.addEventListener("abort", () => output.destroy(), { once: true });
   // yazl reports a file it could not open, or one whose size changed since it was listed, as
-  // an error on the archive; unheard, that would end the process. It ends this download.
-  zip.on("error", (error: Error) => {
+  // an error on the archive, but not a file that fails while it is read; either, unheard,
+  // would end the process. Each ends this download instead.
+  const fail = (error: Error) => {
+    if (output.destroyed) return;
     console.warn(
       `ZIP download of ${describe} stopped: ${error.message.replace(/\.$/, "")}. The download is incomplete; files are unaffected. Downloading again includes the current files.`,
     );
     output.destroy(error);
-  });
+  };
+  zip.on("error", fail);
   void (async () => {
     for await (const entry of entries) {
       if (stopped) return;
@@ -58,6 +61,7 @@ export function zipStream(
                 highWaterMark: 1 << 20,
               });
               active = stream;
+              stream.on("error", fail);
               stream.once("close", () => {
                 if (active === stream) active = null;
               });
