@@ -72,6 +72,48 @@ describe("drive files opened after their path was checked", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
+  test("renames through a swapped folder are refused or undone", async () => {
+    await writeFile(path.join(root, "docs/mine.txt"), "mine");
+    // The item to move is reached through a symlink: refused before anything moves.
+    await expect(
+      DriveFile.renameChecked(
+        path.join(root, "swapped/secret.txt"),
+        path.join(root, "docs/taken.txt"),
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await readFile(path.join(outside, "secret.txt"), "utf8")).toBe(
+      "server secret",
+    );
+    // The destination folder is a symlink: the item lands elsewhere and is moved back.
+    await expect(
+      DriveFile.renameChecked(
+        path.join(root, "docs/mine.txt"),
+        path.join(root, "swapped/mine.txt"),
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await readFile(path.join(root, "docs/mine.txt"), "utf8")).toBe(
+      "mine",
+    );
+    expect(await readdir(outside)).toEqual(["secret.txt"]);
+  });
+
+  test("a save into a folder swapped for a symlink does not stay outside the drive", async () => {
+    const memory = createTestDriveStore();
+    const incoming = path.join(root, "incoming.txt");
+    await writeFile(incoming, "new");
+    await expect(
+      FileVersions.commitReplacement({
+        drive: memory.store,
+        dataRoot: root,
+        path: "swapped/new.txt",
+        incoming,
+        archivedBy: "user-1",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await readdir(outside)).toEqual(["secret.txt"]);
+    expect(await readFile(incoming, "utf8")).toBe("new");
+  });
+
   test("copying refuses to read through a symlink", async () => {
     await expect(
       DriveFile.copy(

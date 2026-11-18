@@ -1,14 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants, type BigIntStats } from "node:fs";
-import {
-  copyFile,
-  link,
-  lstat,
-  mkdir,
-  readdir,
-  rename,
-  rm,
-} from "node:fs/promises";
+import { copyFile, link, lstat, mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { DriveStore } from "./drive-store";
 import { isFsError } from "./safe-path";
@@ -251,13 +243,13 @@ async function commitReplacement({
       throw new Error(
         `${target} is not a regular file, so Nimbus did not replace it. Callers refuse folders and special files before committing; nothing was changed and the new content is still staged.`,
       );
-    await rename(incoming, target);
+    await DriveFile.renameChecked(incoming, target, dataRoot);
     return { kind: "created" };
   }
   if (previous.size === BigInt(0)) {
     // An empty file, such as one created by a WebDAV LOCK before its PUT, has
     // nothing to keep; its earlier history stays with the path.
-    await rename(incoming, target);
+    await DriveFile.renameChecked(incoming, target, dataRoot);
     return { kind: "replaced", version: null };
   }
   const version: FileVersion = {
@@ -283,7 +275,7 @@ async function commitReplacement({
   // identical to the current content, never replaced content without its version.
   await store.add(version);
   try {
-    await rename(incoming, target);
+    await DriveFile.renameChecked(incoming, target, dataRoot);
   } catch (error) {
     await store.remove([version.id]);
     await rm(payload, { force: true });

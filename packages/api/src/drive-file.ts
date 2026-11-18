@@ -1,8 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import {
+  closeSync,
   constants,
   createWriteStream,
   existsSync,
+  fstatSync,
+  openSync,
   readlinkSync,
   type Stats,
 } from "node:fs";
@@ -11,6 +14,7 @@ import {
   lstat,
   open,
   realpath,
+  rename,
   type FileHandle,
 } from "node:fs/promises";
 import path from "node:path";
@@ -53,9 +57,9 @@ const swapped = () =>
       "Symbolic links cannot be accessed through Nimbus. Part of this path was replaced by one; refresh the folder.",
   });
 
-/** Whether `handle` opened the file at `absolute`, a path inside `dataRoot`. */
+/** Whether descriptor `fd` opened the file at `absolute`, a path inside `dataRoot`. */
 async function opensPath(
-  handle: FileHandle,
+  fd: number,
   absolute: string,
   stats: Stats,
   dataRoot: string,
@@ -65,7 +69,7 @@ async function opensPath(
     // A file renamed over or deleted since it was opened is reported with this suffix.
     // A procfs lookup that never waits on storage, so it runs synchronously, sparing a
     // thread-pool round trip on every open.
-    const opened = readlinkSync(`/proc/self/fd/${handle.fd}`).replace(
+    const opened = readlinkSync(`/proc/self/fd/${fd}`).replace(
       / \(deleted\)$/,
       "",
     );
@@ -119,7 +123,8 @@ async function openForReading(
         message:
           "Pipes, sockets and device files cannot be accessed through Nimbus. Only regular files and folders can.",
       });
-    if (!(await opensPath(handle, absolute, stats, dataRoot))) throw swapped();
+    if (!(await opensPath(handle.fd, absolute, stats, dataRoot)))
+      throw swapped();
     return { handle, stats };
   } catch (error) {
     await handle.close();
@@ -161,6 +166,72 @@ async function copyOpened(
   );
 }
 
+/**
+ * The device and inode of the file or folder at `absolute`, opened as `openForReading` does,
+ * or null when nothing is there or it cannot be opened that way. On Linux the open, fstat
+ * and close run synchronously: they name a path the caller is renaming that moment, so its
+ * folders are cached, and three thread-pool round trips per rename would cost more.
+ */
+async function identify(absolute: string, dataRoot: string) {
+  if (!descriptorPaths) {
+    const opened = await openForReading(absolute, dataRoot).catch(() => null);
+    if (!opened) return null;
+    await opened.handle.close();
+    return { dev: opened.stats.dev, ino: opened.stats.ino };
+  }
+  let fd: number;
+  try {
+    fd = openSync(
+      absolute,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+  } catch {
+    return null;
+  }
+  try {
+    const stats = fstatSync(fd);
+    if (!stats.isFile() && !stats.isDirectory()) return null;
+    if (!(await opensPath(fd, absolute, stats, dataRoot))) return null;
+    return { dev: stats.dev, ino: stats.ino };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Rename `from` to `to`, both inside `dataRoot`, and check through descriptors that the item
+ * renamed was the one at `from` and that it arrived at `to`. Renames go by name, so a folder on
+ * either path swapped for a symlink just before the rename would redirect it; the check catches
+ * that afterwards and moves the item back. It cannot keep a redirected rename from replacing a
+ * file elsewhere in that moment: that needs renameat with folder descriptors, which Bun lacks.
+ */
+async function renameChecked(
+  from: string,
+  to: string,
+  dataRoot = getDataRoot(),
+) {
+  const moving = await identify(from, dataRoot);
+  if (!moving) {
+    // Gone, or reached through a symlink: find out which, as an open reports it.
+    const opened = await openForReading(from, dataRoot);
+    await opened.handle.close();
+    throw swapped();
+  }
+  await rename(from, to);
+  const landed = await identify(to, dataRoot);
+  if (landed?.dev === moving.dev && landed.ino === moving.ino) return;
+  const restored = await rename(to, from).then(
+    () => true,
+    () => false,
+  );
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: restored
+      ? "Part of this path was replaced by a symbolic link while Nimbus changed it, so the change was undone. Symbolic links cannot be accessed through Nimbus; refresh the folder."
+      : "Part of this path was replaced by a symbolic link while Nimbus changed it, and the item could not be put back. Ask a server administrator to check both locations on the server.",
+  });
+}
+
 /** Copy the regular file at `absolute` to `destination` without following a swapped-in symlink. */
 async function copy(absolute: string, destination: string, mode: number) {
   const opened = await openFile(absolute);
@@ -176,5 +247,6 @@ export const DriveFile = {
   openFile,
   copyOpened,
   copy,
+  renameChecked,
   swapped,
 } as const;

@@ -210,7 +210,7 @@ async function moveUnlocked(
         to: target.relative,
       });
       try {
-        await rename(source.absolute, target.absolute);
+        await DriveFile.renameChecked(source.absolute, target.absolute);
       } catch (error) {
         await store.removePendingChange(pending);
         throw error;
@@ -372,7 +372,7 @@ export async function copyItem(
             // Records left by content removed outside Nimbus never attach to the copy.
             if ((await VacantPath.claim(store, target)).kind === "occupied")
               await requireUnused(target.absolute);
-            await rename(staging, target.absolute);
+            await DriveFile.renameChecked(staging, target.absolute);
           }
         } catch (error) {
           await undoReplacement(store, current, replacement);
@@ -425,7 +425,7 @@ async function trashUnlocked(
   await store.addPendingChange({ id: pending, kind: "trash", trashId: id });
   await store.addTrash(item);
   try {
-    await rename(target.absolute, destination);
+    await DriveFile.renameChecked(target.absolute, destination);
   } catch (error) {
     await store.restoreTrash(id);
     await store.removePendingChange(pending);
@@ -485,7 +485,7 @@ async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
   const pending = PendingChanges.restoreMarker(id);
   await store.addPendingChange({ id: pending, kind: "restore", trashId: id });
   try {
-    await rename(source, target.absolute);
+    await DriveFile.renameChecked(source, target.absolute);
   } catch (error) {
     await store.removePendingChange(pending);
     throw error;
