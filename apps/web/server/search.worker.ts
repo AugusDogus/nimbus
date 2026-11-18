@@ -1,11 +1,13 @@
 // Runs in a Bun Worker, and starts the scan workers large searches use. It
 // may import only packages and the protocol beside it.
 import { availableParallelism } from "node:os";
+import path from "node:path";
 import {
   applyChange,
   crawl,
   reconcile,
   type Serialize,
+  type UnreadableFolder,
 } from "@nimbus/api/search-crawler";
 import {
   createSearchIndex,
@@ -53,6 +55,20 @@ const serialize: Serialize = (work) => {
 
 let reconciling = false;
 let reconcileAgain = false;
+/** How many unreadable folders the last pass reported, so an unchanged count is not repeated. */
+let reportedUnreadable = 0;
+
+/** Tell the server which folders could not be read, so the watcher logs and rechecks them. */
+function shareUnreadable(folders: readonly UnreadableFolder[]) {
+  if (folders.length)
+    post({
+      type: "unreadable",
+      folders: folders.map((folder) => ({
+        path: path.join(root, folder.path),
+        code: folder.code,
+      })),
+    });
+}
 
 /**
  * Catch up with the disk in place: the index keeps answering searches from its
@@ -88,12 +104,15 @@ async function reconcileLive() {
         elapsedMs: Math.round(performance.now() - started),
         longestPauseMs: Math.round(pass.longestSliceMs),
       });
-      if (pass.unreadable)
+      shareUnreadable(pass.unreadableFolders);
+      // Each folder is logged once where it is skipped; the count only when it changes.
+      if (pass.unreadable && pass.unreadable !== reportedUnreadable)
         report(
           new Error(
-            `${pass.unreadable} folders could not be read, so search and storage usage keep what was last seen in them. Check the permissions of the data root.`,
+            `${pass.unreadable} folders could not be read, so search and storage usage keep what was last seen in them. Check the permissions of the data root`,
           ),
         );
+      reportedUnreadable = pass.unreadable;
     } while (reconcileAgain);
   } finally {
     reconciling = false;
@@ -113,7 +132,7 @@ async function rebuild(reason: "startup" | "reconcile") {
         createSearchIndex(Math.max(1 << 16, live.size + 1));
   building = fresh;
   try {
-    await crawl(fresh, root);
+    shareUnreadable((await crawl(fresh, root)).unreadableFolders);
     for (let i = 0; i < queued.length; i++)
       await applyChange(fresh, root, queued[i]);
     live = fresh;

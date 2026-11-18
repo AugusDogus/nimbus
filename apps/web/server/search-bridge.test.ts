@@ -163,3 +163,16 @@ describe("search bridge", () => {
     expect(workers[0]?.searches()).toHaveLength(4);
   });
 });
+
+describe("unreadable folders", () => {
+  it("passes the folders the index could not read on to its listener", () => {
+    const heard: { path: string; code: string | null }[][] = [];
+    const { start, workers } = bridge({
+      unreadable: (folders) => heard.push(folders),
+    });
+    start();
+    const folders = [{ path: "/data/other-app/wal", code: "EACCES" }];
+    workers[0]?.answer({ type: "unreadable", folders });
+    expect(heard).toEqual([folders]);
+  });
+});

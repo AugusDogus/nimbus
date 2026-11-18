@@ -30,6 +30,10 @@ export type SearchBridgeOptions = {
   total?: number;
   /** Searches one caller may start: a burst of `limit`, refilled over `windowMs`. */
   rate?: RateLimitRule;
+  /** Folders the index could not read, as each crawl or pass finds them. */
+  unreadable?: (
+    folders: Extract<SearchOutbound, { type: "unreadable" }>["folders"],
+  ) => void;
 };
 
 type Pending =
@@ -127,8 +131,11 @@ export function createSearchBridge(options: SearchBridgeOptions) {
           return;
         case "failed":
           console.error(
-            `Nimbus search index update failed: ${message.message}. Search may miss recent changes until the next reconciliation in 30 minutes.`,
+            `Nimbus search index update failed: ${message.message}. Search may miss recent changes until the next reconciliation.`,
           );
+          return;
+        case "unreadable":
+          options.unreadable?.(message.folders);
           return;
       }
     };
@@ -255,16 +262,27 @@ export function createSearchBridge(options: SearchBridgeOptions) {
   };
 }
 
+let unreadableListener: NonNullable<
+  SearchBridgeOptions["unreadable"]
+> = () => {};
+
 const server = createSearchBridge({
   spawn: () =>
     new Worker(new URL("./search.worker.ts", import.meta.url), {
       type: "module",
     }),
   root: getDataRoot,
+  unreadable: (folders) => unreadableListener(folders),
 });
 
-/** Start the index and register it as the API's search service. */
-export function ensureSearchIndex() {
+/**
+ * Start the index and register it as the API's search service. `onUnreadable` hears of
+ * folders it could not read.
+ */
+export function ensureSearchIndex(
+  onUnreadable: NonNullable<SearchBridgeOptions["unreadable"]> = () => {},
+) {
+  unreadableListener = onUnreadable;
   server.start();
   provideSearchService(server.service);
 }

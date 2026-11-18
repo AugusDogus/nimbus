@@ -219,6 +219,68 @@ describe("watch.worker with folders it cannot read", () => {
   );
 });
 
+describe("watch.worker told about folders the crawler could not read", () => {
+  let root: string;
+  let handle: FileWatchHandle | null = null;
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), "nimbus-watch-reported-"));
+    for (const name of ["x", "y"]) {
+      await mkdir(path.join(root, name, "inner"), { recursive: true });
+      await chmod(path.join(root, name), 0);
+    }
+  });
+  afterEach(async () => {
+    handle?.close();
+    handle = null;
+    for (const name of ["x", "y"])
+      await chmod(path.join(root, name), 0o755).catch(() => {});
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it.skipIf(asRoot)(
+    `logs each once, however it learns of it, and watches it once it can be read${asRoot ? ` (skipped: ${rootSkip})` : ""}`,
+    async () => {
+      const events: FileEvent[] = [];
+      const logs: string[] = [];
+      let lost = 0;
+      const watching = startFileWatch(
+        root,
+        20,
+        (event) => events.push(event),
+        () => lost++,
+        { log: (message) => logs.push(message), recheckMs: 200 },
+      );
+      handle = watching;
+      // Bun reports only the first folder its initial walk cannot add; the crawler sees all.
+      await Bun.sleep(100);
+      const reported = ["x", "y"].map((name) => ({
+        path: path.join(root, name),
+        code: "EACCES",
+      }));
+      watching.unreadable(reported);
+      watching.unreadable(reported);
+      expect(logs).toHaveLength(2);
+      expect(logs.some((line) => line.includes(path.join(root, "x")))).toBe(
+        true,
+      );
+      expect(logs.some((line) => line.includes(path.join(root, "y")))).toBe(
+        true,
+      );
+
+      await chmod(path.join(root, "y"), 0o755);
+      await until(() => lost > 0, "the readable folder rescanned", 2000);
+      const inside = path.join(root, "y/inner/now-readable.txt");
+      await writeFile(inside, "x");
+      await until(
+        () => events.some((event) => event.path === inside),
+        "an event inside the folder that became readable",
+      );
+      expect(logs).toHaveLength(2);
+    },
+  );
+});
+
 type FakeWatcher = {
   listener: (event: string, filename: string | null) => void;
   closed: boolean;

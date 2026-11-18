@@ -296,6 +296,38 @@ test("keeps files it cannot state, and counts their folder as unreadable", async
   }
 });
 
+const asRoot = process.getuid?.() === 0;
+const rootSkip = "running as root, where folder permissions do not apply";
+
+test.skipIf(asRoot)(
+  `crawls and passes name each folder they cannot read, and why${asRoot ? ` (skipped: ${rootSkip})` : ""}`,
+  async () => {
+    await mkdir(path.join(root, "a/locked/inside"), { recursive: true });
+    await mkdir(path.join(root, "b"));
+    await mkdir(path.join(root, "c"));
+    await writeFile(path.join(root, "c/file.txt"), "c");
+    await chmod(path.join(root, "a/locked"), 0);
+    await chmod(path.join(root, "b"), 0);
+    try {
+      const index = createSearchIndex();
+      const crawled = await crawl(index, root);
+      const named = (folders: { path: string; code: string | null }[]) =>
+        [...folders].sort((x, y) => (x.path < y.path ? -1 : 1));
+      const expected = [
+        { path: "a/locked", code: "EACCES" },
+        { path: "b", code: "EACCES" },
+      ];
+      expect(named(crawled.unreadableFolders)).toEqual(expected);
+      const report = await reconcile(index, root, direct);
+      expect(named(report.unreadableFolders)).toEqual(expected);
+      expect(report.unreadable).toBe(2);
+    } finally {
+      await chmod(path.join(root, "a/locked"), 0o755);
+      await chmod(path.join(root, "b"), 0o755);
+    }
+  },
+);
+
 /** `shared/docs/a.txt` inside the root, and `outside/docs/outside-secret.txt` beside it. */
 async function swapTree() {
   await mkdir(path.join(root, "drive/shared/docs"), { recursive: true });

@@ -45,7 +45,27 @@ type OpenFolder =
   /** Gone, no longer a folder, a symlink, or below one. */
   | { type: "gone" }
   /** Unreadable for another reason (permissions, I/O): keep what was seen. */
-  | { type: "unreadable" };
+  | { type: "unreadable"; code: string | null };
+
+/** A folder a crawl or pass could not read, relative to the root, and the error code why. */
+export type UnreadableFolder = { path: string; code: string | null };
+
+/** Unreadable folders named per crawl or pass; the count goes on past this. */
+const maxNamedUnreadable = 1000;
+
+const errorCode = (error: unknown) =>
+  error instanceof Error && "code" in error && typeof error.code === "string"
+    ? error.code
+    : null;
+
+function noteUnreadable(
+  folders: UnreadableFolder[],
+  relative: string,
+  code: string | null,
+) {
+  if (folders.length < maxNamedUnreadable)
+    folders.push({ path: relative, code });
+}
 
 /** Change times this close to the moment a folder is opened are not trusted; see `trusted`. */
 const timestampSlackMs = 2000;
@@ -87,7 +107,7 @@ function openFolder(root: string, relative: string): OpenFolder {
       isFsError(error, "ENOTDIR") ||
       isFsError(error, "ELOOP")
       ? { type: "gone" }
-      : { type: "unreadable" };
+      : { type: "unreadable", code: errorCode(error) };
   }
   const opened = fd;
   const openedAt = environment.now();
@@ -116,7 +136,7 @@ function openFolder(root: string, relative: string): OpenFolder {
     close();
     return isFsError(error, "ENOENT")
       ? { type: "gone" }
-      : { type: "unreadable" };
+      : { type: "unreadable", code: errorCode(error) };
   }
 }
 
@@ -147,6 +167,7 @@ async function crawlInto(
   relative: string,
   parentId: number,
   shouldStop: () => boolean,
+  unreadable: UnreadableFolder[],
 ) {
   const pending: [string, number][] = [[relative, parentId]];
   let listed = 0;
@@ -156,12 +177,16 @@ async function crawlInto(
     const [directory, id] = next;
     // Removed or unreadable while crawling; reconciliation retries later.
     const folder = openFolder(root, directory);
+    if (folder.type === "unreadable")
+      noteUnreadable(unreadable, directory, folder.code);
     if (folder.type !== "open") continue;
     try {
       let entries: Dirent[];
       try {
         entries = await readdir(folder.path, { withFileTypes: true });
-      } catch {
+      } catch (error) {
+        if (!isFsError(error, "ENOENT") && !isFsError(error, "ENOTDIR"))
+          noteUnreadable(unreadable, directory, errorCode(error));
         continue;
       }
       const files: string[] = [];
@@ -203,6 +228,8 @@ export type ReconcileReport = {
   listed: number;
   /** Folders that could not be read, so their previous contents were kept. */
   unreadable: number;
+  /** Which folders could not be listed at all, up to a thousand. */
+  unreadableFolders: UnreadableFolder[];
   /** The longest time one folder held the index, a bound on the pause it caused. */
   longestSliceMs: number;
 };
@@ -271,6 +298,7 @@ async function reconcileFrom(
     folders: 0,
     listed: 0,
     unreadable: 0,
+    unreadableFolders: [],
     longestSliceMs: 0,
   };
   const pending: [string, number][] = [[relative, id]];
@@ -281,7 +309,10 @@ async function reconcileFrom(
       if (!index.isFolder(folderId)) return [];
       const folder = openFolder(root, directory);
       if (folder.type === "gone") forget(index, folderId);
-      if (folder.type === "unreadable") report.unreadable++;
+      if (folder.type === "unreadable") {
+        report.unreadable++;
+        noteUnreadable(report.unreadableFolders, directory, folder.code);
+      }
       if (folder.type !== "open") return [];
       try {
         const unchanged =
@@ -385,7 +416,10 @@ async function reconcileFolder(
   } catch (error) {
     if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR"))
       forget(index, id);
-    else report.unreadable++;
+    else {
+      report.unreadable++;
+      noteUnreadable(report.unreadableFolders, directory, errorCode(error));
+    }
     return [];
   }
   const { sizes, unstated } = await statFiles(
@@ -474,13 +508,16 @@ export function indexedPath(root: string, absolute: string) {
   return segments.some(unservableName) ? null : segments.join("/");
 }
 
+/** Fill `index` from the disk; folders that could not be read are named in the result. */
 export async function crawl(
   index: SearchIndex,
   root: string,
   shouldStop: () => boolean = () => false,
 ) {
-  await crawlInto(index, root, "", 0, shouldStop);
+  const unreadableFolders: UnreadableFolder[] = [];
+  await crawlInto(index, root, "", 0, shouldStop, unreadableFolders);
   index.compact();
+  return { unreadableFolders };
 }
 
 /**

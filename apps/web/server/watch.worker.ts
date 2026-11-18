@@ -13,6 +13,14 @@ export type FileEvent = {
 export type FileWatchHandle = {
   /** Whether changes are watched now: not while it waits to restart, nor after the watch limit. */
   watching: () => boolean;
+  /**
+   * Folders found unreadable some other way, such as by a crawl. Bun reports only the first
+   * folder its initial walk cannot add, though it skips every such folder, so these are
+   * logged and checked again like the folders it reports.
+   */
+  unreadable: (
+    folders: readonly { path: string; code: string | null }[],
+  ) => void;
   close: () => void;
 };
 
@@ -243,18 +251,7 @@ export const startFileWatch = (
       case "gone":
         return;
       case "folder":
-        if (unwatched.has(failure.folder)) return;
-        unwatched.add(failure.folder);
-        loggedFolders++;
-        if (loggedFolders <= maxLoggedFolders)
-          log(
-            `Nimbus cannot ${folderProblem(failure.folder, failure.code)}. Everything else in the drive is watched as usual. ${folderRemedy(failure.code)} Nimbus checks again every ${seconds(recheckMs)}.`,
-          );
-        else if (loggedFolders === maxLoggedFolders + 1)
-          log(
-            `Nimbus found more than ${maxLoggedFolders} folders it cannot read; further ones are not logged one by one. Each is skipped as described above.`,
-          );
-        scheduleRecheck();
+        skipFolder(failure.folder, failure.code);
         return;
       case "limit":
         if (watcher === null && reported === "limit") return;
@@ -289,6 +286,22 @@ export const startFileWatch = (
         return;
       }
     }
+  }
+
+  /** Leave out a folder that cannot be watched: logged once, and checked again later. */
+  function skipFolder(folder: string, code: string | null) {
+    if (closed || unwatched.has(folder)) return;
+    unwatched.add(folder);
+    loggedFolders++;
+    if (loggedFolders <= maxLoggedFolders)
+      log(
+        `Nimbus cannot ${folderProblem(folder, code)}. Everything else in the drive is watched as usual. ${folderRemedy(code)} Nimbus checks again every ${seconds(recheckMs)}.`,
+      );
+    else if (loggedFolders === maxLoggedFolders + 1)
+      log(
+        `Nimbus found more than ${maxLoggedFolders} folders it cannot read; further ones are not logged one by one. Each is skipped as described above.`,
+      );
+    scheduleRecheck();
   }
 
   function scheduleRecheck() {
@@ -329,6 +342,9 @@ export const startFileWatch = (
 
   return {
     watching: () => watcher !== null,
+    unreadable: (folders) => {
+      for (const folder of folders) skipFolder(folder.path, folder.code);
+    },
     close: () => {
       closed = true;
       stop();

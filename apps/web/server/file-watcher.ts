@@ -12,7 +12,8 @@ let watching: FileWatchHandle | null = null;
 
 export const ensureFileWatcher = () => {
   if (watching) return;
-  ensureSearchIndex();
+  // Bun names only the first folder its watch cannot add; the index finds every one.
+  ensureSearchIndex((folders) => watching?.unreadable(folders));
   const root = getDataRoot();
   const configuredDebounce = Number(
     process.env.NIMBUS_WATCH_DEBOUNCE_MS ?? "300",

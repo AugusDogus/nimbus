@@ -26,7 +26,12 @@ export type SearchOutbound =
       /** Longest single hold on the index during an in-place pass; null for full crawls. */
       longestPauseMs: number | null;
     }
-  | { type: "failed"; message: string };
+  | { type: "failed"; message: string }
+  /** Folders a crawl or pass could not list, by absolute path, with the error code why. */
+  | {
+      type: "unreadable";
+      folders: { path: string; code: string | null }[];
+    };
 
 /**
  * How often the search index is compared with the disk, catching anything the file watcher
