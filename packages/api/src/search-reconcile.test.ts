@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, rmSync, symlinkSync } from "node:fs";
 import {
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readdir,
@@ -178,11 +179,16 @@ test("reconciling after random changes made behind the index's back matches a fr
         ...(await fresh()),
       });
     }
-    // Search still finds what is there after the churn, and nothing that is gone.
-    const names = (await listAll(root)).map((entry) => path.basename(entry));
-    const sample = names.find(
-      (name) => name.startsWith("moved-") || name.startsWith("n"),
-    );
+    // Search still finds what is there after the churn, and nothing that is gone. Symlinks are
+    // never indexed, so the sample is a file or folder, chosen in name order: directory order
+    // differs between filesystems (ext4 lists by hash).
+    const indexed = [];
+    for (const entry of await listAll(root))
+      if (!(await lstat(entry)).isSymbolicLink()) indexed.push(entry);
+    const sample = indexed
+      .map((entry) => path.basename(entry))
+      .sort()
+      .find((name) => name.startsWith("moved-") || name.startsWith("n"));
     if (sample)
       expect(
         index.search({
