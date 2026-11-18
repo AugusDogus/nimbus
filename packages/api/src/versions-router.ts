@@ -7,6 +7,7 @@ import { publishFileEvent } from "./file-events";
 import { mutateFiles } from "./file-mutations";
 import { requireExisting, safePath } from "./file-operations";
 import { FileVersions } from "./file-versions";
+import type { SafePathResult } from "./safe-path";
 import { protectedProcedure, router } from "./index";
 
 /**
@@ -19,10 +20,10 @@ export async function readableFile(
 ) {
   const target = await safePath(requested);
   access.require(target.relative, "read");
-  return requireFile(target.relative);
+  return requireFile(target);
 }
 
-async function requireFile(requested: string) {
+async function requireFile(requested: string | SafePathResult) {
   const target = await requireExisting(requested);
   if (!target.stats.isFile())
     throw new TRPCError({

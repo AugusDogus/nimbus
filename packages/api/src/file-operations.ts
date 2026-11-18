@@ -23,6 +23,7 @@ import {
   isWithinPath,
   PathError,
   resolveSafePath,
+  type SafePathResult,
 } from "./safe-path";
 import { PendingChanges } from "./pending-changes";
 import { Staging } from "./staging";
@@ -38,9 +39,14 @@ export async function safePath(requested: string) {
   }
 }
 
-/** The file or folder at a drive path. Pipes, sockets and devices are refused like symlinks. */
-export async function requireExisting(requested: string) {
-  const target = await safePath(requested);
+/**
+ * The file or folder at a drive path. Pipes, sockets and devices are refused like symlinks. A
+ * caller that has just resolved the path with `safePath` passes the result, which is not walked
+ * again.
+ */
+export async function requireExisting(requested: string | SafePathResult) {
+  const target =
+    typeof requested === "string" ? await safePath(requested) : requested;
   let stats: Stats;
   try {
     stats = await lstat(target.absolute);
