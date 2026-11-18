@@ -17,6 +17,7 @@ import * as healthLive from "./routes/health-live";
 import * as mcp from "./routes/mcp";
 import * as mcpConnection from "./routes/mcp-connection";
 import * as mcpDownload from "./routes/mcp-download";
+import * as mcpUpload from "./routes/mcp-upload";
 import * as oauthAuthorize from "./routes/oauth-authorize";
 import * as oauthConsent from "./routes/oauth-consent";
 import * as oauthConsentDecision from "./routes/oauth-consent-decision";
@@ -72,6 +73,12 @@ const routes = ({ shell, mode }: PageContext): Route[] => [
   route("/api/mcp", none, mcp),
   route("/api/mcp/connections/:id", ([id]) => ({ id }), mcpConnection),
   route("/api/mcp/download", none, mcpDownload),
+  // Streams to disk like the other uploads, so its body is not capped.
+  route(
+    "/api/mcp/upload/:token/*?",
+    ([token = "", rest = ""]) => ({ token, rest }),
+    mcpUpload,
+  ),
   route(
     "/api/share/:token/thumbnail",
     ([token]) => ({ token }),

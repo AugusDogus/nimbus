@@ -16,12 +16,14 @@ import type { McpToolContext } from "./mcp-tool";
 import { mcpTools } from "./mcp-tools";
 import { provideSearchService } from "./search-service";
 import { crawlingSearchService, createTestDriveStore } from "./testing";
+import type { UploadDestination } from "./upload-destination";
 
 describe("MCP tools", () => {
   let root: string;
   let previousRoot: string | undefined;
   let memory: ReturnType<typeof createTestDriveStore>;
   let links: string[];
+  let uploads: UploadDestination[];
 
   const context = (
     userId = "user-1",
@@ -39,6 +41,13 @@ describe("MCP tools", () => {
       links.push(requested);
       return {
         url: `https://files.example.test/api/mcp/download/${links.length}`,
+        expiresAt: 0,
+      };
+    },
+    uploadLink: async (destination) => {
+      uploads.push(destination);
+      return {
+        url: `https://files.example.test/api/mcp/upload/${uploads.length}`,
         expiresAt: 0,
       };
     },
@@ -65,6 +74,7 @@ describe("MCP tools", () => {
     process.env.NIMBUS_DATA_ROOT = root;
     memory = createTestDriveStore();
     links = [];
+    uploads = [];
     provideSearchService(crawlingSearchService(root));
     await mkdir(path.join(root, "docs"));
     await mkdir(path.join(root, ".nimbus"));
@@ -407,6 +417,107 @@ describe("MCP tools", () => {
       ),
     ).toContain("read permission");
     expect(links).toEqual(["docs"]);
+  });
+
+  it("issues upload links for a file or a folder the account can write", async () => {
+    expect(
+      await value("get_upload_link", { path: "docs/video.mp4" }),
+    ).toMatchObject({
+      url: "https://files.example.test/api/mcp/upload/1",
+      method: "PUT",
+      headers: {},
+      curl: 'curl -fsS -T ./local-file "https://files.example.test/api/mcp/upload/1"',
+    });
+    const folder = await value("get_upload_link", {
+      path: "docs",
+      folder: true,
+      onConflict: "keep-both",
+    });
+    expect(String(folder.curl)).toContain(
+      "https://files.example.test/api/mcp/upload/2/{{p:url}}",
+    );
+    const etag = z
+      .object({ etag: z.string() })
+      .parse(await value("get_item", { path: "docs/report.txt" })).etag;
+    await value("get_upload_link", {
+      path: "docs/report.txt",
+      expectedEtag: etag,
+    });
+    await value("get_upload_link", {
+      path: "docs/report.txt",
+      onConflict: "overwrite",
+    });
+    expect(uploads).toEqual([
+      { kind: "file", path: "docs/video.mp4", rule: { kind: "refuse" } },
+      { kind: "folder", path: "docs", rule: { kind: "keep-both" } },
+      {
+        kind: "file",
+        path: "docs/report.txt",
+        rule: { kind: "match", etag },
+      },
+      { kind: "file", path: "docs/report.txt", rule: { kind: "overwrite" } },
+    ]);
+  });
+
+  it("refuses upload links that could not succeed, before any byte is sent", async () => {
+    expect(
+      await failure("get_upload_link", { path: "docs/report.txt" }),
+    ).toContain("already exists");
+    expect(
+      await failure("get_upload_link", {
+        path: "docs/report.txt",
+        expectedEtag: '"1-1"',
+      }),
+    ).toContain("changed since you read it");
+    expect(
+      await failure("get_upload_link", {
+        path: "docs/new.txt",
+        expectedEtag: '"1-1"',
+      }),
+    ).toContain("No file exists");
+    expect(
+      await failure("get_upload_link", {
+        path: "docs",
+        folder: true,
+        expectedEtag: '"1-1"',
+      }),
+    ).toContain("cannot be combined");
+    expect(await failure("get_upload_link", { path: "docs" })).toContain(
+      "is a folder",
+    );
+    expect(
+      await failure("get_upload_link", {
+        path: "docs/report.txt",
+        folder: true,
+      }),
+    ).toContain("is not a folder");
+    expect(
+      await failure("get_upload_link", { path: "missing/new.txt" }),
+    ).toContain("create_folder");
+    expect(
+      await failure("get_upload_link", { path: "../outside.txt" }),
+    ).not.toContain(root);
+    expect(
+      await failure("get_upload_link", { path: "docs/.nimbus" }),
+    ).toBeTruthy();
+    expect(
+      await failure("get_upload_link", { path: "docs/shortcut.txt" }),
+    ).toContain("symbolic link");
+    expect(
+      await failure(
+        "get_upload_link",
+        { path: "private.txt", onConflict: "overwrite" },
+        context("reader"),
+      ),
+    ).toContain("write permission");
+    expect(
+      await failure(
+        "get_upload_link",
+        { path: "docs/new.txt" },
+        context("user-1", [McpScope.read]),
+      ),
+    ).toContain('"files:write" scope');
+    expect(uploads).toEqual([]);
   });
 
   it("explains invalid arguments", async () => {

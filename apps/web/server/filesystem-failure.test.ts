@@ -82,6 +82,7 @@ describe("filesystem failures seen by clients", () => {
         },
         origin: "https://files.example.test",
         downloadLink: async () => ({ url: "", expiresAt: 0 }),
+        uploadLink: async () => ({ url: "", expiresAt: 0 }),
       },
       { parentPath: "locked", name: "new" },
     );

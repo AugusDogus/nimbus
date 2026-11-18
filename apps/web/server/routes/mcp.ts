@@ -9,6 +9,7 @@ import {
   readMcpConfig,
 } from "@/server/mcp/config";
 import { signDownloadLink } from "@/server/mcp/download-link";
+import { UploadLink } from "@/server/mcp/upload-link";
 import { json } from "@/server/mcp/oauth/http";
 import { authenticateBearer } from "@/server/mcp/oauth/tokens";
 import {
@@ -42,12 +43,26 @@ const handler = createMcpHandler(
       downloadLink: async (path) => {
         const link = signDownloadLink(
           config.secret,
-          connection.grantId,
-          path,
+          { userId: connection.userId, grantId: connection.grantId, path },
           Date.now(),
         );
         return {
           url: `${config.origin}/api/mcp/download?token=${link.token}`,
+          expiresAt: link.expiresAt,
+        };
+      },
+      uploadLink: async (destination) => {
+        const link = UploadLink.sign(
+          config.secret,
+          {
+            userId: connection.userId,
+            grantId: connection.grantId,
+            destination,
+          },
+          Date.now(),
+        );
+        return {
+          url: `${config.origin}/api/mcp/upload/${link.token}`,
           expiresAt: link.expiresAt,
         };
       },

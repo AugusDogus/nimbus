@@ -43,7 +43,8 @@
     "./file-content": "./src/file-content.ts",
     "./mcp-scope": "./src/mcp-scope.ts",
     "./mcp-tool": "./src/mcp-tool.ts",
-    "./mcp-tools": "./src/mcp-tools.ts"
+    "./mcp-tools": "./src/mcp-tools.ts",
+    "./upload-destination": "./src/upload-destination.ts"
   },
   "types": "./src/index.ts",
   "dependencies": {

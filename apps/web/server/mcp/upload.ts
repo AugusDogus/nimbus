@@ -1,0 +1,450 @@
+import path from "node:path";
+import { TRPCError } from "@trpc/server";
+import { and, eq } from "drizzle-orm";
+import { getAccess } from "@nimbus/api/access";
+import { getDataRoot } from "@nimbus/api/data-root";
+import type { DriveStore } from "@nimbus/api/drive-store";
+import { entryAt, type FileEntry } from "@nimbus/api/file-browser";
+import {
+  commitStagedFile,
+  fileTag,
+  stageFile,
+  type StagedFile,
+} from "@nimbus/api/file-content";
+import { fileNameSchema } from "@nimbus/api/file-name";
+import { mutateFiles } from "@nimbus/api/file-mutations";
+import { lexicalPath, safePath } from "@nimbus/api/file-operations";
+import { FilesystemCapacity } from "@nimbus/api/filesystem-capacity";
+import { Homes } from "@nimbus/api/homes";
+import { McpScope } from "@nimbus/api/mcp-scope";
+import { numberedName } from "@nimbus/api/numbered-name";
+import { isApiError, isFsError } from "@nimbus/api/safe-path";
+import { UploadDestination } from "@nimbus/api/upload-destination";
+import { mcpTokens } from "../db/mcp-schema";
+import { httpError } from "../http-error";
+import { ensureFolders } from "../routes/upload-commit";
+import type { Database } from "./oauth/context";
+import { liveConnectionUser } from "./oauth/connections";
+import { guardTransport } from "./request-guard";
+import { UploadLink } from "./upload-link";
+
+/** What the upload route needs from the server. Tests pass a temporary database and drive. */
+export type McpUploadContext = {
+  db: Database;
+  drive: DriveStore;
+  secret: string;
+  /** Origins and hosts the server answers for, as the MCP endpoint checks them. */
+  origins: ReadonlySet<string>;
+  now: () => number;
+  /** Capacity of the filesystem holding `directory`, or null when it cannot be read. */
+  capacity: (directory: string) => Promise<FilesystemCapacity | null>;
+};
+
+/** How often, in received bytes, a running upload re-reads free space. */
+const capacityCheckBytes = 64 * 1024 * 1024;
+
+/** Keys of uploads running now: one link uploads each of its paths once at a time. */
+const running = new Set<string>();
+
+const reply = (status: number, body: Record<string, unknown>) =>
+  Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+const refuse = (status: number, message: string) =>
+  reply(status, { error: message });
+
+const newLink = "Call get_upload_link for a new link.";
+const noSpace = () =>
+  refuse(
+    507,
+    "The server does not have enough free space for this file. Nothing was saved. Free some space or ask a server administrator to add storage, then upload again.",
+  );
+
+type Place =
+  | { kind: "place"; path: string; relative: string }
+  | { kind: "refused"; status: number; message: string };
+
+/** The drive path a request writes: a file link's own, or one below a folder link's folder. */
+function place(destination: UploadDestination, rest: string): Place {
+  if (destination.kind === "file")
+    return rest === ""
+      ? { kind: "place", path: destination.path, relative: "" }
+      : {
+          kind: "refused",
+          status: 404,
+          message:
+            "This link uploads one file. Nothing was saved. PUT to the link URL itself, with nothing after it.",
+        };
+  const segments = rest.split("/");
+  if (
+    rest === "" ||
+    !segments.every(
+      (segment) =>
+        fileNameSchema.safeParse(segment).success && segment === segment.trim(),
+    )
+  )
+    return {
+      kind: "refused",
+      status: 400,
+      message:
+        'Add the file\'s path below the folder to the link URL, as <url>/<folder>/<name>. Each part must be a name: not empty, ".", ".." or .nimbus, without control characters or leading or trailing spaces. Nothing was saved.',
+    };
+  return {
+    kind: "place",
+    path: [destination.path, rest].filter(Boolean).join("/"),
+    relative: rest,
+  };
+}
+
+async function entryOrNull(relative: string) {
+  try {
+    return await entryAt(relative);
+  } catch (error) {
+    if (isApiError(error, "NOT_FOUND")) return null;
+    throw error;
+  }
+}
+
+/** Why a write under `rule` cannot land on `current`, or null when it can. */
+function conflict(
+  rule: UploadDestination["rule"],
+  relative: string,
+  current: FileEntry | null,
+): { status: number; message: string } | null {
+  if (rule.kind === "keep-both") return null;
+  if (current?.type === "dir")
+    return {
+      status: 409,
+      message: `${relative} is a folder. Nothing was saved. Upload to a file path inside it.`,
+    };
+  if (UploadDestination.accepts(rule, current)) return null;
+  if (rule.kind === "match")
+    return {
+      status: 412,
+      message:
+        current === null
+          ? `No file exists at ${relative}, so it does not match expectedEtag. Nothing was saved. ${newLink} Omit expectedEtag to create it.`
+          : `${relative} changed since you read it (its etag is now ${fileTag(current)}). Nothing was saved. Read it again, then call get_upload_link with the new etag.`,
+    };
+  return {
+    status: 409,
+    message: `${relative} already exists. Nothing was saved. To replace it, call get_upload_link with its etag as expectedEtag or with onConflict "overwrite"; "keep-both" saves the upload under a numbered name.`,
+  };
+}
+
+/** Bytes that may still be written beside `folder` and the data root, keeping their floors free. */
+async function spareBytes(context: McpUploadContext, folder: string) {
+  return FilesystemCapacity.spareBytes(
+    await Promise.all([
+      context.capacity(getDataRoot()),
+      context.capacity(path.join(getDataRoot(), folder)),
+    ]),
+    FilesystemCapacity.minimumFreeBytes,
+  );
+}
+
+/** Why reading a request body stopped early, when it did. */
+type BodyFailure =
+  | { kind: "none" }
+  | { kind: "floor" }
+  | { kind: "interrupted" };
+
+/**
+ * `body`, read one chunk at a time as staging writes it. It fails once it passes the bytes
+ * spare when it started, or when a periodic re-read finds the free-space floor reached (other
+ * writers share the disk), and records why it failed, or that the client's body broke off.
+ */
+function receive(
+  body: ReadableStream<Uint8Array>,
+  spare: number | null,
+  reread: () => Promise<number | null>,
+) {
+  const state: { failure: BodyFailure } = { failure: { kind: "none" } };
+  const reader = body.getReader();
+  let received = 0;
+  let nextCheck = capacityCheckBytes;
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        let chunk: Awaited<ReturnType<typeof reader.read>>;
+        try {
+          chunk = await reader.read();
+        } catch (error) {
+          state.failure = { kind: "interrupted" };
+          throw error;
+        }
+        if (chunk.done) {
+          controller.close();
+          return;
+        }
+        received += chunk.value.byteLength;
+        if (spare !== null && received >= nextCheck) {
+          nextCheck = received + capacityCheckBytes;
+          const now = await reread();
+          if (now !== null && now < 0) state.failure = { kind: "floor" };
+        }
+        if (spare !== null && received > spare)
+          state.failure = { kind: "floor" };
+        if (state.failure.kind === "floor") {
+          await reader.cancel().catch(() => undefined);
+          throw new Error("The upload would pass the free-space floor.");
+        }
+        controller.enqueue(chunk.value);
+      },
+      cancel: (reason) => reader.cancel(reason),
+    },
+    { highWaterMark: 0 },
+  );
+  return { stream, state };
+}
+
+const disconnected =
+  "The connection that created this link was disconnected, lost the permission to change files, or its account is disabled. Nothing was saved. Reconnect the client, then call get_upload_link again.";
+
+async function upload(
+  context: McpUploadContext,
+  request: Request,
+  link: UploadLink,
+  target: { path: string; relative: string },
+  key: string,
+): Promise<Response> {
+  /** The account's current access, refused once the connection or its approval is gone. */
+  const authorize = async () => {
+    const userId = await liveConnectionUser(
+      context.db,
+      link.grantId,
+      McpScope.write,
+    );
+    if (userId === null || userId !== link.userId)
+      throw new TRPCError({ code: "FORBIDDEN", message: disconnected });
+    return getAccess(context.drive, userId);
+  };
+  const access = await authorize();
+  // Before any lookup, so a refusal never tells someone without access what is there.
+  const named = lexicalPath(target.path);
+  access.require(named.relative, "write");
+  await Homes.requireNotReserved(context.drive, named.relative);
+  const destination = await safePath(named.relative);
+  const [used] = await context.db
+    .select({ hash: mcpTokens.hash })
+    .from(mcpTokens)
+    .where(and(eq(mcpTokens.hash, key), eq(mcpTokens.kind, "upload_link")))
+    .limit(1);
+  if (used)
+    return refuse(
+      410,
+      `This link already uploaded ${destination.relative}. Nothing was saved this time. ${newLink}`,
+    );
+  // Refused before any byte is received when the outcome is already known; checked again at commit.
+  const early = conflict(
+    link.destination.rule,
+    destination.relative,
+    await entryOrNull(destination.relative),
+  );
+  if (early) return refuse(early.status, early.message);
+
+  const folder =
+    link.destination.kind === "folder"
+      ? link.destination.path
+      : path.posix.dirname(link.destination.path).replace(/^\.$/, "");
+  const spare = await spareBytes(context, folder);
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (
+    spare !== null &&
+    (spare <= 0 || (Number.isSafeInteger(declared) && declared > spare))
+  )
+    return noSpace();
+  const body =
+    request.body &&
+    receive(request.body, spare, () => spareBytes(context, folder));
+  let staged: StagedFile;
+  try {
+    // Outside every lock, so a slow transfer never blocks other changes.
+    staged = await stageFile(body ? body.stream : null, destination.absolute);
+  } catch (error) {
+    const failure = body ? body.state.failure : { kind: "none" };
+    if (failure.kind === "floor") return noSpace();
+    if (failure.kind === "interrupted" || request.signal.aborted)
+      return refuse(
+        400,
+        "The upload stopped before all of its bytes arrived. Nothing was saved. Upload the file again; the link still works until it expires.",
+      );
+    throw error;
+  }
+  try {
+    return await commit(context, link, destination.relative, staged, key, () =>
+      authorize(),
+    );
+  } finally {
+    await staged.discard();
+  }
+}
+
+/**
+ * Commit `staged` at `relative` through the write path WebDAV PUT and the editor use: inside
+ * the path's lock, with access re-checked, the previous content kept as a version and a new
+ * path claimed. This link's record for the path is written inside the same lock, so each path
+ * commits once, and removed again when nothing was committed.
+ */
+async function commit(
+  context: McpUploadContext,
+  link: UploadLink,
+  relative: string,
+  staged: StagedFile,
+  key: string,
+  authorize: () => ReturnType<typeof getAccess>,
+): Promise<Response> {
+  const rule = link.destination.rule;
+  const now = context.now();
+  let recorded = false;
+  let committed = false;
+  const credentials = {
+    userId: link.userId,
+    drive: context.drive,
+    async authorize() {
+      const access = await authorize();
+      if (!recorded) {
+        const inserted = await context.db
+          .insert(mcpTokens)
+          .values({
+            hash: key,
+            kind: "upload_link",
+            grantId: link.grantId,
+            scope: McpScope.write,
+            // Kept while the link can start uploads; later ones are refused as expired.
+            expiresAt: link.expiresAt,
+            consumedAt: now,
+            createdAt: now,
+          })
+          .onConflictDoNothing()
+          .returning({ hash: mcpTokens.hash });
+        if (!inserted.length)
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `This link already uploaded ${relative}. Nothing was saved this time. ${newLink}`,
+          });
+        recorded = true;
+      }
+      return access;
+    },
+  };
+  const parent = path.posix.dirname(relative);
+  const name = path.posix.basename(relative);
+  let foldersCreated = false;
+  try {
+    for (let index = 0; ;) {
+      const candidate = [
+        parent === "." ? "" : parent,
+        numberedName(name, index, true),
+      ]
+        .filter(Boolean)
+        .join("/");
+      const outcome = await commitStagedFile(
+        credentials,
+        candidate,
+        staged,
+        (current) => UploadDestination.accepts(rule, current),
+      );
+      switch (outcome.kind) {
+        case "created":
+        case "replaced":
+          committed = true;
+          return reply(outcome.kind === "created" ? 201 : 200, {
+            outcome: outcome.kind,
+            path: outcome.entry.path,
+            size: outcome.entry.size,
+            etag: fileTag(outcome.entry),
+          });
+        case "missing_parent":
+          if (link.destination.kind === "folder" && !foldersCreated) {
+            const base = link.destination.path;
+            const below = path.posix.relative(base || ".", parent);
+            await mutateFiles(
+              [],
+              { userId: link.userId },
+              async () =>
+                ensureFolders(
+                  context.drive,
+                  await authorize(),
+                  base,
+                  below === "." ? "" : below,
+                  link.userId,
+                ),
+              { within: [base] },
+            );
+            foldersCreated = true;
+            continue;
+          }
+          return refuse(
+            409,
+            "The folder for this file no longer exists. Nothing was saved. Create it with create_folder, then call get_upload_link again.",
+          );
+        case "is_directory":
+        case "precondition_failed": {
+          if (rule.kind === "keep-both") {
+            index++;
+            continue;
+          }
+          const refusal = conflict(
+            rule,
+            candidate,
+            outcome.kind === "precondition_failed" ? outcome.current : null,
+          ) ?? {
+            status: 409,
+            message: `${candidate} is a folder. Nothing was saved. Upload to a file path inside it.`,
+          };
+          return refuse(refusal.status, refusal.message);
+        }
+      }
+    }
+  } finally {
+    if (recorded && !committed)
+      await context.db.delete(mcpTokens).where(eq(mcpTokens.hash, key));
+  }
+}
+
+/**
+ * PUT of a file's raw bytes to a link from the get_upload_link tool. The body streams to
+ * staging on the destination's own filesystem, then commits as WebDAV PUT does. Nothing is
+ * kept when the upload fails, is refused or the client goes away.
+ */
+async function handle(
+  context: McpUploadContext,
+  request: Request,
+  params: { token: string; rest: string },
+): Promise<Response> {
+  const transport = guardTransport(request, context.origins);
+  if (!transport.allowed) return refuse(transport.status, transport.message);
+  const check = UploadLink.verify(context.secret, params.token, context.now());
+  if (check.kind === "invalid")
+    return refuse(
+      404,
+      `This upload link is not valid. Nothing was saved. ${newLink}`,
+    );
+  if (check.kind === "expired")
+    return refuse(
+      410,
+      `This upload link has expired: each upload must start before its expiresAt. Nothing was saved. ${newLink}`,
+    );
+  const { link } = check;
+  const target = place(link.destination, params.rest);
+  if (target.kind === "refused") return refuse(target.status, target.message);
+  const key = UploadLink.commitKey(link, target.relative);
+  if (running.has(key))
+    return refuse(
+      409,
+      "Another upload of this path with this link is still running. Nothing was saved. Wait for it to finish, or call get_upload_link for a new link.",
+    );
+  running.add(key);
+  try {
+    return await upload(context, request, link, target, key);
+  } catch (error) {
+    if (isFsError(error, "ENOSPC") || isFsError(error, "EDQUOT")) {
+      console.warn("[mcp] upload failed: the disk is full.");
+      return noSpace();
+    }
+    return httpError(error);
+  } finally {
+    running.delete(key);
+  }
+}
+
+export const McpUpload = { handle } as const;

@@ -235,9 +235,9 @@ const server = Bun.serve({
       if (EventStreams.untimed(request, response)) server.timeout(request, 0);
       return withHeaders(response, commonHeaders, { replace: true });
     } catch (error) {
-      // Query strings can carry credentials, such as MCP download link tokens.
+      // Query strings and MCP upload link paths carry credentials, so neither is logged.
       console.error(
-        `Nimbus request failed: ${request.method} ${new URL(request.url).pathname}`,
+        `Nimbus request failed: ${request.method} ${new URL(request.url).pathname.replace(/^(\/api\/mcp\/upload\/).*/, "$1…")}`,
         error,
       );
       return withHeaders(

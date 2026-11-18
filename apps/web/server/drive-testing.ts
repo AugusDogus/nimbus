@@ -36,6 +36,7 @@ export async function openTestDrive() {
   process.env.NIMBUS_DATA_ROOT = root;
   return {
     store,
+    db: opened.db,
     sqlite: opened.sqlite,
     root,
     absolute: (relative: string) => path.join(root, relative),

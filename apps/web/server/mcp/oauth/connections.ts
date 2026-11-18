@@ -95,11 +95,19 @@ export async function revokeUserConnections(
   return revoked.length;
 }
 
-/** The account behind a connection that is still approved and whose account is enabled, or null. */
-export async function liveConnectionUser(db: Database, grantId: string) {
+/**
+ * The account behind a connection that is still approved, whose account is enabled and whose
+ * approval includes `scope`, or null. Links the tools hand out check it on every use.
+ */
+export async function liveConnectionUser(
+  db: Database,
+  grantId: string,
+  scope: McpScope,
+) {
   const [row] = await db
     .select({
       userId: mcpGrants.userId,
+      scope: mcpGrants.scope,
       revokedAt: mcpGrants.revokedAt,
       banned: user.banned,
     })
@@ -107,5 +115,10 @@ export async function liveConnectionUser(db: Database, grantId: string) {
     .innerJoin(user, eq(user.id, mcpGrants.userId))
     .where(eq(mcpGrants.id, grantId))
     .limit(1);
-  return row && row.revokedAt === null && !row.banned ? row.userId : null;
+  return row &&
+    row.revokedAt === null &&
+    !row.banned &&
+    McpScope.parse(row.scope).scopes.includes(scope)
+    ? row.userId
+    : null;
 }

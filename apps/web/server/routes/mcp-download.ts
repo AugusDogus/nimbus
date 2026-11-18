@@ -1,5 +1,6 @@
 import { getAccess } from "@nimbus/api/access";
 import { entryAt } from "@nimbus/api/file-browser";
+import { McpScope } from "@nimbus/api/mcp-scope";
 import { serveFile, serveZip } from "@/server/file-response";
 import { httpDriveStore, httpError } from "@/server/http-files";
 import { verifyDownloadLink } from "@/server/mcp/download-link";
@@ -32,8 +33,12 @@ export const GET = (request: Request) =>
         410,
         "This download link has expired. Ask the AI client for a new one.",
       );
-    const userId = await liveConnectionUser(oauth.db, link.grantId);
-    if (userId === null)
+    const userId = await liveConnectionUser(
+      oauth.db,
+      link.grantId,
+      McpScope.read,
+    );
+    if (userId === null || userId !== link.userId)
       return refused(
         403,
         "The connection that created this link was revoked or its account is disabled. Nothing was downloaded.",

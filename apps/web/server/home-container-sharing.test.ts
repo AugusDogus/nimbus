@@ -172,6 +172,10 @@ describe("sharing the home folders container", () => {
         url: "https://files.example.test/d",
         expiresAt: 0,
       }),
+      uploadLink: async () => ({
+        url: "https://files.example.test/u",
+        expiresAt: 0,
+      }),
     };
     const call = (name: string, input: Record<string, unknown>) => {
       const tool = mcpTools.find((entry) => entry.name === name);

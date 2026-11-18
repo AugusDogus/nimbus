@@ -41,9 +41,14 @@ function spareBytes(
   return spare.length ? Math.min(...spare) : null;
 }
 
+/** Free space a write must leave on a filesystem: the larger of 1 GiB and 5% of the disk. */
+const minimumFreeBytes = (totalBytes: number) =>
+  Math.max(1024 ** 3, totalBytes * 0.05);
+
 export const FilesystemCapacity = {
   fromStats,
   spareBytes,
+  minimumFreeBytes,
   /** Host filesystem capacity, shared with other applications, not a Nimbus quota. */
   async read(directory: string): Promise<FilesystemCapacity | null> {
     try {

@@ -7,6 +7,7 @@ import type { McpScope } from "./mcp-scope";
 import { FilesystemFailure } from "./filesystem-failure";
 import { createCaller } from "./routers";
 import { PathError } from "./safe-path";
+import type { UploadDestination } from "./upload-destination";
 
 /**
  * What one authenticated MCP request may act as. Tools call the same tRPC
@@ -23,6 +24,10 @@ export type McpToolContext = {
   origin: string;
   /** A short-lived URL that downloads `path` with this connection's access. */
   downloadLink: (path: string) => Promise<{ url: string; expiresAt: number }>;
+  /** A short-lived URL that streams a request body into `destination` with this connection's access. */
+  uploadLink: (
+    destination: UploadDestination,
+  ) => Promise<{ url: string; expiresAt: number }>;
 };
 
 export type McpToolAnnotations = {

@@ -1,3 +1,4 @@
+import path from "node:path";
 import { z } from "zod";
 import { permissionFor } from "./access";
 import { entryAt } from "./file-browser";
@@ -26,6 +27,8 @@ import {
   toolFailure,
 } from "./mcp-tool";
 import { FileListing } from "./file-listing";
+import { isApiError } from "./safe-path";
+import { UploadDestination } from "./upload-destination";
 
 export const MAX_TEXT_READ_BYTES = 256 * 1024;
 export const MAX_TEXT_WRITE_BYTES = 4 * 1024 * 1024;
@@ -241,6 +244,125 @@ const downloadLink = defineTool({
   },
 });
 
+/** The entry at `relative`, or null when nothing is there. */
+async function entryOrNull(relative: string) {
+  try {
+    return await entryAt(relative);
+  } catch (error) {
+    if (isApiError(error, "NOT_FOUND")) return null;
+    throw error;
+  }
+}
+
+const uploadLink = defineTool({
+  name: "get_upload_link",
+  title: "Get upload link",
+  description:
+    'Create a short-lived URL to upload a file of any size or type by HTTP PUT of its raw bytes, such as with curl -T; never put file bytes in tool arguments. With folder: true, PUT each file to url/<relative path> beneath that folder; missing subfolders are created. Like write_text, it refuses to replace a file unless you pass expectedEtag or onConflict "overwrite"; "keep-both" numbers the new name instead. Start each upload before expiresAt; one in progress may finish. Each path uploads once per link.',
+  scope: McpScope.write,
+  annotations: { ...additive, destructiveHint: true },
+  input: z.object({
+    path: pathInput.describe(
+      "File path, including its name; with folder: true, an existing folder.",
+    ),
+    folder: z.boolean().default(false),
+    onConflict: z.enum(["refuse", "overwrite", "keep-both"]).default("refuse"),
+    expectedEtag: z
+      .string()
+      .max(100)
+      .optional()
+      .describe("Replace only this version of the file, from get_item"),
+  }),
+  output: z.object({
+    url: z.string(),
+    method: z.literal("PUT"),
+    headers: z
+      .record(z.string(), z.string())
+      .describe("Headers to send; none are required"),
+    expiresAt: z.string(),
+    curl: z.string().describe("A ready-to-run example"),
+  }),
+  async run({ access, context }, input) {
+    if (
+      input.expectedEtag !== undefined &&
+      (input.folder || input.onConflict !== "refuse")
+    )
+      throw toolFailure(
+        "BAD_REQUEST",
+        "expectedEtag names one version of one file, so it cannot be combined with folder: true or onConflict. Nothing was created. Pass only one of them.",
+      );
+    const target = await safePath(input.path);
+    (await access()).require(target.relative, "write");
+    const current = await entryOrNull(target.relative);
+    if (input.folder) {
+      if (current?.type !== "dir")
+        throw toolFailure(
+          "NOT_FOUND",
+          `${target.relative || "The drive root"} is not a folder. No link was created. Create it with create_folder, or pass a file path without folder: true.`,
+        );
+      const link = await context.uploadLink({
+        kind: "folder",
+        path: target.relative,
+        rule: { kind: input.onConflict },
+      });
+      return {
+        url: link.url,
+        method: "PUT" as const,
+        headers: {},
+        expiresAt: isoTime(link.expiresAt),
+        curl: `cd ./local-folder && find . -type f | while IFS= read -r f; do f="\${f#./}"; curl -fsS --variable "p=$f" --expand-url "${link.url}/{{p:url}}" -T "$f" || break; done`,
+      };
+    }
+    const name = fileNameSchema.safeParse(
+      target.relative.split("/").pop() ?? "",
+    );
+    if (!name.success)
+      throw toolFailure(
+        "BAD_REQUEST",
+        "Choose a file name without control characters. The name .nimbus is reserved. No link was created.",
+      );
+    if (current?.type === "dir")
+      throw toolFailure(
+        "CONFLICT",
+        `${target.relative} is a folder. No link was created. Choose a file path inside it, or pass folder: true.`,
+      );
+    const rule =
+      input.expectedEtag !== undefined
+        ? { kind: "match" as const, etag: input.expectedEtag }
+        : { kind: input.onConflict };
+    if (current !== null && !UploadDestination.accepts(rule, current))
+      throw toolFailure(
+        "CONFLICT",
+        rule.kind === "match"
+          ? `${target.relative} changed since you read it (its etag is now ${fileTag(current)}). No link was created. Read it again, then retry with the new etag.`
+          : `${target.relative} already exists. No link was created. Pass its etag as expectedEtag to replace it, onConflict "overwrite", or onConflict "keep-both".`,
+      );
+    if (current === null && rule.kind === "match")
+      throw toolFailure(
+        "CONFLICT",
+        `No file exists at ${target.relative}, so it does not match expectedEtag. No link was created. Omit expectedEtag to create it.`,
+      );
+    const parent = path.posix.dirname(target.relative);
+    if ((await entryOrNull(parent === "." ? "" : parent))?.type !== "dir")
+      throw toolFailure(
+        "NOT_FOUND",
+        "The parent folder does not exist. No link was created. Create it with create_folder first.",
+      );
+    const link = await context.uploadLink({
+      kind: "file",
+      path: target.relative,
+      rule,
+    });
+    return {
+      url: link.url,
+      method: "PUT" as const,
+      headers: {},
+      expiresAt: isoTime(link.expiresAt),
+      curl: `curl -fsS -T ./local-file "${link.url}"`,
+    };
+  },
+});
+
 const sharedWithMe = defineTool({
   name: "list_shared_with_me",
   title: "List items shared with me",
@@ -297,7 +419,7 @@ const listTrash = defineTool({
 const writeText = defineTool({
   name: "write_text",
   title: "Write text file",
-  description: `Create a UTF-8 text file, or replace one, with up to ${MAX_TEXT_WRITE_BYTES / 1024 / 1024} MiB of content. By default it refuses to replace an existing file. To replace one safely, pass the etag from get_item or read_text as expectedEtag; the write is refused if the file changed since. overwrite: true replaces whatever is there.`,
+  description: `Create a UTF-8 text file, or replace one, with up to ${MAX_TEXT_WRITE_BYTES / 1024 / 1024} MiB of content; for binary or larger files use get_upload_link. By default it refuses to replace an existing file. To replace one safely, pass the etag from get_item or read_text as expectedEtag; the write is refused if the file changed since. overwrite: true replaces whatever is there.`,
   scope: McpScope.write,
   annotations: { ...additive, destructiveHint: true },
   input: z.object({
@@ -317,7 +439,7 @@ const writeText = defineTool({
     if (Buffer.byteLength(input.content) > MAX_TEXT_WRITE_BYTES)
       throw toolFailure(
         "BAD_REQUEST",
-        `The content is larger than ${MAX_TEXT_WRITE_BYTES / 1024 / 1024} MiB. Nothing was written. Split it into smaller files.`,
+        `The content is larger than ${MAX_TEXT_WRITE_BYTES / 1024 / 1024} MiB. Nothing was written. Upload it with get_upload_link instead.`,
       );
     const target = await safePath(input.path);
     const name = fileNameSchema.safeParse(
@@ -573,6 +695,7 @@ export const fileTools = [
   search,
   readText,
   downloadLink,
+  uploadLink,
   sharedWithMe,
   listTrash,
   writeText,

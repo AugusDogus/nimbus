@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { getAccess, type Access } from "@nimbus/api/access";
 import { FileRequest } from "@nimbus/api/file-request";
+import { FilesystemCapacity } from "@nimbus/api/filesystem-capacity";
 import { requireExisting } from "@nimbus/api/file-operations";
 import { isApiError } from "@nimbus/api/safe-path";
 import { httpDriveStore } from "./http-files";
@@ -161,7 +162,6 @@ export const FileRequestLimits = {
   }),
   /** Unfinished uploads one link may hold at once. */
   maxActiveUploads: 20,
-  /** Free space each upload must leave: the larger of 1 GiB and 5% of the disk. */
-  minimumFreeBytes: (totalBytes: number) =>
-    Math.max(1024 ** 3, totalBytes * 0.05),
+  /** Free space each upload must leave. */
+  minimumFreeBytes: FilesystemCapacity.minimumFreeBytes,
 } as const;
