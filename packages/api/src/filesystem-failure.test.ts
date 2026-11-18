@@ -25,16 +25,12 @@ test("every mapped failure says what happened, that nothing changed and what to 
   ]) {
     const error = FilesystemFailure.toApiError(failure(code));
     if (!error) throw new Error(`${code} is not mapped.`);
-    expect({ code, message: error.message }).toEqual({
-      code,
-      message: expect.stringContaining("Nothing was changed."),
-    });
-    expect({ code, message: error.message }).toEqual({
-      code,
-      message: expect.stringMatching(
-        /(Refresh|Choose|Ask|ask|Try again|try again)[^.]*\.$/,
-      ),
-    });
+    // Prefixed with the code, so a failure names the message that falls short.
+    const said = `${code}: ${error.message}`;
+    expect(said).toContain("Nothing was changed.");
+    expect(said).toMatch(
+      /(Refresh|Choose|Ask|ask|Try again|try again)[^.]*\.$/,
+    );
     expect(error.message).not.toContain("/srv/data");
   }
 });
