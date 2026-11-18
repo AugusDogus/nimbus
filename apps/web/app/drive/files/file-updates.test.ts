@@ -3,7 +3,11 @@ import { FileUpdates } from "./file-updates";
 
 test("a change refreshes listings, and a resync refreshes everything derived from files, once per burst", () => {
   const refreshed: string[][] = [];
-  const updates = FileUpdates.collector((keys) => refreshed.push(keys));
+  const resyncs: boolean[] = [];
+  const updates = FileUpdates.collector((keys, resync) => {
+    refreshed.push(keys);
+    resyncs.push(resync);
+  });
   updates.add({ kind: "delta" });
   updates.add({ kind: "delta" });
   updates.add({ kind: "resync" });
@@ -17,6 +21,7 @@ test("a change refreshes listings, and a resync refreshes everything derived fro
       "catalog",
       "trash",
       "shares",
+      "file-requests",
       "permissions",
       "preview",
       "versions",
@@ -27,4 +32,6 @@ test("a change refreshes listings, and a resync refreshes everything derived fro
   updates.flush();
   expect(refreshed.at(-1)).toEqual(["files.list", "files.storage", "catalog"]);
   expect(refreshed).toHaveLength(2);
+  // A resync refetches even queries already fetching, whose answers may predate it.
+  expect(resyncs).toEqual([true, false]);
 });

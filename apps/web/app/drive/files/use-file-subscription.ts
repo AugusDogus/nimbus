@@ -11,8 +11,10 @@ const refreshIntervalMs = 750;
 type Options = { currentPath: string; includeStats: boolean; enabled: boolean };
 export function useFileSubscription({ enabled }: Options) {
   const [updates] = useState(() => {
-    const collected = FileUpdates.collector((keys) => {
-      const options = { cancelRefetch: false } as const;
+    const collected = FileUpdates.collector((keys, resync) => {
+      // Ordinary bursts let a running refetch finish. After a resync its answer may predate the
+      // dropped changes, so it is replaced.
+      const options = { cancelRefetch: resync };
       for (const key of keys)
         void queryClient.invalidateQueries({ queryKey: [key] }, options);
     });
