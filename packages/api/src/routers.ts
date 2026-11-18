@@ -342,7 +342,12 @@ export const appRouter = router({
 
         for await (const item of iterateFileEvents(signal)) {
           if (item.kind === "overflow") {
-            // Too many changes at once for this client: it reloads instead of replaying them.
+            // Too many changes at once for this client: it reloads instead of replaying them,
+            // unless its session ended meanwhile.
+            if (Date.now() - sessionCheckedAt >= SESSION_RECHECK_MS) {
+              if (!(await ctx.sessionStillValid())) return;
+              sessionCheckedAt = Date.now();
+            }
             const ts = Date.now();
             const update: FileUpdate = { kind: "resync", ts };
             yield tracked(`${ts}:resync`, update);

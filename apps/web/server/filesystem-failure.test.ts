@@ -38,6 +38,7 @@ describe("filesystem failures seen by clients", () => {
       createContext: () => ({
         headers: new Headers(),
         session: { user: { id: "owner" } },
+        sessionStillValid: async () => true,
         drive: drive.store,
         preferences: {
           getUserPreferences: async () => null,

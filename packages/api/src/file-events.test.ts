@@ -6,7 +6,7 @@ import {
   maxQueuedFileEvents,
   publishFileEvent,
 } from "./file-events";
-import { appRouter } from "./routers";
+import { appRouter, SESSION_RECHECK_MS } from "./routers";
 import { createTestDriveStore } from "./testing";
 
 let root: string;
@@ -53,6 +53,7 @@ test("live updates tell a subscriber that fell behind to reload", async () => {
       {
         headers: new Headers(),
         session: { user: { id: "user-1" } },
+        sessionStillValid: async () => true,
         drive: memory.store,
         preferences: {
           getUserPreferences: async () => null,
@@ -81,5 +82,32 @@ test("live updates tell a subscriber that fell behind to reload", async () => {
     kind: "delta",
     path: "file-0.txt",
   });
+  controller.abort();
+});
+
+test("a subscriber whose session ended gets no reload notice, and its stream ends", async () => {
+  const memory = createTestDriveStore();
+  const controller = new AbortController();
+  const updates = await appRouter
+    .createCaller(
+      {
+        headers: new Headers(),
+        session: { user: { id: "user-1" } },
+        sessionStillValid: async () => false,
+        drive: memory.store,
+        preferences: {
+          getUserPreferences: async () => null,
+          setUserPreferences: async (_id, value) => value,
+        },
+      },
+      { signal: controller.signal },
+    )
+    .files.onChange({});
+  const iterator = updates[Symbol.asyncIterator]();
+  const first = iterator.next();
+  await Bun.sleep(SESSION_RECHECK_MS + 10);
+  for (let index = 0; index <= maxQueuedFileEvents; index++)
+    publishFileEvent(event(index));
+  expect(await first).toMatchObject({ done: true });
   controller.abort();
 });

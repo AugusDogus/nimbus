@@ -43,6 +43,7 @@ export async function openTestDrive() {
       appRouter.createCaller({
         headers: new Headers(),
         session: { user: { id } },
+        sessionStillValid: async () => true,
         drive: store,
         preferences: {
           getUserPreferences: async () => null,
