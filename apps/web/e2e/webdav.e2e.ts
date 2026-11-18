@@ -236,15 +236,24 @@ test("WebDAV MKCOL and LOCK never revive the public links of content removed out
       await request.fetch(`/dav/${folder}/old`, { method: "MKCOL", headers })
     ).status(),
   ).toBe(201);
+  const locked = await request.fetch(`/dav/${lockedName}`, {
+    method: "LOCK",
+    headers: { ...headers, "Content-Type": "application/xml" },
+    data: '<?xml version="1.0"?><d:lockinfo xmlns:d="DAV:"><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockinfo>',
+  });
+  // Released at once: locks count against the account's limit for later tests.
   expect(
     (
       await request.fetch(`/dav/${lockedName}`, {
-        method: "LOCK",
-        headers: { ...headers, "Content-Type": "application/xml" },
-        data: '<?xml version="1.0"?><d:lockinfo xmlns:d="DAV:"><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockinfo>',
+        method: "UNLOCK",
+        headers: {
+          ...headers,
+          "Lock-Token": locked.headers()["lock-token"] ?? "",
+        },
       })
     ).status(),
-  ).toBe(201);
+  ).toBe(204);
+  expect(locked.status()).toBe(201);
   const live = (await rpc.shares.list.query()).map((share) => share.token);
   expect(live).not.toContain(linked.token);
   expect(live).not.toContain(lockedLink.token);
