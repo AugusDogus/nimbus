@@ -57,14 +57,16 @@ const seconds = (ms: number) =>
   ms >= 120_000 ? `${Math.round(ms / 60_000)} minutes` : `${ms / 1000} seconds`;
 
 /**
- * What a watch error means. Errors for one folder below the root leave the rest watched;
- * Bun reports a folder it may not read as EPERM (errno EACCES). ENOSPC is the inotify watch
- * limit. Anything else, or any error for the root itself, needs the watch started again.
+ * What a watch error means. An error for one folder below the root leaves the rest watched,
+ * as Bun goes on adding the others; Bun reports a folder it may not read as EPERM (errno
+ * EACCES), and one whose path is too long as ENAMETOOLONG. ENOSPC is the inotify watch limit.
+ * Running out of descriptors, or any error for the root itself or without a path, needs the
+ * watch started again: restarting for one folder's error would only meet it again.
  */
 type Failure =
   /** Removed, or replaced by a symlink, while it was added: its parent reports that. */
   | { kind: "gone" }
-  | { kind: "unreadable"; folder: string }
+  | { kind: "folder"; folder: string; code: string | null }
   | { kind: "limit" }
   | { kind: "restart"; reason: string; message: string };
 
@@ -78,13 +80,18 @@ function classify(root: string, error: unknown): Failure {
     !relative.startsWith(`..${path.sep}`) &&
     !path.isAbsolute(relative);
   const refused = code === "EACCES" || code === "EPERM";
-  if (code === "ENOSPC") return { kind: "limit" };
-  if (below && (code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP"))
-    return { kind: "gone" };
-  if (below && refused && at !== null)
-    return { kind: "unreadable", folder: at };
   const retrying =
     "Nimbus keeps serving and tries again with growing waits of up to 5 minutes; changes made meanwhile are found when it does.";
+  if (code === "ENOSPC") return { kind: "limit" };
+  if (code === "EMFILE" || code === "ENFILE")
+    return {
+      kind: "restart",
+      reason: code,
+      message: `Nimbus's file watcher could not open another file (${code}): the ${code === "EMFILE" ? "process's" : "system's"} limit on open files or inotify instances (fs.inotify.max_user_instances) is reached. Files are unaffected. ${retrying} If this repeats, raise that limit.`,
+    };
+  if (below && (code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP"))
+    return { kind: "gone" };
+  if (below && at !== null) return { kind: "folder", folder: at, code };
   if (code === "ENOENT" || code === "ENOTDIR")
     return {
       kind: "restart",
@@ -97,12 +104,6 @@ function classify(root: string, error: unknown): Failure {
       reason: "root refused",
       message: `Nimbus cannot watch the data root ${root}: permission denied. ${retrying} Give the user Nimbus runs as (uid ${process.getuid?.() ?? "unknown"}) read and execute permission on it.`,
     };
-  if (code === "EMFILE" || code === "ENFILE")
-    return {
-      kind: "restart",
-      reason: code,
-      message: `Nimbus's file watcher could not open another file (${code}): the ${code === "EMFILE" ? "process's" : "system's"} limit on open files or inotify instances (fs.inotify.max_user_instances) is reached. Files are unaffected. ${retrying} If this repeats, raise that limit.`,
-    };
   const detail =
     code ?? (error instanceof Error ? error.message : String(error));
   return {
@@ -112,6 +113,20 @@ function classify(root: string, error: unknown): Failure {
   };
 }
 
+const folderProblem = (folder: string, code: string | null) =>
+  code === "EACCES" || code === "EPERM"
+    ? `read the folder ${folder} (permission denied), so it does not follow changes inside it and search does not include its contents`
+    : code === "ENAMETOOLONG"
+      ? `watch the folder ${folder}: its path is longer than the system allows (ENAMETOOLONG), so it does not follow changes inside it`
+      : `watch the folder ${folder} (${code ?? "unknown error"}), so it does not follow changes inside it`;
+
+const folderRemedy = (code: string | null) =>
+  code === "EACCES" || code === "EPERM"
+    ? `To include it, give the user Nimbus runs as (uid ${process.getuid?.() ?? "unknown"}) read and execute permission on it.`
+    : code === "ENAMETOOLONG"
+      ? "To include it, move it to a shorter path."
+      : "Check the folder and the disk it is on.";
+
 /**
  * Watch `root` recursively, emitting one debounced event per changed path.
  * When the kernel's event queue overflows, Bun reports a change without a
@@ -120,10 +135,12 @@ function classify(root: string, error: unknown): Failure {
  * again, and `onLost` is called so state built from events can be rebuilt.
  *
  * Every watch error is handled here, never left to crash the process:
- * - A folder it may not read is not watched, and is logged once. It is checked again every
+ * - A folder below the root that it may not read, or cannot watch for another reason such as
+ *   a path too long, is not watched, and is logged once. It is checked again every
  *   `recheckMs`; once readable, the watch is recreated so it is included, and `onLost` called.
  * - At the inotify watch limit (ENOSPC) it stops watching for good and releases its watches,
- *   which other programs of the same user share; `onLost` keeps being the only way to catch up.
+ *   which other programs of the same user share; the caller's periodic reconciliation is then
+ *   how changes made outside Nimbus are found.
  * - Anything else, including the root going away, closes the watch and starts it again after
  *   a wait that doubles on each failure, then calls `onLost`.
  */
@@ -225,13 +242,13 @@ export const startFileWatch = (
     switch (failure.kind) {
       case "gone":
         return;
-      case "unreadable":
+      case "folder":
         if (unwatched.has(failure.folder)) return;
         unwatched.add(failure.folder);
         loggedFolders++;
         if (loggedFolders <= maxLoggedFolders)
           log(
-            `Nimbus cannot read the folder ${failure.folder} (permission denied), so it does not follow changes inside it and search does not include its contents. Everything else in the drive is watched as usual. To include it, give the user Nimbus runs as (uid ${process.getuid?.() ?? "unknown"}) read and execute permission on it; Nimbus checks again every ${seconds(recheckMs)}.`,
+            `Nimbus cannot ${folderProblem(failure.folder, failure.code)}. Everything else in the drive is watched as usual. ${folderRemedy(failure.code)} Nimbus checks again every ${seconds(recheckMs)}.`,
           );
         else if (loggedFolders === maxLoggedFolders + 1)
           log(

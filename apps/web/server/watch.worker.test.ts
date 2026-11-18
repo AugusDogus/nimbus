@@ -347,6 +347,21 @@ describe("watch.worker failures", () => {
     expect(logs[1]).toContain(path.join(root, "y"));
   });
 
+  for (const code of ["ENAMETOOLONG", "EIO"])
+    it(`skips one folder it cannot watch for ${code}, logging it once, and keeps watching the rest`, async () => {
+      const fake = fakeWatches();
+      start(fake.watch);
+      const folder = path.join(root, "deep");
+      fake.made[0]?.fail(watchError(code, folder));
+      fake.made[0]?.fail(watchError(code, folder));
+      await Bun.sleep(50);
+      expect(fake.made).toHaveLength(1);
+      expect(fake.made[0]?.closed).toBe(false);
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toContain(folder);
+      expect(logs[0]).toContain(code);
+    });
+
   it("restarts after the root itself becomes unreadable", async () => {
     const fake = fakeWatches();
     start(fake.watch);
@@ -358,9 +373,9 @@ describe("watch.worker failures", () => {
   });
 
   it("logs an unknown error once and restarts with growing waits instead of spinning", async () => {
-    // Every watch fails as soon as it starts.
+    // Every watch fails as soon as it starts, for the root itself.
     const fake = fakeWatches((watcher) =>
-      watcher.fail(watchError("EIO", path.join(root, "disk"))),
+      watcher.fail(watchError("EIO", root)),
     );
     const watching = start(fake.watch);
     await Bun.sleep(400);
