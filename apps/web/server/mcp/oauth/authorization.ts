@@ -2,7 +2,7 @@ import { recordAudit } from "@nimbus/api/audit";
 import { accountActor, clientTarget } from "./audit";
 import { createHmac, hkdfSync, randomUUID, timingSafeEqual } from "node:crypto";
 import { McpScope } from "@nimbus/api/mcp-scope";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { mcpGrants, mcpTokens } from "../../db/mcp-schema";
 import { mcpResource } from "../config";
@@ -282,7 +282,7 @@ export function issueConsentTicket(
 }
 
 type TicketCheck =
-  | { ok: true; request: AuthorizationRequest }
+  | { ok: true; request: AuthorizationRequest; issuedAt: number }
   | { ok: false; message: string };
 
 export function verifyConsentTicket(
@@ -323,6 +323,7 @@ export function verifyConsentTicket(
   return {
     ok: true,
     request: { ...request, scopes: McpScope.parse(scope).scopes },
+    issuedAt: parsed.data.exp - CONSENT_TICKET_TTL_MS,
   };
 }
 
@@ -380,18 +381,37 @@ export const optionalScopeFields: Partial<Record<McpScope, string>> = {
   "files:share": "allow_share",
 };
 
+/**
+ * A code for an approval, or null when this user approved the client since `ticketIssuedAt`
+ * (the same millisecond counts, so ties refuse): every approval creates a grant and grants
+ * are never deleted, so a resubmitted or replayed form cannot issue a second code, and an
+ * older form for the same app cannot replace the approval made since it was shown.
+ */
 async function issueCode(
   ctx: OAuthContext,
   session: BrowserSession,
   request: AuthorizationRequest,
   scopes: McpScope[],
+  ticketIssuedAt: number,
 ) {
   const now = ctx.now();
   const grantId = randomUUID();
   const code = mintSecret(TokenPrefix.authorizationCode);
   const scope = McpScope.format(scopes);
-  // One synchronous transaction: the three statements commit together.
-  ctx.db.transaction((tx) => {
+  // One synchronous transaction: the check and the three statements commit together.
+  return ctx.db.transaction((tx) => {
+    const newer = tx
+      .select({ id: mcpGrants.id })
+      .from(mcpGrants)
+      .where(
+        and(
+          eq(mcpGrants.userId, session.userId),
+          eq(mcpGrants.clientId, request.clientId),
+          gte(mcpGrants.createdAt, ticketIssuedAt),
+        ),
+      )
+      .get();
+    if (newer) return null;
     // Reconnecting the same app replaces its previous approval, so Settings lists one entry per app.
     tx.update(mcpGrants)
       .set({ revokedAt: now })
@@ -424,8 +444,8 @@ async function issueCode(
         createdAt: now,
       })
       .run();
+    return code.secret;
   });
-  return code.secret;
 }
 
 /**
@@ -503,7 +523,19 @@ export async function decideConsent(ctx: OAuthContext, request: Request) {
           state: authorization.state,
         }),
       );
-    const code = await issueCode(ctx, session, authorization, scopes);
+    const code = await issueCode(
+      ctx,
+      session,
+      authorization,
+      scopes,
+      checked.issuedAt,
+    );
+    if (code === null)
+      return htmlError(
+        409,
+        "Already approved",
+        "You approved this app after this form was shown, so Nimbus did not approve it again. That connection is unchanged. If the app did not finish connecting, return to it and start again.",
+      );
     recordAudit({
       action: "mcp.client_approved",
       actor: await accountActor(ctx.db, session.userId),

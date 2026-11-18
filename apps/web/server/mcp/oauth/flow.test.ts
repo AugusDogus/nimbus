@@ -632,6 +632,54 @@ describe("MCP OAuth flow", () => {
     ).toBe("access_denied");
   });
 
+  it("accepts each consent ticket once, for the exact request it was issued for", async () => {
+    const clientId = await register();
+    const view = await loadConsent(
+      ctx,
+      authorizeParams(clientId, pkce().challenge),
+      new Headers(),
+    );
+    if (view.kind !== "ready") throw new Error("Expected a consent form");
+    const decide = (ticket: string) =>
+      decideConsent(
+        ctx,
+        post("/oauth/consent", { ticket, decision: "approve" }, { origin }),
+      );
+    // A ticket whose request was changed no longer matches its signature.
+    const [payload, signature] = view.ticket.split(".");
+    const altered = Buffer.from(
+      Buffer.from(payload ?? "", "base64url")
+        .toString("utf8")
+        .replace("127.0.0.1:33418", "127.0.0.1:33419"),
+    ).toString("base64url");
+    expect((await decide(`${altered}.${signature}`)).status).toBe(400);
+
+    // Another form for the same app, shown before the approval below.
+    const earlier = await loadConsent(
+      ctx,
+      authorizeParams(clientId, pkce().challenge, { state: "other" }),
+      new Headers(),
+    );
+    if (earlier.kind !== "ready") throw new Error("Expected a consent form");
+    // Approved in the same millisecond the form was shown, then replayed.
+    expect((await decide(view.ticket)).status).toBe(303);
+    const replayed = await decide(view.ticket);
+    expect(replayed.status).toBe(409);
+    expect(replayed.headers.get("location")).toBeNull();
+    // Approving that other form would replace the connection just made.
+    expect((await decide(earlier.ticket)).status).toBe(409);
+    expect(
+      client
+        .query(
+          "SELECT count(*) AS grants FROM nimbus_mcp_grant WHERE revoked_at IS NULL",
+        )
+        .get(),
+    ).toEqual({ grants: 1 });
+    expect(
+      client.query("SELECT count(*) AS grants FROM nimbus_mcp_grant").get(),
+    ).toEqual({ grants: 1 });
+  });
+
   it("returns the code to a desktop app's custom-scheme redirect URI", async () => {
     const appUri = "cursor://anysphere.cursor-retrieval/oauth/callback";
     const clientId = await register({ redirect_uris: [appUri] });
