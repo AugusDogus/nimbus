@@ -57,7 +57,9 @@ test("the drawer's last action stays reachable with the impersonation banner on 
   await navigate(page, "My files", true);
   const folder = `banner-${randomUUID().slice(0, 8)}`;
   await createFolder(page, folder, true);
-  // The "Created folder" toast times out on its own; it would cover the drawer's foot.
+  // The "Created folder" toast times out on its own; it would cover the drawer's foot. A pointer
+  // resting on a toast keeps it open, and the toast now sits where the dialog's button was.
+  await page.mouse.move(160, 60);
   await expect(
     page.getByRole("region", { name: "Notifications" }).getByText("Created"),
   ).toBeHidden();
