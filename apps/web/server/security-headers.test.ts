@@ -4,15 +4,17 @@ import { SecurityHeaders } from "./security-headers";
 const production = { development: false, https: true };
 
 describe("SecurityHeaders", () => {
-  it("lets a document's forms reach only the targets it names", () => {
-    expect(SecurityHeaders.policy("abc", production)).toContain(
-      "form-action 'self';",
+  it("keeps forms on Nimbus unless a document opts out of form-action alone", () => {
+    const strict = SecurityHeaders.policy("abc", production);
+    expect(strict).toContain("form-action 'self';");
+    const open = SecurityHeaders.policy("abc", production, {
+      formRedirects: "unrestricted",
+    });
+    expect(open).not.toContain("form-action");
+    // Every other directive stays exactly as strict.
+    expect(open.split("; ")).toEqual(
+      strict.split("; ").filter((part) => !part.startsWith("form-action")),
     );
-    expect(
-      SecurityHeaders.policy("abc", production, {
-        formTargets: ["http://127.0.0.1:43123"],
-      }),
-    ).toContain("form-action 'self' http://127.0.0.1:43123;");
   });
   it("allows scripts only with the request nonce in production", () => {
     const policy = SecurityHeaders.policy("abc", production);

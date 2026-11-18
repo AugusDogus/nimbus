@@ -632,6 +632,34 @@ describe("MCP OAuth flow", () => {
     ).toBe("access_denied");
   });
 
+  it("returns the code to a desktop app's custom-scheme redirect URI", async () => {
+    const appUri = "cursor://anysphere.cursor-retrieval/oauth/callback";
+    const clientId = await register({ redirect_uris: [appUri] });
+    const view = await loadConsent(
+      ctx,
+      authorizeParams(clientId, pkce().challenge, { redirect_uri: appUri }),
+      new Headers(),
+    );
+    if (view.kind !== "ready") throw new Error("Expected a consent form");
+    expect(view.redirectTarget).toBe("anysphere.cursor-retrieval");
+    const response = await decideConsent(
+      ctx,
+      post(
+        "/oauth/consent",
+        { ticket: view.ticket, decision: "approve" },
+        { origin },
+      ),
+    );
+    expect(response.status).toBe(303);
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(`${location.protocol}//${location.host}${location.pathname}`).toBe(
+      appUri,
+    );
+    expect(location.searchParams.get("code")).toStartWith("nimbus_mcp_code_");
+    expect(location.searchParams.get("state")).toBe("client-state");
+    expect(location.searchParams.get("iss")).toBe(origin);
+  });
+
   const registerFrom = (address: string) =>
     registerClient(
       ctx,

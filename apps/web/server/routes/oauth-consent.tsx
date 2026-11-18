@@ -145,12 +145,6 @@ function ConsentCard({ view, email }: { view: ReadyView; email?: string }) {
   );
 }
 
-/** Where the decision may redirect, as a CSP source: the client's origin, or its URL scheme. */
-function formTarget(redirectUri: string) {
-  const url = new URL(redirectUri);
-  return url.origin !== "null" ? url.origin : url.protocol;
-}
-
 /**
  * GET /oauth/consent: a plain HTML form, rendered here so it needs no script and is never
  * framed. The decision endpoint checks the Origin, so the page sends its own origin with
@@ -180,7 +174,8 @@ export async function GET(
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Connect an app · Nimbus</title><meta name="robots" content="noindex"><meta name="referrer" content="same-origin"><link rel="icon" href="/icon.svg" sizes="any" type="image/svg+xml">${await shell.stylesheets(nonce)}<style id="nimbus-custom-themes"></style><script nonce="${nonce}">${themeBoot}</script></head><body class="antialiased">${body}</body></html>`;
   const headers = new Headers(
     SecurityHeaders.document(nonce, mode, {
-      formTargets: view.kind === "ready" ? [formTarget(view.redirectUri)] : [],
+      // Only the form that redirects to a client lifts form-action; see DocumentPolicy.
+      formRedirects: view.kind === "ready" ? "unrestricted" : "same-origin",
     }),
   );
   return AppShell.htmlResponse(request, html, headers);

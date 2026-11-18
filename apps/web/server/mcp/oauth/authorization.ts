@@ -333,8 +333,6 @@ export type ConsentView =
   | {
       kind: "ready";
       clientName: string;
-      /** Where the decision redirects; the page's CSP allows its form to go there. */
-      redirectUri: string;
       redirectTarget: string;
       scopes: McpScope[];
       ticket: string;
@@ -370,7 +368,6 @@ export async function loadConsent(
   return {
     kind: "ready",
     clientName: validation.client.clientName,
-    redirectUri: validation.request.redirectUri,
     redirectTarget: redirectTarget(validation.request.redirectUri),
     scopes: validation.request.scopes,
     ticket: issueConsentTicket(ctx, session, validation.request),

@@ -10,8 +10,15 @@ export type SecurityMode = { development: boolean; https: boolean };
 
 /** Per-document additions to the policy. */
 export type DocumentPolicy = {
-  /** Other places the page's forms may submit to or redirect through, as CSP sources. */
-  formTargets?: readonly string[];
+  /**
+   * `same-origin` (the default) sends `form-action 'self'`. `unrestricted` sends no
+   * `form-action` at all, and is only for the MCP consent page: its decision answers with a
+   * redirect to the client, and Chromium checks `form-action` against every later redirect
+   * after a form submission, not only the first. A hosted client's callback redirects onward
+   * (to its sign-in or app host), which Nimbus cannot know or list, so any `form-action`
+   * blocks the user's return to the client. Every other directive stays in place.
+   */
+  formRedirects?: "same-origin" | "unrestricted";
 };
 
 export const SecurityHeaders = {
@@ -34,7 +41,9 @@ export const SecurityHeaders = {
       "frame-src 'self'",
       "object-src 'none'",
       "base-uri 'none'",
-      ["form-action 'self'", ...(document.formTargets ?? [])].join(" "),
+      ...(document.formRedirects === "unrestricted"
+        ? []
+        : ["form-action 'self'"]),
       "frame-ancestors 'none'",
       ...(mode.https ? ["upgrade-insecure-requests"] : []),
     ].join("; ");
