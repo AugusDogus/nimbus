@@ -1,9 +1,11 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   createServer,
+  request as httpRequest,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { Readable } from "node:stream";
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -328,6 +330,180 @@ test("an MCP client connects through OAuth, works with files, and is cut off whe
   await expect(
     client.callTool({ name: "list_folder", arguments: { path: "" } }),
   ).rejects.toThrow();
+});
+
+const uploadLink = z.object({
+  url: z.string(),
+  method: z.literal("PUT"),
+  curl: z.string(),
+});
+const uploaded = z.object({
+  outcome: z.enum(["created", "replaced"]),
+  path: z.string(),
+  size: z.number(),
+  etag: z.string(),
+});
+
+/** `size` pseudo-random bytes as a stream, and their SHA-256 once fully read. */
+function binaryStream(size: number) {
+  const hash = createHash("sha256");
+  async function* chunks() {
+    for (let sent = 0; sent < size;) {
+      const chunk = randomBytes(Math.min(1 << 20, size - sent));
+      hash.update(chunk);
+      sent += chunk.byteLength;
+      yield chunk;
+    }
+  }
+  return { stream: Readable.from(chunks()), digest: () => hash.digest("hex") };
+}
+
+/** PUT `body` to `url` without a declared length, so it is sent chunked. */
+function putStream(url: string, body: Readable) {
+  return new Promise<{ status: number; text: string }>((resolve, reject) => {
+    const sent = httpRequest(url, { method: "PUT" }, (response) => {
+      let text = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => (text += chunk));
+      response.on("end", () =>
+        resolve({ status: response.statusCode ?? 0, text }),
+      );
+    });
+    sent.on("error", reject);
+    body.pipe(sent);
+  });
+}
+
+async function sha256Of(response: Response) {
+  const hash = createHash("sha256");
+  if (!response.body) return hash.digest("hex");
+  for await (const chunk of response.body) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+test("an MCP client uploads a large binary through an upload link and reads it back", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Protocol flow; covered on desktop.");
+  const name = `Uploader ${randomUUID().slice(0, 8)}`;
+  const client = await connect(page, name, async (current) => {
+    await consent(current).click();
+  });
+  const folder = `mcp-upload-${randomUUID()}`;
+  await client.callTool({
+    name: "create_folder",
+    arguments: { parentPath: "", name: folder },
+  });
+  const link = uploadLink.parse(
+    structured(
+      await client.callTool({
+        name: "get_upload_link",
+        arguments: { path: `${folder}/video.bin` },
+      }),
+    ),
+  );
+  expect(link.url.startsWith(`${origin}/api/mcp/upload/`)).toBe(true);
+  expect(link.curl).toContain(link.url);
+
+  // Over 64 MiB, streamed without a declared length, so it arrives chunked.
+  const size = 64 * 1024 * 1024 + 12_345;
+  const body = binaryStream(size);
+  const response = await putStream(link.url, body.stream);
+  expect(response.status).toBe(201);
+  const result = uploaded.parse(JSON.parse(response.text));
+  expect(result).toMatchObject({
+    outcome: "created",
+    path: `${folder}/video.bin`,
+    size,
+  });
+  expect(
+    structured(
+      await client.callTool({
+        name: "get_item",
+        arguments: { path: `${folder}/video.bin` },
+      }),
+    ),
+  ).toMatchObject({ size, etag: result.etag });
+
+  const download = z.object({ url: z.string() }).parse(
+    structured(
+      await client.callTool({
+        name: "get_download_link",
+        arguments: { path: `${folder}/video.bin` },
+      }),
+    ),
+  );
+  const fetched = await fetch(download.url);
+  expect(fetched.status).toBe(200);
+  expect(await sha256Of(fetched)).toBe(body.digest());
+
+  const again = await fetch(link.url, { method: "PUT", body: "again" });
+  expect(again.status).toBe(410);
+});
+
+test("an MCP client uploads a folder of files through one folder link", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Protocol flow; covered on desktop.");
+  const client = await connect(
+    page,
+    `Folder uploader ${randomUUID().slice(0, 8)}`,
+    async (current) => {
+      await consent(current).click();
+    },
+  );
+  const folder = `mcp-folder-${randomUUID()}`;
+  await client.callTool({
+    name: "create_folder",
+    arguments: { parentPath: "", name: folder },
+  });
+  const link = uploadLink.parse(
+    structured(
+      await client.callTool({
+        name: "get_upload_link",
+        arguments: { path: folder, folder: true },
+      }),
+    ),
+  );
+  const files = {
+    "notes.txt": "plain",
+    "photos/2026/beach day.jpg": "ÿØ not really a jpeg",
+    "photos/été.txt": "accents",
+  };
+  for (const [relative, content] of Object.entries(files)) {
+    // As curl's --expand-url {{p:url}} sends it: every "/" encoded too.
+    const response = await fetch(
+      `${link.url}/${encodeURIComponent(relative)}`,
+      { method: "PUT", body: content },
+    );
+    expect(response.status).toBe(201);
+    expect(uploaded.parse(await response.json()).path).toBe(
+      `${folder}/${relative}`,
+    );
+  }
+  const escape = await fetch(`${link.url}/..%2Fescape.txt`, {
+    method: "PUT",
+    body: "x",
+  });
+  expect(escape.status).toBe(400);
+  expect(
+    structured(
+      await client.callTool({
+        name: "list_folder",
+        arguments: { path: `${folder}/photos/2026` },
+      }),
+    ),
+  ).toMatchObject({ entries: [{ name: "beach day.jpg" }] });
+  expect(
+    structured(
+      await client.callTool({
+        name: "read_text",
+        arguments: { path: `${folder}/photos/été.txt` },
+      }),
+    ),
+  ).toMatchObject({ content: { kind: "text", text: "accents" } });
 });
 
 test("a signed-out user signs in, then connects a client with view access only", async ({
