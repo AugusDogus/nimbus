@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { constants } from "node:fs";
 import {
+  copyFile,
   mkdir,
   mkdtemp,
   open,
@@ -44,6 +46,24 @@ const save = async (relative: string, content: string) =>
     archivedBy: "editor",
     now: ++clock,
   });
+/** Whether `directory`'s filesystem clones files (reflinks), which version saves try first. */
+const clonesFiles = async (directory: string) => {
+  const probe = path.join(directory, ".clone-probe");
+  await writeFile(probe, "probe");
+  try {
+    await copyFile(
+      probe,
+      `${probe}.clone`,
+      constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE_FORCE,
+    );
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(probe, { force: true });
+    await rm(`${probe}.clone`, { force: true });
+  }
+};
 const contents = async (relative: string) =>
   Promise.all(
     (await FileVersions.history(store, relative)).map(async (version) => {
@@ -64,7 +84,7 @@ afterEach(async () => {
 
 test("replacing a file keeps its previous content as a version without copying it", async () => {
   expect(await save("notes.txt", "first")).toEqual({ kind: "created" });
-  // Not written for a while, so no writer is likely to hold it open (on tmpfs, without reflinks).
+  // Not written for a while, so without reflinks no writer is likely to hold it open.
   const quiet = new Date(Date.now() - 5 * 60 * 1000);
   await utimes(at("notes.txt"), quiet, quiet);
   const original = await stat(at("notes.txt"));
@@ -80,8 +100,13 @@ test("replacing a file keeps its previous content as a version without copying i
   });
   const found = await FileVersions.find(store, "notes.txt", result.version.id);
   if (!found) throw new Error("The new version is not attached to the file.");
-  // The version is the old inode itself, preserved by hardlink.
-  expect((await stat(found.payload(root))).ino).toBe(original.ino);
+  const payload = await stat(found.payload(root));
+  if (await clonesFiles(root))
+    // A reflink: its own inode sharing the old extents, so a writer of the old inode cannot
+    // change it.
+    expect(payload.ino).not.toBe(original.ino);
+  // Without reflinks, the old inode itself, preserved by hardlink.
+  else expect(payload.ino).toBe(original.ino);
   await save("notes.txt", "third");
   expect(await contents("notes.txt")).toEqual(["second", "first"]);
 });
