@@ -1,16 +1,15 @@
 import {
   closeSync,
   constants,
-  existsSync,
   fstatSync,
   openSync,
-  readlinkSync,
   realpathSync,
   type Dirent,
   type Stats,
 } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
+import { DescriptorPath } from "./descriptor-path";
 import { isFsError } from "./safe-path";
 import type { SearchIndex } from "./search-index";
 
@@ -23,12 +22,6 @@ const unservableName = (name: string) =>
 
 /** Files stated at once per folder: bounded so a huge folder cannot flood the filesystem. */
 const statConcurrency = 64;
-
-/** Linux names every open descriptor by a path that reaches the same file. */
-const descriptorPaths = existsSync("/proc/self/fd");
-
-/** Each data root's real path, read again whenever a folder seems to have moved. */
-const realRoots = new Map<string, string>();
 
 /**
  * A folder opened for listing, as `path`: lists and stats through it reach
@@ -67,23 +60,18 @@ function openFolder(root: string, relative: string): OpenFolder {
   try {
     // Without descriptor paths, as on macOS, the folder is listed by its path,
     // checked just before.
-    const listing = descriptorPaths ? `/proc/self/fd/${opened}` : absolute;
-    const actual = descriptorPaths
-      ? readlinkSync(listing)
-      : realpathSync(absolute);
-    const expected = (fresh: boolean) => {
-      let real = realRoots.get(root);
-      if (real === undefined || fresh) {
-        real = realpathSync(root);
-        realRoots.set(root, real);
-      }
-      return path.join(real, relative);
-    };
-    if (actual === expected(false) || actual === expected(true))
+    const stats = fstatSync(opened);
+    const listing = DescriptorPath.available
+      ? DescriptorPath.of(opened)
+      : absolute;
+    const there = DescriptorPath.available
+      ? DescriptorPath.opened(opened, stats, root, relative)
+      : realpathSync(absolute) === path.join(realpathSync(root), relative);
+    if (there)
       return {
         type: "open",
         path: listing,
-        identity: identityOf(fstatSync(opened)),
+        identity: identityOf(stats),
         close,
       };
     close();

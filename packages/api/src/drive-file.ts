@@ -3,23 +3,21 @@ import {
   closeSync,
   constants,
   createWriteStream,
-  existsSync,
   fstatSync,
   openSync,
-  readlinkSync,
   type Stats,
 } from "node:fs";
 import {
   copyFile,
   lstat,
   open,
-  realpath,
   rename,
   type FileHandle,
 } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { getDataRoot } from "./data-root";
+import { DescriptorPath } from "./descriptor-path";
 import { isFsError } from "./safe-path";
 
 /**
@@ -36,19 +34,7 @@ import { isFsError } from "./safe-path";
  * lstat once the file is open.
  */
 
-/** Linux exposes every open descriptor as a path that opens the same file. */
-const descriptorPaths = existsSync("/proc/self/fd");
-
-/** The data root with its own symlinks resolved, as descriptor paths name it. */
-const realRoots = new Map<string, string>();
-async function realRoot(dataRoot: string) {
-  let real = realRoots.get(dataRoot);
-  if (real === undefined) {
-    real = await realpath(dataRoot);
-    realRoots.set(dataRoot, real);
-  }
-  return real;
-}
+const descriptorPaths = DescriptorPath.available;
 
 const swapped = () =>
   new TRPCError({
@@ -65,19 +51,10 @@ async function opensPath(
   dataRoot: string,
 ) {
   const relative = path.relative(dataRoot, absolute);
-  if (descriptorPaths) {
-    // A procfs lookup that never waits on storage, so it runs synchronously, sparing a
-    // thread-pool round trip on every open. A file renamed over or deleted since it was
-    // opened has no names left and is reported with a suffix; a live file's own name may
-    // end the same way, so the suffix is removed only from a file without names.
-    const link = readlinkSync(`/proc/self/fd/${fd}`);
-    const opened = stats.nlink === 0 ? link.replace(/ \(deleted\)$/, "") : link;
-    const expected = path.join(await realRoot(dataRoot), relative);
-    // Compared exactly: a symlink to a differently cased folder is another folder on
-    // case-sensitive storage. On case-insensitive storage a path spelled differently from the
-    // disk may be refused too, as grants match only the spelling Nimbus lists.
-    return opened === expected;
-  }
+  // On case-insensitive storage a path spelled differently from the disk may be refused,
+  // as grants match only the spelling Nimbus lists.
+  if (descriptorPaths)
+    return DescriptorPath.opened(fd, stats, dataRoot, relative);
   let current = dataRoot;
   for (const segment of relative ? relative.split(path.sep) : []) {
     current = path.join(current, segment);
@@ -156,7 +133,7 @@ async function copyOpened(
   mode: number,
 ) {
   if (descriptorPaths) {
-    await copyFile(`/proc/self/fd/${opened.handle.fd}`, destination, mode);
+    await copyFile(DescriptorPath.of(opened.handle.fd), destination, mode);
     return;
   }
   await pipeline(
