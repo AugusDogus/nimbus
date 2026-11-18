@@ -29,9 +29,28 @@ import { commitUpload, UploadMetadata } from "@/server/routes/upload-commit";
 const nested = process.env.NIMBUS_TEST_NESTED_ROOT;
 const unshare = Bun.which("unshare");
 
+/**
+ * Why this system cannot build the mounts, or null when it can. They need an unprivileged user
+ * namespace, which some systems refuse: Ubuntu 24.04 restricts them through AppArmor, and
+ * ci.yml lifts that restriction on its runner so this test runs there.
+ */
+function mountsUnavailable() {
+  if (nested !== undefined) return null;
+  if (unshare === null) return "unshare (util-linux) is not installed";
+  const probe = Bun.spawnSync(
+    [unshare, "--user", "--map-root-user", "--mount", "true"],
+    { stdout: "ignore", stderr: "pipe" },
+  );
+  if (probe.exitCode === 0) return null;
+  return `this system refuses unprivileged user namespaces: ${probe.stderr.toString().trim() || `unshare exited with ${probe.exitCode}`}`;
+}
+const unavailable = mountsUnavailable();
+if (unavailable !== null)
+  console.warn(`Skipping the nested mount tests: ${unavailable}.`);
+
 if (nested === undefined)
-  test.skipIf(unshare === null)(
-    "writes into nested mounts and bind mounts keep versions, replace atomically and are cleaned up",
+  test.skipIf(unavailable !== null)(
+    `writes into nested mounts and bind mounts keep versions, replace atomically and are cleaned up${unavailable === null ? "" : ` (skipped: ${unavailable})`}`,
     async () => {
       const root = await mkdtemp(path.join(os.tmpdir(), "nimbus-nested-"));
       try {

@@ -140,26 +140,55 @@ test("retention removes abandoned copy staging folders but not one a copy is fil
   expect(await readdir(staging)).toEqual(["filling.copy"]);
 });
 
-test("retention cleans staging inside a btrfs subvolume that is not a mount point", async () => {
-  const subvolume = path.join(root, "subvolume");
-  const created = Bun.spawnSync(["btrfs", "subvolume", "create", subvolume], {
-    stdout: "ignore",
-    stderr: "ignore",
-  });
-  // Only where the data root is on btrfs and the btrfs tool is installed.
-  if (created.exitCode !== 0) return;
+/**
+ * Why btrfs subvolumes cannot be made where these tests keep their data roots, or null when
+ * they can: that needs btrfs there and the btrfs tool.
+ */
+async function subvolumesUnavailable() {
+  const probe = await mkdtemp("/var/tmp/nimbus-subvolume-probe-");
   try {
-    const staging = await Staging.directoryFor(
-      root,
-      path.join(subvolume, "file.txt"),
+    const created = Bun.spawnSync(
+      ["btrfs", "subvolume", "create", path.join(probe, "subvolume")],
+      { stdout: "ignore", stderr: "pipe" },
     );
-    expect(staging).toBe(path.join(subvolume, ".nimbus/uploads"));
-    const abandoned = path.join(staging, "abandoned.staged");
-    await writeFile(abandoned, "left by a crash");
-    await utimes(abandoned, new Date(now - 2 * day), new Date(now - 2 * day));
-    await cleanExpiredData(store, root, now, path.join(root, "config"));
-    expect(await readdir(staging)).toEqual([]);
+    return created.exitCode === 0
+      ? null
+      : `/var/tmp cannot hold a btrfs subvolume: ${created.stderr.toString().trim() || `btrfs exited with ${created.exitCode}`}`;
+  } catch {
+    return "the btrfs tool is not installed";
   } finally {
-    await rm(path.join(subvolume, ".nimbus"), { recursive: true, force: true });
+    await rm(probe, { recursive: true, force: true });
   }
-});
+}
+const noSubvolumes = await subvolumesUnavailable();
+if (noSubvolumes !== null)
+  console.warn(`Skipping the btrfs subvolume staging test: ${noSubvolumes}.`);
+
+test.skipIf(noSubvolumes !== null)(
+  `retention cleans staging inside a btrfs subvolume that is not a mount point${noSubvolumes === null ? "" : ` (skipped: ${noSubvolumes})`}`,
+  async () => {
+    const subvolume = path.join(root, "subvolume");
+    const created = Bun.spawnSync(["btrfs", "subvolume", "create", subvolume], {
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    expect(created.stderr.toString()).toBe("");
+    try {
+      const staging = await Staging.directoryFor(
+        root,
+        path.join(subvolume, "file.txt"),
+      );
+      expect(staging).toBe(path.join(subvolume, ".nimbus/uploads"));
+      const abandoned = path.join(staging, "abandoned.staged");
+      await writeFile(abandoned, "left by a crash");
+      await utimes(abandoned, new Date(now - 2 * day), new Date(now - 2 * day));
+      await cleanExpiredData(store, root, now, path.join(root, "config"));
+      expect(await readdir(staging)).toEqual([]);
+    } finally {
+      await rm(path.join(subvolume, ".nimbus"), {
+        recursive: true,
+        force: true,
+      });
+    }
+  },
+);
