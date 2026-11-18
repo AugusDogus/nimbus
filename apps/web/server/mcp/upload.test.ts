@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { createHash } from "node:crypto";
 import {
   chmod,
   mkdir,
@@ -15,7 +14,7 @@ import { z } from "zod";
 import type { FilesystemCapacity } from "@nimbus/api/filesystem-capacity";
 import type { UploadDestination } from "@nimbus/api/upload-destination";
 import { user } from "../db/auth-schema";
-import { mcpClients, mcpGrants, mcpTokens } from "../db/mcp-schema";
+import { mcpClients, mcpGrants } from "../db/mcp-schema";
 import { openTestDrive, type TestDrive } from "../drive-testing";
 import { McpUpload, type McpUploadContext } from "./upload";
 import { UPLOAD_LINK_TTL_MS, UploadLink } from "./upload-link";
@@ -53,11 +52,13 @@ describe("MCP upload links", () => {
   let now: number;
   let capacity: FilesystemCapacity | null;
   let grants = 0;
+  let startedAt: number;
 
   const context = (): McpUploadContext => ({
     db: drive.db,
     drive: drive.store,
     secret,
+    startedAt,
     origins: new Set([origin]),
     now: () => now,
     capacity: async () => capacity,
@@ -121,6 +122,7 @@ describe("MCP upload links", () => {
   beforeEach(async () => {
     drive = await openTestDrive();
     now = 1_000_000;
+    startedAt = 0;
     capacity = null;
     await mkdir(drive.absolute("docs"));
     await drive.write("docs/report.txt", "quarterly report");
@@ -285,7 +287,6 @@ describe("MCP upload links", () => {
     );
     await expect(stat(drive.absolute("docs/alice.txt"))).rejects.toThrow();
     expect(await staged()).toEqual([]);
-    expect(await drive.db.select().from(mcpTokens)).toEqual([]);
   });
 
   it("refuses to start for an account without write access, before reading what is there", async () => {
@@ -372,7 +373,6 @@ describe("MCP upload links", () => {
     );
     expect(await staged()).toEqual([]);
     // Nothing was committed, so the link may still upload once the conflict is resolved.
-    expect(await drive.db.select().from(mcpTokens)).toEqual([]);
   });
 
   it("uploads many files below a folder link, creating subfolders", async () => {
@@ -459,7 +459,6 @@ describe("MCP upload links", () => {
     );
     await expect(stat(drive.absolute("docs/broken.bin"))).rejects.toThrow();
     expect(await staged()).toEqual([]);
-    expect(await drive.db.select().from(mcpTokens)).toEqual([]);
   });
 
   it("keeps the free-space floor, before and during an upload", async () => {
@@ -535,19 +534,20 @@ describe("MCP upload links", () => {
     expect((await first).status).toBe(201);
   });
 
-  it("stores only a hash of each committed path, never the link", async () => {
+  it("refuses links made before the server last started", async () => {
     const { token } = await link({
       kind: "file",
-      path: "docs/hashed.txt",
-      rule: { kind: "refuse" },
+      path: "docs/restart.txt",
+      rule: { kind: "overwrite" },
     });
-    await put(token, "x");
-    const rows = await drive.db.select().from(mcpTokens);
-    expect(rows).toHaveLength(1);
-    expect(JSON.stringify(rows)).not.toContain(token);
-    expect(JSON.stringify(rows)).not.toContain("hashed");
-    expect(rows[0]?.hash).not.toBe(
-      createHash("sha256").update(token).digest("base64url"),
+    expect((await put(token, "first")).status).toBe(201);
+    startedAt = now + 1;
+    now += 2;
+    const again = await put(token, "second");
+    expect(again.status).toBe(410);
+    expect(refusal.parse(await again.json()).error).toContain("restarted");
+    expect(await readFile(drive.absolute("docs/restart.txt"), "utf8")).toBe(
+      "first",
     );
   });
 });

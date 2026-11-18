@@ -18,6 +18,8 @@ const claimsSchema = z.object({
   d: UploadDestination.schema,
   /** Random: names this link among others for the same destination. */
   n: z.string().min(16),
+  /** Issued at; a link from before the server started is refused. */
+  i: z.number().int(),
   e: z.number().int(),
 });
 
@@ -32,12 +34,15 @@ export type UploadLink = {
 export type UploadLinkCheck =
   | { kind: "valid"; link: UploadLink }
   | { kind: "invalid" }
-  | { kind: "expired" };
+  | { kind: "expired" }
+  /** Made before the server last started, so its record of committed paths is gone. */
+  | { kind: "restarted" };
 
 /**
  * A sealed reference to one upload destination for one account's MCP connection, made with
  * files:write. It carries no access by itself: the upload route re-checks the connection, the
- * account and its write permission when the upload starts and again at commit.
+ * account and its write permission when the upload starts and again at commit. Links do not
+ * outlive the server process, which keeps the record of what each one committed.
  */
 function sign(
   secret: string,
@@ -53,17 +58,26 @@ function sign(
       s: "files:write",
       d: link.destination,
       n: randomBytes(16).toString("base64url"),
+      i: now,
       e: expiresAt,
     }),
     expiresAt,
   };
 }
 
-/** Whether `token` may start an upload at `now`. Uploads already running are not re-checked here. */
-function verify(secret: string, token: string, now: number): UploadLinkCheck {
+/**
+ * Whether `token` may start an upload at `now` in a server process that started at
+ * `startedAt`. Uploads already running are not re-checked here.
+ */
+function verify(
+  secret: string,
+  token: string,
+  clock: { now: number; startedAt: number },
+): UploadLinkCheck {
   const claims = claimsSchema.safeParse(LinkSeal.open(secret, "upload", token));
   if (!claims.success) return { kind: "invalid" };
-  if (claims.data.e <= now) return { kind: "expired" };
+  if (claims.data.e <= clock.now) return { kind: "expired" };
+  if (claims.data.i < clock.startedAt) return { kind: "restarted" };
   return {
     kind: "valid",
     link: {
@@ -77,8 +91,8 @@ function verify(secret: string, token: string, now: number): UploadLinkCheck {
 }
 
 /**
- * The record of one committed path of one link, stored as a token hash so each path commits
- * once. `relative` is the path below a folder link's folder, or "" for a file link.
+ * One path of one link: `relative` is the path below a folder link's folder, or "" for a file
+ * link. The upload route records each key it commits, so each path commits once per link.
  */
 const commitKey = (link: Pick<UploadLink, "nonce">, relative: string) =>
   createHash("sha256")

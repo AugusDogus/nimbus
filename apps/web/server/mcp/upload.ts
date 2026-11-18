@@ -1,6 +1,5 @@
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
-import { and, eq } from "drizzle-orm";
 import { getAccess } from "@nimbus/api/access";
 import { getDataRoot } from "@nimbus/api/data-root";
 import type { DriveStore } from "@nimbus/api/drive-store";
@@ -20,7 +19,6 @@ import { McpScope } from "@nimbus/api/mcp-scope";
 import { numberedName } from "@nimbus/api/numbered-name";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
 import { UploadDestination } from "@nimbus/api/upload-destination";
-import { mcpTokens } from "../db/mcp-schema";
 import { httpError } from "../http-error";
 import { ensureFolders } from "../routes/upload-commit";
 import type { Database } from "./oauth/context";
@@ -33,6 +31,8 @@ export type McpUploadContext = {
   db: Database;
   drive: DriveStore;
   secret: string;
+  /** When this server process started: links made earlier are refused. */
+  startedAt: number;
   /** Origins and hosts the server answers for, as the MCP endpoint checks them. */
   origins: ReadonlySet<string>;
   now: () => number;
@@ -45,6 +45,26 @@ const capacityCheckBytes = 64 * 1024 * 1024;
 
 /** Keys of uploads running now: one link uploads each of its paths once at a time. */
 const running = new Set<string>();
+
+/**
+ * Keys of paths committed through links that can still start uploads, with when each link
+ * expires. Links made before the process started are refused, so this record, kept only in
+ * memory, covers every link that can still be used.
+ */
+const committed = new Map<string, number>();
+/** Expired keys are dropped whenever the record has doubled since the last time. */
+let pruneAt = 1024;
+
+function claimCommit(key: string, expiresAt: number, now: number) {
+  if (committed.size >= pruneAt) {
+    for (const [stale, until] of committed)
+      if (until <= now) committed.delete(stale);
+    pruneAt = Math.max(1024, committed.size * 2);
+  }
+  if (committed.has(key)) return false;
+  committed.set(key, expiresAt);
+  return true;
+}
 
 const reply = (status: number, body: Record<string, unknown>) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -223,12 +243,7 @@ async function upload(
   access.require(named.relative, "write");
   await Homes.requireNotReserved(context.drive, named.relative);
   const destination = await safePath(named.relative);
-  const [used] = await context.db
-    .select({ hash: mcpTokens.hash })
-    .from(mcpTokens)
-    .where(and(eq(mcpTokens.hash, key), eq(mcpTokens.kind, "upload_link")))
-    .limit(1);
-  if (used)
+  if (committed.has(key))
     return refuse(
       410,
       `This link already uploaded ${destination.relative}. Nothing was saved this time. ${newLink}`,
@@ -281,8 +296,8 @@ async function upload(
 /**
  * Commit `staged` at `relative` through the write path WebDAV PUT and the editor use: inside
  * the path's lock, with access re-checked, the previous content kept as a version and a new
- * path claimed. This link's record for the path is written inside the same lock, so each path
- * commits once, and removed again when nothing was committed.
+ * path claimed. This link's record for the path is claimed inside the same lock, so each path
+ * commits once, and released again when nothing was committed.
  */
 async function commit(
   context: McpUploadContext,
@@ -293,30 +308,15 @@ async function commit(
   authorize: () => ReturnType<typeof getAccess>,
 ): Promise<Response> {
   const rule = link.destination.rule;
-  const now = context.now();
   let recorded = false;
-  let committed = false;
+  let done = false;
   const credentials = {
     userId: link.userId,
     drive: context.drive,
     async authorize() {
       const access = await authorize();
       if (!recorded) {
-        const inserted = await context.db
-          .insert(mcpTokens)
-          .values({
-            hash: key,
-            kind: "upload_link",
-            grantId: link.grantId,
-            scope: McpScope.write,
-            // Kept while the link can start uploads; later ones are refused as expired.
-            expiresAt: link.expiresAt,
-            consumedAt: now,
-            createdAt: now,
-          })
-          .onConflictDoNothing()
-          .returning({ hash: mcpTokens.hash });
-        if (!inserted.length)
+        if (!claimCommit(key, link.expiresAt, context.now()))
           throw new TRPCError({
             code: "CONFLICT",
             message: `This link already uploaded ${relative}. Nothing was saved this time. ${newLink}`,
@@ -346,7 +346,7 @@ async function commit(
       switch (outcome.kind) {
         case "created":
         case "replaced":
-          committed = true;
+          done = true;
           return reply(outcome.kind === "created" ? 201 : 200, {
             outcome: outcome.kind,
             path: outcome.entry.path,
@@ -396,8 +396,7 @@ async function commit(
       }
     }
   } finally {
-    if (recorded && !committed)
-      await context.db.delete(mcpTokens).where(eq(mcpTokens.hash, key));
+    if (recorded && !done) committed.delete(key);
   }
 }
 
@@ -413,11 +412,19 @@ async function handle(
 ): Promise<Response> {
   const transport = guardTransport(request, context.origins);
   if (!transport.allowed) return refuse(transport.status, transport.message);
-  const check = UploadLink.verify(context.secret, params.token, context.now());
+  const check = UploadLink.verify(context.secret, params.token, {
+    now: context.now(),
+    startedAt: context.startedAt,
+  });
   if (check.kind === "invalid")
     return refuse(
       404,
       `This upload link is not valid. Nothing was saved. ${newLink}`,
+    );
+  if (check.kind === "restarted")
+    return refuse(
+      410,
+      `This upload link was made before the Nimbus server restarted, so it no longer works. Nothing was saved. ${newLink}`,
     );
   if (check.kind === "expired")
     return refuse(

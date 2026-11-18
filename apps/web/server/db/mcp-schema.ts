@@ -46,8 +46,6 @@ export const MCP_TOKEN_KINDS = [
   "authorization_code",
   "refresh_token",
   "access_token",
-  /** One path an upload link committed: the hash of the link's nonce and that path. */
-  "upload_link",
 ] as const;
 export type McpTokenKind = (typeof MCP_TOKEN_KINDS)[number];
 

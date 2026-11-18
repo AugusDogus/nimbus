@@ -5,6 +5,9 @@ import { allowedOrigins } from "@/server/mcp/request-guard";
 import { withMcp } from "@/server/mcp/runtime";
 import { McpUpload } from "@/server/mcp/upload";
 
+/** Links made before this process started are refused; see McpUpload. */
+const startedAt = Date.now();
+
 /**
  * Uploads for links from the MCP get_upload_link tool: `PUT <link>` for a file link, or
  * `PUT <link>/<relative path>` below a folder link's folder. No cookies are read and no CORS
@@ -20,6 +23,7 @@ export const PUT = (
         db: oauth.db,
         drive: httpDriveStore,
         secret: oauth.secret,
+        startedAt,
         origins: allowedOrigins(
           oauth.origin,
           process.env.BETTER_AUTH_TRUSTED_ORIGINS,
