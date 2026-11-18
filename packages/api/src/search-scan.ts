@@ -80,7 +80,17 @@ export type ScanPlan = {
   split: readonly string[] | null;
   /** Only ranks after this one, to continue a page; -1 for all. */
   after: number;
+  /**
+   * Run the fuzzy layer only: the previous scan of this search, with the
+   * same plan but no fuzzy layer, ran the others and left its marks in the
+   * same scratch space (`marksEarlierLayers`), and the caller keeps its ranks.
+   */
+  fuzzyOnly: boolean;
 };
+
+/** Whether a scan of `plan` leaves the marks the fuzzy layer needs, so a fuzzy-only scan can follow it. */
+export const marksEarlierLayers = (plan: ScanPlan) =>
+  plan.terms.length > 0 || plan.split !== null;
 
 import { plain, queryDates } from "./search-text";
 
@@ -471,8 +481,12 @@ export function scanLayout(
       : (rank: number) => {
           if (rank > after) add(rank);
         };
-  const marking =
-    terms.length > 0 || plan.split !== null || plan.fuzzy !== null;
+  if (plan.fuzzyOnly)
+    return (
+      plan.fuzzy !== null &&
+      fuzzy(layout, plan, plan.fuzzy, scratch, keep, stopped)
+    );
+  const marking = marksEarlierLayers(plan) || plan.fuzzy !== null;
   if (marking)
     for (const range of plan.ranges) marks.fill(0, range.first, range.end);
   return (

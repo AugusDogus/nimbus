@@ -38,6 +38,7 @@ import { createHash } from "node:crypto";
 import {
   collector,
   foldQuery,
+  marksEarlierLayers,
   type Stopped,
   MAX_BOOST,
   MAX_TERMS,
@@ -776,6 +777,8 @@ function prepare(
     plan: ScanPlan,
     corrections: DeltaFuzzy | null,
     read: Readings,
+    /** The earlier layers' compacted ranks, when this scan runs the fuzzy layer only. */
+    earlier: CompactRanks | null,
   ): PreparedSearch => ({
     done: null,
     layout,
@@ -783,10 +786,14 @@ function prepare(
     limit: want,
     translate,
     stopped,
-    finish: (compacted) => {
+    finish: (scanned) => {
       check();
       const results = collector(want);
-      results.merge(compacted);
+      if (earlier) results.merge(earlier);
+      results.merge(scanned);
+      const compacted: CompactRanks = earlier
+        ? { best: results.best(), total: results.total, counts: earlier.counts }
+        : scanned;
       const counts = ScanCounts.none(plan.terms.length);
       ScanCounts.add(counts, compacted.counts);
       visibleDelta = scanDelta(
@@ -860,8 +867,15 @@ function prepare(
           fixes.forEach((list, index) => {
             if (list.length) corrected |= 1 << index;
           });
+          // The earlier layers' ranks stand; with their marks left in
+          // place, the next scan only adds the fuzzy layer's.
+          const reuse = marksEarlierLayers(plan);
           return step(
-            { ...plan, fuzzy: { terms: allTerms, keys, corrected } },
+            {
+              ...plan,
+              fuzzy: { terms: allTerms, keys, corrected },
+              fuzzyOnly: reuse,
+            },
             {
               terms: allTerms,
               corrected,
@@ -885,6 +899,7 @@ function prepare(
               ),
             },
             decided,
+            reuse ? compacted : null,
           );
         }
       }
@@ -937,9 +952,19 @@ function prepare(
     },
   });
   return step(
-    { needle, terms, split, fuzzy: null, ranges, boosts, after },
+    {
+      needle,
+      terms,
+      split,
+      fuzzy: null,
+      ranges,
+      boosts,
+      after,
+      fuzzyOnly: false,
+    },
     null,
     UNREAD,
+    null,
   );
 }
 

@@ -1254,6 +1254,32 @@ describe("dates", () => {
       const index = drive();
       if (compacted) index.compact();
 
+      it("keeps the matches as typed when a date read another way adds more", () => {
+        const dated = createSearchIndex();
+        for (const path of [
+          "Scans/receipt 2024-03-15.pdf",
+          "Scans/receipt 15.03.2024.pdf",
+          "Scans/receipt 2024-04-01.pdf",
+        ])
+          dated.add(path, "file");
+        if (compacted) dated.compact();
+        expect(
+          dated
+            .search({
+              query: "receipt 2024-03-15",
+              root: "",
+              limit: 50,
+              scope: all,
+              depth: "full",
+              now: 1,
+            })
+            .hits.map((hit) => `${hit.match} ${hit.path}`),
+        ).toEqual([
+          "name Scans/receipt 2024-03-15.pdf",
+          "words Scans/receipt 15.03.2024.pdf",
+        ]);
+      });
+
       it("reads a day written with slashes as a day, not as folders", () => {
         for (const query of [
           "3/15/2024",
