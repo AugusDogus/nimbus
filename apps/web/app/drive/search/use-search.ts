@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { inferRouterOutputs } from "@trpc/server";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { trpcClient } from "@/lib/trpc";
 import type { WebRouter } from "@/server/web-router";
 import { SearchPages, type LaterPages } from "./search-pages";
@@ -112,15 +112,10 @@ export function useSearch(query: string, limit: number): SearchState {
     () => (first ? SearchPages.shown(first, own ?? SearchPages.none) : []),
     [first, own],
   );
-  const settle = (
-    filled: LaterPages<SearchOutput> & { restarted: boolean; query: string },
-    since: number,
-  ) =>
-    setLater((previous) =>
-      previous.query === filled.query
-        ? { ...filled, base: since, loading: false, error: null }
-        : previous,
-    );
+  // One fill at a time: a newer one (paging, or reloading after a change) cancels the older,
+  // so an answer that arrives late never overwrites newer results.
+  const operation = useRef<AbortController | null>(null);
+  useEffect(() => () => operation.current?.abort(), []);
   // A change refetches the first page, so the later pages may list items that were trashed,
   // renamed or moved. Fetch as many pages again after the new first page, keeping the old ones
   // on screen until the new ones replace them.
@@ -132,29 +127,23 @@ export function useSearch(query: string, limit: number): SearchState {
     own.base !== base;
   useEffect(() => {
     if (!stale) return;
+    operation.current?.abort();
     const controller = new AbortController();
-    SearchPages.fill(
+    operation.current = controller;
+    void SearchPages.fill(
       first,
       SearchPages.none,
       loaded,
       pageAfter(query, limit, controller.signal),
-    ).then(
-      (filled) =>
-        setLater((previous) =>
-          previous.query === query
-            ? { ...filled, query, base, loading: false, error: null }
-            : previous,
-        ),
-      (error: unknown) => {
-        if (controller.signal.aborted) return;
-        // Results that may be wrong are dropped; Show more loads them again.
-        setLater((previous) =>
-          previous.query === query
-            ? { ...previous, ...SearchPages.none, base, loading: false, error }
-            : previous,
-        );
-      },
-    );
+    ).then((filled) => {
+      if (controller.signal.aborted) return;
+      // Pages after the new first page, as far as they loaded; a failure is said with them.
+      setLater((previous) =>
+        previous.query === query
+          ? { ...filled, query, base, loading: false }
+          : previous,
+      );
+    });
     return () => controller.abort();
   }, [stale, first, base, loaded, query, limit]);
 
@@ -170,6 +159,9 @@ export function useSearch(query: string, limit: number): SearchState {
   const loadMore = () => {
     if (!first || !last?.next || own?.loading || stale) return;
     const current = own ?? SearchPages.none;
+    operation.current?.abort();
+    const controller = new AbortController();
+    operation.current = controller;
     setLater({
       ...current,
       query,
@@ -183,16 +175,15 @@ export function useSearch(query: string, limit: number): SearchState {
       first,
       current,
       shown.length + 1,
-      pageAfter(query, limit),
-    ).then(
-      (filled) => settle({ ...filled, query }, base),
-      (error: unknown) =>
-        setLater((previous) =>
-          previous.query === query
-            ? { ...previous, loading: false, error }
-            : previous,
-        ),
-    );
+      pageAfter(query, limit, controller.signal),
+    ).then((filled) => {
+      if (controller.signal.aborted) return;
+      setLater((previous) =>
+        previous.query === query
+          ? { ...filled, query, base, loading: false }
+          : previous,
+      );
+    });
   };
   const failure = instant.error ?? full.error ?? own?.error ?? null;
   return {

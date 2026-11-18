@@ -42,20 +42,26 @@ function entries<E extends { path: string }>(
  * Fetches pages after those shown until `wanted` pages are shown or the results end. A
  * restarted page replaces everything shown and paging goes on from it, so the user keeps about
  * as many results as they had asked for; a second restart stops there rather than loop.
- * Returns the new pages without changing anything, so the caller swaps them in at once.
+ * Returns the new pages without changing anything, so the caller swaps them in at once. A
+ * failed fetch ends the fill with what it had got, a fresh first page included, and the error.
  */
 async function fill<E extends { path: string }, P extends PageLike<E>>(
   first: P,
   later: LaterPages<P>,
   wanted: number,
   fetchAfter: (cursor: string) => Promise<P>,
-): Promise<LaterPages<P> & { restarted: boolean }> {
+): Promise<LaterPages<P> & { restarted: boolean; error: unknown }> {
   let head = later.head;
   let pages = [...later.pages];
   let restarted = false;
   let last = pages.at(-1) ?? head ?? first;
   while (1 + pages.length < wanted && last.next !== null) {
-    const page = await fetchAfter(last.next);
+    let page: P;
+    try {
+      page = await fetchAfter(last.next);
+    } catch (error) {
+      return { head, pages, restarted, error };
+    }
     if (page.restarted) {
       const again = restarted;
       restarted = true;
@@ -68,7 +74,7 @@ async function fill<E extends { path: string }, P extends PageLike<E>>(
     pages.push(page);
     last = page;
   }
-  return { head, pages, restarted };
+  return { head, pages, restarted, error: null };
 }
 
 export const SearchPages = { none, shown, entries, fill } as const;

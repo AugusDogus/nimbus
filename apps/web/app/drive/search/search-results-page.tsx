@@ -87,6 +87,13 @@ export function SearchResultsPage({ query }: { query: string }) {
           </Link>
         </div>
       )}
+      {/* Said even when the rebuilt list is empty. */}
+      {search.restarted && (
+        <p role="status" className="text-pretty text-sm text-muted-foreground">
+          The results changed while you were looking through them, so the list
+          was rebuilt from the top.
+        </p>
+      )}
       {/* Results already shown stay; the problem is said below them, calmly when a moment fixes it. */}
       {search.problem && (
         <div className="flex flex-wrap items-center gap-3">
@@ -114,15 +121,6 @@ export function SearchResultsPage({ query }: { query: string }) {
       )}
       {total && search.entries.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
-          {search.restarted && (
-            <p
-              role="status"
-              className="w-full text-pretty text-sm text-muted-foreground"
-            >
-              The results changed while you were looking through them, so the
-              list was rebuilt from the top.
-            </p>
-          )}
           <p
             role="status"
             className="text-pretty text-sm text-muted-foreground"

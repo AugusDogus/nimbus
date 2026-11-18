@@ -90,4 +90,15 @@ describe("search pages", () => {
       "c",
     ]);
   });
+
+  it("keeps a fresh first page and what followed it when a later fetch fails", async () => {
+    const { fetch } = server({
+      c1: page(["x", "y"], "r1", true),
+      r1: page(["z"], "r2"),
+    });
+    const filled = await SearchPages.fill(first, SearchPages.none, 4, fetch);
+    expect(filled.error).toBeInstanceOf(Error);
+    expect(filled.restarted).toBe(true);
+    expect(paths(SearchPages.shown(first, filled))).toEqual(["x", "y", "z"]);
+  });
 });
