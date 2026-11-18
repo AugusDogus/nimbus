@@ -40,6 +40,8 @@ export const GET = (request: Request) =>
       );
     try {
       const access = await getAccess(httpDriveStore, userId);
+      // Before the lookup: a link outliving its read access must not tell what is there now.
+      access.require(link.path, "read");
       const entry = await entryAt(link.path);
       return entry.type === "dir"
         ? await serveZip(link.path, access, request.method === "HEAD")
