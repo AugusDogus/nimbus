@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { UserRoundCog } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -7,9 +8,15 @@ const returnTo = "/settings/admin";
 
 /**
  * Shown on every signed-in page while an administrator is signed in as someone else.
- * It loads after the app's first render, with the toast area, so no first load carries it.
+ * It loads after the app's first render, with the toast area, so no first load carries it, and
+ * renders first in the page so it is first in tab order. Dialogs, at z-50, cover it.
  */
 export default function ImpersonationBanner({ email }: { email: string }) {
+  const [host] = useState(() => document.createElement("div"));
+  useLayoutEffect(() => {
+    document.body.prepend(host);
+    return () => host.remove();
+  }, [host]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const banner = useRef<HTMLElement>(null);
@@ -52,20 +59,21 @@ export default function ImpersonationBanner({ email }: { email: string }) {
       setBusy(false);
     }
   };
-  return (
+  return createPortal(
     <section
       ref={banner}
       aria-label="Impersonation"
-      className="fixed inset-x-4 bottom-4 z-40 mx-auto flex max-w-xl flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-amber-400 px-4 py-3 text-sm text-amber-950 shadow-lg ring-1 ring-amber-950/20 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      className="fixed inset-x-2 bottom-2 z-40 mx-auto flex max-w-xl flex-wrap items-center gap-x-2 gap-y-2 rounded-xl bg-amber-400 px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] text-sm text-amber-950 shadow-lg ring-1 ring-amber-950/20 sm:inset-x-4 sm:bottom-4 sm:gap-x-3 sm:px-4 sm:pt-3 sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
     >
       <UserRoundCog className="size-4 shrink-0" aria-hidden="true" />
-      <p className="min-w-0 flex-1 text-pretty" role="status">
+      {/* Wide enough to read in lines: on narrow screens the button wraps below instead. */}
+      <p className="min-w-0 flex-1 basis-60 text-pretty" role="status">
         You are signed in as <strong className="break-all">{email}</strong>.
         Everything you do is recorded under your name.
       </p>
       <Button
         size="sm"
-        className="bg-amber-950 text-amber-50 hover:bg-amber-950/90"
+        className="w-full bg-amber-950 text-amber-50 hover:bg-amber-950/90 sm:w-auto"
         disabled={busy}
         onClick={() => void stop()}
       >
@@ -76,6 +84,7 @@ export default function ImpersonationBanner({ email }: { email: string }) {
           {error}
         </p>
       )}
-    </section>
+    </section>,
+    host,
   );
 }

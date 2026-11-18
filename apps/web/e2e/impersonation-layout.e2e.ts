@@ -120,3 +120,81 @@ for (const size of [
       page.getByRole("region", { name: "Notifications" }).getByText("Starred"),
     ).toBeVisible();
   });
+
+for (const size of [
+  { width: 320, height: 480 },
+  { width: 320, height: 640 },
+  { width: 375, height: 667 },
+  // A 1280 by 800 window at 200% zoom.
+  { width: 640, height: 400 },
+  { width: 1280, height: 800 },
+])
+  test(`the impersonation banner stays compact, first to focus and below dialogs at ${size.width}x${size.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(size);
+    await impersonate(page);
+    await page.goto("/");
+    const banner = page.getByRole("region", { name: "Impersonation" });
+    await expect(banner).toBeVisible();
+    const stop = banner.getByRole("button", {
+      name: "Stop impersonating",
+      exact: true,
+    });
+    const message = banner.getByRole("status");
+    const [bannerBox, messageBox, stopBox] = await Promise.all([
+      banner.boundingBox(),
+      message.boundingBox(),
+      stop.boundingBox(),
+    ]);
+    if (!bannerBox || !messageBox || !stopBox)
+      throw new Error("The banner, its message or its button has no box.");
+    // The message reads in lines across the banner, never a word per line beside the button.
+    const lineHeight = await message.evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).lineHeight),
+    );
+    expect(messageBox.height).toBeLessThanOrEqual(4 * lineHeight);
+    expect(messageBox.width).toBeGreaterThanOrEqual(
+      Math.min(240, bannerBox.width * 0.6),
+    );
+    // Compact: at most a third of the shortest screens, a fifth of a desktop window.
+    expect(bannerBox.height).toBeLessThanOrEqual(
+      size.height * (size.width >= 1024 ? 0.2 : 0.3),
+    );
+    expect(stopBox.y + stopBox.height).toBeLessThanOrEqual(size.height);
+    expect(stopBox.x + stopBox.width).toBeLessThanOrEqual(size.width);
+    // First in tab order: nothing has focus yet after the page loads.
+    await page.keyboard.press("Tab");
+    await expect(stop).toBeFocused();
+    // Below dialogs: an open dialog covers the banner.
+    const narrow = size.width < 768;
+    await navigate(page, "My files", narrow);
+    await page
+      .getByRole("button", {
+        name: narrow ? "New file or folder" : "New",
+        exact: true,
+      })
+      .click();
+    await page
+      .getByRole(narrow ? "button" : "menuitem", {
+        name: "New folder",
+        exact: true,
+      })
+      .click();
+    await expect(
+      page.getByRole("dialog", { name: "New folder", exact: true }),
+    ).toBeVisible();
+    // The open modal hides the rest of the page from assistive technology, banner included.
+    await expect(banner).toBeHidden();
+    const covered = await page
+      .locator('section[aria-label="Impersonation"]')
+      .evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const top = document.elementFromPoint(
+          box.left + box.width / 2,
+          box.top + box.height / 2,
+        );
+        return top !== null && !element.contains(top);
+      });
+    expect(covered).toBe(true);
+  });
