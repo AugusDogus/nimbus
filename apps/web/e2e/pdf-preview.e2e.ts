@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { expect, type Frame, type Page } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
+import sharp from "sharp";
 import { z } from "zod";
 import { client, port, test } from "./helpers";
 
@@ -38,29 +39,29 @@ function pdf() {
   return `${body}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
 }
 
-/** Chromium's PDF viewer frame inside the page, once it exists. */
-const viewer = (page: Page) =>
-  page.frames().find((frame) => frame.url().startsWith("chrome-extension://"));
+/** The PDF's fill colour, 0.2 0.4 0.8 in RGB. */
+const fill = { r: 51, g: 102, b: 204 };
 
-/** The viewer's page count, read through its shadow roots; 0 until the document loads. */
-const pageCount = (frame: Frame) =>
-  frame.evaluate(() => {
-    const find = (root: Document | ShadowRoot): HTMLInputElement | null => {
-      for (const element of Array.from(root.querySelectorAll("*"))) {
-        if (
-          element instanceof HTMLInputElement &&
-          element.id === "pageSelector"
-        )
-          return element;
-        if (element.shadowRoot) {
-          const found = find(element.shadowRoot);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-    return Number(find(document)?.value ?? 0);
-  });
+/**
+ * Pixels of the PDF's rectangle visible in `frame`, from a screenshot of the element. This
+ * checks what the visitor sees, not the viewer's internal markup, which Chromium builds
+ * lazily and changes between versions.
+ */
+async function filledPixels(frame: Locator) {
+  const { data, info } = await sharp(await frame.screenshot())
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let count = 0;
+  for (let index = 0; index < data.length; index += info.channels)
+    if (
+      Math.abs((data[index] ?? 0) - fill.r) < 24 &&
+      Math.abs((data[index + 1] ?? 0) - fill.g) < 24 &&
+      Math.abs((data[index + 2] ?? 0) - fill.b) < 24
+    )
+      count++;
+  return count;
+}
 
 test("PDF previews render in Chromium although served sandboxed", async ({
   page,
@@ -83,14 +84,11 @@ test("PDF previews render in Chromium although served sandboxed", async ({
     .locator('[data-entry-name="page.pdf"]')
     .filter({ visible: true })
     .click();
-  await expect(
-    page.getByRole("dialog", { name: "page.pdf", exact: true }),
-  ).toBeVisible();
-  await expect.poll(() => viewer(page) !== undefined).toBe(true);
+  const preview = page.getByRole("dialog", { name: "page.pdf", exact: true });
+  await expect(preview).toBeVisible();
+  // The rectangle covers about 100,000 pixels once drawn. The viewer starts a renderer
+  // process first, which takes longer on a busy machine.
   await expect
-    .poll(async () => {
-      const frame = viewer(page);
-      return frame ? await pageCount(frame) : 0;
-    })
-    .toBe(1);
+    .poll(() => filledPixels(preview.locator("iframe")), { timeout: 60_000 })
+    .toBeGreaterThan(10_000);
 });
