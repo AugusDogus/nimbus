@@ -36,11 +36,14 @@ export type SearchOutbound =
 /**
  * How often the search index is compared with the disk, catching anything the file watcher
  * missed, and folders it could not read are checked again: `NIMBUS_RECONCILE_INTERVAL_MS`,
- * at least one second, by default 30 minutes. Invalid values use the default.
+ * from one second to about 24 days, by default 30 minutes. Other values use the default.
  */
 export function reconcileIntervalMs() {
   const configured = Number(process.env.NIMBUS_RECONCILE_INTERVAL_MS ?? "");
-  return Number.isFinite(configured) && configured >= 1000
+  // Bun runs a timer past 2^31 - 1 ms after 1 ms, which would reconcile nonstop.
+  return Number.isFinite(configured) &&
+    configured >= 1000 &&
+    configured <= 2 ** 31 - 1
     ? configured
     : 30 * 60_000;
 }

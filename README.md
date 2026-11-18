@@ -188,7 +188,7 @@ Set the deployment values in `apps/web/.env` before startup. For PDF and video t
 | `NIMBUS_OIDC_GROUPS_CLAIM`    | Optional ID token claim listing group names, for example `groups`. See [Single sign-on](#single-sign-on). |
 | `NIMBUS_BACKUP_KEEP`          | Daily database backups to keep in `<config root>/backups`, default `7`. |
 | `NIMBUS_WATCH_DEBOUNCE_MS`    | Milliseconds to wait for changes made outside Nimbus to settle before open folders and search refresh, default `300`. Invalid values use the default. |
-| `NIMBUS_RECONCILE_INTERVAL_MS` | Milliseconds between comparisons of the search index with the disk, which catch changes the file watcher missed and check again folders it could not read, default `1800000` (30 minutes), at least `1000`. Invalid values use the default. |
+| `NIMBUS_RECONCILE_INTERVAL_MS` | Milliseconds between comparisons of the search index with the disk, which catch changes the file watcher missed and check again folders it could not read, default `1800000` (30 minutes), from `1000` to `2147483647` (about 24 days). Other values use the default. |
 | `NIMBUS_MCP_ENABLED`          | Optional. `false` turns off the MCP server, its OAuth endpoints, and discovery documents. Default: `true`. Approved clients stay stored. |
 
 Startup fails with a message naming the problem when an optional integration is only partly configured or a setting has an invalid value, such as `NIMBUS_MCP_ENABLED=no` or an unsafe `NIMBUS_HOMES_PATH`, so a typo cannot silently turn email, single sign-on, or MCP off.
