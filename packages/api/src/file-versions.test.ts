@@ -291,11 +291,20 @@ test("moving a file over another keeps the destination's history and discards th
   ).toEqual(["report.txt", "report.txt"]);
 });
 
-for (const [filesystem, parent] of [
-  ["a copy-on-write filesystem (/var/tmp)", "/var/tmp"],
-  ["a filesystem without reflinks (tmpfs)", os.tmpdir()],
-] as const)
-  test(`a saved version stays as it was when another program keeps writing to the old file, on ${filesystem}`, async () => {
+/** How saves preserve versions under `parent`, probed, for the test name. */
+async function preservingIn(parent: string) {
+  const probe = await mkdtemp(path.join(parent, "nimbus-clone-probe-"));
+  try {
+    return (await clonesFiles(probe)) ? "reflinks" : "no reflinks";
+  } finally {
+    await rm(probe, { recursive: true, force: true });
+  }
+}
+
+// On disk and in the temporary folder: usually one with reflinks (btrfs, xfs) and one without
+// (tmpfs, ext4); the behaviour holds either way.
+for (const parent of ["/var/tmp", os.tmpdir()])
+  test(`a saved version stays as it was when another program keeps writing to the old file, in ${parent} (${await preservingIn(parent)})`, async () => {
     const otherRoot = await mkdtemp(path.join(parent, "nimbus-versions-"));
     const previousRoot = root;
     root = otherRoot;
