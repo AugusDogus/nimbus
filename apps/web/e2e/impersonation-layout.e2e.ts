@@ -198,3 +198,94 @@ for (const size of [
       });
     expect(covered).toBe(true);
   });
+
+/** Whether a click at the element's centre reaches the element itself. */
+const reachable = (locator: Locator) =>
+  locator.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const top = document.elementFromPoint(
+      box.left + box.width / 2,
+      box.top + box.height / 2,
+    );
+    return top !== null && element.contains(top);
+  });
+
+test("a persistent error toast leaves the banner, New button and selection bar reachable at 320 wide", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Selecting with modifier keys is a desktop interaction.");
+  await page.setViewportSize({ width: 320, height: 640 });
+  await impersonate(page);
+  await page.goto("/");
+  const banner = page.getByRole("region", { name: "Impersonation" });
+  await expect(banner).toBeVisible();
+  await navigate(page, "My files", true);
+  const folder = `toast-${randomUUID().slice(0, 8)}`;
+  await createFolder(page, folder, true);
+  const select = () =>
+    page
+      .locator(`[data-entry-name="${folder}"]`)
+      .filter({ visible: true })
+      .click({ modifiers: ["ControlOrMeta"] });
+  const bar = page.getByRole("toolbar", { name: "Selected items" });
+  await select();
+  await expect(bar).toBeVisible();
+  const star = bar.getByRole("button", { name: "Star", exact: true });
+  await star.click();
+  const notifications = page.getByRole("region", { name: "Notifications" });
+  await expect(notifications.getByText("Starred")).toBeVisible();
+  // A pointer resting on a toast keeps it open.
+  await page.mouse.move(160, 100);
+  await expect(notifications.getByText("Starred")).toBeHidden();
+  // Unstarring fails, so an error toast stays until it is closed.
+  const starring = (url: URL) => url.pathname.includes("catalog.bookmark");
+  await page.route(starring, (route) => route.abort());
+  await star.click();
+  // Only a toast that stays until closed has a close button. Base UI hides it from assistive
+  // technology until the toast area has focus, so it is found by its slot.
+  const close = page.locator('[data-slot="toast-close"]');
+  await expect(close).toBeVisible();
+  const toast = page.locator('[data-slot="toast"]').filter({ has: close });
+  // Measured where the toast settles, after it slides in.
+  const settled = () =>
+    toast.evaluate((element) =>
+      Promise.all(
+        element.getAnimations().map((animation) => animation.finished),
+      ),
+    );
+  await settled();
+  const clear = async (controls: Locator[]) => {
+    for (const control of [...controls, close]) {
+      await expect(control).toBeVisible();
+      expect(await reachable(control)).toBe(true);
+      if (control !== close) expect(await overlap(control, toast)).toBe(false);
+    }
+  };
+  const stop = banner.getByRole("button", {
+    name: "Stop impersonating",
+    exact: true,
+  });
+  // In a folder: the New button, and the selection bar in the header.
+  await clear([
+    stop,
+    page.getByRole("button", { name: "New file or folder", exact: true }),
+    bar.getByRole("button", { name: "Clear selection", exact: true }),
+  ]);
+  await close.click();
+  await expect(close).toBeHidden();
+  // In Starred: the selection bar floats at the bottom.
+  await page.unroute(starring);
+  await navigate(page, "Starred", true);
+  await select();
+  await expect(bar).toBeVisible();
+  await page.route(starring, (route) => route.abort());
+  await star.click();
+  await expect(close).toBeVisible();
+  await settled();
+  await clear([
+    stop,
+    bar.getByRole("button", { name: "Clear selection", exact: true }),
+    bar.getByRole("button", { name: "Trash", exact: true }),
+  ]);
+});

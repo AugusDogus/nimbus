@@ -25,13 +25,15 @@ function ToastPortal({ ...props }: ToastPrimitive.Portal.Props) {
 
 // Placement, size, stacking and motion follow the toasts Nimbus has always shown: 356px wide at
 // the bottom right, full width on narrow screens, 14px apart, and older toasts tucked behind the
-// newest at 5% smaller per step until the stack is hovered or focused.
+// newest at 5% smaller per step until the stack is hovered or focused. The stack sits above the
+// impersonation banner and, through --toast-clearance (see globals.css), above the floating New
+// button and selection bar, so an error that stays until closed never covers them.
 function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
   return (
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       className={cn(
-        "pointer-events-none fixed right-6 bottom-6 z-[999999999] w-[356px] outline-none max-[600px]:right-4 max-[600px]:bottom-4 max-[600px]:left-4 max-[600px]:w-auto",
+        "pointer-events-none fixed right-6 bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px)+var(--toast-clearance,0px))] z-[999999999] w-[356px] outline-none max-[600px]:right-4 max-[600px]:bottom-[calc(max(1rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px)+var(--toast-clearance,0px))] max-[600px]:left-4 max-[600px]:w-auto",
         className,
       )}
       {...props}

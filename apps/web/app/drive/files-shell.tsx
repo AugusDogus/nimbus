@@ -228,6 +228,7 @@ export function FilesShell({ children }: FilesShellProps) {
               className="fixed bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px))] right-4 z-20 h-14 gap-2.5 rounded-full bg-create text-create-foreground shadow-lg hover:bg-create/90 has-[>svg]:px-6 md:hidden"
               onClick={() => setFabDrawerOpen(true)}
               aria-label="New file or folder"
+              data-toast-clearance="narrow"
             >
               <Plus className="size-5" strokeWidth={1.8} />
               New

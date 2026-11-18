@@ -68,6 +68,7 @@ export function SelectionBar({
     <div
       role="toolbar"
       aria-label="Selected items"
+      data-toast-clearance={floating ? "always" : undefined}
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         event.preventDefault();

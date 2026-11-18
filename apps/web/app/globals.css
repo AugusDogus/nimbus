@@ -129,6 +129,17 @@
     @apply bg-background text-foreground;
   }
 
+  /* Toasts stack above the floating New button (phones only) and selection bar, which sit
+     1.5rem up and are at most 3.5rem tall, instead of covering them. */
+  :root:has([data-toast-clearance="always"]) {
+    --toast-clearance: 4.5rem;
+  }
+  @media (width < 48rem) {
+    :root:has([data-toast-clearance="narrow"]) {
+      --toast-clearance: 4.5rem;
+    }
+  }
+
   /* Grain belongs to the surfaces, so it never overlays text or intercepts input. */
   body,
   [data-sidebar="sidebar"],
