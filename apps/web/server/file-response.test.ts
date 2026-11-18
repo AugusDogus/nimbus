@@ -18,6 +18,9 @@ import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
 import { createTestDriveStore } from "@nimbus/api/testing";
 import {
+  heldDescriptorCount,
+  maxHeldDescriptors,
+  releaseHeldDescriptorsForTest,
   serveFile,
   serveStoredFile,
   serveZip,
@@ -342,44 +345,41 @@ function openDescriptors(file: string) {
   }).length;
 }
 
-test("finished downloads do not keep their descriptors open", async () => {
+test("small downloads close their descriptor before the response is returned", async () => {
   const access = await admin();
-  const small = path.join(root, "docs/a.txt");
+  const responses = await Promise.all(
+    Array.from({ length: 200 }, () => serveFile(get(), "docs/a.txt", access)),
+  );
+  // Read into memory and closed while serving, not when the body is sent.
+  expect(openDescriptors(path.join(root, "docs/a.txt"))).toBe(0);
+  for (const response of responses)
+    expect(await response.text()).toBe("0123456789");
+});
+
+test("zero-copy downloads hold at most the cap of descriptors, and release them", async () => {
+  const access = await admin();
   const large = path.join(root, "docs/large.bin");
   await writeFile(large, Buffer.alloc(1 << 20, 65));
-  const server = Bun.serve({
-    port: 0,
-    fetch: (request) =>
-      serveFile(request, new URL(request.url).pathname.slice(1), access),
-  });
-  try {
-    const base = `http://localhost:${server.port}`;
-    for (let index = 0; index < 200; index++) {
-      const response = await fetch(`${base}/docs/a.txt`);
-      expect(await response.text()).toBe("0123456789");
-    }
-    // Small files are read and closed at once.
-    expect(openDescriptors(small)).toBe(0);
-    await Promise.all(
-      Array.from({ length: 1500 }, async () => {
-        const response = await fetch(`${base}/docs/large.bin`);
-        expect((await response.arrayBuffer()).byteLength).toBe(1 << 20);
-      }),
-    );
-    // Large files go out zero-copy, holding a bounded number of descriptors briefly,
-    // even when many requests decide at once.
-    const burst = await Promise.all(
-      Array.from({ length: 700 }, () =>
-        serveFile(get(), "docs/large.bin", access),
-      ),
-    );
-    await Promise.all(burst.map((response) => response.body?.cancel()));
-    // Cancelled streams close their descriptors asynchronously.
-    await Bun.sleep(100);
-    expect(openDescriptors(large)).toBeLessThanOrEqual(512);
-    await Bun.sleep(1500);
-    expect(openDescriptors(large)).toBe(0);
-  } finally {
-    await server.stop(true);
-  }
+  // Earlier tests' holds would otherwise share the cap.
+  await releaseHeldDescriptorsForTest();
+  // Every request decides at once: none may pass the cap while another's check awaits.
+  const burst = await Promise.all(
+    Array.from({ length: maxHeldDescriptors + 100 }, () =>
+      serveFile(get(), "docs/large.bin", access),
+    ),
+  );
+  expect(heldDescriptorCount()).toBe(maxHeldDescriptors);
+  // Downloads past the cap stream from their descriptor and close it when cancelled or done.
+  const streamed = burst.length - maxHeldDescriptors;
+  expect(openDescriptors(large)).toBe(maxHeldDescriptors + streamed);
+  await Promise.all(burst.map((response) => response.body?.cancel()));
+  await releaseHeldDescriptorsForTest();
+  expect(heldDescriptorCount()).toBe(0);
+  // Stream descriptors close asynchronously after cancellation; wait for that, not a time.
+  while (openDescriptors(large) > 0) await Bun.sleep(5);
+  // Freed slots are available again.
+  const next = await serveFile(get(), "docs/large.bin", access);
+  expect(heldDescriptorCount()).toBe(1);
+  await next.body?.cancel();
+  await releaseHeldDescriptorsForTest();
 });

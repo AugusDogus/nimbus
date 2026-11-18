@@ -88,8 +88,19 @@ async function openFile(head: boolean, requested: string) {
 const descriptorHoldMs = 1_000;
 
 /** Zero-copy downloads holding a descriptor at once. Beyond this, downloads stream. */
-const maxHeldDescriptors = 512;
+export const maxHeldDescriptors = 512;
+/** Slots taken, including ones whose path check is still running. */
 let heldDescriptors = 0;
+/** Closes one held descriptor early; each removes itself once run. */
+const holds = new Set<() => Promise<void>>();
+
+/** Descriptors held by zero-copy downloads right now. */
+export const heldDescriptorCount = () => holds.size;
+
+/** Close every held descriptor now, as the hold timers would, so tests need not wait. */
+export async function releaseHeldDescriptorsForTest() {
+  await Promise.all([...holds].map((release) => release()));
+}
 
 /** Files up to this size are read into memory and their descriptor closed at once. */
 const bufferedBytes = 64 * 1024;
@@ -168,11 +179,16 @@ export async function serveFile(
           response.start,
           response.end + 1,
         );
-        // Unreferenced: an open hold never keeps the process alive on its own.
-        setTimeout(() => {
+        const release = async () => {
+          if (!holds.delete(release)) return;
+          clearTimeout(timer);
           heldDescriptors--;
-          void handle.close();
-        }, descriptorHoldMs).unref();
+          await handle.close();
+        };
+        // Unreferenced: an open hold never keeps the process alive on its own.
+        const timer = setTimeout(() => void release(), descriptorHoldMs);
+        timer.unref();
+        holds.add(release);
         return new Response(body, response.init);
       }
       heldDescriptors--;
