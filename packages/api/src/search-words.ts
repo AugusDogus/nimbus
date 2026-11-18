@@ -115,7 +115,17 @@ function keysOf(raw: string): string[] {
         for (const part of parts)
           if (part.length >= MIN_WORD) keys.add(keyOf(part));
     }
-  if (/\d/.test(raw)) for (const date of datesIn(raw)) keys.add(date);
+  if (/\d/.test(raw)) {
+    const dates = datesIn(raw);
+    // A month a day of the name falls in is found through that day's key,
+    // whose prefix it is (search-query.ts expands both).
+    for (const date of dates)
+      if (
+        !date.startsWith("M") ||
+        !dates.some((day) => day.startsWith(`D${date.slice(1)}`))
+      )
+        keys.add(date);
+  }
   return [...keys];
 }
 

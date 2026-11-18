@@ -24,11 +24,17 @@ test("keys ASCII names exactly as the general path does", () => {
     "use",
     "useconfigtable",
   ]);
+  // A day's month is found through the day's key, which it begins; a month
+  // on its own has a key of its own.
   expect(SearchWords.keysOf("receipt 2024-03-15.pdf").sort()).toEqual([
     "D20240315",
-    "M202403",
     "pdf",
     "receipt",
+  ]);
+  expect(SearchWords.keysOf("statement 2024-03.pdf").sort()).toEqual([
+    "M202403",
+    "pdf",
+    "statement",
   ]);
 });
 

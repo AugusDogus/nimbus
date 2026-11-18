@@ -857,8 +857,14 @@ function prepare(
           return prepare(view, request, "unusable");
         pageReadings = decided;
         if (readings.some((list) => list.length)) {
+          // A month is also every day key it begins (search-words.ts keys
+          // a name's month only when it has no day in it).
           const expansions = readings.map((list) =>
-            list.map((word) => view.words.expand(word, visibility)),
+            list.flatMap((word) =>
+              (word.startsWith("M") ? [word, `D${word.slice(1)}`] : [word]).map(
+                (key) => view.words.expand(key, visibility),
+              ),
+            ),
           );
           const keys = expansions.map((list) => [
             ...new Set(list.flatMap((expansion) => expansion.base)),
