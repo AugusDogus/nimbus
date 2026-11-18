@@ -5,6 +5,7 @@ import {
   rename,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -151,6 +152,25 @@ describe("search crawler", () => {
     await applyChange(index, root, path.join(root, "docs"));
     expect(names(index, "notes")).toEqual([
       "docs/deep/notes-deeper.txt",
+      "docs/deep/notes.txt",
+      "docs/notes-added.txt",
+    ]);
+  });
+
+  it("finds what changed in a folder moved out and back with its times set back", async () => {
+    // Times a host process can set back exactly; it cannot set the change time.
+    const time = 1_700_000_000;
+    await utimes(path.join(root, "docs"), time, time);
+    const index = createSearchIndex();
+    await crawl(index, root);
+    const away = await mkdtemp(path.join(os.tmpdir(), "nimbus-away-"));
+    await rename(path.join(root, "docs"), path.join(away, "docs"));
+    await writeFile(path.join(away, "docs/notes-added.txt"), "");
+    await utimes(path.join(away, "docs"), time, time);
+    await rename(path.join(away, "docs"), path.join(root, "docs"));
+    await rm(away, { recursive: true });
+    await applyChange(index, root, path.join(root, "docs"));
+    expect(names(index, "notes")).toEqual([
       "docs/deep/notes.txt",
       "docs/notes-added.txt",
     ]);
