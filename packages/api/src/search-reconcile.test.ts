@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, fstatSync, rmSync, symlinkSync } from "node:fs";
 import {
   chmod,
   lstat,
@@ -19,6 +19,7 @@ import {
   applyChange,
   crawl,
   reconcile,
+  useCrawlerEnvironmentForTest,
   type Serialize,
 } from "./search-crawler";
 import { createSearchIndex, type SearchIndex } from "./search-index";
@@ -373,4 +374,34 @@ test("finds entries added behind its back even when the folder's time is set bac
   await writeFile(path.join(root, "docs", "b.txt"), "bigger now");
   await reconcile(index, root, direct);
   expect(dump(index)).toEqual(await fresh());
+});
+
+test("a folder changed in the same clock tick as its listing is listed again", async () => {
+  await mkdir(path.join(root, "docs"));
+  await writeFile(path.join(root, "docs/a.txt"), "a");
+  // A coarse clock that has not ticked: every change since stamps this same change time.
+  const tick = (await stat(path.join(root, "docs"))).ctimeMs;
+  let now = tick + 1;
+  const restore = useCrawlerEnvironmentForTest({
+    now: () => now,
+    statFolder: (fd) => ({ ...fstatSync(fd), ctimeMs: tick }),
+  });
+  try {
+    const index = createSearchIndex();
+    await crawl(index, root);
+    // Added in the tick the folder was listed in, so its change time reads as before.
+    await writeFile(path.join(root, "docs/b.txt"), "b");
+    await reconcile(index, root, direct);
+    expect(dump(index).entries).toContain("docs/b.txt file 1");
+    // Once its change time is old enough to tell changes apart, a settled folder is trusted:
+    // later passes only state the files it had instead of listing it. (Here that shows as a
+    // file slipped in without a new change time going unseen, which a real change never does.)
+    now = tick + 10_000;
+    await reconcile(index, root, direct);
+    await writeFile(path.join(root, "docs/c.txt"), "c");
+    await reconcile(index, root, direct);
+    expect(dump(index).entries).not.toContain("docs/c.txt file 1");
+  } finally {
+    restore();
+  }
 });

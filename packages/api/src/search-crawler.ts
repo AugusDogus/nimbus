@@ -28,11 +28,45 @@ const statConcurrency = 64;
  * that folder even if its path is changed meanwhile.
  */
 type OpenFolder =
-  | { type: "open"; path: string; identity: string; close: () => void }
+  | {
+      type: "open";
+      path: string;
+      identity: string;
+      /**
+       * Whether `identity` can stand for the entries listed now. Timestamps come from a coarse
+       * clock (kernel ticks of a few milliseconds, whole seconds on some network storage), so
+       * an entry added in the same tick as the folder was opened leaves its change time as it
+       * was. Only a change time older than the opening by more than that is trusted, as git
+       * treats "racy" index entries; a newer one makes the folder listed in full next time.
+       */
+      trusted: boolean;
+      close: () => void;
+    }
   /** Gone, no longer a folder, a symlink, or below one. */
   | { type: "gone" }
   /** Unreadable for another reason (permissions, I/O): keep what was seen. */
   | { type: "unreadable" };
+
+/** Change times this close to the moment a folder is opened are not trusted; see `trusted`. */
+const timestampSlackMs = 2000;
+
+/** The clock and folder stat the crawler uses; tests replace them to reproduce filesystems. */
+type CrawlerEnvironment = {
+  now: () => number;
+  statFolder: (
+    fd: number,
+  ) => Pick<Stats, "dev" | "ino" | "birthtimeMs" | "ctimeMs" | "nlink">;
+};
+let environment: CrawlerEnvironment = { now: Date.now, statFolder: fstatSync };
+
+/** Use `replacement` until the returned function restores the real clock and stat. */
+export function useCrawlerEnvironmentForTest(replacement: CrawlerEnvironment) {
+  const previous = environment;
+  environment = replacement;
+  return () => {
+    environment = previous;
+  };
+}
 
 /**
  * Open the folder at `relative` inside `root`, only while it is a real folder
@@ -56,11 +90,12 @@ function openFolder(root: string, relative: string): OpenFolder {
       : { type: "unreadable" };
   }
   const opened = fd;
+  const openedAt = environment.now();
   const close = () => closeSync(opened);
   try {
     // Without descriptor paths, as on macOS, the folder is listed by its path,
     // checked just before.
-    const stats = fstatSync(opened);
+    const stats = environment.statFolder(opened);
     const listing = DescriptorPath.available
       ? DescriptorPath.of(opened)
       : absolute;
@@ -72,6 +107,7 @@ function openFolder(root: string, relative: string): OpenFolder {
         type: "open",
         path: listing,
         identity: identityOf(stats),
+        trusted: stats.ctimeMs < openedAt - timestampSlackMs,
         close,
       };
     close();
@@ -92,8 +128,9 @@ function openFolder(root: string, relative: string): OpenFolder {
  * no process can set back). Taken before the folder is listed, so a change
  * during the listing reads as a change later.
  */
-const identityOf = (stats: Stats) =>
-  `${stats.dev}:${stats.ino}:${stats.birthtimeMs}:${stats.ctimeMs}`;
+const identityOf = (
+  stats: Pick<Stats, "dev" | "ino" | "birthtimeMs" | "ctimeMs">,
+) => `${stats.dev}:${stats.ino}:${stats.birthtimeMs}:${stats.ctimeMs}`;
 
 /** Join "/"-separated index paths. */
 const childPath = (parent: string, name: string) =>
@@ -144,7 +181,8 @@ async function crawlInto(
         if (size !== undefined) index.addChild(id, name, "file", size);
       }
       // Listed in full: a reconcile can trust its entries until it changes.
-      if (sizes.size === files.length) index.setIdentity(id, folder.identity);
+      if (sizes.size === files.length && folder.trusted)
+        index.setIdentity(id, folder.identity);
       listed += entries.length;
     } finally {
       folder.close();
@@ -309,7 +347,7 @@ async function restateFolder(
 async function reconcileFolder(
   index: SearchIndex,
   report: ReconcileReport,
-  folder: { path: string; identity: string },
+  folder: { path: string; identity: string; trusted: boolean },
   directory: string,
   id: number,
 ): Promise<[string, number][]> {
@@ -351,8 +389,9 @@ async function reconcileFolder(
     }
   }
   if (unstated.size) report.unreadable++;
-  // Listed in full: a later folder event can trust this until it changes.
-  else index.setIdentity(id, folder.identity);
+  // Listed in full: a later folder event can trust this until it changes, unless it changed
+  // too recently for its change time to tell.
+  else if (folder.trusted) index.setIdentity(id, folder.identity);
   for (const child of index.childrenOf(id))
     if (!seen.has(child.name)) index.removeId(child.id);
   index.maybeCompact();

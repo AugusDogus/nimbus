@@ -31,7 +31,12 @@ function realRoot(root: string, fresh: boolean) {
  * reported with a suffix; a live file's own name may end the same way, so the suffix is
  * removed only from a file without names.
  */
-function opened(fd: number, stats: Stats, root: string, relative: string) {
+function opened(
+  fd: number,
+  stats: Pick<Stats, "nlink">,
+  root: string,
+  relative: string,
+) {
   const link = readlinkSync(`/proc/self/fd/${fd}`);
   const actual = stats.nlink === 0 ? link.replace(/ \(deleted\)$/, "") : link;
   return (
