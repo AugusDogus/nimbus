@@ -27,9 +27,8 @@ async function emptyConfirmed(ids: readonly string[]) {
       const batch = ids.slice(start, start + emptyBatch);
       deleted += (await trpcClient.trash.empty.mutate({ ids: batch })).deleted;
     } catch (error) {
-      // Earlier batches are gone; show what is left.
-      if (start > 0)
-        void queryClient.invalidateQueries({ queryKey: ["trash"] });
+      // Some items may be gone already; show what is left.
+      void queryClient.invalidateQueries({ queryKey: ["trash"] });
       const reason =
         error instanceof Error ? error.message : "The server did not say why.";
       throw new Error(
