@@ -424,6 +424,34 @@ describe("watch.worker failures", () => {
       expect(logs[0]).toContain(code);
     });
 
+  it.skipIf(asRoot)(
+    `logs a folder once even when it recovers and becomes unreadable again${asRoot ? ` (skipped: ${rootSkip})` : ""}`,
+    async () => {
+      const parent = await mkdtemp(
+        path.join(os.tmpdir(), "nimbus-watch-again-"),
+      );
+      const folder = path.join(parent, "flaky");
+      await mkdir(folder, { mode: 0 });
+      try {
+        const fake = fakeWatches();
+        const watching = start(fake.watch, { recheckMs: 30 });
+        for (let episode = 1; episode <= 3; episode++) {
+          await chmod(folder, 0);
+          watching.unreadable([{ path: folder, code: "EACCES" }]);
+          await chmod(folder, 0o755);
+          await until(
+            () => fake.made.length === episode + 1,
+            `the watch restarted after episode ${episode}`,
+          );
+        }
+        expect(logs).toHaveLength(1);
+      } finally {
+        await chmod(folder, 0o755);
+        await rm(parent, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("restarts after the root itself becomes unreadable", async () => {
     const fake = fakeWatches();
     start(fake.watch);

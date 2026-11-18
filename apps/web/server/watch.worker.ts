@@ -175,7 +175,9 @@ export const startFileWatch = (
   let retry: ReturnType<typeof setTimeout> | null = null;
   /** Folders it may not read, so not watched; checked again every `recheckMs`. */
   const unwatched = new Set<string>();
-  let loggedFolders = 0;
+  /** Folders already logged, so one that recovers and fails again is not logged twice. */
+  const loggedFolders = new Set<string>();
+  let moreLogged = false;
   let recheck: ReturnType<typeof setTimeout> | null = null;
 
   const flush = () => {
@@ -292,16 +294,19 @@ export const startFileWatch = (
   function skipFolder(folder: string, code: string | null) {
     if (closed || unwatched.has(folder)) return;
     unwatched.add(folder);
-    loggedFolders++;
-    if (loggedFolders <= maxLoggedFolders)
+    scheduleRecheck();
+    if (loggedFolders.has(folder)) return;
+    if (loggedFolders.size < maxLoggedFolders) {
+      loggedFolders.add(folder);
       log(
         `Nimbus cannot ${folderProblem(folder, code)}. Everything else in the drive is watched as usual. ${folderRemedy(code)} Nimbus checks again every ${seconds(recheckMs)}.`,
       );
-    else if (loggedFolders === maxLoggedFolders + 1)
+    } else if (!moreLogged) {
+      moreLogged = true;
       log(
         `Nimbus found more than ${maxLoggedFolders} folders it cannot read; further ones are not logged one by one. Each is skipped as described above.`,
       );
-    scheduleRecheck();
+    }
   }
 
   function scheduleRecheck() {
