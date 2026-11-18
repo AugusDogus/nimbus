@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { createSearchIndex, type SearchScope } from "./search-index";
+import { plain } from "./search-text";
 import {
   SearchStopped,
   type HistoryEntry,
@@ -1358,6 +1359,166 @@ describe("dates", () => {
           expect(terms).toContain(written);
       });
     });
+});
+
+describe("joined words against a brute-force oracle", () => {
+  it("agrees through random adds, removes, compactions, roots and grants", () => {
+    let seed = 29;
+    const random = () =>
+      (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32;
+    const pick = <T>(items: readonly T[]) =>
+      items[Math.floor(random() * items.length)];
+    const parts = [
+      "robot",
+      "rôbot",
+      "arm",
+      "blend",
+      "farm",
+      "x",
+      "notes",
+      "2024",
+    ];
+    const joins = ["-", "_", " ", ".", ""];
+    const index = createSearchIndex(2);
+    const oracle = new Map<string, "file" | "dir">();
+    const within = (parent: string, child: string) =>
+      parent === "" || child === parent || child.startsWith(`${parent}/`);
+    // Rare words, so their pass checks the few names holding them directly.
+    const rare = ["zeta", "omega"];
+    const name = () =>
+      Array.from({ length: 1 + Math.floor(random() * 3) }, () =>
+        random() < 0.05 ? (pick(rare) ?? "zeta") : (pick(parts) ?? "x"),
+      ).join(pick(joins) ?? "-");
+    const add = (path: string, kind: "file" | "dir") => {
+      for (const existing of [...oracle.keys()])
+        if (within(path, existing) && oracle.get(path) !== kind)
+          oracle.delete(existing);
+      oracle.set(path, kind);
+      index.add(path, kind);
+    };
+    // A big folder whose name holds a word the queries read apart, so their
+    // pass meets many names below one match.
+    add("robot", "dir");
+    for (let i = 0; i < 300; i++) add(`robot/item ${i}`, "file");
+    // Names holding none of the words, so a few matches are few among many.
+    for (let i = 0; i < 80_000; i++)
+      index.add(`filler/f${i % 50}/item ${i}`, "file");
+    // Names holding only the other word, below a folder holding the first:
+    // one read without accents, early in the tree.
+    for (const path of [
+      "filler/zeta omega/item",
+      "filler/omega stuff/zeta notes.txt",
+      "robot/ômega box/zeta inside.txt",
+    ]) {
+      index.add(path, "file");
+      oracle.set(path, "file");
+      // The folders the index makes on the way, which the queries can find too.
+      oracle.set(path.slice(0, path.lastIndexOf("/")), "dir");
+    }
+    const check = (
+      step: number,
+      query: string,
+      root: string,
+      grants: string[] | null,
+    ) => {
+      const needle = query.toLowerCase();
+      const words = query
+        .split(/[-_.]+|(?<=[a-z])(?=[A-Z])/)
+        .map((word) => word.toLowerCase());
+      const holdsAsTyped = (segment: string, word: string) =>
+        word.length === 1 ? segment.startsWith(word) : segment.includes(word);
+      // As typed, or both read without accents: the engine's rule.
+      const holds = (segment: string, word: string) =>
+        holdsAsTyped(segment, word) ||
+        holdsAsTyped(plain(segment), plain(word));
+      const visible = (path: string) =>
+        path !== root &&
+        within(root, path) &&
+        (grants === null || grants.some((grant) => within(grant, path)));
+      const expected = [...oracle.keys()]
+        .filter((path) => {
+          if (!visible(path)) return false;
+          const segments = path.toLowerCase().split("/");
+          const own = segments[segments.length - 1] ?? "";
+          if (own.includes(needle) || plain(own).includes(plain(needle)))
+            return false;
+          return (
+            words.some((word) => holds(own, word)) &&
+            words.every((word) =>
+              segments.some((segment) => holds(segment, word)),
+            )
+          );
+        })
+        .sort();
+      const scope: SearchScope =
+        grants === null ? { type: "all" } : { type: "grants", paths: grants };
+      const found = index
+        .search({ query, root, limit: 10_000, scope, depth: "full", now: 1 })
+        .hits.filter((hit) => hit.match === "words")
+        .map((hit) => hit.path)
+        .sort();
+      expect({ step, query, root, grants, found }).toEqual({
+        step,
+        query,
+        root,
+        grants,
+        found: expected,
+      });
+    };
+    for (let step = 0; step < 2000; step++) {
+      const dirs = [
+        "",
+        ...[...oracle]
+          .filter(([, kind]) => kind === "dir")
+          .map(([path]) => path),
+      ];
+      const action = random();
+      if (action < 0.6) {
+        const base = pick(dirs) ?? "";
+        add(
+          `${base ? `${base}/` : ""}${name()}${Math.floor(random() * 3)}`,
+          random() < 0.3 ? "dir" : "file",
+        );
+      } else if (action < 0.7 && oracle.size) {
+        const path = pick([...oracle.keys()]) ?? "";
+        for (const existing of [...oracle.keys()])
+          if (within(path, existing)) oracle.delete(existing);
+        index.remove(path);
+      } else if (action < 0.76) index.compact();
+      if (step % 25 !== 0) continue;
+      const query =
+        pick([
+          "robot-arm",
+          "robotArm.blend",
+          "arm_blend",
+          "farm-robot",
+          "notes-2024-robot",
+          "x-arm",
+          "zeta-omega",
+          "omegaBlend",
+          "zeta_robot",
+        ]) ?? "";
+      const root = pick(dirs) ?? "";
+      const grants =
+        random() < 0.5 ? null : [pick(dirs) ?? "", pick(dirs) ?? ""];
+      check(step, query, root, grants);
+    }
+    // Every query over the whole drive, and over the two folders made for it.
+    for (const query of [
+      "robot-arm",
+      "robotArm.blend",
+      "arm_blend",
+      "farm-robot",
+      "notes-2024-robot",
+      "x-arm",
+      "zeta-omega",
+      "omegaBlend",
+      "zeta_robot",
+    ]) {
+      check(-1, query, "", null);
+      check(-1, query, "", ["robot", "filler"]);
+    }
+  });
 });
 
 describe("joined words", () => {
