@@ -570,6 +570,16 @@ test("repeated wrong passwords are throttled", async ({ browser, page }) => {
       );
     expect(statuses.slice(0, 10).every((status) => status === 401)).toBe(true);
     expect(statuses[10]).toBe(429);
+    // The form says how long to wait, and that the password was not checked, even when right.
+    await member.page.goto("/login");
+    await member.page.getByLabel("Email", { exact: true }).fill(email);
+    await member.page.getByLabel("Password", { exact: true }).fill(password);
+    await member.page
+      .getByRole("button", { name: "Sign in", exact: true })
+      .click();
+    await expect(member.page.getByRole("alert")).toHaveText(
+      /^Too many sign-in attempts\. Wait \d+ (second|minute)s?, then try again, or sign in with a passkey\. Your password was not checked, and your account is not locked\.$/,
+    );
   } finally {
     await member.context.close();
   }

@@ -21,6 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { authClient, signIn } from "@/lib/auth-client";
 import { CallbackUrl } from "@/lib/callback-url";
+import { RetryAfter } from "@/lib/retry-after";
 import { useHydrated } from "@/lib/use-hydrated";
 import { useServerField } from "@/lib/use-server-field";
 import { cn } from "@/lib/utils";
@@ -176,9 +177,22 @@ export function LoginForm({
       return;
     }
     void run(async () => {
-      const result = await signIn.email({ email, password });
+      const reply: { throttled: Response | null } = { throttled: null };
+      const result = await signIn.email(
+        { email, password },
+        {
+          onError: ({ response }) => {
+            if (response.status === 429) reply.throttled = response;
+          },
+        },
+      );
       if (result?.error) {
-        setError(getErrorMessage(result.error));
+        // A throttled attempt never reached the password check: say how long to wait instead.
+        setError(
+          reply.throttled
+            ? `Too many sign-in attempts. Wait ${RetryAfter.wait(reply.throttled)}, then try again, or sign in with a passkey. Your password was not checked, and your account is not locked.`
+            : getErrorMessage(result.error),
+        );
         return;
       }
       if (twoFactorChallenge.safeParse(result.data).success) {

@@ -1,9 +1,7 @@
 import * as z from "zod/mini";
+import { RetryAfter } from "./retry-after";
 
 const errorSchema = z.object({ error: z.string() });
-
-const plural = (count: number, unit: string) =>
-  `${count} ${unit}${count === 1 ? "" : "s"}`;
 
 /** Unlocking a password-protected public link: a share or an upload link. */
 export const LinkUnlock = {
@@ -13,15 +11,8 @@ export const LinkUnlock = {
    * minute-rounded text. Otherwise the server's reason, or `fallback` for a reply without one.
    */
   async failure(response: Response, fallback: string): Promise<string> {
-    if (response.status === 429) {
-      const seconds = Math.ceil(Number(response.headers.get("retry-after")));
-      const wait = !(seconds > 0)
-        ? "a moment"
-        : seconds < 60
-          ? plural(seconds, "second")
-          : plural(Math.ceil(seconds / 60), "minute");
-      return `Too many password attempts on this link. Wait ${wait}, then try again. Your password was not checked.`;
-    }
+    if (response.status === 429)
+      return `Too many password attempts on this link. Wait ${RetryAfter.wait(response)}, then try again. Your password was not checked.`;
     const body = errorSchema.safeParse(await response.json().catch(() => null));
     return body.success ? body.data.error : fallback;
   },
