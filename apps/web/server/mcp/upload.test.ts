@@ -16,7 +16,11 @@ import type { UploadDestination } from "@nimbus/api/upload-destination";
 import { user } from "../db/auth-schema";
 import { mcpClients, mcpGrants } from "../db/mcp-schema";
 import { openTestDrive, type TestDrive } from "../drive-testing";
-import { McpUpload, type McpUploadContext } from "./upload";
+import {
+  MAX_RUNNING_PER_LINK,
+  McpUpload,
+  type McpUploadContext,
+} from "./upload";
 import { UPLOAD_LINK_TTL_MS, UploadLink } from "./upload-link";
 
 const secret = "s".repeat(32);
@@ -459,6 +463,167 @@ describe("MCP upload links", () => {
     );
     await expect(stat(drive.absolute("docs/broken.bin"))).rejects.toThrow();
     expect(await staged()).toEqual([]);
+  });
+
+  it("keeps the free-space floor of the filesystem the file lands on", async () => {
+    await mkdir(drive.absolute("docs/mounted"));
+    // Only the folder below the link's folder is short of space, as a disk mounted there would be.
+    const short = drive.absolute("docs/mounted");
+    const context = (): McpUploadContext => ({
+      db: drive.db,
+      drive: drive.store,
+      secret,
+      startedAt,
+      origins: new Set([origin]),
+      now: () => now,
+      capacity: async (directory) =>
+        directory === short
+          ? { totalBytes: 10 * gib, availableBytes: gib + 2 }
+          : null,
+    });
+    const { token } = await link({
+      kind: "folder",
+      path: "docs",
+      rule: { kind: "refuse" },
+    });
+    const response = await McpUpload.handle(
+      context(),
+      new Request(`${origin}/api/mcp/upload/${token}/mounted/x.bin`, {
+        method: "PUT",
+        body: "123",
+      }),
+      { token, rest: "mounted/x.bin" },
+    );
+    expect(response.status).toBe(507);
+    await expect(stat(drive.absolute("docs/mounted/x.bin"))).rejects.toThrow();
+  });
+
+  it("counts every running upload against the free-space floor", async () => {
+    capacity = { totalBytes: 10 * gib, availableBytes: gib + 4 };
+    const first = await link({
+      kind: "file",
+      path: "docs/first.bin",
+      rule: { kind: "refuse" },
+    });
+    const second = await link({
+      kind: "file",
+      path: "docs/second.bin",
+      rule: { kind: "refuse" },
+    });
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let received: () => void = () => {};
+    const streaming = new Promise<void>((resolve) => (received = resolve));
+    const running = put(
+      first.token,
+      streamOf(["abc"], async () => {
+        received();
+        await held;
+      }),
+    );
+    await streaming;
+    expect((await put(second.token, streamOf(["abc"]))).status).toBe(507);
+    release();
+    expect((await running).status).toBe(201);
+    await expect(stat(drive.absolute("docs/second.bin"))).rejects.toThrow();
+  });
+
+  it("keeps its single use when saving fails after the file was replaced", async () => {
+    const versions = drive.store.versions;
+    let failing = true;
+    const store = {
+      ...drive.store,
+      versions: {
+        ...versions,
+        list: async (relative: string) => {
+          if (failing) throw new Error("retention failed");
+          return versions.list(relative);
+        },
+      },
+    };
+    const { token } = await link({
+      kind: "file",
+      path: "docs/report.txt",
+      rule: { kind: "overwrite" },
+    });
+    const request = (body: string) =>
+      McpUpload.handle(
+        { ...context(), drive: store },
+        new Request(`${origin}/api/mcp/upload/${token}`, {
+          method: "PUT",
+          body,
+        }),
+        { token, rest: "" },
+      );
+    expect((await request("first")).status).toBe(500);
+    failing = false;
+    expect((await request("second")).status).toBe(410);
+    expect(await readFile(drive.absolute("docs/report.txt"), "utf8")).toBe(
+      "first",
+    );
+  });
+
+  it("treats spellings of one path as the same path", async () => {
+    const { token } = await link({
+      kind: "folder",
+      path: "docs",
+      rule: { kind: "overwrite" },
+    });
+    expect((await put(token, "one", { rest: "Notes.txt" })).status).toBe(201);
+    expect((await put(token, "two", { rest: "NOTES.txt" })).status).toBe(410);
+  });
+
+  it("refuses a raw ? or # rather than cutting the name short", async () => {
+    const { token } = await link({
+      kind: "folder",
+      path: "docs",
+      rule: { kind: "overwrite" },
+    });
+    const response = await McpUpload.handle(
+      context(),
+      new Request(`${origin}/api/mcp/upload/${token}/report.txt?backup`, {
+        method: "PUT",
+        body: "x",
+      }),
+      { token, rest: "report.txt" },
+    );
+    expect(response.status).toBe(400);
+    expect(refusal.parse(await response.json()).error).toContain("%3F");
+    expect(await readFile(drive.absolute("docs/report.txt"), "utf8")).toBe(
+      "quarterly report",
+    );
+  });
+
+  it("limits how many uploads one link runs at once", async () => {
+    const { token } = await link({
+      kind: "folder",
+      path: "docs",
+      rule: { kind: "refuse" },
+    });
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const started: Promise<void>[] = [];
+    const running: Promise<Response>[] = [];
+    for (let index = 0; index < MAX_RUNNING_PER_LINK; index++) {
+      let begin: () => void = () => {};
+      started.push(new Promise<void>((resolve) => (begin = resolve)));
+      running.push(
+        put(
+          token,
+          streamOf(["x"], async () => {
+            begin();
+            await held;
+          }),
+          { rest: `parallel-${index}.txt` },
+        ),
+      );
+    }
+    await Promise.all(started);
+    const extra = await put(token, "x", { rest: "one-too-many.txt" });
+    expect(extra.status).toBe(429);
+    release();
+    for (const response of await Promise.all(running))
+      expect(response.status).toBe(201);
   });
 
   it("keeps the free-space floor, before and during an upload", async () => {

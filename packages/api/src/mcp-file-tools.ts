@@ -330,7 +330,11 @@ const uploadLink = defineTool({
       input.expectedEtag !== undefined
         ? { kind: "match" as const, etag: input.expectedEtag }
         : { kind: input.onConflict };
-    if (current !== null && !UploadDestination.accepts(rule, current))
+    if (
+      current !== null &&
+      rule.kind !== "keep-both" &&
+      !UploadDestination.accepts(rule, current)
+    )
       throw toolFailure(
         "CONFLICT",
         rule.kind === "match"

@@ -92,11 +92,15 @@ function verify(
 
 /**
  * One path of one link: `relative` is the path below a folder link's folder, or "" for a file
- * link. The upload route records each key it commits, so each path commits once per link.
+ * link. The upload route records each key it commits, so each path commits once per link. Like
+ * path locks, every spelling of a path is one key: on case-insensitive storage they name one file.
  */
 const commitKey = (link: Pick<UploadLink, "nonce">, relative: string) =>
   createHash("sha256")
-    .update(`upload\0${link.nonce}\0${relative}`, "utf8")
+    .update(
+      `upload\0${link.nonce}\0${relative.normalize("NFC").toLowerCase()}`,
+      "utf8",
+    )
     .digest("base64url");
 
 export const UploadLink = { sign, verify, commitKey } as const;

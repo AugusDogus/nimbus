@@ -459,6 +459,16 @@ describe("MCP tools", () => {
     ]);
   });
 
+  it("issues a keep-both link for a path that is taken", async () => {
+    await value("get_upload_link", {
+      path: "docs/report.txt",
+      onConflict: "keep-both",
+    });
+    expect(uploads).toEqual([
+      { kind: "file", path: "docs/report.txt", rule: { kind: "keep-both" } },
+    ]);
+  });
+
   it("refuses upload links that could not succeed, before any byte is sent", async () => {
     expect(
       await failure("get_upload_link", { path: "docs/report.txt" }),

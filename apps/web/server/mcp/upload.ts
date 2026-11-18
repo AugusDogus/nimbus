@@ -1,3 +1,4 @@
+import { lstat, stat } from "node:fs/promises";
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
 import { getAccess } from "@nimbus/api/access";
@@ -45,6 +46,18 @@ const capacityCheckBytes = 64 * 1024 * 1024;
 
 /** Keys of uploads running now: one link uploads each of its paths once at a time. */
 const running = new Set<string>();
+
+/** Uploads one link may run at once, as an agent running curl in parallel would. */
+export const MAX_RUNNING_PER_LINK = 16;
+/** Uploads running now, by link nonce. */
+const runningPerLink = new Map<string, number>();
+
+/**
+ * Bytes received by running uploads and not yet committed or discarded. Each upload counts
+ * every running upload's bytes against the space spare when it started, so parallel uploads
+ * cannot each spend the same free space.
+ */
+let pendingBytes = 0;
 
 /**
  * Keys of paths committed through links that can still start uploads, with when each link
@@ -150,12 +163,28 @@ function conflict(
   };
 }
 
-/** Bytes that may still be written beside `folder` and the data root, keeping their floors free. */
+/** The nearest existing folder holding `absolute`, a path in the drive: where the file will land. */
+async function landingFolder(absolute: string) {
+  const root = getDataRoot();
+  for (let folder = path.dirname(absolute); ; folder = path.dirname(folder)) {
+    if (folder === root || path.dirname(folder) === folder) return root;
+    try {
+      if ((await stat(folder)).isDirectory()) return folder;
+    } catch {
+      // Not created yet: the file lands on its nearest existing parent's filesystem.
+    }
+  }
+}
+
+/**
+ * Bytes that may still be written on the file's filesystem and the data root's, which holds
+ * versions, keeping both floors free.
+ */
 async function spareBytes(context: McpUploadContext, folder: string) {
   return FilesystemCapacity.spareBytes(
     await Promise.all([
       context.capacity(getDataRoot()),
-      context.capacity(path.join(getDataRoot(), folder)),
+      context.capacity(folder),
     ]),
     FilesystemCapacity.minimumFreeBytes,
   );
@@ -174,12 +203,14 @@ type BodyFailure =
  */
 function receive(
   body: ReadableStream<Uint8Array>,
-  spare: number | null,
+  budget: { spare: number; reserved: number } | null,
   reread: () => Promise<number | null>,
 ) {
-  const state: { failure: BodyFailure } = { failure: { kind: "none" } };
+  const state: { failure: BodyFailure; received: number } = {
+    failure: { kind: "none" },
+    received: 0,
+  };
   const reader = body.getReader();
-  let received = 0;
   let nextCheck = capacityCheckBytes;
   const stream = new ReadableStream<Uint8Array>(
     {
@@ -195,13 +226,14 @@ function receive(
           controller.close();
           return;
         }
-        received += chunk.value.byteLength;
-        if (spare !== null && received >= nextCheck) {
-          nextCheck = received + capacityCheckBytes;
+        state.received += chunk.value.byteLength;
+        pendingBytes += chunk.value.byteLength;
+        if (budget !== null && state.received >= nextCheck) {
+          nextCheck = state.received + capacityCheckBytes;
           const now = await reread();
           if (now !== null && now < 0) state.failure = { kind: "floor" };
         }
-        if (spare !== null && received > spare)
+        if (budget !== null && pendingBytes + budget.reserved > budget.spare)
           state.failure = { kind: "floor" };
         if (state.failure.kind === "floor") {
           await reader.cancel().catch(() => undefined);
@@ -214,6 +246,15 @@ function receive(
     { highWaterMark: 0 },
   );
   return { stream, state };
+}
+
+/** Whether replacing a file there copies its old content to the data root as a version. */
+async function versionNeedsCopy(folder: string) {
+  const [root, landing] = await Promise.all([
+    stat(getDataRoot()),
+    stat(folder),
+  ]);
+  return root.dev !== landing.dev;
 }
 
 const disconnected =
@@ -253,7 +294,14 @@ async function upload(
       409,
       "Another upload of this path with this link is still running. Nothing was saved. Wait for it to finish, or call get_upload_link for a new link.",
     );
+  const sameLink = runningPerLink.get(link.nonce) ?? 0;
+  if (sameLink >= MAX_RUNNING_PER_LINK)
+    return refuse(
+      429,
+      `This link is already running ${MAX_RUNNING_PER_LINK} uploads. Nothing was saved. Upload at most ${MAX_RUNNING_PER_LINK} files at once, and send this one when another finishes.`,
+    );
   running.add(key);
+  runningPerLink.set(link.nonce, sameLink + 1);
   try {
     return await receiveAndCommit(
       context,
@@ -265,6 +313,9 @@ async function upload(
     );
   } finally {
     running.delete(key);
+    const left = (runningPerLink.get(link.nonce) ?? 1) - 1;
+    if (left > 0) runningPerLink.set(link.nonce, left);
+    else runningPerLink.delete(link.nonce);
   }
 }
 
@@ -278,27 +329,59 @@ async function receiveAndCommit(
   authorize: () => ReturnType<typeof getAccess>,
 ): Promise<Response> {
   // Refused before any byte is received when the outcome is already known; checked again at commit.
-  const early = conflict(
-    link.destination.rule,
-    destination.relative,
-    await entryOrNull(destination.relative),
-  );
+  const current = await entryOrNull(destination.relative);
+  const early = conflict(link.destination.rule, destination.relative, current);
   if (early) return refuse(early.status, early.message);
 
-  const folder =
-    link.destination.kind === "folder"
-      ? link.destination.path
-      : path.posix.dirname(link.destination.path).replace(/^\.$/, "");
+  const folder = await landingFolder(destination.absolute);
   const spare = await spareBytes(context, folder);
+  // A replaced file's content becomes a version: a copy on the data root when it lives elsewhere.
+  const reserved =
+    current?.type === "file" &&
+    (link.destination.rule.kind === "overwrite" ||
+      link.destination.rule.kind === "match") &&
+    (await versionNeedsCopy(folder))
+      ? (current.size ?? 0)
+      : 0;
   const declared = Number(request.headers.get("content-length") ?? 0);
   if (
     spare !== null &&
-    (spare <= 0 || (Number.isSafeInteger(declared) && declared > spare))
+    (spare <= 0 ||
+      pendingBytes +
+        reserved +
+        (Number.isSafeInteger(declared) ? declared : 0) >
+        spare)
   )
     return noSpace();
   const body =
     request.body &&
-    receive(request.body, spare, () => spareBytes(context, folder));
+    receive(request.body, spare === null ? null : { spare, reserved }, () =>
+      spareBytes(context, folder),
+    );
+  try {
+    return await stageAndCommit(
+      context,
+      request,
+      link,
+      destination,
+      key,
+      body,
+      authorize,
+    );
+  } finally {
+    if (body) pendingBytes -= body.state.received;
+  }
+}
+
+async function stageAndCommit(
+  context: McpUploadContext,
+  request: Request,
+  link: UploadLink,
+  destination: { absolute: string; relative: string },
+  key: string,
+  body: ReturnType<typeof receive> | null,
+  authorize: () => ReturnType<typeof getAccess>,
+): Promise<Response> {
   let staged: StagedFile;
   try {
     // Outside every lock, so a slow transfer never blocks other changes.
@@ -362,10 +445,13 @@ async function commit(
   };
   const parent = path.posix.dirname(relative);
   const name = path.posix.basename(relative);
+  // Identifies the staged content once renamed into place, to tell whether a failure came after.
+  const incoming = await stat(staged.path);
+  let candidate = relative;
   let foldersCreated = false;
   try {
     for (let index = 0; ;) {
-      const candidate = [
+      candidate = [
         parent === "." ? "" : parent,
         numberedName(name, index, true),
       ]
@@ -429,8 +515,24 @@ async function commit(
         }
       }
     }
+  } catch (error) {
+    // A failure after the content was put in place, such as pruning old versions, leaves the
+    // upload committed: its record stays, so the link cannot write the path again.
+    if (recorded && !(await holds(candidate, incoming))) committed.delete(key);
+    recorded = false;
+    throw error;
   } finally {
     if (recorded && !done) committed.delete(key);
+  }
+}
+
+/** Whether the drive file at `relative` is the staged file described by `incoming`. */
+async function holds(relative: string, incoming: { dev: number; ino: number }) {
+  try {
+    const now = await lstat(path.join(getDataRoot(), relative));
+    return now.dev === incoming.dev && now.ino === incoming.ino;
+  } catch {
+    return false;
   }
 }
 
@@ -446,6 +548,12 @@ async function handle(
 ): Promise<Response> {
   const transport = guardTransport(request, context.origins);
   if (!transport.allowed) return refuse(transport.status, transport.message);
+  // A query would be cut off the file's name. Upload links never carry one.
+  if (/[?#]/.test(request.url))
+    return refuse(
+      400,
+      "The upload URL contains a raw ? or #, which would cut the file's name short. Nothing was saved. Percent-encode them in file names as %3F and %23.",
+    );
   const check = UploadLink.verify(context.secret, params.token, {
     now: context.now(),
     startedAt: context.startedAt,
