@@ -38,6 +38,7 @@ import { createHash } from "node:crypto";
 import {
   collector,
   foldQuery,
+  literalIn,
   marksEarlierLayers,
   type Stopped,
   MAX_BOOST,
@@ -67,7 +68,6 @@ import {
   dateSpellings,
   joinedWords,
   monthNamed,
-  plain,
   queryDates,
 } from "./search-text";
 
@@ -351,38 +351,6 @@ type DeltaFuzzy = {
   /** Per word, compacted posting keys of its corrections, for folders above. */
   keys: readonly (readonly number[])[];
 };
-
-/**
- * The names-layer tier of `needle` in folded `name`, as typed or else
- * without accents; null when it is not there. The same rules as the scan.
- */
-function literalIn(name: string, needle: string, prefixOnly: boolean) {
-  const tierAt = (
-    text: string,
-    query: string,
-    at: number,
-    plainForm: boolean,
-  ) =>
-    at < 0 || (prefixOnly && at !== 0)
-      ? null
-      : Rank.literalTier(
-          text.length === query.length,
-          at,
-          text.charCodeAt(at - 1),
-          plainForm,
-        );
-  const asTyped = tierAt(name, needle, name.indexOf(needle), false);
-  if (asTyped !== null) return asTyped;
-  const plainNeedle = plain(needle);
-  if (plainNeedle !== needle) {
-    const inName = tierAt(name, plainNeedle, name.indexOf(plainNeedle), true);
-    if (inName !== null) return inName;
-  }
-  const plainName = plain(name);
-  return plainName === name
-    ? null
-    : tierAt(plainName, plainNeedle, plainName.indexOf(plainNeedle), true);
-}
 
 /**
  * The layers over entries added since compaction, by the same rules as

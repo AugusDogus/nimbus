@@ -1489,11 +1489,37 @@ describe("joined words against a brute-force oracle", () => {
         .sort();
       const scope: SearchScope =
         grants === null ? { type: "all" } : { type: "grants", paths: grants };
-      const found = index
-        .search({ query, root, limit: 10_000, scope, depth: "full", now: 1 })
-        .hits.filter((hit) => hit.match === "words")
+      const hits = index.search({
+        query,
+        root,
+        limit: 10_000,
+        scope,
+        depth: "full",
+        now: 1,
+      }).hits;
+      const found = hits
+        .filter((hit) => hit.match === "words")
         .map((hit) => hit.path)
         .sort();
+      // The whole query in a name, as typed or without accents.
+      const named = hits
+        .filter((hit) => hit.match === "name")
+        .map((hit) => hit.path)
+        .sort();
+      const literal = [...oracle.keys()]
+        .filter((path) => {
+          if (!visible(path)) return false;
+          const own = path.toLowerCase().split("/").at(-1) ?? "";
+          return own.includes(needle) || plain(own).includes(plain(needle));
+        })
+        .sort();
+      expect({ step, query, root, grants, named }).toEqual({
+        step,
+        query,
+        root,
+        grants,
+        named: literal,
+      });
       expect({ step, query, root, grants, found }).toEqual({
         step,
         query,

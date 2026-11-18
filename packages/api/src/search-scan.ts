@@ -190,6 +190,38 @@ export function termBits(name: string, terms: readonly string[]) {
   return bits;
 }
 
+/**
+ * The names-layer tier of `needle` in folded `name`, as typed or else
+ * without accents; null when it is not there. The same rules as the scan.
+ */
+export function literalIn(name: string, needle: string, prefixOnly: boolean) {
+  const tierAt = (
+    text: string,
+    query: string,
+    at: number,
+    plainForm: boolean,
+  ) =>
+    at < 0 || (prefixOnly && at !== 0)
+      ? null
+      : Rank.literalTier(
+          text.length === query.length,
+          at,
+          text.charCodeAt(at - 1),
+          plainForm,
+        );
+  const asTyped = tierAt(name, needle, name.indexOf(needle), false);
+  if (asTyped !== null) return asTyped;
+  const plainNeedle = plain(needle);
+  if (plainNeedle !== needle) {
+    const inName = tierAt(name, plainNeedle, name.indexOf(plainNeedle), true);
+    if (inName !== null) return inName;
+  }
+  const plainName = plain(name);
+  return plainName === name
+    ? null
+    : tierAt(plainName, plainNeedle, plainName.indexOf(plainNeedle), true);
+}
+
 /** The folded name in `slot`. */
 export const slotName = (layout: SearchLayout, slot: number) =>
   layout.folded.toString(
@@ -512,8 +544,19 @@ export function scanLayout(
   const marking = marksEarlierLayers(plan) || plan.fuzzy !== null;
   if (marking)
     for (const range of plan.ranges) marks.fill(0, range.first, range.end);
+  // A one-word query read apart into words of two letters or more: every
+  // name holding it holds each of those words in its own name, so the pass
+  // for them meets every names-layer match too and ranks it, instead of a
+  // scan of its own. (A one-letter word matches only at a name's start.)
+  const literal =
+    terms.length === 0 &&
+    plan.split !== null &&
+    plan.split.every((word) => word.length > 1)
+      ? { needle: plan.needle, counts }
+      : null;
   return (
-    names(layout, plan, scratch, keep, counts, stopped, marking) &&
+    (literal !== null ||
+      names(layout, plan, scratch, keep, counts, stopped, marking)) &&
     (!terms.length ||
       words(
         layout,
@@ -539,6 +582,7 @@ export function scanLayout(
         keep,
         null,
         stopped,
+        literal,
       )) &&
     (plan.fuzzy === null ||
       fuzzy(layout, plan, plan.fuzzy, scratch, keep, stopped))
@@ -792,6 +836,8 @@ function words(
   add: (rank: number) => void,
   counts: ScanCounts | null,
   stopped: Stopped,
+  /** The whole query, when this pass ranks its names-layer matches too. */
+  literal: Literal | null = null,
 ) {
   const { parentSlot, dead } = layout;
   const { marks } = scratch;
@@ -861,6 +907,7 @@ function words(
             tiers,
             scratch,
             add,
+            literal,
           );
           break;
         }
@@ -879,13 +926,20 @@ function words(
       }
       if (held !== all) held |= above.get(parent) ?? 0;
       if (held !== all) continue;
-      found(layout, slot, inName === all, tiers, scratch, add);
+      found(layout, slot, inName === all, tiers, scratch, add, literal);
     }
   }
   return true;
 }
 
-/** Rank `slot`, found by a words pass, and flag it FOUND for later layers. */
+/** The whole query, and the counts its names-layer matches go into. */
+type Literal = { needle: string; counts: ScanCounts };
+
+/**
+ * Rank `slot`, found by a words pass, and flag it FOUND for later layers;
+ * or, holding the whole `literal` query, as the names layer would, flagged
+ * LITERAL and counted.
+ */
 function found(
   layout: SearchLayout,
   slot: number,
@@ -893,14 +947,21 @@ function found(
   [inNameTier, inPathTier]: readonly [number, number],
   { boosts, marks }: ScanScratch,
   add: (rank: number) => void,
+  literal: Literal | null = null,
 ) {
-  marks[slot] = (marks[slot] ?? 0) | FOUND;
   const start = layout.foldedStarts[slot] ?? 0;
+  const length = (layout.foldedStarts[slot + 1] ?? 0) - start - 1;
+  const tier =
+    literal && inName
+      ? literalIn(slotName(layout, slot), literal.needle, false)
+      : null;
+  if (literal && tier !== null) literal.counts.literal++;
+  marks[slot] = (marks[slot] ?? 0) | (tier === null ? FOUND : LITERAL);
   add(
     Rank.of(
-      inName ? inNameTier : inPathTier,
+      tier ?? (inName ? inNameTier : inPathTier),
       boosts[slot] ?? 0,
-      (layout.foldedStarts[slot + 1] ?? 0) - start - 1,
+      length,
       slot,
     ),
   );
@@ -961,6 +1022,7 @@ function checkDirectly(
   tiers: readonly [number, number],
   scratch: ScanScratch,
   add: (rank: number) => void,
+  literal: Literal | null,
 ) {
   const { parentSlot, dead } = layout;
   const { marks } = scratch;
@@ -987,7 +1049,7 @@ function checkDirectly(
       }
       if (held !== all) held |= above.get(parent) ?? 0;
       if (held === all)
-        found(layout, slot, inName === all, tiers, scratch, add);
+        found(layout, slot, inName === all, tiers, scratch, add, literal);
     }
   }
 }
