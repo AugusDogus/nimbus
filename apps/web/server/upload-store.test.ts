@@ -21,9 +21,13 @@ import { UploadStore } from "./upload-store";
 let root: string;
 let store: UploadStore;
 let destination: string;
+let previousDataRoot: string | undefined;
 
 beforeEach(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), "nimbus-upload-"));
+  // Cross-filesystem publishing stages on the data root's filesystem.
+  previousDataRoot = process.env.NIMBUS_DATA_ROOT;
+  process.env.NIMBUS_DATA_ROOT = root;
   const directory = path.join(root, ".nimbus/uploads");
   await mkdir(directory, { recursive: true });
   store = new UploadStore({ directory });
@@ -31,6 +35,8 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
+  if (previousDataRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
+  else process.env.NIMBUS_DATA_ROOT = previousDataRoot;
 });
 
 test("publishing shares file data and staging cleanup preserves the destination", async () => {

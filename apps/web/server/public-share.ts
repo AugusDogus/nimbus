@@ -1,13 +1,14 @@
 import { TRPCError } from "@trpc/server";
 import { getAccess, type Access } from "@nimbus/api/access";
 import type { Share } from "@nimbus/api/drive-store";
-import { safePath } from "@nimbus/api/file-operations";
-import { isApiError, isWithinPath } from "@nimbus/api/safe-path";
+import { isApiError } from "@nimbus/api/safe-path";
 import { recordAudit } from "@nimbus/api/audit";
 import { httpDriveStore } from "./http-files";
 import { LinkPasswordAttempts } from "./link-password-attempts";
 import { SharePolicy } from "./share-policy";
 import { UnlockCookie } from "./unlock-cookie";
+
+export { sharedTarget } from "./shared-target";
 
 /**
  * The share behind `token` and its creator's access, or NOT_FOUND. `exhausted: "allow"` returns
@@ -80,46 +81,6 @@ export function isShareUnlocked(share: Share, request: Request) {
     passwordHash === null ||
     UnlockCookie.verify(unlockScope({ ...share, passwordHash }), request)
   );
-}
-
-export async function sharedTarget(
-  share: Share,
-  access: Access,
-  child: string,
-) {
-  const target = await safePath([share.path, child].filter(Boolean).join("/"));
-  if (!isWithinPath(share.path, target.relative))
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "This path is outside the shared folder.",
-    });
-  // Built field by field: a link grants reading inside its path and nothing of its creator's
-  // other rights, such as administration or grants elsewhere.
-  const scoped: Access = {
-    user: access.user,
-    grants: [],
-    isAdmin: false,
-    requireAdmin() {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "A public link cannot manage users and groups.",
-      });
-    },
-    can: (requested, permission) =>
-      permission === "read" &&
-      isWithinPath(share.path, requested) &&
-      access.can(requested, "read"),
-    canBrowse: (requested) =>
-      isWithinPath(share.path, requested) && access.can(requested, "read"),
-    require(requested, permission) {
-      if (!this.can(requested, permission))
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "This link does not grant access to that item.",
-        });
-    },
-  };
-  return { target, access: scoped };
 }
 
 const sharePasswords = LinkPasswordAttempts.create("share");

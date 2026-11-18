@@ -1,0 +1,3 @@
+[test]
+# Fails the run when a test opens the configured database or leaves files in the repository.
+preload = ["./scripts/test-guard.ts"]

@@ -5,7 +5,7 @@ import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
 import type { Share } from "@nimbus/api/drive-store";
 import { createTestDriveStore } from "@nimbus/api/testing";
-import { sharedTarget } from "./public-share";
+import { sharedTarget } from "./shared-target";
 
 let root: string;
 let previousRoot: string | undefined;
