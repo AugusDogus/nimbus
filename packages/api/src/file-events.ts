@@ -70,9 +70,10 @@ export async function* iterateFileEvents(
     }
     wake?.();
   });
-  const aborted = new Promise<void>((resolve) =>
-    signal.addEventListener("abort", () => resolve(), { once: true }),
-  );
+  // Wakes a waiting reader directly. Racing each wait against one long-lived abort promise
+  // would leave a reaction on it per wait, growing for as long as the stream stays open.
+  const onAbort = () => wake?.();
+  signal.addEventListener("abort", onAbort, { once: true });
   try {
     while (!signal.aborted) {
       if (overflowed) {
@@ -83,23 +84,25 @@ export async function* iterateFileEvents(
       const event = queue[head];
       if (event !== undefined) {
         head++;
-        // Compacted now and then, so reading from the front stays cheap.
-        if (head > 1024 && head * 2 > queue.length) {
+        // Read events are released: all at once when the queue empties, otherwise now and
+        // then, so reading from the front stays cheap.
+        if (head === queue.length) {
+          queue = [];
+          head = 0;
+        } else if (head > 1024 && head * 2 > queue.length) {
           queue = queue.slice(head);
           head = 0;
         }
         yield { kind: "event", event };
         continue;
       }
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          wake = resolve;
-        }),
-        aborted,
-      ]);
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+      });
       wake = null;
     }
   } finally {
+    signal.removeEventListener("abort", onAbort);
     unsubscribe();
   }
 }

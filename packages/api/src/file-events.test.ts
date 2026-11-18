@@ -111,3 +111,23 @@ test("a subscriber whose session ended gets no reload notice, and its stream end
   expect(await first).toMatchObject({ done: true });
   controller.abort();
 });
+
+test("a subscriber that keeps up holds no read events and no growing state", async () => {
+  const controller = new AbortController();
+  const events = iterateFileEvents(controller.signal);
+  const first = events.next();
+  publishFileEvent(event(0));
+  await first;
+  // Many short waits, as a quiet stream with occasional changes has.
+  Bun.gc(true);
+  const before = process.memoryUsage().heapUsed;
+  for (let index = 1; index <= 200_000; index++) {
+    const next = events.next();
+    publishFileEvent(event(index));
+    await next;
+  }
+  Bun.gc(true);
+  expect(process.memoryUsage().heapUsed - before).toBeLessThan(4 * 1024 * 1024);
+  controller.abort();
+  expect((await events.next()).done).toBe(true);
+});
