@@ -40,6 +40,14 @@ const statAt: StatAt = (absolute) => lstat(absolute, { bigint: true });
  * could match it. A changed reading means other content, so recovery reports the change as
  * unclear and leaves its records, as it also does where inode numbers change across restarts
  * (Unraid user shares).
+ *
+ * Limits, all failing closed except the first two: content could still pass for the item if
+ * the clock stepped back far enough for it to be born in the same timestamp tick as the item,
+ * or, without birth times, if a program gave it the item's modification time on purpose. The
+ * item itself reads differently, so its change is reported unclear, where renaming copies it
+ * up (a lower overlayfs layer) or where statx is refused and Bun reports the change time as
+ * the birth time. Records written before birth times were recorded (`dev:ino`, unreleased
+ * builds only) match nothing and are reported unclear too.
  */
 const identityOf = (
   stats: Pick<BigIntStats, "dev" | "ino" | "birthtimeNs" | "mtimeNs">,

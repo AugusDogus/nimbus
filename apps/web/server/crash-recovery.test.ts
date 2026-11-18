@@ -1,4 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
 import {
   lstat,
   mkdtemp,
@@ -17,6 +24,10 @@ import { PendingChanges } from "@nimbus/api/pending-changes";
 import { openDatabase } from "./db/connection";
 import { migrateDatabase } from "./db/migrate-database";
 import { createDriveStore } from "./drive-store";
+
+// Most tests here start a Bun process that migrates a database before it is killed, which can
+// take longer than the default five seconds on a busy machine.
+setDefaultTimeout(30_000);
 
 /**
  * A process killed between a change's filesystem step and its database step, then started
