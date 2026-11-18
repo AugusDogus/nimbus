@@ -169,6 +169,29 @@ describe("home folders", () => {
       expect({ path, fixed: isFixed(path) }).toEqual({ path, fixed: false });
   });
 
+  it("claims every folder it recreates above a recorded container, so links left there stay dead", async () => {
+    process.env.NIMBUS_HOMES_PATH = "team/people";
+    await memory.store.addHomeContainer("team/people");
+    // A link on "team", whose folder was then removed outside Nimbus.
+    await memory.store.createShare({
+      id: "share-1",
+      token: "stale-token",
+      path: "team",
+      createdBy: "user-1",
+      createdAt: 0,
+      expiresAt: null,
+      passwordHash: null,
+      downloadCount: 0,
+      maxDownloads: null,
+      mode: "download",
+    });
+    await ready();
+    expect((await stat(path.join(root, "team/people"))).isDirectory()).toBe(
+      true,
+    );
+    expect([...memory.shares.values()].map((share) => share.path)).toEqual([]);
+  });
+
   it("covers nothing before any home exists", async () => {
     const isFixed = await Homes.protection(memory.store);
     expect(isFixed("")).toBe(false);

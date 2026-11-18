@@ -106,6 +106,37 @@ async function existingEntry(absolute: string) {
 }
 
 /**
+ * Create the missing folders above `target`, each claimed first as any new folder is, so
+ * links, grants and upload links left at a path whose folder was removed outside Nimbus never
+ * reach the folder made there now.
+ */
+async function createParents(
+  store: DriveStore,
+  target: { absolute: string; relative: string },
+) {
+  const root = target.absolute.slice(
+    0,
+    target.absolute.length - target.relative.length,
+  );
+  const segments = target.relative.split("/").slice(0, -1);
+  for (let depth = 1; depth <= segments.length; depth++) {
+    const relative = segments.slice(0, depth).join("/");
+    const absolute = path.join(root, relative);
+    if (
+      (await VacantPath.claim(store, { absolute, relative })).kind ===
+      "occupied"
+    )
+      continue;
+    try {
+      await mkdir(absolute);
+    } catch (error) {
+      // Created by another program since the claim: new content, which the claim fits too.
+      if (!isFsError(error, "EEXIST")) throw error;
+    }
+  }
+}
+
+/**
  * Make sure the configured container exists and is Nimbus's own before any home goes into it.
  * A folder Nimbus recorded creating is reused, and recreated if it went missing. Otherwise it
  * is created and recorded, unless something already exists there or sharing records already
@@ -128,6 +159,7 @@ async function prepare(
   }
   if ((await store.listHomeContainers()).includes(container)) {
     // Recreated if it went missing: records left there would reach the homes put into it.
+    await createParents(store, target);
     await VacantPath.claim(store, target);
     await mkdir(target.absolute, { recursive: true });
     return { kind: "ready", path: container, created: false };
@@ -142,7 +174,7 @@ async function prepare(
   if (found.length) return refuse(found);
   // Created exclusively before it is recorded, so a recorded folder is always one Nimbus
   // made. A crash in between leaves an empty folder that the next start refuses to adopt.
-  await mkdir(path.dirname(target.absolute), { recursive: true });
+  await createParents(store, target);
   try {
     await mkdir(target.absolute);
   } catch (error) {
