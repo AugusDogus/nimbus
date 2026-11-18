@@ -556,6 +556,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     parentOf: (id) => (id >= 0 && id < count ? parent[id] : NONE),
     slotOf: (id) => (id >= 0 && id < count ? slotOf[id] : NONE),
     pathOf,
+    nameOf: (id) => (id >= 0 && id < count ? nameOf(id) : ""),
     foldedNameOf: (id) => {
       const slot = slotOf[id];
       if (slot === NONE) return deltaNames.get(id)?.folded ?? "";

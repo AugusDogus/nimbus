@@ -313,7 +313,20 @@ export type Visibility = {
   baseCount: (index: number, cap: number) => number;
   /** Whether the added-since-compaction entry `id` is visible and live. */
   deltaVisible: (id: number) => boolean;
+  /** At most how many names the caller may see: what reading their words costs. */
+  names: () => number;
+  /**
+   * Every key of the names the caller may see and of the folders above them,
+   * read once when first asked for.
+   */
+  vocabulary: () => ReadonlySet<string>;
 };
+
+/**
+ * Reading one visible name's words costs about as much as comparing this
+ * many vocabulary words with a query word.
+ */
+const NAME_COST = 2;
 
 /** A correction expanded to the keys whose names hold it: itself, longer words starting with it, its fragments. */
 export type Expansion = { base: number[]; delta: string[] };
@@ -577,40 +590,73 @@ function create() {
         if (names > 0) found.set(word, score(term, word, kind, names));
       };
       const letters = [...new Set([term[0] ?? "", term[1] ?? ""])];
-      for (
-        let length = term.length - typos;
-        length <= term.length * 3;
-        length++
-      ) {
+      // Only words this short can be abbreviated (kindOf).
+      const longest = term.length <= 6 ? term.length * 3 : term.length + typos;
+      /** The vocabulary's words that could be corrections, by bucket. */
+      const buckets: Int32Array[] = [];
+      for (let length = term.length - typos; length <= longest; length++) {
         // Abbreviations keep the first letter; typos one of the first two.
         const typo = length <= term.length + typos;
-        for (const letter of typo ? letters : [term[0] ?? ""])
-          for (const index of base.byFirst.get(letter)?.get(length) ?? [])
-            consider(PackedKeys.at(base.keys, index));
+        for (const letter of typo ? letters : [term[0] ?? ""]) {
+          const bucket = base.byFirst.get(letter)?.get(length);
+          if (bucket) buckets.push(bucket);
+        }
         if (typo)
-          for (const letter of letters)
-            for (const index of base.bySecond.get(letter)?.get(length) ?? [])
-              consider(PackedKeys.at(base.keys, index));
+          for (const letter of letters) {
+            const bucket = base.bySecond.get(letter)?.get(length);
+            if (bucket) buckets.push(bucket);
+          }
       }
-      for (const key of heads.keys()) if (isWord(key)) consider(key);
+      // The words of the whole drive, or those of the names the caller may
+      // see, whichever is fewer to compare: either way a word is a candidate
+      // only while a visible name holds it, so both find the same, and names
+      // the caller cannot read never cost more than its own would.
+      let candidates = heads.size;
+      for (const bucket of buckets) candidates += bucket.length;
+      if (NAME_COST * visible.names() < candidates) {
+        for (const key of visible.vocabulary()) if (isWord(key)) consider(key);
+      } else {
+        for (const bucket of buckets)
+          for (const index of bucket) consider(PackedKeys.at(base.keys, index));
+        for (const key of heads.keys()) if (isWord(key)) consider(key);
+      }
       return [...found]
         .sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1))
         .slice(0, limit)
         .map(([word]) => word);
     },
 
-    /** The keys whose names hold `word`: itself, longer words starting with it, and their fragments. */
-    expand(typed: string): Expansion {
+    /**
+     * The keys whose names hold `word`: itself, longer words starting with
+     * it, and their fragments. Those of the whole drive, or of the names
+     * `visible` may see (and the folders above them), whichever are fewer to
+     * go through: keys no visible name holds mark nothing either way.
+     */
+    expand(typed: string, visible: Visibility): Expansion {
       const word = plain(typed);
       const result: Expansion = { base: [], delta: [] };
       const probe = Buffer.from(word);
-      for (
-        let index = PackedKeys.lowerBound(base.keys, probe);
-        index < base.keys.count &&
-        PackedKeys.startsWith(base.keys, index, probe);
-        index++
-      )
-        result.base.push(index);
+      const first = PackedKeys.lowerBound(base.keys, probe);
+      // No UTF-8 holds byte 0xff, so every key starting with `word` sorts before this.
+      const end = PackedKeys.lowerBound(
+        base.keys,
+        Buffer.concat([probe, Buffer.from([0xff])]),
+      );
+      if (NAME_COST * visible.names() < end - first + heads.size) {
+        for (const key of visible.vocabulary()) {
+          if (!key.startsWith(word)) continue;
+          const bytes = Buffer.from(key);
+          const index = PackedKeys.lowerBound(base.keys, bytes);
+          if (
+            index < base.keys.count &&
+            PackedKeys.compare(base.keys, index, bytes) === 0
+          )
+            result.base.push(index);
+          if (heads.has(key)) result.delta.push(key);
+        }
+        return result;
+      }
+      for (let index = first; index < end; index++) result.base.push(index);
       for (const key of heads.keys())
         if (key.startsWith(word)) result.delta.push(key);
       return result;

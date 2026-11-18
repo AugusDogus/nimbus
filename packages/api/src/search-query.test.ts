@@ -1030,6 +1030,115 @@ describe("what a caller sees never depends on names it may not read", () => {
     });
 });
 
+describe("corrections cost what the caller's own names cost", () => {
+  /** Words of `length` letters starting with `first`, none of them a real word. */
+  const junk = (first: string, length: number, count: number) => {
+    let state = first.charCodeAt(0) * 31 + length;
+    const letter = () =>
+      "bcdfghjklmnpqrstvwxz"[
+        Math.floor(
+          ((state = (Math.imul(state, 1664525) + 1013904223) >>> 0) / 2 ** 32) *
+            20,
+        )
+      ];
+    return Array.from(
+      { length: count },
+      () => first + Array.from({ length: length - 1 }, letter).join(""),
+    );
+  };
+  const visible = [
+    "team/invoice-0042.pdf",
+    "team/useConfigTable.ts",
+    "team/Résumé final.pdf",
+    "team/project plans/notes.txt",
+    "team/zephyrina agenda.md",
+    "team/backupPhotos.sh",
+  ];
+  const queries = [
+    "invioce",
+    "cnfig",
+    "resme",
+    "prjct notes",
+    "zephyrnia",
+    "zephyrnia notes",
+    "bakup photos",
+    "planss",
+  ];
+  /** The same visible names, with hidden words crowding every query word's letters or not. */
+  function drive(crowded: boolean, compacted: boolean) {
+    const index = createSearchIndex();
+    // A folder above the grant, whose words show in every result's path:
+    // one of them starts with a correction the query takes.
+    for (const path of visible) index.add(`zephyrinaold/${path}`, "file");
+    if (crowded) {
+      for (const query of queries)
+        for (const word of query.split(" "))
+          for (const name of junk(word[0] ?? "a", word.length + 1, 400))
+            index.add(`secret/${name}.txt`, "file");
+      // Longer hidden words starting with each correction, crowding its expansion.
+      for (const word of ["invoice", "config", "resume", "zephyrina", "backup"])
+        for (const name of junk(word, word.length + 4, 400))
+          index.add(`secret/${name}.txt`, "file");
+    }
+    if (compacted) index.compact();
+    // Added since compaction, visible and not.
+    index.add("zephyrinaold/team/invoices/inviote.txt", "file");
+    if (crowded) index.add("secret/later/invioces.txt", "file");
+    return index;
+  }
+  for (const compacted of [false, true])
+    it(`finds the same corrections whichever words it reads, ${compacted ? "compacted" : "before compaction"}`, () => {
+      const crowded = drive(true, compacted);
+      const plain = drive(false, compacted);
+      const scope: SearchScope = {
+        type: "grants",
+        paths: ["zephyrinaold/team"],
+      };
+      for (const query of queries) {
+        const ask = (index: ReturnType<typeof createSearchIndex>) => {
+          const answer = index.search({
+            query,
+            root: "",
+            limit: 50,
+            scope,
+            depth: "full",
+            now: 1,
+          });
+          return {
+            hits: answer.hits,
+            total: answer.total,
+            terms: answer.terms,
+          };
+        };
+        expect({ query, ...ask(crowded) }).toEqual({ query, ...ask(plain) });
+      }
+    });
+
+  it("costs no more for hidden words sharing a long query word's letters", () => {
+    const index = createSearchIndex();
+    for (const name of junk("a", 40, 60_000))
+      index.add(`secret/${name}.txt`, "file");
+    index.add("mine/notes.txt", "file");
+    index.compact();
+    // As long as the longest word corrected, and none of the hidden ones.
+    const query = `a${"q".repeat(39)}`;
+    const times: number[] = [];
+    for (let run = 0; run < 5; run++) {
+      const started = performance.now();
+      index.search({
+        query,
+        root: "",
+        limit: 50,
+        scope: { type: "grants", paths: ["mine"] },
+        depth: "full",
+      });
+      times.push(performance.now() - started);
+    }
+    // Tens of milliseconds when every hidden word is compared; well under one now.
+    expect(Math.min(...times)).toBeLessThan(10);
+  });
+});
+
 describe("accents", () => {
   const composed = "Résumé.pdf";
   const decomposed = "Résumé.pdf";

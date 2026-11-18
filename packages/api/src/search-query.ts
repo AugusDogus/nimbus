@@ -61,7 +61,7 @@ import {
   type SearchLayout,
   type VisibleRange,
 } from "./search-scan";
-import { lowerSlot, type SearchWords, type Visibility } from "./search-words";
+import { lowerSlot, SearchWords, type Visibility } from "./search-words";
 import {
   dateSpellings,
   joinedWords,
@@ -184,6 +184,8 @@ export type IndexView = {
   /** -1 for delta entries. */
   slotOf: (id: number) => number;
   pathOf: (id: number) => string;
+  /** The name as it is on disk. */
+  nameOf: (id: number) => string;
   foldedNameOf: (id: number) => string;
   visibleRanges: (rootId: number, granted: number[] | null) => VisibleRange[];
 };
@@ -374,7 +376,10 @@ function literalIn(name: string, needle: string, prefixOnly: boolean) {
     : tierAt(plainName, plainNeedle, plainName.indexOf(plainNeedle), true);
 }
 
-/** The layers over entries added since compaction, by the same rules as search-scan.ts. */
+/**
+ * The layers over entries added since compaction, by the same rules as
+ * search-scan.ts. Returns how many of them the caller may see.
+ */
 function scanDelta(
   view: IndexView,
   plan: ScanPlan,
@@ -421,8 +426,10 @@ function scanDelta(
     });
     return bits;
   };
+  let visible = 0;
   for (const [id, name] of view.delta) {
     if (!deltaVisible(view, id, rootId, grants)) continue;
+    visible++;
     const literal = literalIn(name.folded, needle, prefixOnly);
     const inName = terms.length ? termBits(name.folded, terms) : 0;
     if (literal !== null) counts.literal++;
@@ -509,6 +516,7 @@ function scanDelta(
       ),
     );
   }
+  return visible;
 }
 
 const empty = (): SearchResult => ({
@@ -710,6 +718,51 @@ function prepare(
       return count;
     },
     deltaVisible: (id) => deltaVisible(view, id, rootId, grants),
+    names: () =>
+      ranges.reduce((sum, range) => sum + range.end - range.first, 0) +
+      visibleDelta,
+    vocabulary: () => (vocabulary ??= visibleVocabulary()),
+  };
+  let vocabulary: Set<string> | null = null;
+  /** Entries added since compaction that the caller may see, as the last delta scan counted. */
+  let visibleDelta = 0;
+  /**
+   * Every key of the names the caller may see, and of the folders above them
+   * (whose words the caller sees in every result's path). Stops early once
+   * the deadline passes; the search then throws before using it.
+   */
+  const visibleVocabulary = () => {
+    const keys = new Set<string>();
+    let budget = 1024;
+    const read = (id: number) => {
+      for (const key of SearchWords.keysOf(view.nameOf(id))) keys.add(key);
+    };
+    const { slotId, parentSlot, dead } = layout;
+    for (const range of ranges) {
+      for (let slot = range.first; slot < range.end; slot++) {
+        if (--budget === 0) {
+          if (stopped()) return keys;
+          budget = 1024;
+        }
+        if (!dead[slot]) read(slotId[slot] ?? NONE);
+      }
+      for (let slot = range.outside; slot > 0; slot = parentSlot[slot] ?? NONE)
+        if (!dead[slot]) read(slotId[slot] ?? NONE);
+    }
+    const above = new Set<number>();
+    for (const [id] of view.delta) {
+      if (!deltaVisible(view, id, rootId, grants)) continue;
+      read(id);
+      for (
+        let folder = view.parentOf(id);
+        folder > ROOT && !above.has(folder);
+        folder = view.parentOf(folder)
+      ) {
+        above.add(folder);
+        read(folder);
+      }
+    }
+    return keys;
   };
 
   const step = (
@@ -729,7 +782,7 @@ function prepare(
       results.merge(compacted);
       const counts = ScanCounts.none(plan.terms.length);
       ScanCounts.add(counts, compacted.counts);
-      scanDelta(
+      visibleDelta = scanDelta(
         view,
         plan,
         rootId,
@@ -789,7 +842,7 @@ function prepare(
         pageReadings = decided;
         if (readings.some((list) => list.length)) {
           const expansions = readings.map((list) =>
-            list.map((word) => view.words.expand(word)),
+            list.map((word) => view.words.expand(word, visibility)),
           );
           const keys = expansions.map((list) => [
             ...new Set(list.flatMap((expansion) => expansion.base)),
