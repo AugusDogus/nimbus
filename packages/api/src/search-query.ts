@@ -171,8 +171,6 @@ export type IndexView = {
     generation: number;
     slots: number;
     slotOf: Int32Array;
-    /** The id in each of its slots. */
-    slotId: Int32Array;
   } | null;
   /** Entries added since the layout was built, with folded names. */
   readonly delta: ReadonlyMap<number, { raw: string; folded: string }>;
@@ -647,15 +645,41 @@ function prepare(
           return ranked > parsed.after ? ranked : -1;
         }
       : null;
-  /** The layout the page's ranks are in, to turn them back into entries. */
-  const rankedIn =
-    translate && previous
-      ? {
-          generation: previous.generation,
-          slots: previous.slots,
-          slotId: previous.slotId,
-        }
-      : layout;
+  /** The layout the page's ranks are in. */
+  const rankedIn = translate && previous ? previous : layout;
+  /**
+   * The ids of a page's ranks. Ranked in the previous layout, its slots'
+   * ids are found in one pass over every id's slot in it: such pages are
+   * rare, and keeping that layout's slot-to-id array would cost 4 bytes a
+   * name for good.
+   */
+  const idsOf = (orders: readonly number[]) => {
+    if (!(translate && previous))
+      return orders.map((order) =>
+        order < layout.slots
+          ? (layout.slotId[order] ?? NONE)
+          : order - layout.slots,
+      );
+    const wanted = new Map<number, number>();
+    for (const order of orders)
+      if (order < previous.slots) wanted.set(order, NONE);
+    for (
+      let id = 0, left = wanted.size;
+      left > 0 && id < previous.slotOf.length;
+      id++
+    ) {
+      const slot = previous.slotOf[id] ?? NONE;
+      if (wanted.get(slot) === NONE) {
+        wanted.set(slot, id);
+        left--;
+      }
+    }
+    return orders.map((order) =>
+      order < previous.slots
+        ? (wanted.get(order) ?? NONE)
+        : order - previous.slots,
+    );
+  };
 
   const boosts: number[] = [];
   const deltaBoosts = new Map<number, number>();
@@ -880,13 +904,10 @@ function prepare(
       const best = results.best();
       const hits: SearchHit[] = [];
       let last = -1;
+      const ids = idsOf(Array.from(best, (rank) => Rank.order(rank)));
       for (let at = 0; at < best.length; at++) {
         const rank = best[at] ?? 0;
-        const order = Rank.order(rank);
-        const id =
-          order < rankedIn.slots
-            ? (rankedIn.slotId[order] ?? NONE)
-            : order - rankedIn.slots;
+        const id = ids[at] ?? NONE;
         last = rank;
         hits.push({
           path: view.pathOf(id),

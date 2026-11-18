@@ -484,7 +484,6 @@ export function createSearchIndex(initialCapacity = 1024) {
     previous = {
       generation: previousLayout.generation,
       slots: previousLayout.slots,
-      slotId: previousLayout.slotId,
       slotOf,
     };
     layout = {
