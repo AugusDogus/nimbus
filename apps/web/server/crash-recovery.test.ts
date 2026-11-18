@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
 import type { DriveStore } from "@nimbus/api/drive-store";
@@ -144,6 +152,140 @@ describe("changes interrupted by a crash", () => {
       expect((await getAccess(store, "carol")).can("doc.txt", "read")).toBe(
         false,
       );
+    });
+  });
+
+  /**
+   * ext4 hands a freed inode number to the next file created, so content that replaced the item
+   * can have its device and inode. This stat reports that for `replaced`, on any filesystem.
+   */
+  async function reusingInodeOf(original: string) {
+    const item = await lstat(original, { bigint: true });
+    return (replaced: string) => async (absolute: string) => {
+      const found = await lstat(absolute, { bigint: true });
+      return absolute === replaced
+        ? { ...found, dev: item.dev, ino: item.ino }
+        : found;
+    };
+  }
+
+  test("content replacing a trashed item with its inode number is not taken for it", async () => {
+    await shareWithCarol();
+    const reusing = await reusingInodeOf(path.join(root, "doc.txt"));
+    await crashDuring("trash");
+    await rm(path.join(root, "doc.txt"));
+    await writeFile(path.join(root, "doc.txt"), "someone else's");
+    await withStore(async (store) => {
+      const [recovered] = await PendingChanges.recover(
+        store,
+        root,
+        reusing(path.join(root, "doc.txt")),
+      );
+      expect(recovered?.outcome).toBe("unclear");
+      expect((await getAccess(store, "carol")).can("doc.txt", "read")).toBe(
+        false,
+      );
+    });
+  });
+
+  test("content replacing a moved item with its inode number is not taken for it", async () => {
+    await shareWithCarol();
+    const reusing = await reusingInodeOf(path.join(root, "doc.txt"));
+    await crashDuring("move");
+    await rm(path.join(root, "moved.txt"));
+    await writeFile(path.join(root, "moved.txt"), "someone else's");
+    await withStore(async (store) => {
+      const [recovered] = await PendingChanges.recover(
+        store,
+        root,
+        reusing(path.join(root, "moved.txt")),
+      );
+      expect(recovered?.outcome).toBe("unclear");
+      expect((await getAccess(store, "carol")).can("moved.txt", "read")).toBe(
+        false,
+      );
+    });
+  });
+
+  test("content put in a trashed item's place with its inode number is not taken for it", async () => {
+    await shareWithCarol();
+    const reusing = await reusingInodeOf(path.join(root, "doc.txt"));
+    await crashDuring("trashed");
+    await withStore(async (store) => {
+      const [item] = await store.listTrash(null);
+      if (!item) throw new Error("doc.txt did not reach trash.");
+      const payload = path.join(root, ".nimbus/trash", item.id);
+      await rm(payload);
+      await writeFile(payload, "someone else's");
+      const [recovered] = await PendingChanges.recover(
+        store,
+        root,
+        reusing(payload),
+      );
+      expect(recovered?.outcome).toBe("unclear");
+      await expect(
+        restoreItem(store, await getAccess(store, "owner"), item.id),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+    });
+  });
+
+  test("an item that only moved keeps being recognised, by inode and birth time", async () => {
+    await shareWithCarol();
+    await crashDuring("move");
+    await withStore(async (store) => {
+      const [recovered] = await PendingChanges.recover(store, root);
+      expect(recovered?.outcome).toBe("finished");
+    });
+  });
+
+  test("without birth times, as on some FUSE filesystems, modification times tell items apart", async () => {
+    const withoutBirthTimes = async (absolute: string) => ({
+      ...(await lstat(absolute, { bigint: true })),
+      birthtimeNs: BigInt(0),
+    });
+    // A move whose rename happened before the crash: the item is recognised at its new path.
+    const pendingMove = async (id: string) =>
+      withStore(async (store) =>
+        store.addPendingChange({
+          id,
+          identity: await PendingChanges.identityAt(
+            path.join(root, "doc.txt"),
+            withoutBirthTimes,
+          ),
+          kind: "move",
+          from: "doc.txt",
+          to: "moved.txt",
+        }),
+      );
+    await pendingMove("first");
+    await rename(path.join(root, "doc.txt"), path.join(root, "moved.txt"));
+    await withStore(async (store) => {
+      const [recovered] = await PendingChanges.recover(
+        store,
+        root,
+        withoutBirthTimes,
+      );
+      expect(recovered?.outcome).toBe("finished");
+    });
+    // Content that replaced the item, given its inode number but written later, is not it.
+    await rename(path.join(root, "moved.txt"), path.join(root, "doc.txt"));
+    await pendingMove("second");
+    const reusing = await reusingInodeOf(path.join(root, "doc.txt"));
+    await rm(path.join(root, "doc.txt"));
+    await writeFile(path.join(root, "moved.txt"), "someone else's");
+    const later = new Date(Date.now() + 60_000);
+    await utimes(path.join(root, "moved.txt"), later, later);
+    const replacedStat = reusing(path.join(root, "moved.txt"));
+    await withStore(async (store) => {
+      const [recovered] = await PendingChanges.recover(
+        store,
+        root,
+        async (absolute) => ({
+          ...(await replacedStat(absolute)),
+          birthtimeNs: BigInt(0),
+        }),
+      );
+      expect(recovered?.outcome).toBe("unclear");
     });
   });
 

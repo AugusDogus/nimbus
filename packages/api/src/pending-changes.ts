@@ -1,4 +1,4 @@
-import type { Stats } from "node:fs";
+import type { BigIntStats } from "node:fs";
 import { lstat } from "node:fs/promises";
 import path from "node:path";
 import type { DriveStore, PendingChange } from "./drive-store";
@@ -23,28 +23,48 @@ const restoreMarker = (trashId: string) => `restore:${trashId}`;
 const trashedAt = (dataRoot: string, trashId: string) =>
   path.join(dataRoot, ".nimbus", "trash", trashId);
 
+/** What recovery reads about a path; injectable so tests can reproduce filesystem behaviour. */
+type StatAt = (
+  absolute: string,
+) => Promise<Pick<BigIntStats, "dev" | "ino" | "birthtimeNs" | "mtimeNs">>;
+const statAt: StatAt = (absolute) => lstat(absolute, { bigint: true });
+
 /**
- * An item's device and inode, recorded with its pending change. A rename keeps both, so after
- * a crash the item is recognised wherever it ended up, and other content that another program
- * put there meanwhile is not mistaken for it. Where inodes are not stable across restarts, such
- * as Unraid user shares, recovery then reports the change as unclear and leaves its records.
+ * Which item a pending change moves, recorded before its first step: device, inode and birth
+ * time. A rename keeps all three, so after a crash the item is recognised wherever it ended
+ * up. The inode alone is not enough: ext4 and xfs give a freed inode number to the next file
+ * created, so content another program put in the item's place could carry it. Birth time
+ * (statx btime, on ext4, xfs, btrfs and tmpfs) never changes for an item, and content created
+ * later gets a later one. Where the filesystem reports none, as some FUSE filesystems do, the
+ * modification time stands in: a rename keeps it, and only a program setting it on purpose
+ * could match it. A changed reading means other content, so recovery reports the change as
+ * unclear and leaves its records, as it also does where inode numbers change across restarts
+ * (Unraid user shares).
  */
-const identityOf = (stats: Pick<Stats, "dev" | "ino">) =>
-  `${stats.dev}:${stats.ino}`;
+const identityOf = (
+  stats: Pick<BigIntStats, "dev" | "ino" | "birthtimeNs" | "mtimeNs">,
+) =>
+  stats.birthtimeNs > BigInt(0)
+    ? `${stats.dev}:${stats.ino}:born:${stats.birthtimeNs}`
+    : `${stats.dev}:${stats.ino}:modified:${stats.mtimeNs}`;
+
+/** The identity of the item now at `absolute`. */
+const identityAt = async (absolute: string, stat: StatAt = statAt) =>
+  identityOf(await stat(absolute));
 
 /** Whether the item recorded as `identity` is at `absolute`. */
-async function holds(absolute: string, identity: string) {
+async function holds(absolute: string, identity: string, stat: StatAt) {
   try {
-    return identityOf(await lstat(absolute)) === identity;
+    return identityOf(await stat(absolute)) === identity;
   } catch (error) {
     if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR")) return false;
     throw error;
   }
 }
 
-async function exists(absolute: string) {
+async function exists(absolute: string, stat: StatAt) {
   try {
-    await lstat(absolute);
+    await stat(absolute);
     return true;
   } catch (error) {
     if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR")) return false;
@@ -68,11 +88,12 @@ async function recoverOne(
   store: DriveStore,
   dataRoot: string,
   change: PendingChange,
+  stat: StatAt,
 ): Promise<Recovery["outcome"]> {
   if (change.kind === "move") {
     const [from, to] = await Promise.all([
-      holds(path.join(dataRoot, change.from), change.identity),
-      holds(path.join(dataRoot, change.to), change.identity),
+      holds(path.join(dataRoot, change.from), change.identity, stat),
+      holds(path.join(dataRoot, change.to), change.identity, stat),
     ]);
     if (!from && to) {
       // Settles the record in the same transaction, so this never runs twice.
@@ -85,11 +106,11 @@ async function recoverOne(
   const item = await store.getTrash(change.trashId);
   const payload = trashedAt(dataRoot, change.trashId);
   // In trash only as the item itself: other content there is not taken for it.
-  const trashed = await holds(payload, change.identity);
-  const somethingInTrash = trashed || (await exists(payload));
+  const trashed = await holds(payload, change.identity, stat);
+  const somethingInTrash = trashed || (await exists(payload, stat));
   const original =
     item !== null &&
-    (await holds(path.join(dataRoot, item.path), change.identity));
+    (await holds(path.join(dataRoot, item.path), change.identity, stat));
   // Other content in the item's trash place: restoring it would give that content the item's
   // sharing, so the record stays and blocks restoring until the item is purged.
   if (somethingInTrash && !trashed) return "unclear";
@@ -115,12 +136,13 @@ async function recoverOne(
 async function recover(
   store: DriveStore,
   dataRoot: string,
+  stat: StatAt = statAt,
 ): Promise<Recovery[]> {
   const recovered: Recovery[] = [];
   for (const change of await store.listPendingChanges())
     recovered.push({
       change,
-      outcome: await recoverOne(store, dataRoot, change),
+      outcome: await recoverOne(store, dataRoot, change, stat),
     });
   return recovered;
 }
@@ -158,7 +180,7 @@ function describe({ change, outcome }: Recovery) {
 }
 
 export const PendingChanges = {
-  identityOf,
+  identityAt,
   blocksRestore,
   forgetTrashItem,
   trashMarker,

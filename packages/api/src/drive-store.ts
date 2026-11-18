@@ -86,7 +86,7 @@ export type SharedPaths = {
  */
 export type PendingChange = {
   id: string;
-  /** The moved item's device and inode, as `PendingChanges.identityOf` gives it. */
+  /** Which item moved, as `PendingChanges.identityAt` gives it: device, inode and birth time. */
   identity: string;
 } & (
   | { kind: "trash" | "restore"; trashId: string }

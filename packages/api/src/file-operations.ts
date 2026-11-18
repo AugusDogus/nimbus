@@ -231,7 +231,7 @@ async function moveUnlocked(
       const pending = randomUUID();
       await store.addPendingChange({
         id: pending,
-        identity: PendingChanges.identityOf(existing.stats),
+        identity: await PendingChanges.identityAt(existing.absolute),
         kind: "move",
         from: source.relative,
         to: target.relative,
@@ -453,7 +453,7 @@ async function trashUnlocked(
   const pending = PendingChanges.trashMarker(id);
   await store.addPendingChange({
     id: pending,
-    identity: PendingChanges.identityOf(existing.stats),
+    identity: await PendingChanges.identityAt(existing.absolute),
     kind: "trash",
     trashId: id,
   });
@@ -526,7 +526,7 @@ async function restoreUnlocked(store: DriveStore, access: Access, id: string) {
   const pending = PendingChanges.restoreMarker(id);
   await store.addPendingChange({
     id: pending,
-    identity: PendingChanges.identityOf(await lstat(source)),
+    identity: await PendingChanges.identityAt(source),
     kind: "restore",
     trashId: id,
   });
