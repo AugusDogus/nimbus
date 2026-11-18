@@ -13,13 +13,15 @@ import {
   type SearchRequest,
 } from "@nimbus/api/search-index";
 import { createScanPool, searchWithPool } from "@nimbus/api/search-scan-pool";
-import type { SearchInbound, SearchOutbound } from "./search-protocol";
+import {
+  reconcileIntervalMs,
+  type SearchInbound,
+  type SearchOutbound,
+} from "./search-protocol";
 import { SearchQueue } from "./search-queue";
 
 declare const self: Worker;
 
-/** Catches anything the watcher missed: dropped events, edits while stopped. */
-const RECONCILE_MS = 30 * 60_000;
 /** Beyond this many changes during a crawl, crawl again instead of replaying. */
 const MAX_QUEUED = 100_000;
 
@@ -204,7 +206,11 @@ self.onmessage = (event: MessageEvent<SearchInbound>) => {
     case "start":
       root = message.root;
       void rebuild("startup").catch(report);
-      setInterval(() => void reconcileLive().catch(report), RECONCILE_MS);
+      // Catches anything the watcher missed: dropped events, edits while stopped.
+      setInterval(
+        () => void reconcileLive().catch(report),
+        reconcileIntervalMs(),
+      );
       return;
     case "changed":
       if (queued) {

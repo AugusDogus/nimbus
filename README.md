@@ -188,11 +188,14 @@ Set the deployment values in `apps/web/.env` before startup. For PDF and video t
 | `NIMBUS_OIDC_GROUPS_CLAIM`    | Optional ID token claim listing group names, for example `groups`. See [Single sign-on](#single-sign-on). |
 | `NIMBUS_BACKUP_KEEP`          | Daily database backups to keep in `<config root>/backups`, default `7`. |
 | `NIMBUS_WATCH_DEBOUNCE_MS`    | Milliseconds to wait for changes made outside Nimbus to settle before open folders and search refresh, default `300`. Invalid values use the default. |
+| `NIMBUS_RECONCILE_INTERVAL_MS` | Milliseconds between comparisons of the search index with the disk, which catch changes the file watcher missed and check again folders it could not read, default `1800000` (30 minutes), at least `1000`. Invalid values use the default. |
 | `NIMBUS_MCP_ENABLED`          | Optional. `false` turns off the MCP server, its OAuth endpoints, and discovery documents. Default: `true`. Approved clients stay stored. |
 
 Startup fails with a message naming the problem when an optional integration is only partly configured or a setting has an invalid value, such as `NIMBUS_MCP_ENABLED=no` or an unsafe `NIMBUS_HOMES_PATH`, so a typo cannot silently turn email, single sign-on, or MCP off.
 
 The reserved `<data root>/.nimbus` directory contains trash and temporary uploads. Without a separate config root, it also contains the database and thumbnail cache. Nimbus never exposes `.nimbus` through file browsing or sharing. Keep a separate config root outside the browsable data root. Symbolic links and special files are excluded. Startup makes the config root owner-only (`700`) and the database and its journal files `600`, and stops with the fix when it cannot, for example because a restored file belongs to another user. Nimbus needs read and write access to both roots; other local programs with access to those directories remain outside Nimbus's permission controls.
+
+Nimbus follows changes made outside it with one inotify watch per folder of the data root. A folder it cannot read, such as another container's private folder, is skipped and logged once: its contents stay out of search and live updates, and it is checked again at each reconciliation (`NIMBUS_RECONCILE_INTERVAL_MS`) and included once readable. If the host's `fs.inotify.max_user_watches` is lower than the number of folders, Nimbus logs that once, releases its watches and keeps serving, and finds outside changes only at each reconciliation; raise the limit on the host and restart Nimbus. The limit is shared by every program running as the same user.
 
 ## Settings
 
