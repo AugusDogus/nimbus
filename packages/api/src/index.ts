@@ -33,13 +33,14 @@ const filesystemFailures = t.middleware(async ({ next }) => {
 export const createCallerFactory = t.createCallerFactory;
 export const router = t.router;
 export const publicProcedure = t.procedure.use(filesystemFailures);
+/** Built once: Zod compiles a schema on its first parse, which per request costs more than the parse. */
+const signedInSession = z.object({
+  user: z.object({ id: z.string().min(1) }),
+  session: z.object({ impersonatedBy: z.string().nullish() }).optional(),
+});
+
 export const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
-  const session = z
-    .object({
-      user: z.object({ id: z.string().min(1) }),
-      session: z.object({ impersonatedBy: z.string().nullish() }).optional(),
-    })
-    .safeParse(ctx.session);
+  const session = signedInSession.safeParse(ctx.session);
   if (!session.success) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
