@@ -292,7 +292,7 @@ To request files, open a folder's **Share** action and select **Request files**.
 
 Text, Markdown, and code previews load the first 1 MB of a file. Markdown is rendered without raw HTML or images, and only web, email, and in-page links are kept, so a file cannot run scripts or contact other servers. Previews are served with a sandboxing Content Security Policy.
 
-Users with write permission can edit text files of up to 1 MB from the preview, and save them at up to 5 MB, so edits can make a file larger. Saving checks that the file has not changed since it was opened; if it has, the save is refused, the file on disk is kept, and your edits stay in the editor so you can copy them. Saves also respect WebDAV locks held by other clients, and the previous content is kept as a [version](#versions).
+Users with write permission can edit text files of up to 1 MB from the preview, and save them at up to 5 MB, so edits can make a file larger. Saving checks that the file has not changed since it was opened; if it has, the save is refused, the file on disk is kept, and your edits stay in the editor, where you can overwrite the file with them or discard them to see the current text. Saves also respect WebDAV locks held by other clients, and the previous content is kept as a [version](#versions).
 
 Search matches file and folder names anywhere in the drive that you can read. Nimbus indexes names in memory at startup, keeps the index current from filesystem changes, and re-checks the whole drive every 30 minutes to catch changes made while it was stopped. Until the first index completes, the search page says results may be incomplete. One-letter searches match the beginning of names.
 

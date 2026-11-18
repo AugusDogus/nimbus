@@ -1,4 +1,5 @@
 import type { Stats } from "node:fs";
+import { EditLimits } from "@/lib/edit-limits";
 import { mkdir, open, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -17,7 +18,7 @@ import { safePath } from "@nimbus/api/file-operations";
 export const fileETag = (stats: Pick<Stats, "mtimeMs" | "size">) =>
   fileTag({ mtime: stats.mtimeMs, size: stats.size });
 
-export const MAX_EDIT_BYTES = 5 * 1024 * 1024;
+export const MAX_EDIT_BYTES = EditLimits.save;
 
 export class PreconditionFailedError extends TRPCError {
   constructor() {
@@ -52,7 +53,10 @@ async function receive(
         await reader.cancel();
         throw new TRPCError({
           code: "PAYLOAD_TOO_LARGE",
-          message: `Edited files can be at most ${Math.round(maxBytes / 1024 / 1024)} MB. The file on the server is unchanged. Download it and edit it on your device instead.`,
+          message:
+            maxBytes === EditLimits.save
+              ? EditLimits.tooLarge()
+              : `Edited files can be at most ${EditLimits.megabytes(maxBytes)} MB. The file on the server is unchanged. Shorten the text, or download the file and edit it on your device.`,
         });
       }
       await file.write(chunk);

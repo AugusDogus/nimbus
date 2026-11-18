@@ -1,3 +1,5 @@
+import { EditLimits } from "@/lib/edit-limits";
+
 /** The first bytes of a file, decoded for the text viewer and editor. */
 export type TextContent =
   | {
@@ -16,7 +18,8 @@ export type TextContent =
     }
   | { type: "binary"; size: number };
 
-export const TEXT_LIMIT = 1024 * 1024;
+/** What a preview loads, which is also the largest file the editor opens. */
+export const TEXT_LIMIT = EditLimits.open;
 
 const totalSize = (response: Response, loaded: number) => {
   const range = /\/(\d+)$/.exec(response.headers.get("content-range") ?? "");

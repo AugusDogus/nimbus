@@ -235,6 +235,8 @@ function TextPreview({
           <p className="text-pretty">
             Showing the first {TEXT_LIMIT / 1024 / 1024} MB. Download the file
             to see all of it.
+            {editPath !== undefined &&
+              ` Files up to ${TEXT_LIMIT / 1024 / 1024} MB can be edited here.`}
           </p>
         )}
         {data.encoding === "other" && (

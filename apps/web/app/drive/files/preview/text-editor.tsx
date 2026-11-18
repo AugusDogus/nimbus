@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { CodeLanguage } from "@/lib/file-kind";
+import { EditLimits } from "@/lib/edit-limits";
 import { saveText } from "./save-text";
 
 /** The text an edit started from, with the ETag that identifies that version. */
@@ -50,6 +51,9 @@ export default function TextEditor({
   /** `etag` is the version the save may replace: the edit's base, or `*` to overwrite. */
   const save = async (etag: string) => {
     const submitted = text;
+    // The server refuses larger edits; say so without sending megabytes for nothing.
+    if (new TextEncoder().encode(submitted).byteLength > EditLimits.save)
+      return setStatus({ type: "failed", message: EditLimits.tooLarge() });
     setStatus({ type: "saving" });
     const outcome = await saveText(path, etag, submitted);
     if (outcome.type === "conflict") return setStatus({ type: "conflict" });

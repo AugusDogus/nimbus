@@ -332,3 +332,57 @@ test("serves cached thumbnails that revalidate and work on public links", async 
     .poll(async () => (await rpc.prefs.get.query()).view)
     .toBe("list");
 });
+
+test("the editor says the same limits as the server: open up to 1 MB, save up to 5 MB", async ({
+  page,
+  context,
+}) => {
+  const folder = `editing-limits-${randomUUID()}`;
+  await (await client(context)).files.createFolder.mutate({ name: folder });
+  const directory = path.join(await dataRoot(), folder);
+  await writeFile(path.join(directory, "big.txt"), "x".repeat(1024 * 1024 + 1));
+  await writeFile(path.join(directory, "small.txt"), "small");
+  await page.goto(`/browse/${folder}`);
+  await page
+    .locator('[data-entry-name="big.txt"]')
+    .filter({ visible: true })
+    .click();
+  const big = page.getByRole("dialog", { name: "big.txt", exact: true });
+  await expect(
+    big.getByText("Files up to 1 MB can be edited here."),
+  ).toBeVisible();
+  await expect(
+    big.getByRole("button", { name: "Edit", exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await page
+    .locator('[data-entry-name="small.txt"]')
+    .filter({ visible: true })
+    .click();
+  const small = page.getByRole("dialog", { name: "small.txt", exact: true });
+  await small.getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = small.getByRole("textbox", { name: "File contents" });
+  await editor.evaluate((element) => {
+    if (!(element instanceof HTMLTextAreaElement)) return;
+    // React tracks the value; set it through the native setter so the change registers.
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    setter?.call(element, "y".repeat(5 * 1024 * 1024 + 1));
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  let saved = false;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/files/content")) saved = true;
+  });
+  await small.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(small.getByRole("alert")).toContainText(
+    "Edited files can be at most 5 MB",
+  );
+  expect(saved).toBe(false);
+  expect(await readFile(path.join(directory, "small.txt"), "utf8")).toBe(
+    "small",
+  );
+});
