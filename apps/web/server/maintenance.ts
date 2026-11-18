@@ -73,42 +73,72 @@ export async function cleanExpiredData(
   configRoot = getConfigRoot(dataRoot),
 ) {
   const internal = path.join(dataRoot, ".nimbus");
+  // Each item and step on its own: one that fails, such as a trashed folder holding another
+  // user's files Nimbus may not delete, must not keep the rest from being cleaned every hour.
+  const failures: string[] = [];
+  const attempt = async (what: string, work: () => Promise<unknown>) => {
+    try {
+      await work();
+    } catch (error) {
+      failures.push(
+        `${what}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
   for (const listed of await store.listTrash(null)) {
     if (listed.expiresAt > now) continue;
     // Each expired item is held and read again, so a restore cannot race its deletion.
-    await mutateFiles(
-      [],
-      { userId: "maintenance" },
-      async () => {
-        const item = await store.getTrash(listed.id);
-        if (!item || item.expiresAt > now) return;
-        const trashed = path.join(internal, "trash", item.id);
-        await FileVersions.discard(
-          store.versions,
-          dataRoot,
-          FileVersions.trashLocation(item.id),
-        );
-        await rm(trashed, { recursive: true, force: true });
-        await store.removeTrash(item.id);
-        await PendingChanges.forgetTrashItem(store, item.id);
-        recordAudit({
-          action: "trash.expired",
-          actor: { type: "system" },
-          target: { type: "path", id: item.path },
-          details: { trashId: item.id, deletedBy: item.deletedBy },
-        });
-      },
-      { trash: [listed.id] },
+    await attempt(
+      `deleting expired trash item ${listed.id} (${listed.path})`,
+      () =>
+        mutateFiles(
+          [],
+          { userId: "maintenance" },
+          async () => {
+            const item = await store.getTrash(listed.id);
+            if (!item || item.expiresAt > now) return;
+            const trashed = path.join(internal, "trash", item.id);
+            await FileVersions.discard(
+              store.versions,
+              dataRoot,
+              FileVersions.trashLocation(item.id),
+            );
+            await rm(trashed, { recursive: true, force: true });
+            await store.removeTrash(item.id);
+            await PendingChanges.forgetTrashItem(store, item.id);
+            recordAudit({
+              action: "trash.expired",
+              actor: { type: "system" },
+              target: { type: "path", id: item.path },
+              details: { trashId: item.id, deletedBy: item.deletedBy },
+            });
+          },
+          { trash: [listed.id] },
+        ),
     );
   }
   // Folders mounted inside the drive stage their own writes; see Staging.
-  for (const staging of await Staging.directories(dataRoot))
-    await cleanFiles(staging, now - day, true);
-  await store.fileRequests.releaseAbandoned(now - reservationLifetimeMs);
-  await FileVersions.cleanup(store.versions, dataRoot, now);
-  await cleanFiles(
-    path.join(configRoot, "cache", "thumbnails"),
-    now - 30 * day,
-    false,
+  await attempt("listing staging folders", async () => {
+    for (const staging of await Staging.directories(dataRoot))
+      await attempt(`cleaning staging folder ${staging}`, () =>
+        cleanFiles(staging, now - day, true),
+      );
+  });
+  await attempt("releasing abandoned file request uploads", () =>
+    store.fileRequests.releaseAbandoned(now - reservationLifetimeMs),
   );
+  await attempt("removing expired versions", () =>
+    FileVersions.cleanup(store.versions, dataRoot, now),
+  );
+  await attempt("removing old thumbnails", () =>
+    cleanFiles(
+      path.join(configRoot, "cache", "thumbnails"),
+      now - 30 * day,
+      false,
+    ),
+  );
+  if (failures.length)
+    throw new Error(
+      `${failures.length} retention ${failures.length === 1 ? "step" : "steps"} failed, and the rest was cleaned: ${failures.join("; ")}`,
+    );
 }

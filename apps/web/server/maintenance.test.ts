@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -122,6 +123,51 @@ test("retention cleans thumbnails in config while keeping uploads under data", a
   expect(await readdir(path.join(root, ".nimbus/uploads"))).toEqual(["recent"]);
   expect(await readdir(config)).toContain("db.sqlite");
 });
+
+const asRoot = process.getuid?.() === 0;
+const rootSkip = "running as root, where folder permissions do not apply";
+if (asRoot)
+  console.warn(`Skipping the undeletable trash retention test: ${rootSkip}.`);
+
+test.skipIf(asRoot)(
+  `retention goes on past an expired trash item it cannot delete, and reports it${asRoot ? ` (skipped: ${rootSkip})` : ""}`,
+  async () => {
+    const expired = (id: string): TrashItem => ({
+      id,
+      path: `${id}.txt`,
+      deletedBy: "user",
+      deletedAt: now - 31 * day,
+      expiresAt: now - day,
+    });
+    trash = [expired("stuck"), expired("later")];
+    // A trashed folder holding another user's read-only folder, which Nimbus cannot empty.
+    await storedFile("trash/stuck/theirs/file.txt", 31 * day);
+    const theirs = path.join(root, ".nimbus/trash/stuck/theirs");
+    await chmod(theirs, 0o555);
+    await storedFile("trash/later/file.txt", 31 * day);
+    const config = path.join(root, "config");
+    const thumbnails = path.join(config, "cache/thumbnails");
+    await mkdir(thumbnails, { recursive: true });
+    await writeFile(path.join(thumbnails, "expired.webp"), "cached");
+    await utimes(
+      path.join(thumbnails, "expired.webp"),
+      new Date(now - 31 * day),
+      new Date(now - 31 * day),
+    );
+    try {
+      await expect(cleanExpiredData(store, root, now, config)).rejects.toThrow(
+        "stuck",
+      );
+      expect(trash.map((item) => item.id)).toEqual(["stuck"]);
+      expect(await readdir(path.join(root, ".nimbus/trash"))).toEqual([
+        "stuck",
+      ]);
+      expect(await readdir(thumbnails)).toEqual([]);
+    } finally {
+      await chmod(theirs, 0o755);
+    }
+  },
+);
 
 test("retention removes abandoned copy staging folders but not one a copy is filling", async () => {
   const staging = path.join(root, ".nimbus/uploads");
