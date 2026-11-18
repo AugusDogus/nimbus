@@ -30,6 +30,29 @@ export const isFsError = (error: unknown, code: string) =>
 export async function resolveSafePath(
   requested: string,
 ): Promise<SafePathResult> {
+  const target = lexicalSafePath(requested);
+  let current = getDataRoot();
+  for (const segment of target.relative ? target.relative.split("/") : []) {
+    current = path.join(current, segment);
+    try {
+      if ((await lstat(current)).isSymbolicLink()) {
+        throw new PathError("FORBIDDEN", symbolicLinkRefused);
+      }
+    } catch (error) {
+      // Nothing exists below a missing folder or a file, so the rest is a missing path.
+      if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR")) break;
+      throw error;
+    }
+  }
+  return target;
+}
+
+/**
+ * The checks of `resolveSafePath` that read nothing from disk. A permission check on its result
+ * runs before the path is looked up, so refusing someone says nothing about what is there,
+ * not even that a symbolic link is; `resolveSafePath` must still run before the path is used.
+ */
+export function lexicalSafePath(requested: string): SafePathResult {
   const root = getDataRoot();
   if (
     path.isAbsolute(requested) ||
@@ -50,19 +73,6 @@ export async function resolveSafePath(
   const segments = nativeRelative ? nativeRelative.split(path.sep) : [];
   if (segments.some((segment) => segment.toLowerCase() === ".nimbus")) {
     throw new PathError("FORBIDDEN", "Nimbus internal storage is private.");
-  }
-  let current = root;
-  for (const segment of segments) {
-    current = path.join(current, segment);
-    try {
-      if ((await lstat(current)).isSymbolicLink()) {
-        throw new PathError("FORBIDDEN", symbolicLinkRefused);
-      }
-    } catch (error) {
-      // Nothing exists below a missing folder or a file, so the rest is a missing path.
-      if (isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR")) break;
-      throw error;
-    }
   }
   return { absolute, relative: segments.join("/") };
 }

@@ -19,6 +19,7 @@ import { mutateFiles, FileLockedError } from "./file-mutations";
 import {
   copyItem,
   moveItem,
+  lexicalPath,
   requireExisting,
   safePath,
   trashItem,
@@ -295,9 +296,9 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         // Read on the source and Write on the destination, as WebDAV COPY requires, checked
         // before either is looked up so neither reveals whether it exists.
-        const requested = await safePath(input.sourcePath);
+        const requested = lexicalPath(input.sourcePath);
         ctx.access.require(requested.relative, "read");
-        const into = await safePath(input.destinationPath);
+        const into = lexicalPath(input.destinationPath);
         ctx.access.require(into.relative, "write");
         const source = await requireExisting(requested.relative);
         const destination = await requireExisting(into.relative);

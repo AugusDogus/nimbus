@@ -21,9 +21,9 @@ import {
   isApiError,
   isFsError,
   isWithinPath,
+  lexicalSafePath,
   PathError,
   resolveSafePath,
-  type SafePathResult,
 } from "./safe-path";
 import { PendingChanges } from "./pending-changes";
 import { Staging } from "./staging";
@@ -39,14 +39,20 @@ export async function safePath(requested: string) {
   }
 }
 
-/**
- * The file or folder at a drive path. Pipes, sockets and devices are refused like symlinks. A
- * caller that has just resolved the path with `safePath` passes the result, which is not walked
- * again.
- */
-export async function requireExisting(requested: string | SafePathResult) {
-  const target =
-    typeof requested === "string" ? await safePath(requested) : requested;
+/** `lexicalSafePath` with tRPC errors: for permission checks before `safePath` reads the disk. */
+export function lexicalPath(requested: string) {
+  try {
+    return lexicalSafePath(requested);
+  } catch (error) {
+    if (error instanceof PathError)
+      throw new TRPCError({ code: error.code, message: error.message });
+    throw error;
+  }
+}
+
+/** The file or folder at a drive path. Pipes, sockets and devices are refused like symlinks. */
+export async function requireExisting(requested: string) {
+  const target = await safePath(requested);
   let stats: Stats;
   try {
     stats = await lstat(target.absolute);
@@ -342,12 +348,13 @@ export async function copyItem(
   targetPath: string,
   options: CopyOptions = {},
 ) {
-  const requested = await safePath(sourcePath);
-  const target = await safePath(targetPath);
-  requireMutable(target.relative);
-  // Before the source is looked up, so it does not reveal whether it exists.
+  const requested = lexicalPath(sourcePath);
+  const destination = lexicalPath(targetPath);
+  requireMutable(destination.relative);
+  // Before either is looked up, so neither reveals whether it exists.
   access.require(requested.relative, "read");
-  access.require(target.relative, "write");
+  access.require(destination.relative, "write");
+  const target = await safePath(targetPath);
   const source = await requireExisting(requested.relative);
   requireSeparate(source.relative, target.relative);
   const existingDestination = options.existing ?? "refuse";

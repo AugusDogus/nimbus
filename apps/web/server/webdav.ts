@@ -29,6 +29,7 @@ import {
 } from "@nimbus/api/file-mutations";
 import {
   copyItem,
+  lexicalPath,
   moveItem,
   requireExisting,
   requireMutable,
@@ -256,7 +257,14 @@ function ifHeaderHolds(
       }
       if (url.origin !== requestUrl.origin) return null;
       try {
-        relative = (await safePath(decodedPath(url.pathname))).relative;
+        relative = lexicalPath(decodedPath(url.pathname)).relative;
+      } catch {
+        return null;
+      }
+      // Permission before the path is read, so a resource someone cannot see reads as unknown.
+      if (!access.canBrowse(relative)) return { etag: null, lockTokens: [] };
+      try {
+        await safePath(relative);
       } catch {
         return null;
       }
@@ -582,9 +590,11 @@ async function transfer(
   }
   if (destinationUrl.origin !== url.origin)
     return textResponse(502, "The destination must be on this drive.");
-  const destination = await safePath(decodedPath(destinationUrl.pathname));
-  requireMutable(destination.relative);
-  access.require(destination.relative, "write");
+  const named = lexicalPath(decodedPath(destinationUrl.pathname));
+  requireMutable(named.relative);
+  // Before the destination is looked up, so it does not reveal what is there.
+  access.require(named.relative, "write");
+  const destination = await safePath(named.relative);
   // RFC 4918, section 10.6: Overwrite defaults to T.
   const overwrite = (request.headers.get("overwrite") ?? "T")
     .trim()
@@ -694,7 +704,7 @@ export async function handleWebDAV(request: Request): Promise<Response> {
     const access = await signIn(request);
     if (access instanceof Response) return access;
     const url = new URL(request.url);
-    const target = (await safePath(decodedPath(url.pathname))).relative;
+    const target = lexicalPath(decodedPath(url.pathname)).relative;
     const method = request.method;
     if (!allowedMethods.includes(method))
       return new Response(null, {
@@ -711,6 +721,15 @@ export async function handleWebDAV(request: Request): Promise<Response> {
           "Content-Length": "0",
         },
       });
+    // Every other method needs at least sight of its target. Checked before the path is read,
+    // so a refusal never tells someone without access whether it exists or is a symbolic link.
+    if (!access.canBrowse(target))
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message:
+          "You do not have access to this item. Nothing was changed. Ask its owner to share it with you.",
+      });
+    await safePath(target);
     if (method === "GET" || method === "HEAD") {
       // Permission first, so a 404 never tells someone without access that a path exists.
       if (!access.canBrowse(target)) throw new TRPCError({ code: "FORBIDDEN" });

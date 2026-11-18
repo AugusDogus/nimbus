@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, symlink } from "node:fs/promises";
 import { copyItem } from "@nimbus/api/file-operations";
 import { lockFile } from "@nimbus/api/file-mutations";
 import { readableFile } from "@nimbus/api/versions-router";
@@ -15,6 +15,7 @@ describe("paths the caller cannot read", () => {
     drive = await openTestDrive();
     await drive.write("private/salary.xlsx", "secret");
     await mkdir(drive.absolute("private/folder"));
+    await symlink(drive.absolute("carol"), drive.absolute("private/link"));
     await drive.write("carol/own.txt", "mine");
     await drive.grant("carol", "carol", "admin");
   });
@@ -27,7 +28,25 @@ describe("paths the caller cannot read", () => {
     "private/missing.xlsx",
     "private/folder",
     "private/salary.xlsx/inside",
+    "private/link",
+    "private/link/own.txt",
   ];
+
+  /** The refusal each probe gets: all the same, code and message, or the probes differ. */
+  const refusals = async (attempt: (path: string) => Promise<unknown>) => {
+    const seen = new Set<string>();
+    for (const path of probes) {
+      const outcome = await attempt(path).then(
+        () => "allowed",
+        (error: unknown) =>
+          error instanceof Error && "code" in error
+            ? `${String(error.code)}: ${error.message}`
+            : String(error),
+      );
+      seen.add(outcome);
+    }
+    return [...seen];
+  };
 
   test("files.copy refuses an unreadable source the same way whether it exists or not", async () => {
     for (const sourcePath of probes)
@@ -53,6 +72,33 @@ describe("paths the caller cannot read", () => {
           .caller("carol")
           .files.copy({ sourcePath: "carol/own.txt", destinationPath }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  test("copy and version history refuse every probe with one message, symbolic links included", async () => {
+    const carol = await drive.access("carol");
+    const copySources = await refusals((sourcePath) =>
+      drive
+        .caller("carol")
+        .files.copy({ sourcePath, destinationPath: "carol" }),
+    );
+    expect(copySources).toHaveLength(1);
+    expect(copySources[0]).toStartWith("FORBIDDEN");
+    expect(
+      await refusals((destinationPath) =>
+        drive
+          .caller("carol")
+          .files.copy({ sourcePath: "carol/own.txt", destinationPath }),
+      ),
+    ).toHaveLength(1);
+    expect(
+      await refusals((sourcePath) =>
+        copyItem(drive.store, carol, sourcePath, "carol/copy.xlsx"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      await refusals((path) => drive.caller("carol").versions.list({ path })),
+    ).toHaveLength(1);
+    expect(await refusals((path) => readableFile(carol, path))).toHaveLength(1);
   });
 
   test("version history and version downloads refuse without telling files from folders", async () => {

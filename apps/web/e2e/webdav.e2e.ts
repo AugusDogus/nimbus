@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect } from "@playwright/test";
 import { z } from "zod";
 import { test } from "./helpers";
-import { adminEmail, client, origin, port } from "./helpers";
+import { adminEmail, client, origin, password, port } from "./helpers";
 
 async function dataRoot() {
   const manifest: unknown = JSON.parse(
@@ -257,4 +257,63 @@ test("WebDAV MKCOL and LOCK never revive the public links of content removed out
   const live = (await rpc.shares.list.query()).map((share) => share.token);
   expect(live).not.toContain(linked.token);
   expect(live).not.toContain(lockedLink.token);
+});
+
+test("WebDAV refuses a path someone cannot see the same way whether it is missing or a symbolic link", async ({
+  context,
+  request,
+}) => {
+  const rpc = await client(context);
+  const folder = `private-${randomUUID()}`;
+  await rpc.files.createFolder.mutate({ name: folder });
+  await symlink("/etc", path.join(await dataRoot(), folder, "link"));
+  const email = `dav-member-${randomUUID().slice(0, 8)}@nimbus.test`;
+  expect(
+    (
+      await request.post("/api/auth/admin/create-user", {
+        headers: { Origin: origin },
+        data: { name: "Member", email, password, role: "user" },
+      })
+    ).ok(),
+  ).toBe(true);
+  // A separate client address keeps this sign-in clear of other tests' limits.
+  const id = randomUUID().replaceAll("-", "");
+  const member = {
+    Origin: origin,
+    "Content-Type": "application/json",
+    "X-Forwarded-For": `fd00:${id.slice(0, 4)}:${id.slice(4, 8)}::2`,
+  };
+  const signedIn = await fetch(`${origin}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: member,
+    body: JSON.stringify({ email, password }),
+  });
+  expect(signedIn.ok).toBe(true);
+  const cookie = signedIn.headers
+    .getSetCookie()
+    .map((value) => value.split(";")[0])
+    .join("; ");
+  const created = await fetch(`${origin}/api/trpc/appPasswords.create`, {
+    method: "POST",
+    headers: { ...member, Cookie: cookie },
+    body: JSON.stringify({ name: "Probe" }),
+  });
+  const token = /"token":"([A-Za-z0-9_-]+)"/.exec(await created.text())?.[1];
+  if (!token) throw new Error("Creating the member's app password failed.");
+  const headers = {
+    Authorization: `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`,
+  };
+  const answers = async (name: string) =>
+    Promise.all(
+      (["GET", "PROPFIND", "PUT", "DELETE"] as const).map(async (method) => {
+        const response = await request.fetch(`/dav/${folder}/${name}`, {
+          method,
+          headers,
+          data: method === "PUT" ? "probe" : undefined,
+        });
+        return `${method} ${response.status()} ${await response.text()}`;
+      }),
+    );
+  expect(await answers("link")).toEqual(await answers("missing"));
+  expect(await answers("link/passwd")).toEqual(await answers("missing"));
 });

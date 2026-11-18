@@ -5,9 +5,8 @@ import { auditUser, recordAudit } from "./audit";
 import { getDataRoot } from "./data-root";
 import { publishFileEvent } from "./file-events";
 import { mutateFiles } from "./file-mutations";
-import { requireExisting, safePath } from "./file-operations";
+import { lexicalPath, requireExisting, safePath } from "./file-operations";
 import { FileVersions } from "./file-versions";
-import type { SafePathResult } from "./safe-path";
 import { protectedProcedure, router } from "./index";
 
 /**
@@ -18,12 +17,12 @@ export async function readableFile(
   access: Pick<Access, "require">,
   requested: string,
 ) {
-  const target = await safePath(requested);
+  const target = lexicalPath(requested);
   access.require(target.relative, "read");
-  return requireFile(target);
+  return requireFile(target.relative);
 }
 
-async function requireFile(requested: string | SafePathResult) {
+async function requireFile(requested: string) {
   const target = await requireExisting(requested);
   if (!target.stats.isFile())
     throw new TRPCError({
