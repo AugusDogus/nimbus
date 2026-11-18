@@ -426,7 +426,7 @@ describe("MCP tools", () => {
       url: "https://files.example.test/api/mcp/upload/1",
       method: "PUT",
       headers: {},
-      curl: 'curl -fsS -T ./local-file "https://files.example.test/api/mcp/upload/1"',
+      curl: 'curl -sS --fail-with-body -T ./local-file "https://files.example.test/api/mcp/upload/1"',
     });
     const folder = await value("get_upload_link", {
       path: "docs",

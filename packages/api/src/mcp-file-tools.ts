@@ -310,7 +310,7 @@ const uploadLink = defineTool({
         method: "PUT" as const,
         headers: {},
         expiresAt: isoTime(link.expiresAt),
-        curl: `cd ./local-folder && find . -type f | while IFS= read -r f; do f="\${f#./}"; curl -fsS --variable "p=$f" --expand-url "${link.url}/{{p:url}}" -T "$f" || break; done`,
+        curl: `cd ./local-folder && find . -type f | while IFS= read -r f; do f="\${f#./}"; curl -sS --fail-with-body --variable "p=$f" --expand-url "${link.url}/{{p:url}}" -T "$f" || break; done`,
       };
     }
     const name = fileNameSchema.safeParse(
@@ -358,7 +358,7 @@ const uploadLink = defineTool({
       method: "PUT" as const,
       headers: {},
       expiresAt: isoTime(link.expiresAt),
-      curl: `curl -fsS -T ./local-file "${link.url}"`,
+      curl: `curl -sS --fail-with-body -T ./local-file "${link.url}"`,
     };
   },
 });
