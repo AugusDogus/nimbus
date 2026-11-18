@@ -328,6 +328,22 @@ test.skipIf(asRoot)(
   },
 );
 
+test.skipIf(asRoot)(
+  `names every unreadable folder, however many there are${asRoot ? ` (skipped: ${rootSkip})` : ""}`,
+  async () => {
+    const count = 1002;
+    for (let index = 0; index < count; index++)
+      await mkdir(path.join(root, `locked-${index}`), { mode: 0 });
+    try {
+      const crawled = await crawl(createSearchIndex(), root);
+      expect(crawled.unreadableFolders).toHaveLength(count);
+    } finally {
+      for (let index = 0; index < count; index++)
+        await chmod(path.join(root, `locked-${index}`), 0o755);
+    }
+  },
+);
+
 /** `shared/docs/a.txt` inside the root, and `outside/docs/outside-secret.txt` beside it. */
 async function swapTree() {
   await mkdir(path.join(root, "drive/shared/docs"), { recursive: true });

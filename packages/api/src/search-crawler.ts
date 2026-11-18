@@ -50,9 +50,6 @@ type OpenFolder =
 /** A folder a crawl or pass could not read, relative to the root, and the error code why. */
 export type UnreadableFolder = { path: string; code: string | null };
 
-/** Unreadable folders named per crawl or pass; the count goes on past this. */
-const maxNamedUnreadable = 1000;
-
 const errorCode = (error: unknown) =>
   error instanceof Error && "code" in error && typeof error.code === "string"
     ? error.code
@@ -63,8 +60,8 @@ function noteUnreadable(
   relative: string,
   code: string | null,
 ) {
-  if (folders.length < maxNamedUnreadable)
-    folders.push({ path: relative, code });
+  // Every one: the watcher learns of most of them only here, and rechecks what it is told.
+  folders.push({ path: relative, code });
 }
 
 /** Change times this close to the moment a folder is opened are not trusted; see `trusted`. */
@@ -228,7 +225,7 @@ export type ReconcileReport = {
   listed: number;
   /** Folders that could not be read, so their previous contents were kept. */
   unreadable: number;
-  /** Which folders could not be listed at all, up to a thousand. */
+  /** Which folders could not be listed at all. */
   unreadableFolders: UnreadableFolder[];
   /** The longest time one folder held the index, a bound on the pause it caused. */
   longestSliceMs: number;
