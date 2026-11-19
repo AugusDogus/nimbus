@@ -49,7 +49,7 @@ test("opens folders and downloads files with spaces in their names", async ({
   await preview.getByRole("button", { name: "Close", exact: true }).click();
   if (isMobile)
     await page
-      .getByRole("button", { name: "Toggle menu", exact: true })
+      .getByRole("button", { name: "Show folders in this path", exact: true })
       .click();
   await page
     .getByRole(isMobile ? "menuitem" : "link", { name: folder, exact: true })

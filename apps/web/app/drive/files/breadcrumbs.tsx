@@ -72,7 +72,7 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
                   render={<Button size="icon-sm" variant="ghost" />}
                 >
                   <BreadcrumbEllipsis />
-                  <span className="sr-only">Toggle menu</span>
+                  <span className="sr-only">Show folders in this path</span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   <DropdownMenuGroup>
