@@ -1,5 +1,16 @@
 import { createHash } from "node:crypto";
-import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import {
   permissionSchema,
@@ -115,6 +126,22 @@ type DetachedAccess = z.infer<typeof detachedAccessSchema>;
 /** How a revoked link's token is kept: hashed, as nothing needs the token itself again. */
 const revokedTokenHash = (token: string) =>
   createHash("sha256").update(token).digest("hex");
+
+/**
+ * How long a revoked link tells visitors it was turned off, and how many such records each owner
+ * keeps. Older ones read as unknown links, like any token never issued.
+ */
+export const RevokedShares = {
+  retentionMs: 90 * 24 * 60 * 60 * 1000,
+  perOwner: 1_000,
+} as const;
+
+/** Remove revoked-link records past their retention: one search of the `revoked_at` index. */
+function pruneRevoked(tx: Transaction, now: number) {
+  tx.delete(revokedShares)
+    .where(lte(revokedShares.revokedAt, now - RevokedShares.retentionMs))
+    .run();
+}
 
 const trashColumns = {
   id: trash.id,
@@ -346,20 +373,40 @@ export function createDriveStore(database: Database): DriveStore {
       return row ?? null;
     },
     async revokeShare(id, userId) {
+      const now = Date.now();
       database.transaction((tx) => {
         const revoked = tx
           .delete(shares)
           .where(and(eq(shares.id, id), eq(shares.createdBy, userId)))
-          .returning({ token: shares.token })
+          .returning({ token: shares.token, owner: shares.createdBy })
           .all();
-        for (const { token } of revoked)
+        for (const { token, owner } of revoked)
           tx.insert(revokedShares)
             .values({
               tokenHash: revokedTokenHash(token),
-              revokedAt: Date.now(),
+              owner,
+              revokedAt: now,
             })
             .onConflictDoNothing()
             .run();
+        // Pruned on each write, so the table never outgrows its bounds between retention runs.
+        pruneRevoked(tx, now);
+        // The owner's records past the newest 1,000, found through the (owner, revoked_at) index.
+        tx.delete(revokedShares)
+          .where(
+            inArray(
+              revokedShares.tokenHash,
+              tx
+                .select({ tokenHash: revokedShares.tokenHash })
+                .from(revokedShares)
+                .where(eq(revokedShares.owner, userId))
+                .orderBy(desc(revokedShares.revokedAt))
+                // SQLite needs a LIMIT for an OFFSET; this one means "all the rest".
+                .limit(Number.MAX_SAFE_INTEGER)
+                .offset(RevokedShares.perOwner),
+            ),
+          )
+          .run();
       });
     },
     async wasShareRevoked(token) {
@@ -368,9 +415,20 @@ export function createDriveStore(database: Database): DriveStore {
           await database
             .select({ tokenHash: revokedShares.tokenHash })
             .from(revokedShares)
-            .where(eq(revokedShares.tokenHash, revokedTokenHash(token)))
+            .where(
+              and(
+                eq(revokedShares.tokenHash, revokedTokenHash(token)),
+                gt(
+                  revokedShares.revokedAt,
+                  Date.now() - RevokedShares.retentionMs,
+                ),
+              ),
+            )
         ).length > 0
       );
+    },
+    async pruneRevokedShares(now) {
+      database.transaction((tx) => pruneRevoked(tx, now));
     },
     async claimDownload(id) {
       const claimed = await database

@@ -122,6 +122,7 @@ export function createTestDriveStore() {
     async wasShareRevoked(token) {
       return revokedShares.has(token);
     },
+    async pruneRevokedShares() {},
     async updateShare(id, userId, settings) {
       for (const [token, share] of shares)
         if (share.id === id && share.createdBy === userId) {

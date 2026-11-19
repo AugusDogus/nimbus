@@ -67,6 +67,7 @@ export async function cleanExpiredData(
     | "removePendingChange"
     | "fileRequests"
     | "versions"
+    | "pruneRevokedShares"
   >,
   dataRoot: string,
   now = Date.now(),
@@ -126,6 +127,9 @@ export async function cleanExpiredData(
   });
   await attempt("releasing abandoned file request uploads", () =>
     store.fileRequests.releaseAbandoned(now - reservationLifetimeMs),
+  );
+  await attempt("removing expired revoked-link records", () =>
+    store.pruneRevokedShares(now),
   );
   await attempt("removing expired versions", () =>
     FileVersions.cleanup(store.versions, dataRoot, now),

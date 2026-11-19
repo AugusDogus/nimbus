@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import type { Database as SQLite } from "bun:sqlite";
 import type { DriveStore } from "@nimbus/api/drive-store";
 import { createDriveStore } from "./drive-store";
@@ -634,4 +634,51 @@ test("records opens and stars of a bookmark in one statement each", async () => 
     { path: "docs/a.txt", starred: true, accessedAt: 29, visits: 11 },
     { path: "docs/b.txt", starred: true, accessedAt: 50, visits: 0 },
   ]);
+});
+
+const day = 24 * 60 * 60 * 1000;
+const revokedRows = () =>
+  client
+    .query<{ owner: string }, []>("SELECT owner FROM nimbus_revoked_share")
+    .all();
+
+test("a revoked link reads as turned off for 90 days, then as unknown, and is pruned", async () => {
+  setSystemTime(new Date(1_000 * day));
+  await store.createShare(share("old", "a"));
+  await store.revokeShare("old", "owner");
+  expect(await store.wasShareRevoked("token-old")).toBe(true);
+  expect(await store.wasShareRevoked("token-never")).toBe(false);
+
+  setSystemTime(new Date(1_090 * day + 1));
+  // Past 90 days it reads as unknown even before anything prunes it.
+  expect(await store.wasShareRevoked("token-old")).toBe(false);
+  expect(revokedRows()).toHaveLength(1);
+  // The next revoke prunes it, and so does the retention job.
+  await store.createShare(share("next", "b"));
+  await store.revokeShare("next", "owner");
+  expect(revokedRows()).toHaveLength(1);
+  setSystemTime(new Date(1_181 * day));
+  await store.pruneRevokedShares(Date.now());
+  expect(revokedRows()).toHaveLength(0);
+  setSystemTime();
+});
+
+test("an owner keeps at most the 1,000 most recent revoked links", async () => {
+  for (let index = 0; index < 1_003; index++) {
+    setSystemTime(new Date(1_000 * day + index));
+    await store.createShare(share(`s${index}`, `p${index}`));
+    await store.revokeShare(`s${index}`, "owner");
+  }
+  setSystemTime(new Date(1_000 * day + 1_003));
+  await store.createShare({ ...share("theirs", "q"), createdBy: "reader" });
+  await store.revokeShare("theirs", "reader");
+  expect(revokedRows().filter((row) => row.owner === "owner")).toHaveLength(
+    1_000,
+  );
+  expect(revokedRows().filter((row) => row.owner === "reader")).toHaveLength(1);
+  expect(await store.wasShareRevoked("token-s0")).toBe(false);
+  expect(await store.wasShareRevoked("token-s2")).toBe(false);
+  expect(await store.wasShareRevoked("token-s3")).toBe(true);
+  expect(await store.wasShareRevoked("token-s1002")).toBe(true);
+  setSystemTime();
 });

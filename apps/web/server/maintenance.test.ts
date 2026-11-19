@@ -20,6 +20,7 @@ const day = 24 * 60 * 60 * 1000;
 const now = Date.now();
 let root: string;
 let trash: TrashItem[];
+const prunedRevokedAt: number[] = [];
 const store: Pick<
   DriveStore,
   | "listTrash"
@@ -28,9 +29,13 @@ const store: Pick<
   | "removePendingChange"
   | "fileRequests"
   | "versions"
+  | "pruneRevokedShares"
 > = {
   fileRequests: createTestFileRequestStore(),
   versions: createTestFileVersionStore(),
+  async pruneRevokedShares(at) {
+    prunedRevokedAt.push(at);
+  },
   async listTrash() {
     return trash;
   },
@@ -238,3 +243,10 @@ test.skipIf(noSubvolumes !== null)(
     }
   },
 );
+
+test("retention prunes revoked-link records as of its own clock", async () => {
+  trash = [];
+  prunedRevokedAt.length = 0;
+  await cleanExpiredData(store, root, now);
+  expect(prunedRevokedAt).toEqual([now]);
+});

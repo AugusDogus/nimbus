@@ -126,8 +126,10 @@ export type DriveStore = {
   ): Promise<Share | null>;
   /** Delete a link and remember that its owner turned it off. */
   revokeShare(id: string, userId: string): Promise<void>;
-  /** Whether `token` belonged to a link its owner revoked. */
+  /** Whether `token` belonged to a link its owner revoked, within the records' retention. */
   wasShareRevoked(token: string): Promise<boolean>;
+  /** Remove revoked-link records older than their retention at `now`. */
+  pruneRevokedShares(now: number): Promise<void>;
   /** Atomically count one download unless the link has used its limit. */
   claimDownload(id: string): Promise<boolean>;
   /**

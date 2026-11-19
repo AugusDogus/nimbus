@@ -75,11 +75,22 @@ export const shares = sqliteTable(
 /**
  * Links their owner turned off, by the SHA-256 of their token, so a visitor opening one is told
  * so. A token never issued has no row and stays indistinguishable from any other unknown one.
+ * Kept for 90 days and at most 1,000 per owner (see `RevokedShares`), so it stays small.
  */
-export const revokedShares = sqliteTable("nimbus_revoked_share", {
-  tokenHash: text("token_hash").primaryKey(),
-  revokedAt: integer("revoked_at").notNull(),
-});
+export const revokedShares = sqliteTable(
+  "nimbus_revoked_share",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    owner: text("owner")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    revokedAt: integer("revoked_at").notNull(),
+  },
+  (table) => [
+    index("nimbus_revoked_share_owner").on(table.owner, table.revokedAt),
+    index("nimbus_revoked_share_revoked_at").on(table.revokedAt),
+  ],
+);
 export const trash = sqliteTable("nimbus_trash", {
   id: text("id").primaryKey(),
   path: text("path").notNull(),
