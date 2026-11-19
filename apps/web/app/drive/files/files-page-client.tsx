@@ -121,7 +121,7 @@ export function FilesPageClient() {
         }}
         className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-background px-4 py-3 md:-mx-6 md:flex md:justify-between md:px-6 lg:-mx-8 lg:-mt-8 lg:px-8"
       >
-        <div className="min-w-0 overflow-hidden pointer-coarse:-my-3 pointer-coarse:-ml-3.5 pointer-coarse:py-3 pointer-coarse:pl-3.5">
+        <div className="min-w-0 overflow-hidden pointer-coarse:-my-3 pointer-coarse:py-3 max-lg:pointer-coarse:-ml-3.5 max-lg:pointer-coarse:pl-3.5">
           <FileBreadcrumbs pathSegments={effectiveSegments} />
         </div>
         <FiltersRow

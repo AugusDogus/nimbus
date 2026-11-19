@@ -446,6 +446,32 @@ test("header and toolbar controls have 44 px touch areas on touch screens of eve
     const header: Scope = "header";
     const areas = await page.evaluate(measure, header);
     expect(areas.length, `controls at ${width}`).toBeGreaterThanOrEqual(6);
+    // Touch areas change no layout: the root crumb stays on one line.
+    expect(
+      await page
+        .locator('nav[aria-label="breadcrumb"] a[aria-label="My Drive"]')
+        .evaluate((link) => {
+          const line = parseFloat(getComputedStyle(link).lineHeight);
+          const label = [...link.children].find(
+            (child) => child.getBoundingClientRect().width > 0,
+          );
+          return (label?.getBoundingClientRect().height ?? 0) <= line + 1;
+        }),
+      `root crumb on one line at ${width}`,
+    ).toBe(true);
+    // The current folder's name shows, truncated if need be, never cut off entirely.
+    expect(
+      await page
+        .locator('nav[aria-label="breadcrumb"] [aria-current="page"]')
+        .evaluate((current) => {
+          const box = current.getBoundingClientRect();
+          const list = current.closest("ol")?.getBoundingClientRect();
+          return (
+            list !== undefined && box.width >= 8 && box.right <= list.right + 1
+          );
+        }),
+      `current folder shown at ${width}`,
+    ).toBe(true);
     for (const area of areas)
       expect(area, `${area.name} at ${width}`).toEqual({
         name: area.name,

@@ -21,10 +21,11 @@ import {
 import { FolderLink } from "./folder-link";
 
 /**
- * Desktop keeps the parent visible: `My Drive > ... > Parent > Current`
- * Mobile collapses it too:          `Home > ... > Current`
+ * Wide screens keep the parent visible: `My Drive > ... > Parent > Current`
+ * Narrower ones collapse it too:        `Home > ... > Current`
  *
- * The difference is pure CSS at the `md` breakpoint.
+ * Pure CSS: the parent shows from the `lg` breakpoint, where the sidebar leaves room for it.
+ * The current folder's name truncates rather than being cut off.
  */
 export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
   const isNested = pathSegments.length > 0;
@@ -41,7 +42,7 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
   const middleCrumbs = segmentCrumbs.slice(0, -1);
   const parent = middleCrumbs.at(-1);
   // With nothing else to collapse, desktop has no ellipsis.
-  const ellipsisClassName = middleCrumbs.length === 1 ? "md:hidden" : undefined;
+  const ellipsisClassName = middleCrumbs.length === 1 ? "lg:hidden" : undefined;
 
   if (!isNested) {
     return (
@@ -54,16 +55,17 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
   return (
     <Breadcrumb className="min-w-0">
       {/* On touch screens the list's padding gives the root link room for its 44 px touch area,
-          which the list's clipping would otherwise cut; the negative margins keep the layout. */}
-      <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden text-sm pointer-coarse:-my-3.5 pointer-coarse:-ml-3.5 pointer-coarse:py-3.5 pointer-coarse:pl-3.5 sm:text-base">
-        {/* Root: icon on mobile, text on desktop */}
+          which the list's clipping would otherwise cut; the negative margins keep the layout.
+          From 1024 px the link is the words "My Drive", wide enough, so it grows only in height. */}
+      <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden text-sm pointer-coarse:-my-3.5 pointer-coarse:py-3.5 max-lg:pointer-coarse:-ml-3.5 max-lg:pointer-coarse:pl-3.5 sm:text-base">
+        {/* Root: an icon until 1024 px, where the sidebar leaves room for its name */}
         <BreadcrumbItem>
           <BreadcrumbLink
-            className="pointer-coarse:relative pointer-coarse:z-10 pointer-coarse:-m-3.5 pointer-coarse:p-3.5"
+            className="whitespace-nowrap pointer-coarse:relative pointer-coarse:z-10 pointer-coarse:-my-3.5 pointer-coarse:py-3.5 max-lg:pointer-coarse:-mx-3.5 max-lg:pointer-coarse:px-3.5"
             render={<Link to="/" aria-label="My Drive" />}
           >
-            <Home className="size-4 md:hidden" />
-            <span className="max-md:hidden">My Drive</span>
+            <Home className="size-4 lg:hidden" />
+            <span className="max-lg:hidden">My Drive</span>
           </BreadcrumbLink>
         </BreadcrumbItem>
 
@@ -90,7 +92,7 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
                     {middleCrumbs.map((crumb) => (
                       <DropdownMenuItem
                         key={crumb.path}
-                        className={crumb === parent ? "md:hidden" : undefined}
+                        className={crumb === parent ? "lg:hidden" : undefined}
                         render={<FolderLink path={crumb.path} />}
                       >
                         {crumb.label}
@@ -100,8 +102,8 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
                 </DropdownMenuContent>
               </DropdownMenu>
             </BreadcrumbItem>
-            <BreadcrumbSeparator className="max-md:hidden" />
-            <BreadcrumbItem className="max-md:hidden">
+            <BreadcrumbSeparator className="max-lg:hidden" />
+            <BreadcrumbItem className="max-lg:hidden">
               <BreadcrumbLink render={<FolderLink path={parent.path} />}>
                 {parent.label}
               </BreadcrumbLink>
@@ -113,8 +115,8 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
         {currentPage && (
           <>
             <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage className="max-md:max-w-[38vw] max-md:truncate">
+            <BreadcrumbItem className="min-w-0">
+              <BreadcrumbPage className="truncate max-md:max-w-[38vw]">
                 {currentPage.label}
               </BreadcrumbPage>
             </BreadcrumbItem>
