@@ -12,7 +12,7 @@ export function DrawerActionItem({
     <button
       type="button"
       className={cn(
-        "flex min-h-12 items-center gap-3 rounded-lg px-3 text-left text-sm hover:bg-accent active:bg-accent",
+        "flex min-h-12 items-center gap-3 rounded-lg px-3 text-left text-sm hover:bg-accent active:bg-accent disabled:pointer-events-none disabled:opacity-50",
         className,
       )}
       {...props}

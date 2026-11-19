@@ -37,11 +37,11 @@ test("menus offer no rename, move or trash on home folders and the folder holdin
   };
   await page.goto("/");
   await expect(entry("users")).toBeVisible();
-  for (const label of ["Rename", "Move", "Move to trash"])
+  for (const label of ["Rename", "Move to…", "Move to trash"])
     expect(await menuItems("users")).not.toContain(label);
   await page.goto("/browse/users");
   await expect(entry("admin")).toBeVisible();
-  for (const label of ["Rename", "Move", "Move to trash"])
+  for (const label of ["Rename", "Move to…", "Move to trash"])
     expect(await menuItems("admin")).not.toContain(label);
   expect(await entry("admin").getAttribute("draggable")).not.toBe("true");
 });

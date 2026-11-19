@@ -601,6 +601,11 @@ test("starring a selection changes nothing when the starred items cannot be read
   test.skip(isMobile, "Selecting with modifier keys is a desktop interaction.");
   const { folder } = await folderWithFiles(["one.txt", "two.txt"]);
   await page.goto(`/browse/${folder}`);
+  // The selection loads what is starred; that fails, so starring must not guess.
+  await page.route(
+    (url) => url.pathname.includes("catalog.bookmarks"),
+    (route) => route.fulfill({ status: 503, body: "Unavailable" }),
+  );
   await entry(page, "one.txt")
     .filter({ visible: true })
     .click({
@@ -612,10 +617,6 @@ test("starring a selection changes nothing when the starred items cannot be read
       modifiers: ["Shift"],
     });
   await expect(bar(page)).toContainText("2 selected");
-  await page.route(
-    (url) => url.pathname.includes("catalog.bookmarks"),
-    (route) => route.fulfill({ status: 503, body: "Unavailable" }),
-  );
   await bar(page).getByRole("button", { name: "Star", exact: true }).click();
   await expect(
     page
@@ -637,6 +638,11 @@ test("error toasts are announced at once and stay until closed", async ({
   test.skip(isMobile, "Selecting with modifier keys is a desktop interaction.");
   const { folder } = await folderWithFiles(["one.txt", "two.txt"]);
   await page.goto(`/browse/${folder}`);
+  // The selection loads what is starred; that fails, so starring must not guess.
+  await page.route(
+    (url) => url.pathname.includes("catalog.bookmarks"),
+    (route) => route.fulfill({ status: 503, body: "Unavailable" }),
+  );
   await entry(page, "one.txt")
     .filter({ visible: true })
     .click({
@@ -647,10 +653,6 @@ test("error toasts are announced at once and stay until closed", async ({
     .click({
       modifiers: ["Shift"],
     });
-  await page.route(
-    (url) => url.pathname.includes("catalog.bookmarks"),
-    (route) => route.fulfill({ status: 503, body: "Unavailable" }),
-  );
   await bar(page).getByRole("button", { name: "Star", exact: true }).click();
   const message = "Nothing was starred or unstarred";
   await expect(
@@ -692,4 +694,49 @@ test("the apply-to-all checkbox in the name clash dialog is named by its label a
   await dialog.getByText("Apply to all 2 name clashes").click();
   await expect(all).not.toBeChecked();
   await dialog.getByRole("button", { name: "Skip", exact: true }).click();
+});
+
+test("star controls say whether they add or remove stars, and do exactly that", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Selecting with modifier keys is a desktop interaction.");
+  const { folder } = await folderWithFiles(["one.txt", "two.txt"]);
+  await page.goto(`/browse/${folder}`);
+  const menuItem = (name: string) =>
+    page.getByRole("menuitem", { name, exact: true });
+  const openMenu = async (name: string) => {
+    await page
+      .getByRole("button", { name: `Actions for ${name}`, exact: true })
+      .click();
+    await expect(page.getByRole("menu")).toBeVisible();
+  };
+
+  await openMenu("one.txt");
+  await menuItem("Star").click();
+  await expect(
+    page.getByText("Added to Starred", { exact: true }),
+  ).toBeVisible();
+  await openMenu("one.txt");
+  await expect(menuItem("Remove star")).toBeVisible();
+  await expect(menuItem("Star")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // One starred and one not: the selection stars both.
+  await entry(page, "one.txt")
+    .filter({ visible: true })
+    .click({ modifiers: ["ControlOrMeta"] });
+  await entry(page, "two.txt")
+    .filter({ visible: true })
+    .click({ modifiers: ["Shift"] });
+  const star = bar(page).getByRole("button", { name: "Star", exact: true });
+  await star.click();
+  // Every selected item is now starred, so the same control removes their stars.
+  const remove = bar(page).getByRole("button", {
+    name: "Remove star",
+    exact: true,
+  });
+  await expect(remove).toBeVisible();
+  await remove.click();
+  await expect(star).toBeVisible();
 });

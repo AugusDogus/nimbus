@@ -27,6 +27,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { DrawerActionItem } from "@/components/drawer-action-item";
+import { starControl, useStarredPaths, type StarredPaths } from "./starred";
 import { FileEntry } from "./types";
 import type { EntryDialog } from "./entry-dialogs";
 import type { useFileActions } from "./use-file-actions";
@@ -35,6 +36,8 @@ type MenuItem = {
   label: string;
   icon: typeof Eye;
   destructive?: boolean;
+  /** Not yet usable, such as starring before the current stars have loaded. */
+  disabled?: boolean;
   select: () => void;
 };
 
@@ -80,12 +83,31 @@ export function selectionCapabilities(targets: readonly FileEntry[]) {
   return capabilities;
 }
 
-/** Actions for one entry, or for every target when the entry is part of a multi-selection. */
+/** Star or remove the stars of `targets`, labelled by what it will do (see `starControl`). */
+function starItem(
+  targets: readonly FileEntry[],
+  starred: StarredPaths,
+  actions: ReturnType<typeof useFileActions>,
+): MenuItem {
+  const control = starControl(targets, starred, actions.setStarred);
+  return {
+    label: control.label,
+    icon: Star,
+    disabled: control.disabled,
+    select: control.run,
+  };
+}
+
+/**
+ * Actions for one entry, or for every target when the entry is part of a multi-selection.
+ * `starred` is what is starred now.
+ */
 export function entryMenuItems(
   entry: FileEntry,
   targets: readonly FileEntry[],
   actions: ReturnType<typeof useFileActions>,
   open: (dialog: EntryDialog) => void,
+  starred: StarredPaths,
 ): MenuItem[] {
   if (targets.length > 1) {
     const count = targets.length.toLocaleString();
@@ -96,11 +118,7 @@ export function entryMenuItems(
         icon: Download,
         select: () => actions.downloadEntries(targets),
       },
-      {
-        label: "Toggle star",
-        icon: Star,
-        select: () => void actions.starEntries(targets),
-      },
+      starItem(targets, starred, actions),
       {
         label: "Copy to…",
         icon: Copy,
@@ -147,11 +165,7 @@ export function entryMenuItems(
       icon: Download,
       select: () => actions.downloadFile(entry.path, entry.type === "dir"),
     },
-    {
-      label: "Toggle star",
-      icon: Star,
-      select: () => void actions.toggleStar(entry.path),
-    },
+    starItem([entry], starred, actions),
     ...(entry.permission === "admin"
       ? [
           {
@@ -174,7 +188,7 @@ export function entryMenuItems(
             select: () => open({ action: "rename", entry }),
           },
           {
-            label: "Move",
+            label: "Move to…",
             icon: FolderInput,
             select: () => open({ action: "move", entries: [entry] }),
           },
@@ -294,8 +308,9 @@ export function EntryMenuHost({
   // The last menu stays rendered while it animates closed, in place and with its items.
   const [shown, setShown] = useState(menu);
   if (menu !== null && menu !== shown) setShown(menu);
+  const starred = useStarredPaths(menu !== null);
   const items = shown
-    ? entryMenuItems(shown.entry, shown.targets, actions, open)
+    ? entryMenuItems(shown.entry, shown.targets, actions, open, starred)
     : [];
   const popup = useRef<HTMLDivElement>(null);
   // The tree around `children` is the same in both modes. Swapping it when the mode changes would
@@ -352,6 +367,7 @@ export function EntryMenuHost({
           <ContextMenuItem
             key={item.label}
             variant={item.destructive ? "destructive" : "default"}
+            disabled={item.disabled}
             onClick={item.select}
           >
             <item.icon />
@@ -383,7 +399,12 @@ export function EntryMenuHost({
             {items.map((item) => (
               <DrawerClose
                 key={item.label}
-                render={<DrawerActionItem onClick={item.select} />}
+                render={
+                  <DrawerActionItem
+                    disabled={item.disabled}
+                    onClick={item.select}
+                  />
+                }
               >
                 <item.icon className="size-5" />
                 {item.label}

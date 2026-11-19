@@ -216,7 +216,7 @@ test("administrators create groups and members receive only their granted read o
     ).toHaveCount(0);
     await expect(
       member.getByRole(isMobile ? "button" : "menuitem", {
-        name: "Move",
+        name: "Move to…",
         exact: true,
       }),
     ).toHaveCount(0);

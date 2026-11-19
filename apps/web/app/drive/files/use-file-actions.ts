@@ -162,23 +162,6 @@ export function useFileActions({
     a.remove();
   }, []);
 
-  const toggleStar = useCallback(async (filePath: string) => {
-    try {
-      const existing = await trpcClient.catalog.bookmarks.query();
-      const starred = !existing.find((entry) => entry.path === filePath)
-        ?.starred;
-      await trpcClient.catalog.bookmark.mutate({ path: filePath, starred });
-      void queryClient.invalidateQueries({ queryKey: ["catalog"] });
-      toast.success(starred ? "Added to Starred" : "Removed from Starred");
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Could not update starred files.",
-      );
-    }
-  }, []);
-
   const reportBulk = (result: BulkResult, verb: string, place = "") => {
     invalidateFileQueries();
     const summary = BulkResult.describe(result, verb, place);
@@ -227,36 +210,30 @@ export function useFileActions({
     [],
   );
 
-  /** Star every entry, or unstar them all when every entry is already starred. */
-  const starEntries = useCallback(async (entries: readonly FileEntry[]) => {
-    let existing: Awaited<
-      ReturnType<typeof trpcClient.catalog.bookmarks.query>
-    >;
-    try {
-      existing = await trpcClient.catalog.bookmarks.query();
-    } catch {
-      // Whether to star or unstar depends on what is starred now; guessing could star everything.
-      toast.error(
-        "Nothing was starred or unstarred, because Nimbus could not check which items are already starred. Check your connection and try again.",
+  /**
+   * Star every entry (`starred`), or remove their stars, as the control that offered it said
+   * (see `Starring`), so the outcome always matches its label.
+   */
+  const setStarred = useCallback(
+    async (entries: readonly FileEntry[], starred: boolean) => {
+      const result = await BulkResult.run(entries, (entry) =>
+        trpcClient.catalog.bookmark.mutate({ path: entry.path, starred }),
       );
-      return { succeeded: 0, failed: [] };
-    }
-    const starredPaths = new Set(
-      existing.filter((entry) => entry.starred).map((entry) => entry.path),
-    );
-    const starred = !entries.every((entry) => starredPaths.has(entry.path));
-    const result = await BulkResult.run(entries, (entry) =>
-      trpcClient.catalog.bookmark.mutate({ path: entry.path, starred }),
-    );
-    void queryClient.invalidateQueries({ queryKey: ["catalog"] });
-    const summary = BulkResult.describe(
-      result,
-      starred ? "Starred" : "Unstarred",
-    );
-    if (summary.ok) toast.success(summary.message);
-    else toast.error(summary.message);
-    return result;
-  }, []);
+      void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      if (entries.length === 1 && result.failed.length === 0)
+        toast.success(starred ? "Added to Starred" : "Removed from Starred");
+      else {
+        const summary = BulkResult.describe(
+          result,
+          starred ? "Starred" : "Unstarred",
+        );
+        if (summary.ok) toast.success(summary.message);
+        else toast.error(summary.message);
+      }
+      return result;
+    },
+    [],
+  );
 
   /**
    * One ZIP of several entries, streamed by the server straight to the browser's download manager.
@@ -317,11 +294,10 @@ export function useFileActions({
     moveEntries,
     copyEntries,
     trashEntries,
-    starEntries,
+    setStarred,
     downloadEntries,
     deleteEntry,
     downloadFile,
-    toggleStar,
     recordVisit,
     prefetchFolder,
   };

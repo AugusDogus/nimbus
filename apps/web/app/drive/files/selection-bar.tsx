@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { EntryDialog } from "./entry-dialogs";
 import { selectionCapabilities } from "./entry-menu";
+import { starControl, useStarredPaths } from "./starred";
 import type { FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
 
@@ -20,16 +21,19 @@ function Action({
   icon,
   onClick,
   destructive,
+  disabled,
 }: {
   label: string;
   icon: ReactNode;
   onClick: () => void;
   destructive?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <Button
       variant="ghost"
       size="sm"
+      disabled={disabled}
       onClick={onClick}
       className={cn(
         "gap-2",
@@ -64,6 +68,7 @@ export function SelectionBar({
   onClear: () => void;
 }) {
   const { move: canMove, trash: canTrash } = selectionCapabilities(targets);
+  const star = starControl(targets, useStarredPaths(true), actions.setStarred);
   return (
     <div
       role="toolbar"
@@ -109,9 +114,10 @@ export function SelectionBar({
           onClick={() => actions.downloadEntries(targets)}
         />
         <Action
-          label="Star"
+          label={star.label}
           icon={<Star className="size-4" />}
-          onClick={() => void actions.starEntries(targets)}
+          disabled={star.disabled}
+          onClick={star.run}
         />
         <Action
           label="Copy"

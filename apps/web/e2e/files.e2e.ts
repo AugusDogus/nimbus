@@ -131,7 +131,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   await expect(
     page.locator(`[data-entry-name="${renamed}"]`).filter({ visible: true }),
   ).toBeVisible();
-  await action(page, renamed, "Toggle star", isMobile);
+  await action(page, renamed, "Star", isMobile);
   await expect(
     page.getByText("Added to Starred", { exact: true }),
   ).toBeVisible();
@@ -153,7 +153,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   ).toBeVisible();
   await page.goto(`/browse/${folder}`);
   await createFolder(page, "archive", isMobile);
-  await action(page, renamed, "Move", isMobile);
+  await action(page, renamed, "Move to…", isMobile);
   const move = page.getByRole("dialog", { name: "Move", exact: true });
   await move.getByRole("button", { name: folder, exact: true }).click();
   await move.getByRole("button", { name: "archive", exact: true }).click();
