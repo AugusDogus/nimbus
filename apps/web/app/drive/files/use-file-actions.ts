@@ -219,7 +219,9 @@ export function useFileActions({
       const result = await BulkResult.run(entries, (entry) =>
         trpcClient.catalog.bookmark.mutate({ path: entry.path, starred }),
       );
-      void queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      // Nothing changed when every item failed; the lists already show the truth.
+      if (result.succeeded > 0)
+        void queryClient.invalidateQueries({ queryKey: ["catalog"] });
       if (entries.length === 1 && result.failed.length === 0)
         toast.success(starred ? "Added to Starred" : "Removed from Starred");
       else {

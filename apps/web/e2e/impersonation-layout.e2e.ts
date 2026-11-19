@@ -241,9 +241,11 @@ test("a persistent error toast leaves the banner, New button and selection bar r
   await page.mouse.move(160, 100);
   await expect(notifications.getByText("Starred")).toBeHidden();
   // Unstarring fails, so an error toast stays until it is closed.
+  const unstar = bar.getByRole("button", { name: "Remove star", exact: true });
+  await expect(unstar).toBeVisible();
   const starring = (url: URL) => url.pathname.includes("catalog.bookmark");
   await page.route(starring, (route) => route.abort());
-  await star.click();
+  await unstar.click();
   // Only a toast that stays until closed has a close button. Base UI hides it from assistive
   // technology until the toast area has focus, so it is found by its slot.
   const close = page.locator('[data-slot="toast-close"]');
@@ -282,7 +284,7 @@ test("a persistent error toast leaves the banner, New button and selection bar r
   await select();
   await expect(bar).toBeVisible();
   await page.route(starring, (route) => route.abort());
-  await star.click();
+  await unstar.click();
   await expect(close).toBeVisible();
   await settled();
   await clear([
