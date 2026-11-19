@@ -81,6 +81,8 @@ export default function TextEditor({
     >
       <textarea
         aria-label="File contents"
+        // Edit, which opened the editor, is gone; typing goes straight into the text.
+        autoFocus
         value={text}
         onChange={(event) => {
           latest.current = event.target.value;

@@ -107,11 +107,18 @@ test("edits text files and refuses to overwrite a concurrent change", async ({
     .click();
   const preview = page.getByRole("dialog", { name: "todo.txt", exact: true });
   await preview.getByRole("button", { name: "Edit", exact: true }).click();
+  // Focus moves into the text, and back to Edit when the editor closes.
+  await expect(
+    preview.getByRole("textbox", { name: "File contents" }),
+  ).toBeFocused();
   await preview
     .getByRole("textbox", { name: "File contents" })
     .fill("second draft");
   await preview.getByRole("button", { name: "Save", exact: true }).click();
   await expect(preview.locator("pre")).toHaveText("second draft");
+  await expect(
+    preview.getByRole("button", { name: "Edit", exact: true }),
+  ).toBeFocused();
   expect(await readFile(file, "utf8")).toBe("second draft");
 
   await preview.getByRole("button", { name: "Edit", exact: true }).click();

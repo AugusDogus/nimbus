@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   lazy,
   Suspense,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -188,6 +189,13 @@ function TextPreview({
   const queryClient = useQueryClient();
   const queryKey = ["preview", url];
   const [mode, setMode] = useState<TextMode>({ type: "view" });
+  // Leaving the editor unmounts the button that closed it, so focus returns to Edit.
+  const refocusEdit = useRef(false);
+  const leaveEditor = () => {
+    onDirtyChange?.(false);
+    refocusEdit.current = true;
+    setMode({ type: "view" });
+  };
   const content = useQuery({
     queryKey,
     queryFn: ({ signal }) => TextContent.load(url, signal),
@@ -216,14 +224,10 @@ function TextPreview({
               etag,
             })
           }
-          onClose={() => {
-            onDirtyChange?.(false);
-            setMode({ type: "view" });
-          }}
+          onClose={leaveEditor}
           onDiscard={() => {
-            onDirtyChange?.(false);
             void queryClient.invalidateQueries({ queryKey, exact: true });
-            setMode({ type: "view" });
+            leaveEditor();
           }}
         />
       </Suspense>
@@ -297,6 +301,11 @@ function TextPreview({
           )}
           {editBase && (
             <Button
+              ref={(button) => {
+                if (!button || !refocusEdit.current) return;
+                refocusEdit.current = false;
+                button.focus();
+              }}
               variant="outline"
               size="sm"
               onClick={() => setMode({ type: "edit", base: editBase })}
