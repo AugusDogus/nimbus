@@ -10,6 +10,7 @@ import { FileKind } from "@/lib/file-kind";
 import { DriveFile } from "@nimbus/api/drive-file";
 import { archiveEntries, folderRoot } from "./routes/archive-entries";
 import { fileETag } from "./file-content";
+import { FileVersion } from "./file-version";
 import { zipStream } from "./zip-stream";
 
 /**
@@ -105,6 +106,23 @@ export async function serveFile(
 ) {
   access.require(requested, "read");
   const opened = await openFile(request.method === "HEAD", requested);
+  const response = await respond(request, opened, inline);
+  versions.set(response, FileVersion.of(opened.stats));
+  return response;
+}
+
+/** The version of the file `response` serves, for responses from `serveFile`. */
+export const servedVersion = (response: Response): FileVersion | null =>
+  versions.get(response) ?? null;
+
+/** Each `serveFile` response's file version, read from the same open file as its bytes. */
+const versions = new WeakMap<Response, FileVersion>();
+
+async function respond(
+  request: Request,
+  opened: Awaited<ReturnType<typeof openFile>>,
+  inline: boolean,
+) {
   const { handle, stats, absolute } = opened;
   try {
     if (!stats.isFile())

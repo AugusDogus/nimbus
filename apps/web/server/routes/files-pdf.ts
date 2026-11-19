@@ -5,7 +5,7 @@ import { DriveFile } from "@nimbus/api/drive-file";
 import { safePath } from "@nimbus/api/file-operations";
 import { FileKind } from "@/lib/file-kind";
 import { PdfPages } from "@/lib/pdf-pages";
-import { fileETag } from "@/server/file-content";
+import { FileVersion } from "@/server/file-version";
 import { httpDriveStore, httpError, requestAccess } from "@/server/http-files";
 import {
   PdfChanged,
@@ -120,10 +120,12 @@ async function rendered(request: Request, render: () => Promise<Response>) {
 }
 
 /**
- * Every refusal comes before Poppler starts or a render slot is taken: the request's own
- * mistakes, access, the file's kind, a public link's proof and download limit, and HEAD, which
- * renders nothing and counts nothing. The PDF is opened once; its version, the proof checked,
- * the ETag sent and the bytes Poppler reads all come from that one descriptor.
+ * Every refusal comes before Poppler starts, a render slot is taken or a download is counted:
+ * the request's own mistakes, access, the file's kind, a public link's proof and download
+ * limit, a server without Poppler, and HEAD, which renders nothing and counts nothing. The PDF
+ * is opened once; its version, the proof checked, the tags sent and the bytes Poppler reads all
+ * come from that one descriptor. A counted view is charged only when it answers with the pages:
+ * every other outcome, including a request that leaves, gives the download back.
  */
 async function pdf(
   request: Request,
@@ -145,15 +147,15 @@ async function pdf(
       return json(415, "Only PDF files have rendered pages.");
     const file = await DriveFile.openFile((await safePath(relative)).absolute);
     try {
-      const etag = fileETag(file.stats);
+      const version = FileVersion.of(file.stats);
       const viewed =
         share !== null &&
-        SharePolicy.continuesTransfer(request, share, relative, etag);
+        SharePolicy.continuesTransfer(request, share, relative, version);
       if (wanted.type === "page") {
         // Pages continue a counted view of this version; they are never a free copy of the file.
         if (share !== null && !viewed)
           return json(403, "Reload the page to view this PDF.");
-        const pageTag = `${etag.slice(0, -1)}-${wanted.page}-${wanted.width}"`;
+        const pageTag = `"${version}-${wanted.page}-${wanted.width}"`;
         const headers = {
           ...imageHeaders(pageTag),
           "Content-Type": "image/jpeg",
@@ -182,28 +184,37 @@ async function pdf(
         SharePolicy.availability(share, Date.now()).kind === "exhausted"
       )
         return json(404, exhausted);
-      const headers = { "Cache-Control": "no-store", ETag: etag };
+      if (!PdfRender.available())
+        return json(
+          501,
+          "This server cannot render PDF pages. Open the PDF in a new tab or download it instead.",
+        );
+      const headers = { "Cache-Control": "no-store", ETag: `"${version}"` };
       if (request.method === "HEAD")
         return new Response(null, {
           headers: { ...headers, "Content-Type": "application/json" },
         });
-      // Counted before rendering, so a refused view never reaches Poppler. Atomic, like a
-      // download: of two views for the last one, only one claims it.
-      if (counts && !(await httpDriveStore.claimDownload(share.id)))
-        return json(404, exhausted);
-      const response = await rendered(request, async () =>
-        Response.json(
-          {
-            ...(await PdfRender.info(file, request.signal)),
-            version: etag.slice(1, -1),
-          } satisfies PdfPages,
-          { headers },
-        ),
+      const view = () =>
+        rendered(request, async () =>
+          Response.json(
+            {
+              ...(await PdfRender.info(file, request.signal)),
+              version,
+            } satisfies PdfPages,
+            { headers },
+          ),
+        );
+      if (!counts) return await view();
+      // Counted before rendering, so a refused view never reaches Poppler, and given back
+      // unless the pages are delivered.
+      const response = await SharePolicy.countedView(
+        httpDriveStore,
+        share,
+        view,
       );
-      // The view is counted even when its pages cannot be drawn: the proof still lets this
-      // browser open or download the PDF without counting again.
-      if (counts)
-        SharePolicy.allowPagesView(request, response, share, relative, etag);
+      if (response === null) return json(404, exhausted);
+      if (response.ok)
+        SharePolicy.allowPagesView(request, response, share, relative, version);
       return response;
     } finally {
       await file.handle.close();

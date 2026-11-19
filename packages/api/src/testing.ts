@@ -136,6 +136,10 @@ export function createTestDriveStore() {
         }
       return false;
     },
+    async refundDownload(id) {
+      for (const share of shares.values())
+        if (share.id === id && share.downloadCount > 0) share.downloadCount--;
+    },
     async addTrash(item) {
       trash.set(item.id, item);
       detached.set(item.id, take(item.path));

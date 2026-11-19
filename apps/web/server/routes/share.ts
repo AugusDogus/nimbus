@@ -1,5 +1,5 @@
 import { entryAt, readDirectory } from "@nimbus/api/file-browser";
-import { serveFile, serveZip } from "@/server/file-response";
+import { serveFile, servedVersion, serveZip } from "@/server/file-response";
 import { httpDriveStore, httpError } from "@/server/http-files";
 import { RateLimiter } from "@/server/rate-limit";
 import { RequestBody } from "@/server/request-body";
@@ -67,21 +67,43 @@ export async function GET(request: Request, context: Context) {
           "This file cannot be previewed, and this link allows previews only. Ask the owner for a download link.",
         );
       const relative = scoped.target.relative;
+      // Read from the same open file as the bytes, so a proof is checked against what is sent.
+      const version = servedVersion(response);
       const exhausted = () =>
         refuse(
           response,
           404,
           "This share link has reached its download limit. Ask the owner for a new link.",
         );
-      if (SharePolicy.countsAsTransfer(request, response, share, relative)) {
+      if (
+        SharePolicy.countsAsTransfer(
+          request,
+          response,
+          share,
+          relative,
+          version,
+        )
+      ) {
         // Atomic: of two requests for the last download, only one claims it.
         if (!(await httpDriveStore.claimDownload(share.id))) return exhausted();
         if (entry.type === "file")
-          SharePolicy.allowContinuation(request, response, share, relative);
+          SharePolicy.allowContinuation(
+            request,
+            response,
+            share,
+            relative,
+            version,
+          );
       } else if (
         // Only what continues a counted view is served once downloads are used up.
         response.status !== 206 &&
-        !SharePolicy.continuesView(request, response, share, relative) &&
+        !SharePolicy.continuesView(
+          request,
+          response,
+          share,
+          relative,
+          version,
+        ) &&
         SharePolicy.availability(share, Date.now()).kind === "exhausted"
       )
         return exhausted();

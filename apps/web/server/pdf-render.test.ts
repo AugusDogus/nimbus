@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  rename,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -168,18 +175,38 @@ describe.skipIf(!poppler)("PdfRender (requires poppler-utils)", () => {
     ).rejects.toBeInstanceOf(PdfRenderFailed);
   });
 
-  test("draws the opened version when another file is renamed over its path", async () => {
+  test("never answers for the opened version once another file is renamed over its path", async () => {
     const target = path.join(drive, "docs/swapped.pdf");
     await writeFile(target, pdf([{ fill: "0.2 0.4 0.8" }]));
-    const counts = await withOpened("swapped.pdf", async (file) => {
-      await writeFile(
-        `${target}.next`,
-        pdf([{ fill: "0.8 0.2 0.2" }, { fill: "0.8 0.2 0.2" }]),
-      );
-      await rename(`${target}.next`, target);
-      return PdfRender.info(file, signal());
-    });
-    expect(counts.count).toBe(1);
+    // The opened file is unlinked, which moves its change time: refused rather than answered
+    // under a version the path no longer holds.
+    await expect(
+      withOpened("swapped.pdf", async (file) => {
+        await writeFile(
+          `${target}.next`,
+          pdf([{ fill: "0.8 0.2 0.2" }, { fill: "0.8 0.2 0.2" }]),
+        );
+        await rename(`${target}.next`, target);
+        return PdfRender.info(file, signal());
+      }),
+    ).rejects.toBeInstanceOf(PdfChanged);
+  });
+
+  test("refuses output when the opened file was rewritten with its old size and modification time", async () => {
+    const target = path.join(drive, "docs/disguised.pdf");
+    const blue = pdf([{ fill: "0.2 0.4 0.8" }]);
+    const red = pdf([{ fill: "0.8 0.2 0.2" }]);
+    expect(red.length).toBe(blue.length);
+    await writeFile(target, blue);
+    const when = new Date(1_700_000_000_000);
+    await utimes(target, when, when);
+    await expect(
+      withOpened("disguised.pdf", async (file) => {
+        await writeFile(target, red);
+        await utimes(target, when, when);
+        return PdfRender.page(file, 1, 480, signal());
+      }),
+    ).rejects.toBeInstanceOf(PdfChanged);
   });
 
   test("refuses output when the opened file was written in place", async () => {

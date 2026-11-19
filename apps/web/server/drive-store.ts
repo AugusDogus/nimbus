@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   permissionSchema,
@@ -359,6 +359,12 @@ export function createDriveStore(database: Database): DriveStore {
         )
         .returning({ id: shares.id });
       return claimed.length > 0;
+    },
+    async refundDownload(id) {
+      await database
+        .update(shares)
+        .set({ downloadCount: sql`${shares.downloadCount} - 1` })
+        .where(and(eq(shares.id, id), gt(shares.downloadCount, 0)));
     },
     async addTrash(item) {
       database.transaction((tx) => {

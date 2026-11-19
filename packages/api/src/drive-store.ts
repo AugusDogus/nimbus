@@ -127,6 +127,11 @@ export type DriveStore = {
   revokeShare(id: string, userId: string): Promise<void>;
   /** Atomically count one download unless the link has used its limit. */
   claimDownload(id: string): Promise<boolean>;
+  /**
+   * Give back one download `claimDownload` counted for a view that delivered nothing. Only
+   * the claimant calls it, once, so the count never drops below the claims still held.
+   */
+  refundDownload(id: string): Promise<void>;
   homeOf(userId: string): Promise<string | null>;
   listHomes(): Promise<Home[]>;
   /** Whether a home folder is at or under a path. */

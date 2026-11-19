@@ -61,10 +61,41 @@ const jar = (current: string, ...responses: Response[]) => {
   return [...cookies.values()].join("; ");
 };
 
+/**
+ * The policy's calls with each response's file version taken from its ETag header, so these
+ * tests can name versions as the responses' tags.
+ */
+const countsAsTransfer = (
+  request: Request,
+  served: Response,
+  link: Pick<Share, "token">,
+  relative: string,
+) =>
+  SharePolicy.countsAsTransfer(
+    request,
+    served,
+    link,
+    relative,
+    served.headers.get("etag"),
+  );
+const allowContinuation = (
+  request: Request,
+  served: Response,
+  link: Pick<Share, "token">,
+  relative: string,
+) =>
+  SharePolicy.allowContinuation(
+    request,
+    served,
+    link,
+    relative,
+    served.headers.get("etag"),
+  );
+
 test("ranges count unless they continue a transfer this browser already made", () => {
   process.env.BETTER_AUTH_SECRET ??= "test-secret-test-secret-test-secret";
   const counts = (request: Request, served: Response) =>
-    SharePolicy.countsAsTransfer(request, served, share, "docs/a.txt");
+    countsAsTransfer(request, served, share, "docs/a.txt");
   const range = (start: number) =>
     response(206, {
       "Content-Range": `bytes ${start}-999/1000`,
@@ -80,7 +111,7 @@ test("ranges count unless they continue a transfer this browser already made", (
 
   // A counted transfer lets the same browser resume or seek within the same file version.
   const counted = response(200, { ETag: '"1-1000"' });
-  SharePolicy.allowContinuation(get(), counted, share, "docs/a.txt");
+  allowContinuation(get(), counted, share, "docs/a.txt");
   const cookie = counted.headers.get("set-cookie")?.split(";")[0] ?? "";
   expect(cookie).toStartWith("nimbus-transfer-");
   expect(counts(get({ cookie }), range(100))).toBe(false);
@@ -88,12 +119,7 @@ test("ranges count unless they continue a transfer this browser already made", (
   // Never another full copy, another file, or a changed file.
   expect(counts(get({ cookie }), response(200))).toBe(true);
   expect(
-    SharePolicy.countsAsTransfer(
-      get({ cookie }),
-      range(100),
-      share,
-      "docs/b.txt",
-    ),
+    countsAsTransfer(get({ cookie }), range(100), share, "docs/b.txt"),
   ).toBe(true);
   expect(
     counts(
@@ -117,16 +143,16 @@ test("downloading another file of the link keeps the earlier transfer continuabl
     ["docs/b.txt", '"b"'],
   ] as const) {
     const counted = tagged(etag);
-    SharePolicy.allowContinuation(get({ cookie }), counted, share, name);
+    allowContinuation(get({ cookie }), counted, share, name);
     cookie = jar(cookie, counted);
   }
   for (const [name, etag] of [
     ["docs/a.txt", '"a"'],
     ["docs/b.txt", '"b"'],
   ] as const)
-    expect(
-      SharePolicy.countsAsTransfer(get({ cookie }), range(etag), share, name),
-    ).toBe(false);
+    expect(countsAsTransfer(get({ cookie }), range(etag), share, name)).toBe(
+      false,
+    );
 });
 
 test("transfers started at the same time stay continuable", () => {
@@ -136,24 +162,14 @@ test("transfers started at the same time stay continuable", () => {
   // Both requests carry the cookie from before either transfer.
   const a = response(200, { ETag: '"a"' });
   const b = response(200, { ETag: '"b"' });
-  SharePolicy.allowContinuation(get(), a, share, "docs/a.txt");
-  SharePolicy.allowContinuation(get(), b, share, "docs/b.txt");
+  allowContinuation(get(), a, share, "docs/a.txt");
+  allowContinuation(get(), b, share, "docs/b.txt");
   const cookie = jar("", a, b);
   expect(
-    SharePolicy.countsAsTransfer(
-      get({ cookie }),
-      range('"a"'),
-      share,
-      "docs/a.txt",
-    ),
+    countsAsTransfer(get({ cookie }), range('"a"'), share, "docs/a.txt"),
   ).toBe(false);
   expect(
-    SharePolicy.countsAsTransfer(
-      get({ cookie }),
-      range('"b"'),
-      share,
-      "docs/b.txt",
-    ),
+    countsAsTransfer(get({ cookie }), range('"b"'), share, "docs/b.txt"),
   ).toBe(false);
 });
 
@@ -162,17 +178,12 @@ test("a browser keeps at most 16 transfers continuable, dropping the oldest", ()
   let cookie = "";
   for (let index = 0; index < 20; index++) {
     const counted = response(200, { ETag: `"${index}"` });
-    SharePolicy.allowContinuation(
-      get({ cookie }),
-      counted,
-      share,
-      `docs/${index}.txt`,
-    );
+    allowContinuation(get({ cookie }), counted, share, `docs/${index}.txt`);
     cookie = jar(cookie, counted);
   }
   expect(cookie.split("; ")).toHaveLength(16);
   const continues = (index: number) =>
-    !SharePolicy.countsAsTransfer(
+    !countsAsTransfer(
       get({ cookie }),
       response(206, { "Content-Range": "bytes 1-9/10", ETag: `"${index}"` }),
       share,
@@ -205,7 +216,7 @@ test("a counted PDF pages view lets the same browser take that version's whole f
     request: Request,
     served: Response,
     relative = "docs/a.pdf",
-  ) => SharePolicy.countsAsTransfer(request, served, share, relative);
+  ) => countsAsTransfer(request, served, share, relative);
   const whole = (etag: string) => response(200, { ETag: etag });
   const viewed = response(200);
   SharePolicy.allowPagesView(get(), viewed, share, "docs/a.pdf", '"1-1000"');
@@ -232,7 +243,7 @@ test("a counted PDF pages view lets the same browser take that version's whole f
   expect(counts(get({ cookie }), whole('"1-1000"'), "docs/b.pdf")).toBe(true);
   expect(counts(get({ cookie }), whole('"2-1000"'))).toBe(true);
   expect(
-    SharePolicy.countsAsTransfer(
+    countsAsTransfer(
       get({ cookie }),
       whole('"1-1000"'),
       { ...share, token: "other" },
@@ -241,8 +252,84 @@ test("a counted PDF pages view lets the same browser take that version's whole f
   ).toBe(true);
   // A transfer proof does not stand in for it: every other whole response counts.
   const transferred = whole('"1-1000"');
-  SharePolicy.allowContinuation(get(), transferred, share, "docs/a.pdf");
+  allowContinuation(get(), transferred, share, "docs/a.pdf");
   expect(counts(get({ cookie: jar("", transferred) }), whole('"1-1000"'))).toBe(
     true,
   );
+});
+
+test("a counted view is charged only when it delivers", async () => {
+  const store = {
+    count: 0,
+    limit: 1,
+    async claimDownload() {
+      if (this.count >= this.limit) return false;
+      this.count++;
+      return true;
+    },
+    async refundDownload() {
+      if (this.count > 0) this.count--;
+    },
+  };
+  const view = (deliver: () => Promise<Response>) =>
+    SharePolicy.countedView(store, share, deliver);
+  // Each answer that is not a success gives the download back: a decoder failure or timeout
+  // (422), a file changed while drawn (409), a full queue (429), a server error (500).
+  for (const status of [409, 422, 429, 500, 501]) {
+    expect((await view(async () => response(status)))?.status).toBe(status);
+    expect(store.count).toBe(0);
+  }
+  // A request that leaves before the answer throws its abort: given back, and passed on.
+  const abort = new DOMException("The request was cancelled.", "AbortError");
+  await expect(
+    view(async () => {
+      throw abort;
+    }),
+  ).rejects.toBe(abort);
+  expect(store.count).toBe(0);
+  // Delivered: charged. Nothing after the answer, such as the visitor leaving, refunds it.
+  expect((await view(async () => response(200)))?.status).toBe(200);
+  expect(store.count).toBe(1);
+  // No download left: refused without delivering anything.
+  let ran = false;
+  expect(
+    await view(async () => {
+      ran = true;
+      return response(200);
+    }),
+  ).toBeNull();
+  expect(ran).toBe(false);
+  expect(store.count).toBe(1);
+});
+
+test("a delivered view in flight holds its download, so racing views never exceed the limit", async () => {
+  const store = {
+    count: 0,
+    async claimDownload() {
+      if (this.count >= 1) return false;
+      this.count++;
+      return true;
+    },
+    async refundDownload() {
+      if (this.count > 0) this.count--;
+    },
+  };
+  let finish: (served: Response) => void = () => {};
+  const slow = SharePolicy.countedView(
+    store,
+    share,
+    () => new Promise<Response>((resolve) => (finish = resolve)),
+  );
+  // While the first view renders, another is refused; after it fails, one more may run.
+  expect(
+    await SharePolicy.countedView(store, share, async () => response(200)),
+  ).toBeNull();
+  finish(response(422));
+  expect((await slow)?.status).toBe(422);
+  expect(store.count).toBe(0);
+  expect(
+    (await SharePolicy.countedView(store, share, async () => response(200)))
+      ?.status,
+  ).toBe(200);
+  expect(store.count).toBe(1);
 });

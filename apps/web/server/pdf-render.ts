@@ -1,7 +1,8 @@
-import { existsSync, type Stats } from "node:fs";
+import { existsSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import type { OpenedDriveFile } from "@nimbus/api/drive-file";
 import { PdfPages } from "@/lib/pdf-pages";
+import { FileVersion } from "./file-version";
 import { runBounded } from "./thumbnail-renderers";
 import { createLimiter } from "./thumbnails";
 
@@ -76,39 +77,37 @@ async function rendering<T>(
 /** Linux names each open descriptor under /proc, where a child process can open it too. */
 const descriptorPaths = existsSync("/proc/self/fd");
 
-const tools = () => {
+/** Poppler's tools, or null where pages cannot be rendered at all. */
+const installed = () => {
   const pdfinfo = Bun.which("pdfinfo");
   const pdftoppm = Bun.which("pdftoppm");
-  if (!pdfinfo || !pdftoppm || !Bun.which("prlimit") || !descriptorPaths)
+  return pdfinfo && pdftoppm && Bun.which("prlimit") && descriptorPaths
+    ? { pdfinfo, pdftoppm }
+    : null;
+};
+
+const tools = () => {
+  const found = installed();
+  if (!found)
     throw new PdfRenderUnavailable(
       "This server cannot render PDF pages: pdfinfo, pdftoppm (poppler-utils) or prlimit (util-linux) is not installed, or /proc is not mounted. The Docker image includes them. Open the PDF in a new tab or download it instead.",
     );
-  return { pdfinfo, pdftoppm };
+  return found;
 };
 
 /**
- * Whether `after` is the version `before` names, as the ETag does: the same file, size and
- * modification time. Any write moves the modification time. The change time is not compared:
- * it also moves when another file is renamed over this one's path, which leaves its content
- * intact.
- */
-const sameVersion = (before: Stats, after: Stats) =>
-  before.dev === after.dev &&
-  before.ino === after.ino &&
-  before.size === after.size &&
-  before.mtimeMs === after.mtimeMs;
-
-/**
  * Runs Poppler on the open descriptor itself, so a file renamed over the path is never read,
- * then checks the descriptor's file was not written in place meanwhile. Either way the output
- * describes exactly the version `file.stats` names, or the request is refused.
+ * then checks the descriptor's file is still the `FileVersion` it was opened as: a write in
+ * place, even one that restores the modification time, moves its change time. Either way the
+ * output describes exactly the version `file.stats` names, or the request is refused. A file
+ * renamed over the path also moves the opened file's change time, so it is refused too.
  */
 async function fromOpened<T>(
   file: OpenedPdf,
   run: (source: string) => Promise<T>,
 ) {
   const output = await run(`/proc/${process.pid}/fd/${file.handle.fd}`);
-  if (!sameVersion(file.stats, await file.handle.stat()))
+  if (FileVersion.of(file.stats) !== FileVersion.of(await file.handle.stat()))
     throw new PdfChanged(
       "The PDF changed while its pages were drawn. Reload to see the current version.",
     );
@@ -203,6 +202,8 @@ function page(
  */
 export const PdfRender = {
   parseInfo,
+  /** Whether this server can render pages at all, checked before a view is counted. */
+  available: () => installed() !== null,
   /** The page count and the sizes of the first pages. */
   info,
   /** Page `number` (from 1) as a JPEG image `width` pixels wide. */

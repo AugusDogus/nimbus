@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, rename, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -297,6 +297,29 @@ async function centre(image: Buffer) {
 }
 
 const red = "0.8 0.2 0.2 rg 0 0 400 200 re f";
+
+/**
+ * Hold every render slot for several seconds with pages that take Poppler about two seconds
+ * each, so the next PDF request waits in the queue. Resolves once they hold the slots; await
+ * `finished` before the test ends.
+ */
+async function fillRenderQueue(context: BrowserContext, folder: string) {
+  let squares = "0.5 g\n";
+  for (let index = 0; index < 600_000; index++)
+    squares += `${(index * 7) % 390} ${(index * 13) % 190} 3 3 re f\n`;
+  await writeFile(
+    path.join(await dataRoot(), folder, "slow.pdf"),
+    pdf(1, squares),
+  );
+  const slow = Array.from({ length: 12 }, () =>
+    context.request.get(
+      `/api/files/pdf?path=${encodeURIComponent(`${folder}/slow.pdf`)}&page=1&width=1600`,
+      { timeout: 120_000 },
+    ),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  return { finished: Promise.all(slow) };
+}
 /** The default rectangle's blue, and `red`, as `centre` reports them. */
 const blueCentre = [5, 10, 20];
 const redCentre = [20, 5, 5];
@@ -308,11 +331,6 @@ for (const replacement of ["renamed over it", "rewritten in place"] as const)
   }) => {
     const { folder, rpc } = await pdfFolder(context, 1);
     const root = path.join(await dataRoot(), folder);
-    // Each page of this takes Poppler about two seconds, so a few of them fill the render queue.
-    let squares = "0.5 g\n";
-    for (let index = 0; index < 600_000; index++)
-      squares += `${(index * 7) % 390} ${(index * 13) % 190} 3 3 re f\n`;
-    await writeFile(path.join(root, "slow.pdf"), pdf(1, squares));
     const { token } = await rpc.shares.create.mutate({
       path: folder,
       expiresAt: null,
@@ -323,14 +341,7 @@ for (const replacement of ["renamed over it", "rewritten in place"] as const)
       const opened = await visitor.request.get(shared);
       expect(opened.status()).toBe(200);
       const etag = opened.headers()["etag"] ?? "";
-      const slow = Array.from({ length: 12 }, () =>
-        context.request.get(
-          `/api/files/pdf?path=${encodeURIComponent(`${folder}/slow.pdf`)}&page=1&width=1600`,
-          { timeout: 120_000 },
-        ),
-      );
-      // Let the slow renders take every render slot, so the next request waits in the queue.
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const queue = await fillRenderQueue(context, folder);
       const waiting = visitor.request.get(`${shared}&page=1&width=480`, {
         timeout: 120_000,
       });
@@ -340,7 +351,7 @@ for (const replacement of ["renamed over it", "rewritten in place"] as const)
         await rename(path.join(root, "next.pdf"), path.join(root, "page.pdf"));
       } else await writeFile(path.join(root, "page.pdf"), pdf(1, red));
       const page = await waiting;
-      await Promise.all(slow);
+      await queue.finished;
       // Never the new document under the old version's proof and ETag: either the opened
       // version itself, or a refusal that asks for a reload. 409: written while drawn. 403:
       // written before this request opened it, so its proof names the old version.
@@ -466,6 +477,192 @@ test("HEAD on a link's PDF pages neither counts a download nor issues a proof", 
     ).toBe(403);
     expect((await second.request.get(shared)).status()).toBe(200);
     expect((await first.request.get(shared)).status()).toBe(404);
+  } finally {
+    await first.close();
+    await second.close();
+  }
+});
+
+/** The default rectangle in red: a PDF of exactly the same size as the default one. */
+const sameSizeRed = "0.8 0.2 0.2 rg 20 20 360 160 re f";
+
+for (const replacement of ["renamed over it", "rewritten in place"] as const)
+  test(`a proof does not cover a replacement ${replacement} with the same size and modification time`, async ({
+    context,
+    browser,
+  }) => {
+    const { folder, rpc } = await pdfFolder(context, 1);
+    const file = path.join(await dataRoot(), folder, "page.pdf");
+    // Whole seconds, so the replacement can be given exactly the same modification time.
+    const when = new Date(Math.floor(Date.now() / 1000) * 1000 - 60_000);
+    await utimes(file, when, when);
+    const before = await stat(file);
+    const { token } = await rpc.shares.create.mutate({
+      path: `${folder}/page.pdf`,
+      expiresAt: null,
+      maxDownloads: 1,
+    });
+    const visitor = await visitorOf(browser);
+    try {
+      const shared = `/api/share/${token}/pdf?path=`;
+      expect((await visitor.request.get(shared)).status()).toBe(200);
+      const first = await visitor.request.get(`${shared}&page=1&width=480`);
+      expect(await centre(await first.body())).toEqual(blueCentre);
+      const next = pdf(1, sameSizeRed);
+      if (replacement === "renamed over it") {
+        await writeFile(`${file}.next`, next);
+        await rename(`${file}.next`, file);
+      } else await writeFile(file, next);
+      await utimes(file, when, when);
+      const after = await stat(file);
+      expect([after.size, after.mtimeMs]).toEqual([
+        before.size,
+        before.mtimeMs,
+      ]);
+      // The new document is another version: no page of it, and no whole file, under the old
+      // view's proof. The link's one download is used, so both are refused.
+      expect(
+        (await visitor.request.get(`${shared}&page=1&width=480`)).status(),
+      ).toBe(403);
+      expect(
+        (
+          await visitor.request.get(`/api/share/${token}?path=&preview=1`)
+        ).status(),
+      ).toBe(404);
+    } finally {
+      await visitor.close();
+    }
+  });
+
+test("a view cancelled while it waits for a render slot is not charged", async ({
+  context,
+  browser,
+}) => {
+  const { folder, rpc } = await pdfFolder(context, 1);
+  const { token } = await rpc.shares.create.mutate({
+    path: `${folder}/page.pdf`,
+    expiresAt: null,
+    maxDownloads: 1,
+  });
+  const first = await visitorOf(browser);
+  const second = await visitorOf(browser);
+  try {
+    const shared = `/api/share/${token}/pdf?path=`;
+    const queue = await fillRenderQueue(context, folder);
+    // Gives up while queued: the browser closes the request before any answer.
+    await expect(
+      first.request.get(shared, { timeout: 1000 }),
+    ).rejects.toThrow();
+    await queue.finished;
+    const retried = await first.request.get(shared);
+    expect(retried.status()).toBe(200);
+    // That view, delivered, is the link's one download.
+    expect((await second.request.get(shared)).status()).toBe(404);
+  } finally {
+    await first.close();
+    await second.close();
+  }
+});
+
+test("a view of a PDF changed while it waits is not charged, and reloading shows the new version", async ({
+  context,
+  browser,
+}) => {
+  const { folder, rpc } = await pdfFolder(context, 1);
+  const file = path.join(await dataRoot(), folder, "page.pdf");
+  const { token } = await rpc.shares.create.mutate({
+    path: `${folder}/page.pdf`,
+    expiresAt: null,
+    maxDownloads: 1,
+  });
+  const visitor = await visitorOf(browser);
+  try {
+    const shared = `/api/share/${token}/pdf?path=`;
+    const queue = await fillRenderQueue(context, folder);
+    const waiting = visitor.request.get(shared, { timeout: 120_000 });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await writeFile(file, pdf(1, red));
+    const changed = await waiting;
+    await queue.finished;
+    expect(changed.status()).toBe(409);
+    expect(changed.headers()["set-cookie"]).toBeUndefined();
+    // Following the advice to reload works on the one-download link.
+    expect((await visitor.request.get(shared)).status()).toBe(200);
+    const page = await visitor.request.get(`${shared}&page=1&width=480`);
+    expect(await centre(await page.body())).toEqual(redCentre);
+    expect(
+      (
+        await visitor.request.get(`/api/share/${token}?path=&preview=1`)
+      ).status(),
+    ).toBe(200);
+  } finally {
+    await visitor.close();
+  }
+});
+
+test("a view whose pages cannot be drawn is not charged", async ({
+  context,
+  browser,
+}) => {
+  const { folder, rpc } = await pdfFolder(context, 1);
+  await writeFile(
+    path.join(await dataRoot(), folder, "broken.pdf"),
+    "not a pdf",
+  );
+  const { token } = await rpc.shares.create.mutate({
+    path: `${folder}/broken.pdf`,
+    expiresAt: null,
+    maxDownloads: 1,
+  });
+  const first = await visitorOf(browser);
+  const second = await visitorOf(browser);
+  try {
+    const failed = await first.request.get(`/api/share/${token}/pdf?path=`);
+    expect(failed.status()).toBe(422);
+    expect(failed.headers()["set-cookie"]).toBeUndefined();
+    // The one download is still there for whoever takes the file.
+    expect(
+      (
+        await second.request.get(`/api/share/${token}?path=&download=1`)
+      ).status(),
+    ).toBe(200);
+    expect(
+      (
+        await first.request.get(`/api/share/${token}?path=&download=1`)
+      ).status(),
+    ).toBe(404);
+  } finally {
+    await first.close();
+    await second.close();
+  }
+});
+
+test("requests refused before the claim never count", async ({
+  context,
+  browser,
+}) => {
+  const { folder, rpc } = await pdfFolder(context, 1);
+  await writeFile(path.join(await dataRoot(), folder, "notes.txt"), "text");
+  const { token } = await rpc.shares.create.mutate({
+    path: folder,
+    expiresAt: null,
+    maxDownloads: 1,
+  });
+  const first = await visitorOf(browser);
+  const second = await visitorOf(browser);
+  try {
+    const base = `/api/share/${token}/pdf?path=`;
+    for (const [url, status] of [
+      [`${base}page.pdf&page=1&width=500`, 400],
+      [`${base}page.pdf&page=1&width=480`, 403],
+      [`${base}notes.txt`, 415],
+      [`${base}missing.pdf`, 404],
+      [`${base}..%2Foutside.pdf`, 403],
+    ] as const)
+      expect((await first.request.get(url)).status()).toBe(status);
+    expect((await first.request.head(`${base}page.pdf`)).status()).toBe(200);
+    expect((await second.request.get(`${base}page.pdf`)).status()).toBe(200);
+    expect((await first.request.get(`${base}page.pdf`)).status()).toBe(404);
   } finally {
     await first.close();
     await second.close();

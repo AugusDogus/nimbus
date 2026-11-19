@@ -22,6 +22,7 @@ import {
   maxHeldDescriptors,
   releaseHeldDescriptorsForTest,
   serveFile,
+  servedVersion,
   serveStoredFile,
   serveZip,
   stillNamed,
@@ -382,5 +383,25 @@ test("zero-copy downloads hold at most the cap of descriptors, and release them"
   const next = await serveFile(get(), "docs/large.bin", access);
   expect(heldDescriptorCount()).toBe(1);
   await next.body?.cancel();
+  await releaseHeldDescriptorsForTest();
+});
+
+test("names the served file's version, which a replacement with the same size and modification time does not share", async () => {
+  const access = await admin();
+  const file = path.join(root, "docs/a.txt");
+  const when = new Date(1_700_000_000_000);
+  await utimes(file, when, when);
+  const first = await serveFile(get(), "docs/a.txt", access);
+  await writeFile(`${file}.next`, "9876543210");
+  await rename(`${file}.next`, file);
+  await utimes(file, when, when);
+  const second = await serveFile(get(), "docs/a.txt", access);
+  // The public ETag cannot tell them apart; the version proofs are bound to can.
+  expect(second.headers.get("etag")).toBe(first.headers.get("etag"));
+  expect(servedVersion(first)).not.toBeNull();
+  expect(servedVersion(second)).not.toBe(servedVersion(first));
+  expect(servedVersion(new Response("other"))).toBeNull();
+  await first.body?.cancel();
+  await second.body?.cancel();
   await releaseHeldDescriptorsForTest();
 });

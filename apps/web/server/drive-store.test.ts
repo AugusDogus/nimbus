@@ -238,6 +238,30 @@ test("concurrent download claims never exceed the link's limit", async () => {
   expect((await store.getShare("token-limited"))?.downloadCount).toBe(2);
 });
 
+test("a refunded claim frees one download, and claims racing refunds never exceed the limit", async () => {
+  await store.createShare({ ...share("limited", "docs"), maxDownloads: 1 });
+  const count = async () =>
+    (await store.getShare("token-limited"))?.downloadCount;
+  expect(await store.claimDownload("limited")).toBe(true);
+  expect(await store.claimDownload("limited")).toBe(false);
+  await store.refundDownload("limited");
+  expect(await count()).toBe(0);
+  // Each round: the holder refunds while others race to claim; at most one claim may stand.
+  for (let round = 0; round < 20; round++) {
+    expect(await store.claimDownload("limited")).toBe(true);
+    const [, ...claims] = await Promise.all([
+      store.refundDownload("limited"),
+      ...Array.from({ length: 4 }, () => store.claimDownload("limited")),
+    ]);
+    expect(claims.filter(Boolean).length).toBeLessThanOrEqual(1);
+    expect(await count()).toBe(claims.filter(Boolean).length);
+    if (claims.some(Boolean)) await store.refundDownload("limited");
+  }
+  // Never below zero, even refunded without a claim held.
+  await store.refundDownload("limited");
+  expect(await count()).toBe(0);
+});
+
 test("only a link's creator can change its settings", async () => {
   await store.createShare({ ...share("limited", "docs"), maxDownloads: 2 });
   const settings = {
