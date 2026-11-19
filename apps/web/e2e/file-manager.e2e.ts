@@ -812,3 +812,52 @@ test("uploads to the drive root from the file picker, the folder picker and a dr
     await rm(local, { recursive: true, force: true });
   }
 });
+
+test("a failed refresh keeps Starred's list and selection, and offers to try again", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Selecting with modifier keys is a desktop interaction.");
+  const { folder } = await folderWithFiles(["kept-a.txt", "kept-b.txt"]);
+  const rpc = await client(context);
+  for (const name of ["kept-a.txt", "kept-b.txt"])
+    await rpc.catalog.bookmark.mutate({
+      path: `${folder}/${name}`,
+      starred: true,
+    });
+  await page.clock.install();
+  await page.clock.resume();
+  await page.goto("/starred");
+  await expect(
+    entry(page, "kept-a.txt").filter({ visible: true }),
+  ).toBeVisible();
+  await entry(page, "kept-b.txt")
+    .filter({ visible: true })
+    .click({ modifiers: ["ControlOrMeta"] });
+  await expect(bar(page)).toContainText("1 selected");
+
+  // Past the list's 30 seconds of freshness, the page refreshes it on returning to the tab,
+  // which React Query hears as visibilitychange on window.
+  let blocked = 0;
+  const bookmarks = (url: URL) => url.pathname.includes("catalog.bookmarks");
+  await page.route(bookmarks, (route) => {
+    blocked += 1;
+    return route.abort();
+  });
+  await page.clock.fastForward("00:45");
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("visibilitychange")),
+  );
+  await expect.poll(() => blocked).toBeGreaterThan(0);
+  await expect(page.getByText("Could not refresh this list")).toBeVisible();
+  await expect(
+    entry(page, "kept-a.txt").filter({ visible: true }),
+  ).toBeVisible();
+  await expect(bar(page)).toContainText("1 selected");
+
+  await page.unroute(bookmarks);
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByText("Could not refresh this list")).toBeHidden();
+  await expect(bar(page)).toContainText("1 selected");
+});

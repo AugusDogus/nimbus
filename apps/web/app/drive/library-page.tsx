@@ -1,7 +1,7 @@
 import { Link } from "@/components/link";
 import { useQuery } from "@tanstack/react-query";
 import { trpcClient } from "@/lib/trpc";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { EntriesView } from "./files/entries-view";
 import { useEntryDialog } from "./files/use-entry-dialog";
 import { useFileActions } from "./files/use-file-actions";
@@ -44,7 +44,25 @@ export function LibraryPage({
       {kind !== "shared" && (
         <h1 className="text-balance text-2xl font-semibold">{title}</h1>
       )}
-      {active.isError ? (
+      {/* A failed refresh keeps the list it already has, and the selection in it. */}
+      {active.isError && active.data !== undefined && (
+        <div className="flex flex-wrap items-center gap-3">
+          <p
+            role="status"
+            className="text-pretty text-sm text-muted-foreground"
+          >
+            Could not refresh this list. Showing what was loaded before.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void active.refetch()}
+          >
+            Try again
+          </Button>
+        </div>
+      )}
+      {active.isError && active.data === undefined ? (
         <p role="alert" className="text-pretty text-destructive">
           {active.error.message}
         </p>

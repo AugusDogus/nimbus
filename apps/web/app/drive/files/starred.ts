@@ -27,7 +27,10 @@ export function useStarredPaths(enabled: boolean): StarredPaths {
     queryFn: () => trpcClient.catalog.bookmarks.query(),
     select: starredPaths,
     enabled,
-    // A failure shows at once: using the control then says so and loads them again.
+    // A menu or a selection reads the stars already loaded, without refreshing a list a page
+    // shows; star changes made here reload them. Loading the first time, a failure shows at
+    // once: using the control then says so and loads them again.
+    refetchOnMount: false,
     retry: false,
   });
   if (query.data) return { kind: "ready", paths: query.data };
