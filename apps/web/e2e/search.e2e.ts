@@ -293,3 +293,47 @@ test("suggestions and focused results stay clear of the sticky header and toolba
     (header?.y ?? 0) + (header?.height ?? 0),
   );
 });
+
+test("arrow keys reach Show all results, which Enter opens", async ({
+  page,
+  context,
+}) => {
+  const token = randomUUID().slice(0, 8);
+  // The folder's own name must not match, so the two files are the only matches.
+  const folder = `show-all-${randomUUID().slice(0, 8)}`;
+  await (await client(context)).files.createFolder.mutate({ name: folder });
+  for (const name of ["first", "second"])
+    await writeFile(
+      path.join(await dataRoot(), folder, `${name}-${token}.txt`),
+      "x",
+    );
+  await page.goto("/");
+  const box = page.getByRole("combobox", { name: "Search files" });
+  const suggestions = page.getByRole("listbox", { name: "Search suggestions" });
+  const matches = suggestions.getByRole("option", {
+    name: new RegExp(`-${token}\\.txt`),
+  });
+  await expect(async () => {
+    await box.fill("");
+    await box.fill(token);
+    await expect(matches).toHaveCount(2, { timeout: 2_000 });
+  }).toPass();
+  const showAll = suggestions.getByRole("option", { name: /^Show all/ });
+  const activeIsShowAll = async () =>
+    (await box.getAttribute("aria-activedescendant")) ===
+    (await showAll.getAttribute("id"));
+
+  // Up from the text wraps to the last option, Show all.
+  await box.press("ArrowUp");
+  expect(await activeIsShowAll()).toBe(true);
+  await expect(showAll).toHaveAttribute("aria-selected", "true");
+  // Down from Show all returns to the text, then walks the matches to Show all.
+  await box.press("ArrowDown");
+  await expect(box).not.toHaveAttribute("aria-activedescendant");
+  for (let i = 0; i < 2; i++) await box.press("ArrowDown");
+  expect(await activeIsShowAll()).toBe(false);
+  await box.press("ArrowDown");
+  expect(await activeIsShowAll()).toBe(true);
+  await box.press("Enter");
+  await expect(page).toHaveURL(`/search?q=${token}`);
+});

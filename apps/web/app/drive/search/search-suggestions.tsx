@@ -64,9 +64,9 @@ export default function SearchSuggestions({
   };
 
   // Native listeners read the latest render through this ref.
-  const latest = useRef({ entries, active, value, choose });
+  const latest = useRef({ entries, active, value, choose, showAll });
   useEffect(() => {
-    latest.current = { entries, active, value, choose };
+    latest.current = { entries, active, value, choose, showAll };
   });
 
   useEffect(() => {
@@ -79,15 +79,15 @@ export default function SearchSuggestions({
     const onFocus = () => setOpen(true);
     const onBlur = () => setOpen(false);
     const onKeyDown = (event: KeyboardEvent) => {
-      const { entries, active, value, choose } = latest.current;
+      const { entries, active, value, choose, showAll } = latest.current;
       if (event.key === "Escape") {
         setOpen(false);
       } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         setOpen(true);
-        const states = entries.length + 1;
+        // -1 is the text itself, as in a native combobox; after the matches comes "Show all".
+        const states = entries.length + 2;
         const step = event.key === "ArrowDown" ? 1 : -1;
-        // -1 is the text itself, as in a native combobox.
         setSelection({
           value,
           index: ((active + 1 + step + states) % states) - 1,
@@ -95,6 +95,9 @@ export default function SearchSuggestions({
       } else if (event.key === "Enter" && entries[active]) {
         event.preventDefault();
         choose(entries[active]);
+      } else if (event.key === "Enter" && active === entries.length) {
+        event.preventDefault();
+        showAll();
       }
     };
     element.addEventListener("input", onInput);
@@ -117,6 +120,13 @@ export default function SearchSuggestions({
       element.setAttribute("aria-activedescendant", optionId(active));
     else element.removeAttribute("aria-activedescendant");
   });
+  // Focus stays in the input, so the list scrolls the option the arrow keys reach into view.
+  useEffect(() => {
+    if (expanded && active >= 0)
+      document.getElementById(`${id}-${active}`)?.scrollIntoView({
+        block: "nearest",
+      });
+  }, [expanded, active, id]);
 
   return (
     <>
@@ -170,11 +180,16 @@ export default function SearchSuggestions({
           );
         })}
         <div
+          id={optionId(entries.length)}
           role="option"
-          aria-selected={false}
+          aria-selected={active === entries.length}
           onMouseDown={(event) => event.preventDefault()}
           onClick={showAll}
-          className="cursor-default break-words rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          onMouseMove={() => setSelection({ value, index: entries.length })}
+          className={cn(
+            "cursor-default break-words rounded-md px-2 py-2 text-sm text-muted-foreground",
+            active === entries.length && "bg-accent text-accent-foreground",
+          )}
         >
           {query && results.problem && entries.length === 0
             ? results.problem.message
