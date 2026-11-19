@@ -112,7 +112,7 @@ export function FilesSkeleton({ view }: { view: "list" | "grid" | null }) {
         </>
       }
     >
-      <header className="surface-grain sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-background px-4 md:gap-4 md:px-6">
+      <header className="surface-grain sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-background px-4 md:gap-4 md:px-6">
         <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-4">
           <Skeleton className="size-8 shrink-0" />
           <NimbusLogo className="size-7 shrink-0 md:hidden" />

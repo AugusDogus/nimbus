@@ -111,7 +111,7 @@ export function FilesShell({ children }: FilesShellProps) {
         newContent={newContent}
       />
       <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pb-(--impersonation-offset)">
-        <header className="surface-grain sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-background px-4 md:gap-4 md:px-6">
+        <header className="surface-grain sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-background px-4 md:gap-4 md:px-6">
           <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-4">
             {/* Desktop: sidebar trigger */}
             <SidebarTrigger className="size-8 shrink-0 text-muted-foreground" />
