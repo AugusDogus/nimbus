@@ -79,8 +79,9 @@ export async function GET(request: Request, context: Context) {
         if (entry.type === "file")
           SharePolicy.allowContinuation(request, response, share, relative);
       } else if (
-        // Only a range continuing a counted transfer is served once downloads are used up.
+        // Only what continues a counted view is served once downloads are used up.
         response.status !== 206 &&
+        !SharePolicy.continuesView(request, response, share, relative) &&
         SharePolicy.availability(share, Date.now()).kind === "exhausted"
       )
         return exhausted();

@@ -1,10 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { PdfPages } from "@/lib/pdf-pages";
-import { PdfRender, PdfRenderFailed } from "./pdf-render";
+import { DriveFile } from "@nimbus/api/drive-file";
+import {
+  PdfChanged,
+  PdfRender,
+  PdfRenderFailed,
+  type OpenedPdf,
+} from "./pdf-render";
 
 const poppler =
   Bun.which("pdfinfo") !== null &&
@@ -113,9 +119,22 @@ describe.skipIf(!poppler)("PdfRender (requires poppler-utils)", () => {
     await rm(drive, { recursive: true, force: true });
   });
 
+  /** Runs `run` with `name` opened as the route opens it, then closes it. */
+  async function withOpened<T>(
+    name: string,
+    run: (file: OpenedPdf) => Promise<T>,
+  ) {
+    const file = await DriveFile.openFile(path.join(drive, "docs", name));
+    try {
+      return await run(file);
+    } finally {
+      await file.handle.close();
+    }
+  }
+
   test("lists pages with their rotation applied", async () => {
     expect(
-      await PdfRender.info(path.join(drive, "docs/two.pdf"), signal()),
+      await withOpened("two.pdf", (file) => PdfRender.info(file, signal())),
     ).toEqual({
       count: 2,
       sizes: [
@@ -126,11 +145,8 @@ describe.skipIf(!poppler)("PdfRender (requires poppler-utils)", () => {
   });
 
   test("renders one page as a JPEG image of the asked width", async () => {
-    const image = await PdfRender.page(
-      path.join(drive, "docs/two.pdf"),
-      2,
-      480,
-      signal(),
+    const image = await withOpened("two.pdf", (file) =>
+      PdfRender.page(file, 2, 480, signal()),
     );
     expect((await sharp(image).metadata()).format).toBe("jpeg");
     const { data, info } = await sharp(image)
@@ -145,10 +161,38 @@ describe.skipIf(!poppler)("PdfRender (requires poppler-utils)", () => {
 
   test("reports a page past the end and input that is not a PDF as render failures", async () => {
     await expect(
-      PdfRender.page(path.join(drive, "docs/two.pdf"), 3, 480, signal()),
+      withOpened("two.pdf", (file) => PdfRender.page(file, 3, 480, signal())),
     ).rejects.toBeInstanceOf(PdfRenderFailed);
     await expect(
-      PdfRender.info(path.join(drive, "docs/fake.pdf"), signal()),
+      withOpened("fake.pdf", (file) => PdfRender.info(file, signal())),
     ).rejects.toBeInstanceOf(PdfRenderFailed);
+  });
+
+  test("draws the opened version when another file is renamed over its path", async () => {
+    const target = path.join(drive, "docs/swapped.pdf");
+    await writeFile(target, pdf([{ fill: "0.2 0.4 0.8" }]));
+    const counts = await withOpened("swapped.pdf", async (file) => {
+      await writeFile(
+        `${target}.next`,
+        pdf([{ fill: "0.8 0.2 0.2" }, { fill: "0.8 0.2 0.2" }]),
+      );
+      await rename(`${target}.next`, target);
+      return PdfRender.info(file, signal());
+    });
+    expect(counts.count).toBe(1);
+  });
+
+  test("refuses output when the opened file was written in place", async () => {
+    const target = path.join(drive, "docs/rewritten.pdf");
+    await writeFile(target, pdf([{ fill: "0.2 0.4 0.8" }]));
+    await expect(
+      withOpened("rewritten.pdf", async (file) => {
+        await writeFile(
+          target,
+          pdf([{ fill: "0.8 0.2 0.2" }, { fill: "0.8 0.2 0.2" }]),
+        );
+        return PdfRender.page(file, 1, 480, signal());
+      }),
+    ).rejects.toBeInstanceOf(PdfChanged);
   });
 });

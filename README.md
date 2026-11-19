@@ -301,7 +301,7 @@ To request files, open a folder's **Share** action and select **Request files**.
 
 ## Previews, editing, and search
 
-PDFs open in the browser's own viewer where it can show one in the page. Browsers without one, such as Chrome on Android, see images of the pages instead: the server renders each one with Poppler as it scrolls into view, so a long document never loads at once. They show the first 1,000 pages; **Open in a new tab** shows the whole file. On a public link, opening the PDF counts as one transfer for its download limit, and its pages do not count again.
+PDFs open in the browser's own viewer where it can show one in the page. Browsers without one, such as Chrome on Android, see images of the pages instead: the server renders each one with Poppler as it scrolls into view, so a long document never loads at once. They show the first 1,000 pages; **Open in a new tab** shows the whole file. On a public link, opening the PDF this way counts as one transfer for its download limit, before any page is drawn. For the next hour that browser's further pages, and opening or downloading that version of the PDF, do not count again; another browser, another file, or a changed file counts.
 
 Text, Markdown, and code previews load the first 1 MB of a file. Markdown is rendered without raw HTML or images, and only web, email, and in-page links are kept, so a file cannot run scripts or contact other servers. Previews are served with a sandboxing Content Security Policy.
 

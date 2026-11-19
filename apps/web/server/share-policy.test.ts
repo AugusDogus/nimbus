@@ -198,3 +198,51 @@ test("view-only links serve inline previews and refuse attachments", () => {
     expect(SharePolicy.permitsResponse("view", response(status))).toBe(true);
   expect(SharePolicy.permitsResponse("view", response(206))).toBe(false);
 });
+
+test("a counted PDF pages view lets the same browser take that version's whole file without counting again", () => {
+  process.env.BETTER_AUTH_SECRET ??= "test-secret-test-secret-test-secret";
+  const counts = (
+    request: Request,
+    served: Response,
+    relative = "docs/a.pdf",
+  ) => SharePolicy.countsAsTransfer(request, served, share, relative);
+  const whole = (etag: string) => response(200, { ETag: etag });
+  const viewed = response(200);
+  SharePolicy.allowPagesView(get(), viewed, share, "docs/a.pdf", '"1-1000"');
+  const cookie = jar("", viewed);
+  expect(cookie).toStartWith("nimbus-transfer-");
+  expect(
+    SharePolicy.continuesTransfer(
+      get({ cookie }),
+      share,
+      "docs/a.pdf",
+      '"1-1000"',
+    ),
+  ).toBe(true);
+  // The whole file and its ranges continue the view: it sent no bytes of the file.
+  expect(counts(get({ cookie }), whole('"1-1000"'))).toBe(false);
+  expect(
+    counts(
+      get({ cookie }),
+      response(206, { "Content-Range": "bytes 1-999/1000", ETag: '"1-1000"' }),
+    ),
+  ).toBe(false);
+  // Bound to the browser, the file, its version and the link.
+  expect(counts(get(), whole('"1-1000"'))).toBe(true);
+  expect(counts(get({ cookie }), whole('"1-1000"'), "docs/b.pdf")).toBe(true);
+  expect(counts(get({ cookie }), whole('"2-1000"'))).toBe(true);
+  expect(
+    SharePolicy.countsAsTransfer(
+      get({ cookie }),
+      whole('"1-1000"'),
+      { ...share, token: "other" },
+      "docs/a.pdf",
+    ),
+  ).toBe(true);
+  // A transfer proof does not stand in for it: every other whole response counts.
+  const transferred = whole('"1-1000"');
+  SharePolicy.allowContinuation(get(), transferred, share, "docs/a.pdf");
+  expect(counts(get({ cookie: jar("", transferred) }), whole('"1-1000"'))).toBe(
+    true,
+  );
+});

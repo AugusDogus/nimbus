@@ -1,12 +1,14 @@
 import path from "node:path";
 import type { Access } from "@nimbus/api/access";
 import type { Share } from "@nimbus/api/drive-store";
-import { requireExisting, safePath } from "@nimbus/api/file-operations";
+import { DriveFile } from "@nimbus/api/drive-file";
+import { safePath } from "@nimbus/api/file-operations";
 import { FileKind } from "@/lib/file-kind";
 import { PdfPages } from "@/lib/pdf-pages";
 import { fileETag } from "@/server/file-content";
 import { httpDriveStore, httpError, requestAccess } from "@/server/http-files";
 import {
+  PdfChanged,
   PdfRender,
   PdfRenderFailed,
   PdfRenderUnavailable,
@@ -90,6 +92,39 @@ export async function sharePdf(request: Request, token: string) {
 const exhausted =
   "This share link has reached its download limit. Ask the owner for a new link.";
 
+/**
+ * The answer to a render: `render`'s response, or why it could not be drawn, such as a damaged
+ * file, a full render queue, or a version changed while it was read. Only a request that left
+ * gets no answer.
+ */
+async function rendered(request: Request, render: () => Promise<Response>) {
+  try {
+    return await render();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError")
+      throw error;
+    if (error instanceof PdfRenderUnavailable) return json(501, error.message);
+    if (error instanceof PdfChanged) return json(409, error.message);
+    if (error instanceof PdfRenderFailed) {
+      console.warn(
+        `Nimbus could not render a PDF for ${new URL(request.url).search}. The file is unchanged; the visitor can still open or download it.`,
+        error,
+      );
+      return json(
+        422,
+        "Nimbus could not render this PDF's pages. It may be damaged, password protected or too complex. Open it in a new tab or download it instead.",
+      );
+    }
+    return httpError(error);
+  }
+}
+
+/**
+ * Every refusal comes before Poppler starts or a render slot is taken: the request's own
+ * mistakes, access, the file's kind, a public link's proof and download limit, and HEAD, which
+ * renders nothing and counts nothing. The PDF is opened once; its version, the proof checked,
+ * the ETag sent and the bytes Poppler reads all come from that one descriptor.
+ */
 async function pdf(
   request: Request,
   authorize: (url: URL) => Promise<Authorized | Response>,
@@ -106,66 +141,76 @@ async function pdf(
     if (authorized instanceof Response) return authorized;
     const { access, relative, share } = authorized;
     access.require(relative, "read");
-    const entry = await requireExisting(relative);
-    if (
-      !entry.stats.isFile() ||
-      FileKind.of(path.basename(entry.absolute)).type !== "pdf"
-    )
+    if (FileKind.of(path.basename(relative)).type !== "pdf")
       return json(415, "Only PDF files have rendered pages.");
-    const etag = fileETag(entry.stats);
-    const continues =
-      share !== null &&
-      SharePolicy.continuesTransfer(request, share, relative, etag);
-    if (wanted.type === "page") {
-      // Pages continue a counted view of this version; they are never a free copy of the file.
-      if (share !== null && !continues)
-        return json(403, "Reload the page to view this PDF.");
-      const pageTag = `${etag.slice(0, -1)}-${wanted.page}-${wanted.width}"`;
-      if (request.headers.get("if-none-match") === pageTag)
-        return new Response(null, {
-          status: 304,
-          headers: imageHeaders(pageTag),
+    const file = await DriveFile.openFile((await safePath(relative)).absolute);
+    try {
+      const etag = fileETag(file.stats);
+      const viewed =
+        share !== null &&
+        SharePolicy.continuesTransfer(request, share, relative, etag);
+      if (wanted.type === "page") {
+        // Pages continue a counted view of this version; they are never a free copy of the file.
+        if (share !== null && !viewed)
+          return json(403, "Reload the page to view this PDF.");
+        const pageTag = `${etag.slice(0, -1)}-${wanted.page}-${wanted.width}"`;
+        const headers = {
+          ...imageHeaders(pageTag),
+          "Content-Type": "image/jpeg",
+        };
+        if (
+          request.method === "HEAD" ||
+          request.headers.get("if-none-match") === pageTag
+        )
+          return new Response(null, {
+            status: request.method === "HEAD" ? 200 : 304,
+            headers,
+          });
+        return await rendered(request, async () => {
+          const body = await PdfRender.page(
+            file,
+            wanted.page,
+            wanted.width,
+            request.signal,
+          );
+          return new Response(new Uint8Array(body), { headers });
         });
-      const body = await PdfRender.page(
-        entry.absolute,
-        wanted.page,
-        wanted.width,
-        request.signal,
+      }
+      const counts = share !== null && !viewed;
+      if (
+        counts &&
+        SharePolicy.availability(share, Date.now()).kind === "exhausted"
+      )
+        return json(404, exhausted);
+      const headers = { "Cache-Control": "no-store", ETag: etag };
+      if (request.method === "HEAD")
+        return new Response(null, {
+          headers: { ...headers, "Content-Type": "application/json" },
+        });
+      // Counted before rendering, so a refused view never reaches Poppler. Atomic, like a
+      // download: of two views for the last one, only one claims it.
+      if (counts && !(await httpDriveStore.claimDownload(share.id)))
+        return json(404, exhausted);
+      const response = await rendered(request, async () =>
+        Response.json(
+          {
+            ...(await PdfRender.info(file, request.signal)),
+            version: etag.slice(1, -1),
+          } satisfies PdfPages,
+          { headers },
+        ),
       );
-      return new Response(new Uint8Array(body), {
-        headers: { ...imageHeaders(pageTag), "Content-Type": "image/jpeg" },
-      });
+      // The view is counted even when its pages cannot be drawn: the proof still lets this
+      // browser open or download the PDF without counting again.
+      if (counts)
+        SharePolicy.allowPagesView(request, response, share, relative, etag);
+      return response;
+    } finally {
+      await file.handle.close();
     }
-    const pages = await PdfRender.info(entry.absolute, request.signal);
-    if (
-      share !== null &&
-      !continues &&
-      (SharePolicy.availability(share, Date.now()).kind === "exhausted" ||
-        // Atomic, like a download: of two views for the last one, only one claims it.
-        !(await httpDriveStore.claimDownload(share.id)))
-    )
-      return json(404, exhausted);
-    const response = Response.json(
-      { ...pages, version: etag.slice(1, -1) } satisfies PdfPages,
-      { headers: { "Cache-Control": "no-store", ETag: etag } },
-    );
-    if (share !== null && !continues)
-      SharePolicy.allowContinuation(request, response, share, relative);
-    return response;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError")
       return new Response(null, { status: 499 });
-    if (error instanceof PdfRenderUnavailable) return json(501, error.message);
-    if (error instanceof PdfRenderFailed) {
-      console.warn(
-        `Nimbus could not render a PDF for ${new URL(request.url).search}. The file is unchanged; the visitor can still open or download it.`,
-        error,
-      );
-      return json(
-        422,
-        "Nimbus could not render this PDF's pages. It may be damaged, password protected or too complex. Open it in a new tab or download it instead.",
-      );
-    }
     return httpError(error);
   }
 }

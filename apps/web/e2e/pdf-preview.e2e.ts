@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { expect, type BrowserContext, type Locator } from "@playwright/test";
+import {
+  expect,
+  type Browser,
+  type BrowserContext,
+  type Locator,
+} from "@playwright/test";
 import sharp from "sharp";
 import { z } from "zod";
 import { client, port, test } from "./helpers";
@@ -40,9 +45,8 @@ async function pdfFolder(context: BrowserContext, pages: number) {
   return { folder, rpc };
 }
 
-/** A PDF of 400×200pt pages, each with a filled rectangle. */
-function pdf(pages = 1) {
-  const content = "0.2 0.4 0.8 rg 20 20 360 160 re f";
+/** A PDF of 400×200pt pages, each drawn by `content`: by default a filled blue rectangle. */
+function pdf(pages = 1, content = "0.2 0.4 0.8 rg 20 20 360 160 re f") {
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     `<< /Type /Pages /Kids [${Array.from({ length: pages }, (_, index) => `${4 + index} 0 R`).join(" ")}] /Count ${pages} >>`,
@@ -270,6 +274,198 @@ test("PDF page endpoints check access, and a link's pages continue its counted v
         )
       ).status(),
     ).toBeGreaterThanOrEqual(400);
+  } finally {
+    await first.close();
+    await second.close();
+  }
+});
+
+/** A browser with no cookies, as a visitor following a public link. */
+const visitorOf = (browser: Browser) =>
+  browser.newContext({ storageState: { cookies: [], origins: [] } });
+
+/** The colour at the centre of an image, rounded to tens. */
+async function centre(image: Buffer) {
+  const { data, info } = await sharp(image)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const at =
+    (Math.floor(info.height / 2) * info.width + Math.floor(info.width / 2)) *
+    info.channels;
+  return [...data.subarray(at, at + 3)].map((value) => Math.round(value / 10));
+}
+
+const red = "0.8 0.2 0.2 rg 0 0 400 200 re f";
+/** The default rectangle's blue, and `red`, as `centre` reports them. */
+const blueCentre = [5, 10, 20];
+const redCentre = [20, 5, 5];
+
+for (const replacement of ["renamed over it", "rewritten in place"] as const)
+  test(`a page is drawn from the version its proof and ETag name, when the PDF is ${replacement} while it waits`, async ({
+    context,
+    browser,
+  }) => {
+    const { folder, rpc } = await pdfFolder(context, 1);
+    const root = path.join(await dataRoot(), folder);
+    // Each page of this takes Poppler about two seconds, so a few of them fill the render queue.
+    let squares = "0.5 g\n";
+    for (let index = 0; index < 600_000; index++)
+      squares += `${(index * 7) % 390} ${(index * 13) % 190} 3 3 re f\n`;
+    await writeFile(path.join(root, "slow.pdf"), pdf(1, squares));
+    const { token } = await rpc.shares.create.mutate({
+      path: folder,
+      expiresAt: null,
+    });
+    const visitor = await visitorOf(browser);
+    try {
+      const shared = `/api/share/${token}/pdf?path=page.pdf`;
+      const opened = await visitor.request.get(shared);
+      expect(opened.status()).toBe(200);
+      const etag = opened.headers()["etag"] ?? "";
+      const slow = Array.from({ length: 12 }, () =>
+        context.request.get(
+          `/api/files/pdf?path=${encodeURIComponent(`${folder}/slow.pdf`)}&page=1&width=1600`,
+          { timeout: 120_000 },
+        ),
+      );
+      // Let the slow renders take every render slot, so the next request waits in the queue.
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const waiting = visitor.request.get(`${shared}&page=1&width=480`, {
+        timeout: 120_000,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (replacement === "renamed over it") {
+        await writeFile(path.join(root, "next.pdf"), pdf(1, red));
+        await rename(path.join(root, "next.pdf"), path.join(root, "page.pdf"));
+      } else await writeFile(path.join(root, "page.pdf"), pdf(1, red));
+      const page = await waiting;
+      await Promise.all(slow);
+      // Never the new document under the old version's proof and ETag: either the opened
+      // version itself, or a refusal that asks for a reload. 409: written while drawn. 403:
+      // written before this request opened it, so its proof names the old version.
+      if (page.status() === 200) {
+        expect(page.headers()["etag"]?.startsWith(etag.slice(0, -1))).toBe(
+          true,
+        );
+        expect(await centre(await page.body())).toEqual(blueCentre);
+      } else expect([403, 409]).toContain(page.status());
+      // The new version has no proof yet: its pages need a counted view of their own.
+      expect(
+        (await visitor.request.get(`${shared}&page=1&width=480`)).status(),
+      ).toBe(403);
+      const reopened = await visitor.request.get(shared);
+      expect(reopened.status()).toBe(200);
+      const fresh = await visitor.request.get(`${shared}&page=1&width=480`);
+      expect(await centre(await fresh.body())).toEqual(redCentre);
+    } finally {
+      await visitor.close();
+    }
+  });
+
+test("a counted pages view lets the visitor open and download that version of the PDF without counting again", async ({
+  context,
+  browser,
+}) => {
+  const { folder, rpc } = await pdfFolder(context, 2);
+  const { token } = await rpc.shares.create.mutate({
+    path: `${folder}/page.pdf`,
+    expiresAt: null,
+    maxDownloads: 1,
+  });
+  const first = await visitorOf(browser);
+  const second = await visitorOf(browser);
+  try {
+    const link = `/api/share/${token}`;
+    expect((await first.request.get(`${link}/pdf?path=`)).status()).toBe(200);
+    // Past the pages shown, the visitor is told to open the PDF: that must work.
+    for (const query of ["preview=1", "download=1", "preview=1"]) {
+      const whole = await first.request.get(`${link}?path=&${query}`);
+      expect(whole.status()).toBe(200);
+      expect((await whole.body()).subarray(0, 5).toString()).toBe("%PDF-");
+    }
+    // Another browser has no proof, and the one download is used.
+    expect((await second.request.get(`${link}/pdf?path=`)).status()).toBe(404);
+    expect((await second.request.get(`${link}?path=&preview=1`)).status()).toBe(
+      404,
+    );
+    // The proof covers the version that was counted, not a later one.
+    await writeFile(path.join(await dataRoot(), folder, "page.pdf"), pdf(3));
+    expect((await first.request.get(`${link}?path=&preview=1`)).status()).toBe(
+      404,
+    );
+  } finally {
+    await first.close();
+    await second.close();
+  }
+});
+
+test("a refused PDF request never starts Poppler", async ({
+  context,
+  browser,
+}) => {
+  const { folder, rpc } = await pdfFolder(context, 1);
+  // Poppler fails on this, so a request that reached it answers 422 instead of its refusal.
+  await writeFile(
+    path.join(await dataRoot(), folder, "broken.pdf"),
+    "not a pdf",
+  );
+  const { token } = await rpc.shares.create.mutate({
+    path: `${folder}/broken.pdf`,
+    expiresAt: null,
+    maxDownloads: 1,
+  });
+  const locked = await rpc.shares.create.mutate({
+    path: `${folder}/broken.pdf`,
+    expiresAt: null,
+    password: "pdf-locked-pass-42",
+  });
+  const first = await visitorOf(browser);
+  const second = await visitorOf(browser);
+  try {
+    expect(
+      (
+        await first.request.get(`/api/share/${token}?path=&download=1`)
+      ).status(),
+    ).toBe(200);
+    for (const url of [
+      `/api/share/${token}/pdf?path=`,
+      `/api/share/${token}/pdf?path=&page=1&width=480`,
+      `/api/share/${locked.token}/pdf?path=`,
+      `/api/share/${locked.token}/pdf?path=&page=1&width=480`,
+      `/api/files/pdf?path=${encodeURIComponent(`${folder}/broken.pdf`)}`,
+    ])
+      expect([401, 403, 404]).toContain(
+        (await second.request.get(url)).status(),
+      );
+  } finally {
+    await first.close();
+    await second.close();
+  }
+});
+
+test("HEAD on a link's PDF pages neither counts a download nor issues a proof", async ({
+  context,
+  browser,
+}) => {
+  const { folder, rpc } = await pdfFolder(context, 1);
+  const { token } = await rpc.shares.create.mutate({
+    path: `${folder}/page.pdf`,
+    expiresAt: null,
+    maxDownloads: 1,
+  });
+  const first = await visitorOf(browser);
+  const second = await visitorOf(browser);
+  try {
+    const shared = `/api/share/${token}/pdf?path=`;
+    const head = await first.request.head(shared);
+    expect(head.status()).toBe(200);
+    expect(head.headers()["set-cookie"]).toBeUndefined();
+    expect(
+      (await first.request.get(`${shared}&page=1&width=480`)).status(),
+    ).toBe(403);
+    expect((await second.request.get(shared)).status()).toBe(200);
+    expect((await first.request.get(shared)).status()).toBe(404);
   } finally {
     await first.close();
     await second.close();

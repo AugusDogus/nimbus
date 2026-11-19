@@ -1,7 +1,8 @@
+import { existsSync, type Stats } from "node:fs";
 import { availableParallelism } from "node:os";
+import type { OpenedDriveFile } from "@nimbus/api/drive-file";
 import { PdfPages } from "@/lib/pdf-pages";
 import { runBounded } from "./thumbnail-renderers";
-import { fromVerifiedFile } from "./thumbnail-service";
 import { createLimiter } from "./thumbnails";
 
 /** A page size when pdfinfo leaves one out: US Letter, in points. */
@@ -47,6 +48,17 @@ export class PdfRenderFailed extends Error {
   override name = "PdfRenderFailed";
 }
 
+/** The file was written while Poppler read it, so the output may mix two versions. */
+export class PdfChanged extends Error {
+  override name = "PdfChanged";
+}
+
+/**
+ * A PDF opened once, without following symlinks, and the stats of that open file, which name
+ * its version. Everything rendered comes from this descriptor.
+ */
+export type OpenedPdf = Pick<OpenedDriveFile, "handle" | "stats">;
+
 /** Runs `work`, reporting its failures as `PdfRenderFailed` unless the request left. */
 async function rendering<T>(
   what: string,
@@ -61,15 +73,47 @@ async function rendering<T>(
   }
 }
 
+/** Linux names each open descriptor under /proc, where a child process can open it too. */
+const descriptorPaths = existsSync("/proc/self/fd");
+
 const tools = () => {
   const pdfinfo = Bun.which("pdfinfo");
   const pdftoppm = Bun.which("pdftoppm");
-  if (!pdfinfo || !pdftoppm || !Bun.which("prlimit"))
+  if (!pdfinfo || !pdftoppm || !Bun.which("prlimit") || !descriptorPaths)
     throw new PdfRenderUnavailable(
-      "This server cannot render PDF pages: pdfinfo, pdftoppm (poppler-utils) or prlimit (util-linux) is not installed. The Docker image includes them. Open the PDF in a new tab or download it instead.",
+      "This server cannot render PDF pages: pdfinfo, pdftoppm (poppler-utils) or prlimit (util-linux) is not installed, or /proc is not mounted. The Docker image includes them. Open the PDF in a new tab or download it instead.",
     );
   return { pdfinfo, pdftoppm };
 };
+
+/**
+ * Whether `after` is the version `before` names, as the ETag does: the same file, size and
+ * modification time. Any write moves the modification time. The change time is not compared:
+ * it also moves when another file is renamed over this one's path, which leaves its content
+ * intact.
+ */
+const sameVersion = (before: Stats, after: Stats) =>
+  before.dev === after.dev &&
+  before.ino === after.ino &&
+  before.size === after.size &&
+  before.mtimeMs === after.mtimeMs;
+
+/**
+ * Runs Poppler on the open descriptor itself, so a file renamed over the path is never read,
+ * then checks the descriptor's file was not written in place meanwhile. Either way the output
+ * describes exactly the version `file.stats` names, or the request is refused.
+ */
+async function fromOpened<T>(
+  file: OpenedPdf,
+  run: (source: string) => Promise<T>,
+) {
+  const output = await run(`/proc/${process.pid}/fd/${file.handle.fd}`);
+  if (!sameVersion(file.stats, await file.handle.stat()))
+    throw new PdfChanged(
+      "The PDF changed while its pages were drawn. Reload to see the current version.",
+    );
+  return output;
+}
 
 // Each render is a short process; a few at once keep scrolling smooth without taking every core.
 const limit = createLimiter(
@@ -78,26 +122,22 @@ const limit = createLimiter(
   "Nimbus is rendering many PDF pages right now. Scroll back to this page to load it.",
 );
 
-const info = fromVerifiedFile(async (absolute, signal) => {
+async function info(file: OpenedPdf, signal: AbortSignal) {
+  const { pdfinfo } = tools();
   const output = await limit(
     () =>
-      rendering("the page list", signal, () =>
-        runBounded(
-          [
-            tools().pdfinfo,
-            "-f",
-            "1",
-            "-l",
-            String(PdfPages.maxPages),
-            absolute,
-          ],
-          {
-            timeoutMs: 10_000,
-            memoryBytes: 512 * 1024 * 1024,
-            cpuSeconds: 5,
-            maxOutputBytes: 1024 * 1024,
-          },
-          signal,
+      fromOpened(file, (source) =>
+        rendering("the page list", signal, () =>
+          runBounded(
+            [pdfinfo, "-f", "1", "-l", String(PdfPages.maxPages), source],
+            {
+              timeoutMs: 10_000,
+              memoryBytes: 512 * 1024 * 1024,
+              cpuSeconds: 5,
+              maxOutputBytes: 1024 * 1024,
+            },
+            signal,
+          ),
         ),
       ),
     signal,
@@ -105,25 +145,31 @@ const info = fromVerifiedFile(async (absolute, signal) => {
   const parsed = parseInfo(new TextDecoder().decode(output));
   if (!parsed) throw new PdfRenderFailed("pdfinfo printed no page count.");
   return parsed;
-});
+}
 
 /**
  * Poppler scales while drawing, so a large page never exists at full size, and encodes the
  * JPEG itself: no page's pixels pass through this process. Decoding them here with sharp
  * left about 300 MB of fragmented native heap after a few hundred pages.
  */
-const render = (page: number, width: number) =>
-  fromVerifiedFile((absolute, signal) =>
-    limit(
-      () =>
-        rendering(`page ${page}`, signal, () =>
+function page(
+  file: OpenedPdf,
+  number: number,
+  width: number,
+  signal: AbortSignal,
+) {
+  const { pdftoppm } = tools();
+  return limit(
+    () =>
+      fromOpened(file, (source) =>
+        rendering(`page ${number}`, signal, () =>
           runBounded(
             [
-              tools().pdftoppm,
+              pdftoppm,
               "-f",
-              String(page),
+              String(number),
               "-l",
-              String(page),
+              String(number),
               "-singlefile",
               "-scale-to-x",
               String(width),
@@ -135,7 +181,7 @@ const render = (page: number, width: number) =>
               // Progressive images show the whole page early on a slow connection.
               "-jpegopt",
               "quality=80,optimize=y,progressive=y",
-              absolute,
+              source,
             ],
             {
               timeoutMs: 15_000,
@@ -146,23 +192,19 @@ const render = (page: number, width: number) =>
             signal,
           ),
         ),
-      signal,
-    ),
+      ),
+    signal,
   );
+}
 
 /**
- * Pages of a PDF on disk, through bounded Poppler processes that read the file through a
- * descriptor opened without following symlinks. Inputs are untrusted user files.
+ * Pages of an opened PDF, through bounded Poppler processes. Inputs are untrusted user files.
+ * Callers check access before calling: these take a render slot.
  */
 export const PdfRender = {
   parseInfo,
   /** The page count and the sizes of the first pages. */
   info,
-  /** Page `page` (from 1) as a JPEG image `width` pixels wide. */
-  page: (
-    absolute: string,
-    page: number,
-    width: number,
-    signal: AbortSignal,
-  ): Promise<Uint8Array> => render(page, width)(absolute, signal),
+  /** Page `number` (from 1) as a JPEG image `width` pixels wide. */
+  page,
 } as const;
