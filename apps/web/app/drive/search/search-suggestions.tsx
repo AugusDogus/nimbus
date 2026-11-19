@@ -125,7 +125,7 @@ export default function SearchSuggestions({
         role="listbox"
         aria-label="Search suggestions"
         hidden={!expanded}
-        className="absolute inset-x-0 top-full z-20 mt-1 max-h-[min(70dvh,28rem)] overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
+        className="absolute inset-x-0 top-full z-20 mt-1 max-h-[min(70dvh,30rem)] overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
       >
         {entries.map((entry, index) => {
           const Icon = entry.type === "dir" ? Folder : FileText;
@@ -174,7 +174,7 @@ export default function SearchSuggestions({
           aria-selected={false}
           onMouseDown={(event) => event.preventDefault()}
           onClick={showAll}
-          className="cursor-default rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          className="cursor-default break-words rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         >
           {query && results.problem && entries.length === 0
             ? results.problem.message
