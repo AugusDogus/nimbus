@@ -360,3 +360,22 @@ test("a missing folder says so at once, without an error toast", async ({
       .getByText("no longer exists"),
   ).toHaveCount(0);
 });
+
+test("New is offered only where something can be created", async ({
+  page,
+  isMobile,
+}) => {
+  const fab = page.getByRole("button", { name: "New file or folder" });
+  const sidebarNew = page.getByRole("button", { name: "New", exact: true });
+  const offered = isMobile ? fab : sidebarNew;
+  await page.goto("/");
+  await expect(offered).toBeVisible();
+  await page.goto("/trash");
+  await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
+  await expect(offered).toBeHidden();
+  await page.goto(`/browse/missing-${randomUUID()}`);
+  await expect(
+    page.getByRole("heading", { name: "Folder not found", exact: true }),
+  ).toBeVisible();
+  await expect(offered).toBeHidden();
+});

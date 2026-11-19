@@ -14,6 +14,7 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { NimbusWordmark } from "@/components/nimbus-wordmark";
 import {
@@ -47,6 +48,8 @@ const navItems = [
 type AppSidebarProps = {
   storage: StorageSummary;
   canWrite: boolean;
+  /** Whether this page has a place to create in; Trash and a missing folder have none. */
+  offersNew: boolean;
   isAdmin: boolean;
   newContent: NewContentState;
 };
@@ -55,6 +58,7 @@ export function AppSidebar({
   storage,
   newContent,
   canWrite,
+  offersNew,
   isAdmin,
 }: AppSidebarProps) {
   const pathname = usePathname();
@@ -76,7 +80,8 @@ export function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent className="gap-4 px-3 pt-4 group-data-[collapsible=icon]:px-0">
-        <div className="flex justify-center">
+        {/* Hidden in place, so the navigation below never moves between pages. */}
+        <div className={cn("flex justify-center", !offersNew && "invisible")}>
           <DropdownMenu>
             <DropdownMenuTrigger
               render={

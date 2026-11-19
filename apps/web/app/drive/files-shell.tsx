@@ -35,6 +35,9 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useFolderPath } from "./files/folder-path";
+import { fileListQueryOptions } from "./files/use-file-list";
+import { usePathname } from "@/hooks/use-pathname";
+import { trpcErrorCode } from "@/lib/trpc-error";
 
 import { AppSidebar } from "./files/app-sidebar";
 import { SearchBox } from "./search/search-box";
@@ -72,6 +75,20 @@ export function FilesShell({ children }: FilesShellProps) {
     enabled: isAuthed,
   });
   const canWrite = capabilities.data?.canWrite === true;
+  // Trash and a folder that does not exist have nowhere to create in. Reads the folder's
+  // listing as the page loaded it, without fetching it again.
+  const pathname = usePathname();
+  const listing = useQuery({
+    ...fileListQueryOptions(currentPath, includeStats),
+    enabled: false,
+  });
+  const offersNew =
+    pathname !== "/trash" &&
+    !(
+      listing.isError &&
+      !listing.data &&
+      trpcErrorCode(listing.error) === "NOT_FOUND"
+    );
   const storage = useFileStorage(capabilities.data?.isAdmin === true);
   const actions = useFileActions({ currentPath, includeStats });
   const upload = useUploads();
@@ -107,6 +124,7 @@ export function FilesShell({ children }: FilesShellProps) {
       <AppSidebar
         storage={storage}
         canWrite={canWrite}
+        offersNew={offersNew}
         isAdmin={capabilities.data?.isAdmin === true}
         newContent={newContent}
       />
@@ -206,14 +224,18 @@ export function FilesShell({ children }: FilesShellProps) {
         <div
           className="flex-1 overflow-x-clip px-4 pb-24 pt-6 md:px-6 md:pb-6 lg:px-8 lg:pt-8"
           onDragOver={(event) => {
-            if (canWrite && event.dataTransfer.types.includes("Files"))
+            if (
+              canWrite &&
+              offersNew &&
+              event.dataTransfer.types.includes("Files")
+            )
               event.preventDefault();
           }}
           onDrop={(event) => {
             if (!event.dataTransfer.types.includes("Files")) return;
             event.preventDefault();
             // Folder entries must be read during the drop event, before the browser clears them.
-            if (canWrite)
+            if (canWrite && offersNew)
               void collectDrop(event.dataTransfer).then(uploadFiles);
           }}
         >
@@ -221,7 +243,7 @@ export function FilesShell({ children }: FilesShellProps) {
         </div>
 
         {/* Mobile FAB for New actions */}
-        {canWrite && (
+        {canWrite && offersNew && (
           <>
             <Button
               size="lg"
