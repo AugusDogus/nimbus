@@ -133,6 +133,9 @@ export function SearchResultsPage({ query }: { query: string }) {
             <Button
               variant="outline"
               size="sm"
+              // Keyboard focus stays on the button while the next page loads.
+              focusableWhenDisabled
+              className="aria-disabled:opacity-50"
               disabled={!total.exact || search.loadingMore}
               onClick={search.loadMore}
             >
