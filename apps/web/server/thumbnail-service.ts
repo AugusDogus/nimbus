@@ -20,7 +20,9 @@ const descriptorPaths = existsSync("/proc/self/fd");
  * open the checked path itself.
  */
 export const fromVerifiedFile =
-  (render: ThumbnailRenderer): ThumbnailRenderer =>
+  <T>(
+    render: (absolute: string, signal: AbortSignal) => Promise<T>,
+  ): ((absolute: string, signal: AbortSignal) => Promise<T>) =>
   async (absolute, signal) => {
     const { handle } = await DriveFile.openFile(absolute);
     try {

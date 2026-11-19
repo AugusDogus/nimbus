@@ -94,10 +94,10 @@ function abortError() {
 }
 
 /**
- * Runs at most `limit` tasks at once and keeps at most `maxQueued` waiting.
- * Queued tasks whose signal aborts leave the queue without running.
+ * Runs at most `limit` tasks at once and keeps at most `maxQueued` waiting, refusing more with
+ * `busy`. Queued tasks whose signal aborts leave the queue without running.
  */
-function createLimiter(limit: number, maxQueued: number) {
+export function createLimiter(limit: number, maxQueued: number, busy: string) {
   let running = 0;
   const queue: { start: () => void; signal: AbortSignal }[] = [];
   // The slot is taken here, before the waiter resumes, so one finished task
@@ -115,11 +115,7 @@ function createLimiter(limit: number, maxQueued: number) {
     if (signal.aborted) throw abortError();
     if (running >= limit) {
       if (queue.length >= maxQueued)
-        throw new TRPCError({
-          code: "TOO_MANY_REQUESTS",
-          message:
-            "Thumbnails are still being generated for other files. They will load when you scroll back or refresh.",
-        });
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: busy });
       await new Promise<void>((resolve, reject) => {
         const item = { start: resolve, signal };
         queue.push(item);
@@ -157,7 +153,11 @@ export function createThumbnailer({
   concurrency?: number;
   maxQueued?: number;
 }) {
-  const limit = createLimiter(concurrency, maxQueued);
+  const limit = createLimiter(
+    concurrency,
+    maxQueued,
+    "Thumbnails are still being generated for other files. They will load when you scroll back or refresh.",
+  );
   const jobs = new Map<string, Job>();
 
   async function readCached(tag: string): Promise<ThumbnailResult | null> {

@@ -115,6 +115,7 @@ export default function PreviewDialog({
             key={entry.path}
             name={entry.name}
             url={`${url}&preview=1`}
+            pagesUrl={`/api/files/pdf?path=${encodeURIComponent(entry.path)}`}
             editPath={entry.permission === "read" ? undefined : entry.path}
             onDirtyChange={setDirty}
           />

@@ -158,7 +158,7 @@ bun run build
 bun run start
 ```
 
-Set the deployment values in `apps/web/.env` before startup. For PDF and video thumbnails, install Poppler's `pdftoppm` and `ffmpeg` (for example `apt install poppler-utils ffmpeg`); without them those files show generic icons. The Docker image includes both. `bun run build` builds the browser app into `apps/web/dist`; `bun run start` runs one Bun process that applies migrations, serves that app, the API, and WebDAV, and schedules retention cleanup. The process listens on all interfaces; put your service manager and HTTPS proxy in front of it as appropriate.
+Set the deployment values in `apps/web/.env` before startup. For PDF and video thumbnails, and PDF previews in browsers without a PDF viewer, install Poppler (`pdftoppm`, `pdfinfo`) and `ffmpeg` (for example `apt install poppler-utils ffmpeg`); without them those files show generic icons, and those browsers are offered opening or downloading a PDF instead. The Docker image includes both. `bun run build` builds the browser app into `apps/web/dist`; `bun run start` runs one Bun process that applies migrations, serves that app, the API, and WebDAV, and schedules retention cleanup. The process listens on all interfaces; put your service manager and HTTPS proxy in front of it as appropriate.
 
 ## Configuration
 
@@ -300,6 +300,8 @@ Select **Edit** on a public link to change its password, expiry, download limit,
 To request files, open a folder's **Share** action and select **Request files**. Anyone with the upload link can add files to that folder. They cannot list, open, replace, or delete anything, including their own uploads. A file with a taken name gets a number added. Optional settings are a password, an expiry, a note shown to uploaders, a largest file size, a number of files, and a total size. Uploads are resumable; unfinished uploads count toward the limits for up to a day, then their space is released. Each link accepts at most 20 uploads at a time, and uploads are refused when less than 1 GB, or 5% of the disk if that is more, would remain free. Upload links stop working under the same conditions as public links. Files uploaded through a link belong to the folder like any other file.
 
 ## Previews, editing, and search
+
+PDFs open in the browser's own viewer where it can show one in the page. Browsers without one, such as Chrome on Android, see images of the pages instead: the server renders each one with Poppler as it scrolls into view, so a long document never loads at once. They show the first 1,000 pages; **Open in a new tab** shows the whole file. On a public link, opening the PDF counts as one transfer for its download limit, and its pages do not count again.
 
 Text, Markdown, and code previews load the first 1 MB of a file. Markdown is rendered without raw HTML or images, and only web, email, and in-page links are kept, so a file cannot run scripts or contact other servers. Previews are served with a sandboxing Content Security Policy.
 

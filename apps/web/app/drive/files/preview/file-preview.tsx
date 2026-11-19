@@ -1,5 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileKind } from "@/lib/file-kind";
@@ -10,11 +16,14 @@ const MarkdownView = lazy(() => import("./markdown-view"));
 const CodeView = lazy(() => import("./code-view"));
 const TableView = lazy(() => import("./table-view"));
 const TextEditor = lazy(() => import("./text-editor"));
+const PdfPagesView = lazy(() => import("./pdf-pages-view"));
 
 export type FilePreviewProps = {
   name: string;
   /** Inline preview URL; it serves text as text/plain under a sandbox CSP. */
   url: string;
+  /** A PDF's rendered pages, for browsers that cannot show a PDF in a frame. */
+  pagesUrl: string;
   /** Present when the viewer may write this file. */
   editPath?: string;
   /** Reports whether unsaved edits exist, so the dialog can guard closing. */
@@ -40,6 +49,7 @@ const loading = (
 export default function FilePreview({
   name,
   url,
+  pagesUrl,
   editPath,
   onDirtyChange,
 }: FilePreviewProps) {
@@ -100,26 +110,7 @@ export default function FilePreview({
         />
       );
     case "pdf":
-      return (
-        <div className="space-y-2">
-          <iframe
-            title={`Preview of ${name}`}
-            src={url}
-            className="h-[65dvh] w-full rounded-md border bg-muted"
-          />
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener"
-            className={buttonVariants({
-              variant: "link",
-              className: "h-auto p-0",
-            })}
-          >
-            Open in a new tab
-          </a>
-        </div>
-      );
+      return <PdfPreview name={name} url={url} pagesUrl={pagesUrl} />;
     case "other":
     default:
       return (
@@ -129,6 +120,64 @@ export default function FilePreview({
         </Unavailable>
       );
   }
+}
+
+const pdfLoading = (
+  <Skeleton aria-label="Loading preview" className="h-[65dvh] w-full" />
+);
+
+const subscribe = () => () => {};
+
+/**
+ * The browser's own PDF viewer where it can show one in a frame, which keeps its search, zoom
+ * and text selection. Elsewhere, such as Chrome on Android, a framed PDF becomes a download
+ * prompt, so the server renders the pages instead. Unknown in markup rendered by the server.
+ */
+const usePdfViewer = () =>
+  useSyncExternalStore(
+    subscribe,
+    () => (navigator.pdfViewerEnabled ? "native" : "pages"),
+    () => "unknown",
+  );
+
+function PdfPreview({
+  name,
+  url,
+  pagesUrl,
+}: {
+  name: string;
+  url: string;
+  pagesUrl: string;
+}) {
+  const viewer = usePdfViewer();
+  return (
+    <div className="space-y-2">
+      {viewer === "native" ? (
+        <iframe
+          title={`Preview of ${name}`}
+          src={url}
+          className="h-[65dvh] w-full rounded-md border bg-muted"
+        />
+      ) : viewer === "pages" ? (
+        <Suspense fallback={pdfLoading}>
+          <PdfPagesView name={name} pagesUrl={pagesUrl} />
+        </Suspense>
+      ) : (
+        pdfLoading
+      )}
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener"
+        className={buttonVariants({
+          variant: "link",
+          className: "h-auto p-0",
+        })}
+      >
+        Open in a new tab
+      </a>
+    </div>
+  );
 }
 
 type TextMode =

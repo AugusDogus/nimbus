@@ -57,10 +57,20 @@ function countsAsTransfer(
   if (response.status === 200) return true;
   if (response.status !== 206) return false;
   const etag = response.headers.get("etag");
-  return !(
-    etag &&
-    UnlockCookie.verify(continuationScope(share, relative, etag), request)
-  );
+  return !(etag && continuesTransfer(request, share, relative, etag));
+}
+
+/**
+ * Whether this browser holds the proof of a counted transfer of version `etag` of the file, so
+ * more of it, such as a byte range or a rendered PDF page, continues that transfer.
+ */
+function continuesTransfer(
+  request: Request,
+  share: Pick<Share, "token">,
+  relative: string,
+  etag: string,
+) {
+  return UnlockCookie.verify(continuationScope(share, relative, etag), request);
 }
 
 /** Transfers one browser can continue at once, across a folder link's files. */
@@ -110,6 +120,7 @@ function permitsResponse(mode: ShareMode, response: Response) {
 export const SharePolicy = {
   availability,
   countsAsTransfer,
+  continuesTransfer,
   allowContinuation,
   permitsResponse,
 } as const;

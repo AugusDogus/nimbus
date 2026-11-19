@@ -35,6 +35,7 @@ The root scripts run this workspace with `apps/web` as its working directory, so
 - `server/upload-publish.ts`: the staging store, publish and replace step, and resume recovery shared by both tus endpoints.
 - `../../packages/api/src/file-content.ts`, `../../packages/api/src/file-versions.ts`: the one staged-write commit used by WebDAV `PUT`, the editor, and MCP, and `FileVersions.commitReplacement`, which every content replacement goes through.
 - `server/thumbnails.ts`, `server/thumbnail-renderers.ts`: content-addressed thumbnail cache with bounded concurrency, and the bounded `pdftoppm` and FFmpeg subprocesses.
+- `server/pdf-render.ts`, `server/routes/files-pdf.ts`: PDF page images for browsers without a PDF viewer, from bounded `pdfinfo` and `pdftoppm` subprocesses, for signed-in readers and public links.
 - `server/search.worker.ts`, `server/search-bridge.ts`: the filename index runs in a Bun worker, fed by the file watcher and reconciled every 30 minutes. The index itself is `../../packages/api/src/search-index.ts`.
 - `app/drive/files/preview`: preview renderers. Each renderer, the Markdown parser, the highlighter worker, and each highlighting grammar is a separate chunk loaded only when a file of that kind is opened.
 - `server/mcp`: MCP endpoint wiring, its OAuth 2.1 authorization server (`server/mcp/oauth`), and download links. Tool definitions live in `../../packages/api/src/mcp-*.ts`.

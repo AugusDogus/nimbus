@@ -10,6 +10,7 @@ import * as fileRequestUpload from "./routes/file-request-upload";
 import * as filesArchive from "./routes/files-archive";
 import * as filesContent from "./routes/files-content";
 import * as filesDownload from "./routes/files-download";
+import * as filesPdf from "./routes/files-pdf";
 import * as filesThumbnail from "./routes/files-thumbnail";
 import * as filesVersion from "./routes/files-version";
 import * as health from "./routes/health";
@@ -25,6 +26,7 @@ import * as oauthRegister from "./routes/oauth-register";
 import * as oauthRevoke from "./routes/oauth-revoke";
 import * as oauthToken from "./routes/oauth-token";
 import * as share from "./routes/share";
+import * as sharePdf from "./routes/share-pdf";
 import * as shareThumbnail from "./routes/share-thumbnail";
 import * as trpc from "./routes/trpc";
 import * as upload from "./routes/upload";
@@ -66,6 +68,7 @@ const routes = ({ shell, mode }: PageContext): Route[] => [
   route("/api/files/archive", none, filesArchive),
   route("/api/files/content", none, filesContent),
   route("/api/files/download", none, filesDownload),
+  route("/api/files/pdf", none, filesPdf),
   route("/api/files/thumbnail", none, filesThumbnail),
   route("/api/files/version", none, filesVersion),
   route("/api/health", none, health),
@@ -79,6 +82,7 @@ const routes = ({ shell, mode }: PageContext): Route[] => [
     ([token = "", rest = ""]) => ({ token, rest }),
     mcpUpload,
   ),
+  route("/api/share/:token/pdf", ([token]) => ({ token }), sharePdf),
   route(
     "/api/share/:token/thumbnail",
     ([token]) => ({ token }),
