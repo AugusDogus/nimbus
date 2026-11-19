@@ -108,7 +108,7 @@ export function TrashPage() {
         <ul className="divide-y rounded-lg border">
           {trash.data?.map((item) => (
             <li key={item.id} className="flex flex-wrap items-center gap-3 p-4">
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 basis-60">
                 <p className="truncate text-sm font-medium">{item.path}</p>
                 <p className="mt-1 text-xs tabular-nums text-muted-foreground">
                   Deleted {new Date(item.deletedAt).toLocaleDateString()} ·
