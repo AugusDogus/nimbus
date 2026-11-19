@@ -241,3 +241,21 @@ test("built-in light and dark palettes remain independent in System mode", async
     ),
   ).toBe(true);
 });
+
+test("pages outside Appearance follow a system color scheme change at once", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/");
+  const root = page.locator("html");
+  await expect(root).toHaveClass(/\blight\b/);
+  // The theme styles load after the page; until then no change is followed.
+  await expect(page.locator("#root")).toBeVisible();
+  await expect(async () => {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(root).toHaveClass(/\bdark\b/, { timeout: 1_000 });
+  }).toPass();
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(root).toHaveClass(/\blight\b/);
+});

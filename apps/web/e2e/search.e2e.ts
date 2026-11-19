@@ -241,3 +241,55 @@ test("a search the server is pacing says to wait a moment, without alarm", async
   await expect(notice).toBeHidden();
   await expect(page.getByText("No matching files")).toBeVisible();
 });
+
+test("suggestions and focused results stay clear of the sticky header and toolbar", async ({
+  page,
+  context,
+}) => {
+  const token = randomUUID().slice(0, 8);
+  const folder = `layering-${token}`;
+  await (await client(context)).files.createFolder.mutate({ name: folder });
+  for (let i = 0; i < 40; i++)
+    await writeFile(
+      path.join(await dataRoot(), folder, `stack-${token}-${i}.txt`),
+      "x",
+    );
+
+  // Inside a folder the sticky toolbar sits right under the header, where suggestions open.
+  await page.goto(`/browse/${folder}`);
+  const box = page.getByRole("combobox", { name: "Search files" });
+  const option = page
+    .getByRole("listbox", { name: "Search suggestions" })
+    .getByRole("option", { name: new RegExp(`stack-${token}-\\d+\\.txt`) })
+    .first();
+  await expect(async () => {
+    await box.fill("");
+    await box.fill(`stack-${token}`);
+    await expect(option).toBeVisible({ timeout: 2_000 });
+  }).toPass();
+  expect(
+    await option.evaluate((element) => {
+      const { left, top, width, height } = element.getBoundingClientRect();
+      return element.contains(
+        document.elementFromPoint(left + width / 2, top + height / 2),
+      );
+    }),
+  ).toBe(true);
+
+  // Results have no toolbar: the header alone must not cover the row keyboard focus moves to.
+  await box.press("Enter");
+  const rows = page.locator(`[data-entry-name^="stack-${token}-"]`);
+  await expect(rows.first()).toBeVisible();
+  await rows.first().focus();
+  for (let i = 0; i < 30; i++) await page.keyboard.press("ArrowDown");
+  for (let i = 0; i < 25; i++) await page.keyboard.press("ArrowUp");
+  const focused = page.locator(`[data-entry-name^="stack-${token}-"]:focus`);
+  await expect(focused).toHaveCount(1);
+  const header = await page.locator("header").first().boundingBox();
+  const row = await focused.boundingBox();
+  expect(header).not.toBeNull();
+  expect(row).not.toBeNull();
+  expect(row?.y ?? 0).toBeGreaterThanOrEqual(
+    (header?.y ?? 0) + (header?.height ?? 0),
+  );
+});

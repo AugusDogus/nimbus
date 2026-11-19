@@ -105,9 +105,16 @@ test("two-factor authentication guards password sign-in and recovers with a code
     await expect(
       member.page.getByRole("heading", { name: "Enter your code" }),
     ).toBeVisible();
+    // The code field takes focus as its step appears, so typing can start at once.
+    await expect(
+      member.page.getByLabel("Authentication code", { exact: true }),
+    ).toBeFocused();
     await member.page
       .getByRole("button", { name: "Use a recovery code instead" })
       .click();
+    await expect(
+      member.page.getByLabel("Recovery code", { exact: true }),
+    ).toBeFocused();
     await member.page.getByLabel("Recovery code").fill(recovery);
     await member.page
       .getByRole("button", { name: "Verify", exact: true })
