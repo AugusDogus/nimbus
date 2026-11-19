@@ -85,6 +85,13 @@
       "when": 1795010338608,
       "tag": "0011_server_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1795061007679,
+      "tag": "0012_revoked_shares",
+      "breakpoints": true
     }
   ]
 }

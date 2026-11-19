@@ -5,6 +5,7 @@ import { isApiError } from "@nimbus/api/safe-path";
 import { recordAudit } from "@nimbus/api/audit";
 import { httpDriveStore } from "./http-files";
 import { LinkPasswordAttempts } from "./link-password-attempts";
+import { DeadShareMessage } from "./dead-share-message";
 import { SharePolicy } from "./share-policy";
 import { UnlockCookie } from "./unlock-cookie";
 
@@ -20,20 +21,21 @@ export async function getPublicShare(
   { exhausted }: { exhausted: "allow" | "refuse" } = { exhausted: "refuse" },
 ) {
   const share = await httpDriveStore.getShare(token);
-  const availability = share
-    ? SharePolicy.availability(share, Date.now())
-    : { kind: "expired" as const };
+  if (!share)
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: (await httpDriveStore.wasShareRevoked(token))
+        ? DeadShareMessage.revoked
+        : DeadShareMessage.unknown,
+    });
+  const availability = SharePolicy.availability(share, Date.now());
   if (
-    !share ||
     availability.kind === "expired" ||
     (availability.kind === "exhausted" && exhausted === "refuse")
   )
     throw new TRPCError({
       code: "NOT_FOUND",
-      message:
-        availability.kind === "exhausted"
-          ? "This share link has reached its download limit. Ask the owner for a new link."
-          : "This share link has expired or been revoked. Ask the owner for a new link.",
+      message: DeadShareMessage[availability.kind],
     });
   let access: Access;
   try {

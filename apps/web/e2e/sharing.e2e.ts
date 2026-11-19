@@ -230,3 +230,85 @@ test("someone who may share a folder, but is not an administrator, shares it wit
     await member.close();
   }
 });
+
+test("a dead link says why it stopped, without naming what it shared", async ({
+  context,
+  browser,
+}) => {
+  const folder = `dead-link-secret-${randomUUID().slice(0, 8)}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: folder });
+  const anonymous = await browser.newContext({ storageState: undefined });
+  const visitor = await anonymous.newPage();
+  // The page and the endpoint say the same thing, and neither names the folder.
+  const expectDead = async (token: string, message: string) => {
+    const response = await anonymous.request.get(`/api/share/${token}`);
+    expect(response.status()).toBe(404);
+    expect(await response.json()).toEqual({ error: message });
+    await visitor.goto(`/s/${token}`);
+    await expect(
+      visitor.getByRole("heading", { name: "Share unavailable" }),
+    ).toBeVisible();
+    await expect(visitor.getByRole("alert")).toHaveText(message);
+    await expect(visitor).toHaveTitle("Nimbus");
+    expect(await visitor.locator("body").innerText()).not.toContain(folder);
+  };
+  try {
+    const revoked = await rpc.shares.create.mutate({
+      path: folder,
+      expiresAt: null,
+    });
+    const id = (await rpc.shares.list.query()).find(
+      (share) => share.token === revoked.token,
+    )?.id;
+    expect(id).toBeDefined();
+    await rpc.shares.revoke.mutate({ id: id ?? "" });
+    await expectDead(
+      revoked.token,
+      "The person who shared this link turned it off, so it no longer opens. Ask them for a new link if you still need it.",
+    );
+
+    // A token never issued reads like any other unknown one, revealing nothing.
+    await expectDead(
+      revoked.token.replace(/^./, (first) => (first === "a" ? "b" : "a")),
+      "This link does not open. Check that you have the whole address, or ask the person who shared it for a new link.",
+    );
+
+    const limited = await rpc.shares.create.mutate({
+      path: folder,
+      expiresAt: null,
+      maxDownloads: 1,
+    });
+    expect(
+      (
+        await anonymous.request.get(`/api/share/${limited.token}?download=1`)
+      ).status(),
+    ).toBe(200);
+    await expectDead(
+      limited.token,
+      "This link has reached its download limit, so it no longer opens. Ask the person who shared it for a new link.",
+    );
+
+    // A password does not hide that the link has expired, as before.
+    const expiring = await rpc.shares.create.mutate({
+      path: folder,
+      expiresAt: Date.now() + 1500,
+      password: "dead-link-password",
+    });
+    await expect
+      .poll(
+        async () =>
+          (
+            await anonymous.request.get(`/api/share/${expiring.token}`)
+          ).status(),
+        { timeout: 10_000 },
+      )
+      .toBe(404);
+    await expectDead(
+      expiring.token,
+      "This link has expired, so it no longer opens. Ask the person who shared it for a new link.",
+    );
+  } finally {
+    await anonymous.close();
+  }
+});

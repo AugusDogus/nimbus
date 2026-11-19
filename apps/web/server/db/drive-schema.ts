@@ -72,6 +72,14 @@ export const shares = sqliteTable(
     index("nimbus_share_path_nocase").on(sql`${table.path} COLLATE NOCASE`),
   ],
 );
+/**
+ * Links their owner turned off, by the SHA-256 of their token, so a visitor opening one is told
+ * so. A token never issued has no row and stays indistinguishable from any other unknown one.
+ */
+export const revokedShares = sqliteTable("nimbus_revoked_share", {
+  tokenHash: text("token_hash").primaryKey(),
+  revokedAt: integer("revoked_at").notNull(),
+});
 export const trash = sqliteTable("nimbus_trash", {
   id: text("id").primaryKey(),
   path: text("path").notNull(),

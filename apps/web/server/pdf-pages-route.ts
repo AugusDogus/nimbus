@@ -5,6 +5,7 @@ import { DriveFile } from "@nimbus/api/drive-file";
 import { safePath } from "@nimbus/api/file-operations";
 import { FileKind } from "@/lib/file-kind";
 import { PdfPages } from "@/lib/pdf-pages";
+import { DeadShareMessage } from "@/server/dead-share-message";
 import { FileVersion } from "@/server/file-version";
 import { httpError } from "@/server/http-error";
 import {
@@ -92,8 +93,7 @@ async function release(file: { handle: { close(): Promise<void> } }) {
   }
 }
 
-const exhausted =
-  "This share link has reached its download limit. Ask the owner for a new link.";
+const exhausted = DeadShareMessage.exhausted;
 
 /**
  * The answer to a render: `render`'s response, or why it could not be drawn, such as a damaged

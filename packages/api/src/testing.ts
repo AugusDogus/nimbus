@@ -45,6 +45,7 @@ export function createTestDriveStore() {
   const grants = new Map<string, Grant>();
   const groups = new Map<string, Group>();
   const shares = new Map<string, Share>();
+  const revokedShares = new Set<string>();
   const trash = new Map<string, TrashItem>();
   const properties = new Map<string, DavProperty[]>();
   const homes = new Map<string, Home>();
@@ -113,7 +114,13 @@ export function createTestDriveStore() {
     },
     async revokeShare(id, userId) {
       for (const [token, share] of shares)
-        if (share.id === id && share.createdBy === userId) shares.delete(token);
+        if (share.id === id && share.createdBy === userId) {
+          shares.delete(token);
+          revokedShares.add(token);
+        }
+    },
+    async wasShareRevoked(token) {
+      return revokedShares.has(token);
     },
     async updateShare(id, userId, settings) {
       for (const [token, share] of shares)

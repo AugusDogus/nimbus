@@ -3,6 +3,7 @@ import { serveFile, servedVersion, serveZip } from "@/server/file-response";
 import { httpDriveStore, httpError } from "@/server/http-files";
 import { RateLimiter } from "@/server/rate-limit";
 import { RequestBody } from "@/server/request-body";
+import { DeadShareMessage } from "@/server/dead-share-message";
 import {
   SharePasswordAttempts,
   getPublicShare,
@@ -72,12 +73,7 @@ export async function GET(request: Request, context: Context) {
       const relative = scoped.target.relative;
       // Read from the same open file as the bytes, so a proof is checked against what is sent.
       const version = servedVersion(response);
-      const exhausted = () =>
-        refuse(
-          response,
-          404,
-          "This share link has reached its download limit. Ask the owner for a new link.",
-        );
+      const exhausted = () => refuse(response, 404, DeadShareMessage.exhausted);
       if (
         SharePolicy.countsAsTransfer(
           request,

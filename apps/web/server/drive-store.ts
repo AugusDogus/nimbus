@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -28,6 +29,7 @@ import {
   homeContainers,
   homes,
   pendingChanges,
+  revokedShares,
   serverSettings,
   shares,
   trash,
@@ -109,6 +111,10 @@ const detachedAccessSchema = z.object({
   fileRequests: FileRequestRecords.schema.default(FileRequestRecords.empty),
 });
 type DetachedAccess = z.infer<typeof detachedAccessSchema>;
+
+/** How a revoked link's token is kept: hashed, as nothing needs the token itself again. */
+const revokedTokenHash = (token: string) =>
+  createHash("sha256").update(token).digest("hex");
 
 const trashColumns = {
   id: trash.id,
@@ -340,9 +346,31 @@ export function createDriveStore(database: Database): DriveStore {
       return row ?? null;
     },
     async revokeShare(id, userId) {
-      await database
-        .delete(shares)
-        .where(and(eq(shares.id, id), eq(shares.createdBy, userId)));
+      database.transaction((tx) => {
+        const revoked = tx
+          .delete(shares)
+          .where(and(eq(shares.id, id), eq(shares.createdBy, userId)))
+          .returning({ token: shares.token })
+          .all();
+        for (const { token } of revoked)
+          tx.insert(revokedShares)
+            .values({
+              tokenHash: revokedTokenHash(token),
+              revokedAt: Date.now(),
+            })
+            .onConflictDoNothing()
+            .run();
+      });
+    },
+    async wasShareRevoked(token) {
+      return (
+        (
+          await database
+            .select({ tokenHash: revokedShares.tokenHash })
+            .from(revokedShares)
+            .where(eq(revokedShares.tokenHash, revokedTokenHash(token)))
+        ).length > 0
+      );
     },
     async claimDownload(id) {
       const claimed = await database
