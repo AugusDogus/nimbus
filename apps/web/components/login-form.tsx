@@ -126,6 +126,12 @@ export function LoginForm({
   const emailField = useServerField(setEmail);
   const passwordField = useServerField(setPassword);
   const hydrated = useHydrated();
+  // `autoFocus` does not reach an input that mounts after this page hydrates, so the code
+  // field is focused when its step appears, including after switching to a recovery code.
+  const codeInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (step.kind === "second-factor") codeInput.current?.focus();
+  }, [step]);
 
   const autofill = useRef<Autofill | null>(null);
   /** Counts autofill requests; a new one starts after a passkey ceremony from a button ends. */
@@ -311,7 +317,7 @@ export function LoginForm({
                     inputMode={step.method === "totp" ? "numeric" : "text"}
                     pattern={step.method === "totp" ? "[0-9 ]{6,7}" : undefined}
                     maxLength={step.method === "totp" ? 7 : 64}
-                    autoFocus
+                    ref={codeInput}
                     spellCheck={false}
                     value={code}
                     onChange={(event) => {
