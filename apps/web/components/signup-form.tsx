@@ -197,15 +197,7 @@ export function SignupForm({
                     {success}
                   </FieldDescription>
                 ) : null}
-                <FieldDescription className="text-center">
-                  Already have an account?{" "}
-                  <a
-                    className="underline-offset-4 hover:underline"
-                    href="/login"
-                  >
-                    Sign in
-                  </a>
-                </FieldDescription>
+                {/* This page exists only before the first account, so there is no sign-in link. */}
               </Field>
             </FieldGroup>
           </form>
