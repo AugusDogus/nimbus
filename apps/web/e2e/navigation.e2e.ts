@@ -397,3 +397,43 @@ test("an empty folder suggests dropping files only where files can be dragged in
   await expect(isMobile ? tap : drop).toBeVisible();
   await expect(isMobile ? drop : tap).toBeHidden();
 });
+
+test("on a phone the share dialog keeps Create link in reach without scrolling", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(
+    !isMobile,
+    "Phones only; wider screens show the button in the form.",
+  );
+  const folder = `share-reach-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: folder });
+  await rpc.files.createFolder.mutate({ path: folder, name: "inside" });
+  await page.setViewportSize({ width: 390, height: 560 });
+  await page.goto(`/browse/${folder}`);
+  await page
+    .getByRole("button", { name: "Actions for inside", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Share inside" });
+  const create = dialog.getByRole("button", { name: "Create link" });
+  await expect(create).toHaveCount(1);
+  await expect(create).toBeInViewport({ ratio: 1 });
+  expect(
+    await create.evaluate((button) => {
+      const box = button.getBoundingClientRect();
+      return (
+        document.elementFromPoint(
+          box.left + box.width / 2,
+          box.top + box.height / 2,
+        ) === button
+      );
+    }),
+  ).toBe(true);
+  await create.click();
+  await expect(
+    dialog.getByRole("textbox", { name: "Share link" }),
+  ).toBeInViewport();
+});

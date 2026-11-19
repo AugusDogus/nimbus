@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { lazyComponent } from "@/components/lazy-component";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -76,6 +76,12 @@ export function SharingDialog({
     LinkSettingsDraft.empty,
   );
   const [link, setLink] = useState("");
+  const linkForm = useId();
+  // A new link shows where its settings are, which on a phone can be scrolled out of view.
+  const linkField = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (link) linkField.current?.scrollIntoView({ block: "nearest" });
+  }, [link]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [requesting, setRequesting] = useState(false);
@@ -100,6 +106,12 @@ export function SharingDialog({
       setBusy(false);
     }
   };
+  const createLink = {
+    type: "submit",
+    "aria-describedby":
+      exposure?.kind === "none" ? undefined : "share-link-homes",
+    disabled: busy || HomesExposureGate.blocked(exposure, linkAcknowledged),
+  } as const;
   return (
     <Dialog
       open
@@ -116,7 +128,7 @@ export function SharingDialog({
             Grant access to an account or create a public link.
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6">
+        <div className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6 max-sm:scroll-pb-20">
           <form
             className="space-y-3"
             onSubmit={(event) => {
@@ -233,6 +245,7 @@ export function SharingDialog({
             ))}
           </div>
           <form
+            id={linkForm}
             className="space-y-3 border-t pt-3"
             onSubmit={(event) => {
               event.preventDefault();
@@ -274,19 +287,16 @@ export function SharingDialog({
               onAcknowledgedChange={setLinkAcknowledged}
             />
             <Button
-              type="submit"
-              aria-describedby={
-                exposure?.kind === "none" ? undefined : "share-link-homes"
-              }
-              disabled={
-                busy || HomesExposureGate.blocked(exposure, linkAcknowledged)
-              }
+              {...createLink}
+              // Phones show this button at the bottom edge instead, below.
+              className="max-sm:hidden"
             >
               Create link
             </Button>
             {link && (
               <div className="flex gap-2">
                 <Input
+                  ref={linkField}
                   aria-label="Share link"
                   value={link}
                   readOnly
@@ -331,6 +341,13 @@ export function SharingDialog({
                 groups.error?.message}
             </p>
           )}
+          {/* On phones the dialog scrolls; Create link stays in reach at its bottom edge. Sticking
+              24 px below the padded edge puts it on the dialog's own edge. */}
+          <div className="sticky -bottom-6 -mx-6 -mb-6 border-t bg-background px-6 py-3 sm:hidden">
+            <Button {...createLink} form={linkForm} className="w-full">
+              Create link
+            </Button>
+          </div>
         </div>
         {/* Nested inside the content so Radix treats it as a child layer. */}
         {requesting && (
