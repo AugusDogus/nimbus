@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { queryClient, trpcClient } from "@/lib/trpc";
+import { toast } from "@/lib/toast";
 import type { Permission } from "@nimbus/api/drive-store";
 import type { FileEntry } from "./types";
 import { LinkSettingsDraft, LinkSettingsFields } from "../shared/link-settings";
@@ -295,7 +296,10 @@ export function SharingDialog({
                   type="button"
                   variant="outline"
                   onClick={() =>
-                    void perform(() => navigator.clipboard.writeText(link))
+                    void perform(async () => {
+                      await navigator.clipboard.writeText(link);
+                      toast.success("Link copied");
+                    })
                   }
                 >
                   Copy

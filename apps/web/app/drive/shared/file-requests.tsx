@@ -67,7 +67,7 @@ export function FileRequests() {
               key={request.id}
               className="flex flex-wrap items-center gap-3 p-4"
             >
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 basis-60">
                 <a
                   href={`/r/${request.token}`}
                   className="block truncate text-sm font-medium underline underline-offset-4"
@@ -80,7 +80,7 @@ export function FileRequests() {
                     : "Anyone with the link"}{" "}
                   ·{" "}
                   {request.expiresAt
-                    ? `Expires ${new Date(request.expiresAt).toLocaleString()}`
+                    ? `${request.expiresAt <= requests.dataUpdatedAt ? "Expired" : "Expires"} ${new Date(request.expiresAt).toLocaleString()}`
                     : "No expiry"}{" "}
                   · {request.received.files}
                   {request.maxFiles === null

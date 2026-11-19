@@ -2,6 +2,7 @@ import { useState } from "react";
 import { lazyComponent } from "@/components/lazy-component";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient, trpcClient } from "@/lib/trpc";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -67,7 +68,7 @@ export function PublicLinks() {
               key={share.id}
               className="flex flex-wrap items-center gap-3 p-4"
             >
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 basis-60">
                 <a
                   href={`/s/${share.token}`}
                   className="block truncate text-sm font-medium underline underline-offset-4"
@@ -80,7 +81,7 @@ export function PublicLinks() {
                     : "Anyone with the link"}{" "}
                   ·{" "}
                   {share.expiresAt
-                    ? `Expires ${new Date(share.expiresAt).toLocaleString()}`
+                    ? `${share.expiresAt <= shares.dataUpdatedAt ? "Expired" : "Expires"} ${new Date(share.expiresAt).toLocaleString()}`
                     : "No expiry"}{" "}
                   ·{" "}
                   {share.maxDownloads === null
@@ -98,6 +99,7 @@ export function PublicLinks() {
                       await navigator.clipboard.writeText(
                         `${window.location.origin}/s/${share.token}`,
                       );
+                      toast.success("Link copied");
                     } catch {
                       setError(
                         "Copy failed. Open the link and copy its address.",
