@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { toast } from "@/lib/toast";
 
 import { queryClient, trpcClient } from "@/lib/trpc";
+import { trpcErrorCode } from "@/lib/trpc-error";
 import { fileListQueryOptions } from "./use-file-list";
 
 import { BulkResult } from "./bulk-result";
@@ -288,6 +289,8 @@ export function useFileActions({
         queryKey: ["catalog", "bookmarks"],
       });
     } catch (error) {
+      // An item that no longer exists says so where it was opened.
+      if (trpcErrorCode(error) === "NOT_FOUND") return;
       toast.error(
         error instanceof Error
           ? error.message

@@ -345,3 +345,18 @@ test("keeps sorting controls and the final row reachable while scrolling", async
     page.getByRole("heading", { name: "This folder is empty", exact: true }),
   ).toBeVisible();
 });
+
+test("a missing folder says so at once, without an error toast", async ({
+  page,
+}) => {
+  await page.goto(`/browse/missing-${randomUUID()}`);
+  // Retrying a missing folder only delays the answer by several seconds.
+  await expect(
+    page.getByRole("heading", { name: "Folder not found", exact: true }),
+  ).toBeVisible({ timeout: 4_000 });
+  await expect(
+    page
+      .getByRole("region", { name: /Notifications/ })
+      .getByText("no longer exists"),
+  ).toHaveCount(0);
+});

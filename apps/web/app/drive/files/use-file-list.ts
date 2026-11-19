@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 
 import { fetchFileList } from "@/lib/file-list";
+import { trpcErrorCode } from "@/lib/trpc-error";
 
 import type { FileEntry } from "./types";
 
@@ -21,6 +22,9 @@ export const fileListQueryOptions = (path: string, includeStats: boolean) =>
   queryOptions<FileEntry[]>({
     queryKey: ["files.list", path, includeStats],
     queryFn: () => fetchFileList(path, includeStats),
+    // A missing folder stays missing: show "Folder not found" at once instead of after retries.
+    retry: (failures, error) =>
+      trpcErrorCode(error) !== "NOT_FOUND" && failures < 3,
   });
 
 export const useFileList = ({
