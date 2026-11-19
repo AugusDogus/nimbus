@@ -22,8 +22,6 @@ export type FilePreviewProps = {
   name: string;
   /** Inline preview URL; it serves text as text/plain under a sandbox CSP. */
   url: string;
-  /** A PDF's rendered pages, for browsers that cannot show a PDF in a frame. */
-  pagesUrl: string;
   /** Present when the viewer may write this file. */
   editPath?: string;
   /** Reports whether unsaved edits exist, so the dialog can guard closing. */
@@ -49,7 +47,6 @@ const loading = (
 export default function FilePreview({
   name,
   url,
-  pagesUrl,
   editPath,
   onDirtyChange,
 }: FilePreviewProps) {
@@ -110,7 +107,7 @@ export default function FilePreview({
         />
       );
     case "pdf":
-      return <PdfPreview name={name} url={url} pagesUrl={pagesUrl} />;
+      return <PdfPreview name={name} url={url} />;
     case "other":
     default:
       return (
@@ -140,15 +137,7 @@ const usePdfViewer = () =>
     () => "unknown",
   );
 
-function PdfPreview({
-  name,
-  url,
-  pagesUrl,
-}: {
-  name: string;
-  url: string;
-  pagesUrl: string;
-}) {
+function PdfPreview({ name, url }: { name: string; url: string }) {
   const viewer = usePdfViewer();
   return (
     <div className="space-y-2">
@@ -160,7 +149,7 @@ function PdfPreview({
         />
       ) : viewer === "pages" ? (
         <Suspense fallback={pdfLoading}>
-          <PdfPagesView name={name} pagesUrl={pagesUrl} />
+          <PdfPagesView name={name} url={url} />
         </Suspense>
       ) : (
         pdfLoading

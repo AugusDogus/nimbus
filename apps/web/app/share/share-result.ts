@@ -64,9 +64,6 @@ export const shareEndpoint = (token: string) =>
   `/api/share/${encodeURIComponent(token)}`;
 export const shareUrl = (token: string, path: string) =>
   `${shareEndpoint(token)}?path=${encodeURIComponent(path)}`;
-/** A shared PDF's rendered pages, under the link's endpoint for its cookies. */
-export const sharePagesUrl = (token: string, path: string) =>
-  `${shareEndpoint(token)}/pdf?path=${encodeURIComponent(path)}`;
 
 export const publicShareQuery = (token: string, path: string) =>
   queryOptions({

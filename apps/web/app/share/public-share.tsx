@@ -15,12 +15,7 @@ import {
   EntryThumbnail,
   hasThumbnail,
 } from "@/app/drive/files/entry-thumbnail";
-import {
-  publicShareQuery,
-  shareEndpoint,
-  sharePagesUrl,
-  shareUrl,
-} from "./share-result";
+import { publicShareQuery, shareEndpoint, shareUrl } from "./share-result";
 import { FilePreview } from "@/app/drive/files/preview-dialog";
 
 function Expiry({ time }: { time: number }) {
@@ -166,7 +161,6 @@ export function PublicShare({ token }: { token: string }) {
             <FilePreview
               name={share.data.entry.name}
               url={`${url}&preview=1`}
-              pagesUrl={sharePagesUrl(token, path)}
             />
           ) : share.data.entries.length === 0 ? (
             <p className="text-muted-foreground">

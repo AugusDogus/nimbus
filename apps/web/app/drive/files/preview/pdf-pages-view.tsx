@@ -10,11 +10,23 @@ import { PdfPages } from "@/lib/pdf-pages";
  */
 export default function PdfPagesView({
   name,
-  pagesUrl,
+  url,
 }: {
   name: string;
-  pagesUrl: string;
+  /** The PDF's inline preview URL, beside which its pages are served. */
+  url: string;
 }) {
+  const pagesUrl = PdfPages.endpoint(url);
+  if (pagesUrl === null)
+    return (
+      <p role="alert" className="text-pretty text-sm text-muted-foreground">
+        This PDF could not be shown here. Open it in a new tab or download it.
+      </p>
+    );
+  return <Pages name={name} pagesUrl={pagesUrl} />;
+}
+
+function Pages({ name, pagesUrl }: { name: string; pagesUrl: string }) {
   const pages = useQuery({
     queryKey: ["pdf-pages", pagesUrl],
     queryFn: ({ signal }) => PdfPages.load(pagesUrl, signal),
@@ -45,7 +57,7 @@ export default function PdfPagesView({
       >
         <div className="mx-auto flex max-w-3xl flex-col gap-3 p-3">
           {sizes.map((size, index) => (
-            <Page
+            <PageImage
               key={index}
               number={index + 1}
               count={count}
@@ -68,7 +80,7 @@ export default function PdfPagesView({
   );
 }
 
-function Page({
+function PageImage({
   number,
   count,
   width,
@@ -106,7 +118,10 @@ function Page({
       decoding="async"
       draggable={false}
       onError={() => setFailed(true)}
-      className="h-auto w-full rounded-sm bg-white shadow-sm"
+      // A blank sheet while the page loads, in either theme. Inline, because a new utility
+      // class would land in the stylesheet every page loads at startup.
+      style={{ backgroundColor: "#fff" }}
+      className="h-auto w-full rounded-sm shadow-sm"
     />
   );
 }

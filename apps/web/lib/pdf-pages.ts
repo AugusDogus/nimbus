@@ -31,6 +31,26 @@ export const PdfPages = {
   widths,
   isWidth: (value: number): value is (typeof widths)[number] =>
     widths.some((width) => width === value),
+  /**
+   * The pages endpoint for a PDF's inline preview URL, or null for one it does not know: the
+   * drive's `/api/files/pdf`, or `/pdf` under a public link's own endpoint, which receives the
+   * link's cookies. Derived here, in the PDF view's own chunk, so pages that may never show a
+   * PDF, such as the public share page, load nothing of it at startup.
+   */
+  endpoint(previewUrl: string): string | null {
+    const url = new URL(previewUrl, "http://nimbus.invalid");
+    const path = url.searchParams.get("path");
+    const share = /^\/api\/share\/([^/]+)$/.exec(url.pathname)?.[1];
+    const base =
+      url.pathname === "/api/files/download"
+        ? "/api/files/pdf"
+        : share === undefined
+          ? null
+          : `/api/share/${share}/pdf`;
+    return base === null || path === null
+      ? null
+      : `${base}?${new URLSearchParams({ path })}`;
+  },
   /** The pages endpoint's answer, or an error naming why the pages cannot be shown. */
   async load(url: string, signal?: AbortSignal): Promise<PdfPages> {
     const response = await fetch(url, { cache: "no-store", signal });
