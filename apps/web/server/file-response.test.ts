@@ -7,6 +7,7 @@ import {
   readFile,
   rename,
   rm,
+  stat,
   symlink,
   truncate,
   utimes,
@@ -27,6 +28,8 @@ import {
   serveZip,
   stillNamed,
 } from "./file-response";
+import { hookFileHandle } from "./file-handle-testing";
+import { FileVersion } from "./file-version";
 
 let root: string;
 let previousRoot: string | undefined;
@@ -427,4 +430,84 @@ test("names files and folder archives so every browser saves them under their ow
     `attachment; filename="Fold'er (x).zip"; filename*=UTF-8''F%C3%B6ld%27er%20%28x%29.zip`,
   );
   await zip.body?.cancel();
+});
+
+test("a small body rewritten in place after its stats were read is not served as the version it was opened as", async () => {
+  const access = await admin();
+  const file = path.join(root, "docs/a.txt");
+  const opened = await stat(file);
+  // The rewrite lands after the open file was stated and before its bytes are read.
+  const restore = await hookFileHandle("read", "before", 1, () =>
+    writeFile(file, "9876543210"),
+  );
+  try {
+    const served = await serveFile(get(), "docs/a.txt", access);
+    expect(await served.text()).toBe("9876543210");
+    // Neither the old version, which a proof could name, nor any other: the bytes are unconfirmed.
+    expect(servedVersion(served)).toBeNull();
+    expect(servedVersion(served)).not.toBe(FileVersion.of(opened));
+  } finally {
+    restore();
+  }
+});
+
+test("a confirmed body rewritten in place while it is sent ends as failed after only the version's bytes", async () => {
+  const access = await admin();
+  const file = path.join(root, "docs/big.bin");
+  const chunk = 1 << 20;
+  await writeFile(file, new Uint8Array(3 * chunk).fill(1));
+  const opened = await stat(file);
+  // Rewritten after the first chunk was read and confirmed, before the second is read.
+  const restore = await hookFileHandle("read", "before", 2, () =>
+    writeFile(file, new Uint8Array(3 * chunk).fill(2)),
+  );
+  try {
+    const served = await serveFile(
+      get(),
+      "docs/big.bin",
+      access,
+      false,
+      "confirmed",
+    );
+    expect(servedVersion(served)).toBe(FileVersion.of(opened));
+    const received: Uint8Array[] = [];
+    const reader = served.body?.getReader();
+    if (!reader) throw new Error("The confirmed response has no body.");
+    const failed = await (async () => {
+      try {
+        for (
+          let read = await reader.read();
+          !read.done;
+          read = await reader.read()
+        )
+          received.push(read.value);
+        return false;
+      } catch {
+        return true;
+      }
+    })();
+    expect(failed).toBe(true);
+    const sent = Buffer.concat(received);
+    expect(sent.length).toBeLessThan(3 * chunk);
+    expect(sent.every((byte) => byte === 1)).toBe(true);
+  } finally {
+    restore();
+  }
+});
+
+test("a confirmed body of an unchanged file is sent whole", async () => {
+  const access = await admin();
+  const file = path.join(root, "docs/big.bin");
+  await writeFile(file, new Uint8Array(3 * (1 << 20) + 5).fill(7));
+  const served = await serveFile(
+    get({ range: "bytes=10-2097161" }),
+    "docs/big.bin",
+    access,
+    false,
+    "confirmed",
+  );
+  expect(served.status).toBe(206);
+  const body = new Uint8Array(await served.arrayBuffer());
+  expect(body.length).toBe(2097152);
+  expect(body.every((byte) => byte === 7)).toBe(true);
 });

@@ -333,3 +333,14 @@ test("a delivered view in flight holds its download, so racing views never excee
   ).toBe(200);
   expect(store.count).toBe(1);
 });
+
+test("only a request carrying a proof cookie of the link can be served uncounted, so only it needs a confirmed body", () => {
+  process.env.BETTER_AUTH_SECRET ??= "test-secret-test-secret-test-secret";
+  expect(SharePolicy.holdsProofs(get())).toBe(false);
+  expect(SharePolicy.holdsProofs(get({ cookie: "nimbus-session=1" }))).toBe(
+    false,
+  );
+  const viewed = response(200);
+  SharePolicy.allowPagesView(get(), viewed, share, "docs/a.pdf", "1:2:3");
+  expect(SharePolicy.holdsProofs(get({ cookie: jar("", viewed) }))).toBe(true);
+});

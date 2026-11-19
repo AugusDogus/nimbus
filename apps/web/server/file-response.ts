@@ -1,6 +1,6 @@
 import type { Readable } from "node:stream";
 import { existsSync, type Stats } from "node:fs";
-import { lstat } from "node:fs/promises";
+import { lstat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
 import type { Access } from "@nimbus/api/access";
@@ -104,25 +104,41 @@ export async function serveFile(
   requested: string,
   access: Pick<Access, "require">,
   inline = false,
+  body: ServedBody = "fast",
 ) {
   access.require(requested, "read");
   const opened = await openFile(request.method === "HEAD", requested);
-  const response = await respond(request, opened, inline);
-  versions.set(response, FileVersion.of(opened.stats));
+  const response = await respond(request, opened, inline, body);
+  if (!versions.has(response))
+    versions.set(response, FileVersion.of(opened.stats));
   return response;
 }
 
-/** The version of the file `response` serves, for responses from `serveFile`. */
+/**
+ * How a body larger than `bufferedBytes` is sent. `fast` goes zero-copy where it can. `confirmed`
+ * streams from the open descriptor and confirms the file's version after reading each chunk and
+ * before sending it, ending the body as failed when it changed: a write moves the modification
+ * time before it changes a byte, so every byte sent belongs to the version `servedVersion`
+ * names. For a response that may go uncounted on a proof of that version. Smaller bodies are
+ * always read whole and confirmed once.
+ */
+export type ServedBody = "fast" | "confirmed";
+
+/**
+ * The version of the file `response` serves, for responses from `serveFile`, or null when it
+ * changed while it was read, so nothing may treat the bytes as that version.
+ */
 export const servedVersion = (response: Response): FileVersion | null =>
   versions.get(response) ?? null;
 
 /** Each `serveFile` response's file version, read from the same open file as its bytes. */
-const versions = new WeakMap<Response, FileVersion>();
+const versions = new WeakMap<Response, FileVersion | null>();
 
 async function respond(
   request: Request,
   opened: Awaited<ReturnType<typeof openFile>>,
   inline: boolean,
+  body: ServedBody,
 ) {
   const { handle, stats, absolute } = opened;
   try {
@@ -153,6 +169,9 @@ async function respond(
         if (bytesRead === 0) break;
         read += bytesRead;
       }
+      // Rewritten in place since it was stated: the bytes are not the version the headers name.
+      const unchanged =
+        FileVersion.of(await handle.stat()) === FileVersion.of(stats);
       await handle.close();
       // Shortened in place since it was opened: send what remains, with that length.
       const headers = new Headers(response.init.headers);
@@ -162,11 +181,18 @@ async function respond(
           "Content-Range",
           `bytes ${response.start}-${response.start + read - 1}/${stats.size}`,
         );
-      return new Response(bytes.subarray(0, read), {
+      const served = new Response(bytes.subarray(0, read), {
         status: response.init.status,
         headers,
       });
+      versions.set(served, unchanged ? FileVersion.of(stats) : null);
+      return served;
     }
+    if (body === "confirmed")
+      return new Response(
+        confirmedBody(handle, stats, response.start, response.end),
+        response.init,
+      );
     if (heldDescriptors < maxHeldDescriptors) {
       // The slot is taken before the check awaits, so concurrent downloads cannot all pass it.
       heldDescriptors++;
@@ -199,6 +225,47 @@ async function respond(
     await handle?.close();
     throw error;
   }
+}
+
+/** Bytes `start` to `end` of the open file, each chunk confirmed as version `stats` before it is sent. */
+function confirmedBody(
+  handle: FileHandle,
+  stats: Stats,
+  start: number,
+  end: number,
+) {
+  const version = FileVersion.of(stats);
+  let position = start;
+  let closed = false;
+  const close = async () => {
+    if (closed) return;
+    closed = true;
+    await handle.close();
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const length = Math.min(1 << 20, end + 1 - position);
+        if (length <= 0) {
+          await close();
+          controller.close();
+          return;
+        }
+        const chunk = new Uint8Array(length);
+        const { bytesRead } = await handle.read(chunk, 0, length, position);
+        if (bytesRead === 0 || FileVersion.of(await handle.stat()) !== version)
+          throw new Error(
+            "The file changed while it was being sent, so the transfer was stopped. The bytes already sent belong to the version first served; download it again for the current one.",
+          );
+        position += bytesRead;
+        controller.enqueue(chunk.subarray(0, bytesRead));
+      } catch (error) {
+        await close().catch(() => undefined);
+        controller.error(error);
+      }
+    },
+    cancel: close,
+  });
 }
 
 /**

@@ -59,6 +59,9 @@ export async function GET(request: Request, context: Context) {
               scoped.target.relative,
               scoped.access,
               !download,
+              // Only a browser holding a proof can be served without counting; then every byte
+              // sent must belong to the version that proof names.
+              SharePolicy.holdsProofs(request) ? "confirmed" : "fast",
             );
       if (!SharePolicy.permitsResponse(share.mode, response))
         return refuse(

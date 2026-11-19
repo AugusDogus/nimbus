@@ -117,6 +117,13 @@ function viewedPages(
   );
 }
 
+/**
+ * Whether the request carries any proof of a counted view on its link, the only way a response
+ * there goes uncounted. Proof cookies are scoped to their link's endpoint.
+ */
+const holdsProofs = (request: Request) =>
+  UnlockCookie.family(transferCookies, request).length > 0;
+
 /** Transfers one browser can continue at once, across a folder link's files. */
 const continuableTransfers = 16;
 
@@ -214,6 +221,7 @@ export const SharePolicy = {
   countsAsTransfer,
   continuesView,
   continuesTransfer,
+  holdsProofs,
   allowContinuation,
   allowPagesView,
   countedView,

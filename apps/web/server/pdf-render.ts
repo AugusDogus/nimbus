@@ -101,13 +101,21 @@ const tools = () => {
  * place, even one that restores the modification time, moves its change time. Either way the
  * output describes exactly the version `file.stats` names, or the request is refused. A file
  * renamed over the path also moves the opened file's change time, so it is refused too.
+ *
+ * That check is a render's last wait: the routes build their answer from its output without
+ * waiting again. So a request that left by then gets its abort, never an answer, and a view
+ * counted for it is given back.
  */
 async function fromOpened<T>(
   file: OpenedPdf,
+  signal: AbortSignal,
   run: (source: string) => Promise<T>,
 ) {
   const output = await run(`/proc/${process.pid}/fd/${file.handle.fd}`);
-  if (FileVersion.of(file.stats) !== FileVersion.of(await file.handle.stat()))
+  const now = await file.handle.stat();
+  if (signal.aborted)
+    throw new DOMException("The request was cancelled.", "AbortError");
+  if (FileVersion.of(file.stats) !== FileVersion.of(now))
     throw new PdfChanged(
       "The PDF changed while its pages were drawn. Reload to see the current version.",
     );
@@ -125,7 +133,7 @@ async function info(file: OpenedPdf, signal: AbortSignal) {
   const { pdfinfo } = tools();
   const output = await limit(
     () =>
-      fromOpened(file, (source) =>
+      fromOpened(file, signal, (source) =>
         rendering("the page list", signal, () =>
           runBounded(
             [pdfinfo, "-f", "1", "-l", String(PdfPages.maxPages), source],
@@ -160,7 +168,7 @@ function page(
   const { pdftoppm } = tools();
   return limit(
     () =>
-      fromOpened(file, (source) =>
+      fromOpened(file, signal, (source) =>
         rendering(`page ${number}`, signal, () =>
           runBounded(
             [

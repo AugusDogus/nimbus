@@ -12,6 +12,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { PdfPages } from "@/lib/pdf-pages";
 import { DriveFile } from "@nimbus/api/drive-file";
+import { hookFileHandle } from "./file-handle-testing";
 import {
   PdfChanged,
   PdfRender,
@@ -190,6 +191,22 @@ describe.skipIf(!poppler)("PdfRender (requires poppler-utils)", () => {
         return PdfRender.info(file, signal());
       }),
     ).rejects.toBeInstanceOf(PdfChanged);
+  });
+
+  test("answers a request that left after the final check of its file with its abort, not the pages", async () => {
+    const controller = new AbortController();
+    const result = withOpened("two.pdf", async (file) => {
+      // The request goes away just as the renderer's last step, stating the file, finishes.
+      const restore = await hookFileHandle("stat", "after", 1, () =>
+        controller.abort(),
+      );
+      try {
+        return await PdfRender.info(file, controller.signal);
+      } finally {
+        restore();
+      }
+    });
+    await expect(result).rejects.toMatchObject({ name: "AbortError" });
   });
 
   test("refuses output when the opened file was rewritten with its old size and modification time", async () => {
