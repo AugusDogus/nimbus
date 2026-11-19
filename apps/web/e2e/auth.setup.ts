@@ -7,6 +7,9 @@ test("first account becomes administrator and can sign out and back in", async (
   context,
 }) => {
   await page.goto("/signup");
+  // Setup exists only before the first account, so it offers no sign-in.
+  await expect(page.getByText("Set up Nimbus", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sign in" })).toHaveCount(0);
   await page.getByLabel("Full Name").fill("Nimbus Administrator");
   await page.getByLabel("Email", { exact: true }).fill(adminEmail);
   await page.getByLabel("Password", { exact: true }).fill(password);
