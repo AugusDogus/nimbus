@@ -76,8 +76,8 @@ export function TrashPage() {
         <div className="min-w-0 flex-1">
           <h1 className="text-balance text-2xl font-semibold">Trash</h1>
           <p className="text-pretty mt-2 text-sm text-muted-foreground">
-            Items are kept for 30 days. Restoring an item does not restore its
-            old share links or direct permissions.
+            Items are kept for 30 days. Restoring an item brings back its share
+            links and direct permissions.
           </p>
         </div>
         {trash.data && trash.data.length > 0 && (
