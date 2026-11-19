@@ -77,13 +77,23 @@ export function useVirtualRows<T>({
       container.getBoundingClientRect().top -
       scroller.getBoundingClientRect().top +
       scroller.scrollTop;
-    const obstruction = obstructionRef.current
-      ? Math.max(
-          0,
-          obstructionRef.current.getBoundingClientRect().bottom -
-            scroller.getBoundingClientRect().top,
-        )
-      : 0;
+    // Measured only when revealing or paging, not on every scroll frame. The scroller's own sticky
+    // children, such as the page header, cover rows too, also on pages without a toolbar.
+    const obstruction = () =>
+      Math.max(
+        0,
+        ...[
+          obstructionRef.current,
+          ...Array.from(scroller.children).filter(
+            (child) => getComputedStyle(child).position === "sticky",
+          ),
+        ].map((element) =>
+          element
+            ? element.getBoundingClientRect().bottom -
+              scroller.getBoundingClientRect().top
+            : 0,
+        ),
+      );
     return { container, scroller, offset, obstruction };
   }, [containerRef, obstructionRef]);
 
@@ -144,7 +154,7 @@ export function useVirtualRows<T>({
       const top = offset + row.top;
       const bottom = top + row.height;
       const visibleTop =
-        scroller.scrollTop + Math.min(obstruction, scroller.clientHeight / 2);
+        scroller.scrollTop + Math.min(obstruction(), scroller.clientHeight / 2);
       if (top < visibleTop) scroller.scrollTop -= visibleTop - top + 8;
       else if (bottom > scroller.scrollTop + scroller.clientHeight)
         scroller.scrollTop = bottom - scroller.clientHeight + 8;
@@ -163,7 +173,7 @@ export function useVirtualRows<T>({
     return Math.max(
       1,
       Math.floor(
-        (measured.scroller.clientHeight - measured.obstruction) /
+        (measured.scroller.clientHeight - measured.obstruction()) /
           (row.height + 4),
       ),
     );
