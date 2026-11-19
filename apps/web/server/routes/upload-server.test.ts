@@ -54,6 +54,36 @@ describe("signed-in tus uploads", () => {
     else process.env.NIMBUS_DATA_ROOT = previousRoot;
   });
 
+  // tus-js-client sends the drive root's empty path as "targetPath " with no value.
+  it("uploads a file and a folder to the drive root", async () => {
+    const file = await send(
+      "POST",
+      "http://localhost/api/upload",
+      {
+        "Upload-Length": "2",
+        "Upload-Metadata": `filename ${base64("root.txt")},targetPath ,conflict ${base64("keep-both")}`,
+        "Content-Type": "application/offset+octet-stream",
+      },
+      "hi",
+    );
+    expect(file.status).toBe(201);
+    expect(await readFile(path.join(root, "root.txt"), "utf8")).toBe("hi");
+    const folder = await send(
+      "POST",
+      "http://localhost/api/upload",
+      {
+        "Upload-Length": "2",
+        "Upload-Metadata": `filename ${base64("inside.txt")},targetPath ,folder ${base64("dropped/deeper")},conflict ${base64("keep-both")}`,
+        "Content-Type": "application/offset+octet-stream",
+      },
+      "ok",
+    );
+    expect(folder.status).toBe(201);
+    expect(
+      await readFile(path.join(root, "dropped/deeper/inside.txt"), "utf8"),
+    ).toBe("ok");
+  });
+
   it("accepts metadata keys sent without a value, as tus-js-client sends empty strings", async () => {
     const created = await send(
       "POST",

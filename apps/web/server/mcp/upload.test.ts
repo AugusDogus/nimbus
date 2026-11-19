@@ -159,6 +159,30 @@ describe("MCP upload links", () => {
     expect(await staged()).toEqual([]);
   });
 
+  it("uploads to the drive root through a file link and a folder link", async () => {
+    const file = await link({
+      kind: "file",
+      path: "at-root.txt",
+      rule: { kind: "refuse" },
+    });
+    expect((await put(file.token, "file link")).status).toBe(201);
+    const folder = await link({
+      kind: "folder",
+      path: "",
+      rule: { kind: "refuse" },
+    });
+    expect(
+      (await put(folder.token, "folder link", { rest: "new/in-root.txt" }))
+        .status,
+    ).toBe(201);
+    expect(await readFile(drive.absolute("at-root.txt"), "utf8")).toBe(
+      "file link",
+    );
+    expect(await readFile(drive.absolute("new/in-root.txt"), "utf8")).toBe(
+      "folder link",
+    );
+  });
+
   it("uses each link once for each path", async () => {
     const { token } = await link({
       kind: "file",

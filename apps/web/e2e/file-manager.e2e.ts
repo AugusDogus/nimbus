@@ -740,3 +740,75 @@ test("star controls say whether they add or remove stars, and do exactly that", 
   await remove.click();
   await expect(star).toBeVisible();
 });
+
+test("uploads to the drive root from the file picker, the folder picker and a drop", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  const tag = randomUUID().slice(0, 8);
+  const local = await mkdtemp(path.join(os.tmpdir(), "nimbus-root-upload-"));
+  try {
+    await mkdir(path.join(local, `root-folder-${tag}`));
+    await writeFile(path.join(local, `root-folder-${tag}`, "inside.txt"), "In");
+    await page.goto("/");
+    const rpc = await client(context);
+    const atRoot = async () =>
+      FileListing.entries(await rpc.files.list.query({ path: "" })).map(
+        (item) => item.name,
+      );
+    const choose = async (label: string, target: string) => {
+      const chooser = page.waitForEvent("filechooser");
+      await page
+        .getByRole("button", {
+          name: isMobile ? "New file or folder" : "New",
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole(isMobile ? "button" : "menuitem", {
+          name: label,
+          exact: true,
+        })
+        .click();
+      await (await chooser).setFiles(target);
+    };
+
+    await writeFile(path.join(local, `root-file-${tag}.txt`), "File");
+    await choose("Upload file", path.join(local, `root-file-${tag}.txt`));
+    await choose("Upload folder", path.join(local, `root-folder-${tag}`));
+    // A drop on the folder's content delivers files through the same uploader.
+    await page
+      .getByRole("heading", { name: "My Drive", exact: true })
+      .evaluate((heading, name) => {
+        const data = new DataTransfer();
+        data.items.add(new File(["Drop"], name, { type: "text/plain" }));
+        for (const type of ["dragover", "drop"])
+          heading.dispatchEvent(
+            new DragEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              dataTransfer: data,
+            }),
+          );
+      }, `root-drop-${tag}.txt`);
+
+    await expect
+      .poll(atRoot)
+      .toEqual(
+        expect.arrayContaining([
+          `root-file-${tag}.txt`,
+          `root-folder-${tag}`,
+          `root-drop-${tag}.txt`,
+        ]),
+      );
+    expect(
+      FileListing.entries(
+        await rpc.files.list.query({ path: `root-folder-${tag}` }),
+      ).map((item) => item.name),
+    ).toEqual(["inside.txt"]);
+    await expect(page.getByText(/upload(s)? failed/)).toHaveCount(0);
+  } finally {
+    await rm(local, { recursive: true, force: true });
+  }
+});

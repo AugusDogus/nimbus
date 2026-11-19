@@ -35,7 +35,11 @@ const folderSchema = z
 /** tus metadata as stored with each upload. Values arrive as strings from the client. */
 export const UploadMetadata = z.object({
   filename: fileNameSchema,
-  targetPath: z.string(),
+  /**
+   * The destination folder. The drive root is "", which tus-js-client sends as a key without a
+   * value, so it arrives absent.
+   */
+  targetPath: z.string().default(""),
   /** Folders to recreate under `targetPath`, for folder uploads. */
   folder: folderSchema,
   conflict: UploadConflict.default("keep-both"),
