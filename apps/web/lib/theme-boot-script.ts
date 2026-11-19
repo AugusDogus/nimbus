@@ -3,14 +3,30 @@ import { colorSchemeStorageKey } from "./color-scheme-key";
 import { themeStorageKey, themeStyleId } from "./theme-preferences";
 import { themeColorKeys } from "./vscode-theme";
 
-// Applies the chosen color scheme before the page is painted, as `ColorScheme` does later.
+// Applies the chosen color scheme before the page is painted, as `ColorScheme` does later, and
+// again whenever the operating system switches between light and dark, on every page, also those
+// that load no theme code. Transitions pause for a frame so colors switch at once.
 export const colorSchemeBootScript = `(() => {
-  let saved = null;
-  try { saved = localStorage.getItem(${JSON.stringify(colorSchemeStorageKey)}); } catch {}
-  const scheme = saved === 'light' || saved === 'dark' ? saved
-    : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  document.documentElement.classList.add(scheme);
-  document.documentElement.style.colorScheme = scheme;
+  const root = document.documentElement;
+  const system = matchMedia('(prefers-color-scheme: dark)');
+  const apply = () => {
+    let saved = null;
+    try { saved = localStorage.getItem(${JSON.stringify(colorSchemeStorageKey)}); } catch {}
+    const scheme = saved === 'light' || saved === 'dark' ? saved : system.matches ? 'dark' : 'light';
+    if (root.classList.contains(scheme) && root.style.colorScheme === scheme) return false;
+    root.classList.remove('light', 'dark');
+    root.classList.add(scheme);
+    root.style.colorScheme = scheme;
+    return true;
+  };
+  apply();
+  system.addEventListener('change', () => {
+    const pause = document.createElement('style');
+    pause.textContent = '*,*::before,*::after{transition:none!important}';
+    document.head.append(pause);
+    if (apply()) getComputedStyle(document.body);
+    setTimeout(() => pause.remove(), 1);
+  });
 })();`;
 
 // Runs before the page is painted. Only known variables with hex colors may
