@@ -317,8 +317,9 @@ test("serves a stored version payload with its length, its download name and ran
   expect(whole.status).toBe(200);
   expect(whole.headers.get("content-length")).toBe("10");
   expect(whole.headers.get("content-type")).toBe("application/octet-stream");
+  // RFC 8187 allows no unescaped parentheses in `filename*`; browsers drop a malformed one.
   expect(whole.headers.get("content-disposition")).toBe(
-    "attachment; filename*=UTF-8''a%20(2026-11-16).txt",
+    `attachment; filename="a (2026-11-16).txt"; filename*=UTF-8''a%20%282026-11-16%29.txt`,
   );
   expect(await whole.text()).toBe("0123456789");
   const range = await serveStoredFile(
@@ -404,4 +405,26 @@ test("names the served file's version, which a replacement with the same size an
   await first.body?.cancel();
   await second.body?.cancel();
   await releaseHeldDescriptorsForTest();
+});
+
+test("names files and folder archives so every browser saves them under their own name", async () => {
+  const access = await admin();
+  const name = "Dad's Café “Notes” (v2).pdf";
+  await writeFile(path.join(root, "docs", name), "%PDF-1.4");
+  const encoded =
+    "Dad%27s%20Caf%C3%A9%20%E2%80%9CNotes%E2%80%9D%20%28v2%29.pdf";
+  // An ASCII `filename` for clients without RFC 8187, then the exact name in `filename*`.
+  const fallback = `filename="Dad's Cafe _Notes_ (v2).pdf"; filename*=UTF-8''${encoded}`;
+  const inline = await serveFile(get(), `docs/${name}`, access, true);
+  expect(inline.headers.get("content-disposition")).toBe(`inline; ${fallback}`);
+  const attachment = await serveFile(get(), `docs/${name}`, access);
+  expect(attachment.headers.get("content-disposition")).toBe(
+    `attachment; ${fallback}`,
+  );
+  await mkdir(path.join(root, "Föld'er (x)"));
+  const zip = await serveZip("Föld'er (x)", access);
+  expect(zip.headers.get("content-disposition")).toBe(
+    `attachment; filename="Fold'er (x).zip"; filename*=UTF-8''F%C3%B6ld%27er%20%28x%29.zip`,
+  );
+  await zip.body?.cancel();
 });

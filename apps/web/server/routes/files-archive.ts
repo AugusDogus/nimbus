@@ -5,6 +5,7 @@ import {
   resolveArchiveRoots,
 } from "@/server/routes/archive-entries";
 import { allowedOrigins } from "@/lib/auth";
+import { ContentDisposition } from "@/server/content-disposition";
 import { httpError, requestAccess } from "@/server/http-files";
 import { RequestBody } from "@/server/request-body";
 import { RequestOrigin } from "@/server/request-origin";
@@ -40,7 +41,10 @@ export async function POST(request: Request) {
       {
         headers: {
           "Content-Type": "application/zip",
-          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(archiveName(roots))}`,
+          "Content-Disposition": ContentDisposition.header(
+            "attachment",
+            archiveName(roots),
+          ),
           "Cache-Control": "private, no-store",
         },
       },

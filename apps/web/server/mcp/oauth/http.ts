@@ -1,4 +1,5 @@
 import { RequestBody } from "../../request-body";
+import { HtmlText } from "@/server/html-text";
 
 /** Token, registration and consent bodies are tiny; reading stops once a body passes this. */
 const MAX_BODY_BYTES = 64 * 1024;
@@ -161,13 +162,7 @@ export async function readJsonObject(
   return { ok: true, value: Object.fromEntries(Object.entries(value)) };
 }
 
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+const escapeHtml = HtmlText.escape;
 
 /**
  * A standalone page for authorization errors that must not redirect to an

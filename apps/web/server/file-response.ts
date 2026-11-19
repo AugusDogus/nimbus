@@ -9,6 +9,7 @@ import { isFsError } from "@nimbus/api/safe-path";
 import { FileKind } from "@/lib/file-kind";
 import { DriveFile } from "@nimbus/api/drive-file";
 import { archiveEntries, folderRoot } from "./routes/archive-entries";
+import { ContentDisposition } from "./content-disposition";
 import { fileETag } from "./file-content";
 import { FileVersion } from "./file-version";
 import { zipStream } from "./zip-stream";
@@ -342,7 +343,12 @@ function fileResponse(
     };
   const headers = new Headers({
     "Content-Type": inline ? contentType : "application/octet-stream",
-    "Content-Disposition": `${inline && contentType !== "application/octet-stream" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    "Content-Disposition": ContentDisposition.header(
+      inline && contentType !== "application/octet-stream"
+        ? "inline"
+        : "attachment",
+      filename,
+    ),
     "Accept-Ranges": "bytes",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "sandbox; default-src 'none'",
@@ -388,7 +394,10 @@ export async function serveZip(
   const roots = await folderRoot(requested);
   const headers = {
     "Content-Type": "application/zip",
-    "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(requested) || "drive")}.zip`,
+    "Content-Disposition": ContentDisposition.header(
+      "attachment",
+      `${path.basename(requested) || "drive"}.zip`,
+    ),
     "Cache-Control": "private, no-store",
   };
   if (head) return new Response(null, { headers });

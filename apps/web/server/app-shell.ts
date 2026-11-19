@@ -5,6 +5,7 @@ import { Bootstrap, bootstrapElementId } from "@/client/bootstrap";
 import { htmlNonce } from "@/client/html-nonce";
 import { RoutePreloads, type PageRoute } from "./route-preloads";
 import { accepted, StaticFiles } from "./static-files";
+import { HtmlText } from "./html-text";
 
 /**
  * Serves the browser app: the HTML page for every app address, with a fresh script nonce, and
@@ -37,13 +38,15 @@ export type AppShell = {
   html(nonce: string, pathname: string, page: PageContent): Promise<string>;
   /**
    * A public page from its own entry, with `markup` the server rendered in `#root` and `head`
-   * added to the head, such as the data the page hydrates with.
+   * added to the head, such as the data the page hydrates with. `title`, when given, replaces
+   * the template's title.
    */
   publicHtml(
     name: PublicPageName,
     nonce: string,
     head: string,
     markup: string,
+    title: string | null,
   ): Promise<string>;
   /** The `<link rel="stylesheet">` tags of the app, for pages the server renders itself. */
   stylesheets(nonce: string): Promise<string>;
@@ -65,20 +68,25 @@ const bootstrapTag = (nonce: string, data: Bootstrap) =>
 const root = '<div id="root"></div>';
 
 /**
- * A template with `nonce` filled in, `head` before the end of its head and `content` inside its
- * root element. Replacements use callbacks, so `$` in names and data stays literal.
+ * A template with `nonce` filled in, `title` as its title when given, `head` before the end of
+ * its head and `content` inside its root element. Replacements use callbacks, so `$` in names
+ * and data stays literal.
  */
 function compose(
   template: string,
   nonce: string,
   head: string,
   content: string,
+  title: string | null = null,
 ) {
   if (!template.includes(root))
     throw new Error(
       "The page template has no empty #root element, so the app cannot start. Check index.html, share.html, file-request.html and auth.html, then rebuild Nimbus.",
     );
   return fill(template, nonce)
+    .replace(/<title>[^<]*<\/title>/, (tag) =>
+      title === null ? tag : `<title>${HtmlText.escape(title)}</title>`,
+    )
     .replace("</head>", () => `${head}</head>`)
     .replace(root, () => `<div id="root">${content}</div>`);
 }
@@ -121,8 +129,8 @@ async function production(): Promise<AppShell> {
         `${bootstrapTag(nonce, page.data)}${preloads.links(pathname, page.requests)}`,
         page.skeleton,
       ),
-    publicHtml: async (name, nonce, head, markup) =>
-      compose(publicTemplates.get(name) ?? "", nonce, head, markup),
+    publicHtml: async (name, nonce, head, markup, title) =>
+      compose(publicTemplates.get(name) ?? "", nonce, head, markup, title),
     stylesheets: async (nonce) => fill(styles, nonce),
     file: async (request, pathname) => {
       const file = files.get(pathname);
@@ -174,12 +182,13 @@ async function development(vite: string): Promise<AppShell> {
       ),
     // Pages the server renders link the styles their markup needs, which Vite would otherwise
     // add only once their code runs.
-    publicHtml: async (name, nonce, head, markup) =>
+    publicHtml: async (name, nonce, head, markup, title) =>
       compose(
         await page(`${name}.html`),
         nonce,
         `${stylesheets(nonce)}${head}`,
         markup,
+        title,
       ),
     stylesheets: async (nonce) => stylesheets(nonce),
     file: async (request, pathname) => {

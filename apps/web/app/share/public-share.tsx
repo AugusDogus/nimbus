@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LinkUnlock } from "@/lib/link-unlock";
 import { useHydrated } from "@/lib/use-hydrated";
 import { useServerField } from "@/lib/use-server-field";
@@ -15,7 +15,12 @@ import {
   EntryThumbnail,
   hasThumbnail,
 } from "@/app/drive/files/entry-thumbnail";
-import { publicShareQuery, shareEndpoint, shareUrl } from "./share-result";
+import {
+  publicShareQuery,
+  shareEndpoint,
+  ShareResult,
+  shareUrl,
+} from "./share-result";
 import { FilePreview } from "@/app/drive/files/preview-dialog";
 
 function Expiry({ time }: { time: number }) {
@@ -34,6 +39,11 @@ export function PublicShare({ token }: { token: string }) {
   const endpoint = shareEndpoint(token);
   const url = shareUrl(token, path);
   const share = useQuery(publicShareQuery(token, path));
+  // As the server titles the page: browsers name a printout or a saved page after it.
+  const title = (share.data && ShareResult.title(share.data)) ?? "Nimbus";
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
   const unavailable = share.isError
     ? share.error.message
     : share.data?.kind === "unavailable"

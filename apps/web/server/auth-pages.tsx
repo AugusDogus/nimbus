@@ -60,7 +60,7 @@ export const AuthPages = {
       mode,
       createQueryClient(),
       [],
-      { data, content: <AuthScreen data={data} /> },
+      { data, content: <AuthScreen data={data} />, title: null },
     );
     return { kind: "page", ...page };
   },

@@ -86,6 +86,9 @@ export const PublicPages = {
         {
           data: { token: shareToken, result },
           content: <PublicShare token={shareToken} />,
+          // Browsers name a printout or a saved page after it. Nothing is named before a
+          // locked link is unlocked.
+          title: ShareResult.title(result),
         },
       );
     }
@@ -109,6 +112,7 @@ export const PublicPages = {
         {
           data: { token: requestToken, result },
           content: <FileRequestUpload token={requestToken} />,
+          title: null,
         },
       );
     }
@@ -125,7 +129,11 @@ export const PublicPages = {
     mode: SecurityMode,
     queryClient: ReturnType<typeof createQueryClient>,
     cookies: string[],
-    { data, content }: { data: unknown; content: ReactNode },
+    {
+      data,
+      content,
+      title,
+    }: { data: unknown; content: ReactNode; title: string | null },
   ): Promise<{ html: string; headers: Headers }> {
     // Waits for lazy parts such as the theme styles, which `renderToString` would leave for the
     // browser, logging a recoverable error as it hydrates.
@@ -140,6 +148,7 @@ export const PublicPages = {
       nonce,
       `<script type="application/json" id="${publicPageElementId}" nonce="${nonce}">${inlineJson(data)}</script>`,
       markup,
+      title,
     );
     const headers = new Headers(SecurityHeaders.document(nonce, mode));
     for (const cookie of cookies) headers.append("Set-Cookie", cookie);

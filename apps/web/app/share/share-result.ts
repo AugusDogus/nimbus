@@ -57,6 +57,17 @@ export const ShareResult = {
     const parsed = resultSchema.safeParse(value);
     return parsed.success ? parsed.data : undefined;
   },
+  /**
+   * The page title for an open link: the shared item's name without its extension, or null
+   * before a link is open, so nothing is named before a password. Browsers name a printout or
+   * a saved page after the title and add their own extension: a title ending in `.pdf` would
+   * make Chrome save the page itself as `….pdf`, which is not the PDF.
+   */
+  title(result: ShareResult): string | null {
+    return result.kind === "open"
+      ? result.entry.name.replace(/^(.+)\.[^.\s]+$/, "$1")
+      : null;
+  },
 } as const;
 
 /** The share endpoint for `token`, listing the folder `path` inside it. */
