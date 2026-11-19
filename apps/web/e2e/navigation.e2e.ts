@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
+import { FileListing } from "@nimbus/api/file-listing";
 import { client, test } from "./helpers";
 
 test("keeps primary navigation and utility actions usable in both themes", async ({
@@ -504,4 +505,67 @@ test("on a phone the share dialog keeps Create link in reach without scrolling",
   await expect(
     dialog.getByRole("textbox", { name: "Share link" }),
   ).toBeInViewport();
+});
+
+test("New closes and creates nothing once the page has nowhere to create in", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  const rpc = await client(context);
+  const rootNames = async () =>
+    FileListing.entries(await rpc.files.list.query({ path: "" })).map(
+      (item) => item.name,
+    );
+  const before = await rootNames();
+  const openNew = () =>
+    page
+      .getByRole("button", {
+        name: isMobile ? "New file or folder" : "New",
+        exact: true,
+      })
+      .click();
+  const newFolder = page.getByRole(isMobile ? "button" : "menuitem", {
+    name: "New folder",
+    exact: true,
+  });
+  const upload = page.getByRole(isMobile ? "button" : "menuitem", {
+    name: "Upload file",
+    exact: true,
+  });
+
+  // In-app navigation keeps the page, so whatever New had open must close by itself.
+  const sidebarLink = async (name: string) => {
+    if (isMobile)
+      await page
+        .getByRole("button", { name: "Toggle Sidebar", exact: true })
+        .click();
+    await page.getByRole("link", { name, exact: true }).first().click();
+    if (isMobile) await page.keyboard.press("Escape");
+  };
+  // A menu or drawer open when Back returns to Trash closes, and does not come back.
+  await page.goto("/");
+  await sidebarLink("Trash");
+  await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
+  await sidebarLink("My Drive");
+  await expect(page.getByRole("heading", { name: "My Drive" })).toBeVisible();
+  await openNew();
+  await expect(newFolder).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
+  await expect(newFolder).toBeHidden();
+  await expect(upload).toBeHidden();
+  await page.goForward();
+  await expect(page.getByRole("heading", { name: "My Drive" })).toBeVisible();
+  await expect(newFolder).toBeHidden();
+
+  // A New folder dialog open when Back returns to Trash closes without creating.
+  await openNew();
+  await newFolder.click();
+  const dialog = page.getByRole("dialog", { name: "New folder", exact: true });
+  await dialog.getByRole("textbox").fill(`never-${randomUUID().slice(0, 8)}`);
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
+  await expect(dialog).toBeHidden();
+  expect(await rootNames()).toEqual(before);
 });

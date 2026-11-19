@@ -111,7 +111,11 @@ export function FilesShell({ children }: FilesShellProps) {
 
   // Single new-content instance shared by sidebar (desktop) and FAB (mobile)
   const [fabDrawerOpen, setFabDrawerOpen] = useState(false);
+  const creatable = canWrite && offersNew;
+  // The drawer closes, and stays closed, once this page cannot create.
+  if (!creatable && fabDrawerOpen) setFabDrawerOpen(false);
   const newContent = useNewContent({
+    available: creatable,
     onCreateFolder: actions.createFolder,
     onUploadFiles: uploadFiles,
   });

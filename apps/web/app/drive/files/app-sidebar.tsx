@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "@/components/link";
 import { usePathname } from "@/hooks/use-pathname";
 import {
@@ -63,6 +64,10 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
+  // The menu closes, and stays closed, once this page cannot create, such as after Back to Trash.
+  const creatable = canWrite && offersNew;
+  const [menuOpen, setMenuOpen] = useState(false);
+  if (!creatable && menuOpen) setMenuOpen(false);
   const closeNavigation = () => setOpenMobile(false);
 
   return (
@@ -82,7 +87,10 @@ export function AppSidebar({
       <SidebarContent className="gap-4 px-3 pt-4 group-data-[collapsible=icon]:px-0">
         {/* Hidden in place, so the navigation below never moves between pages. */}
         <div className={cn("flex justify-center", !offersNew && "invisible")}>
-          <DropdownMenu>
+          <DropdownMenu
+            open={menuOpen}
+            onOpenChange={(open) => setMenuOpen(open && creatable)}
+          >
             <DropdownMenuTrigger
               render={
                 <Button
