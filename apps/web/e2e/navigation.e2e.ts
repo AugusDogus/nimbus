@@ -361,6 +361,74 @@ test("a missing folder says so at once, without an error toast", async ({
   ).toHaveCount(0);
 });
 
+test("header and toolbar controls have 44 px touch areas on touch screens only", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  const folder = `touch-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: folder });
+  await rpc.files.createFolder.mutate({ path: folder, name: "middle" });
+  await rpc.files.createFolder.mutate({
+    path: `${folder}/middle`,
+    name: "inner",
+  });
+  // Three levels deep, so the breadcrumb shows the root link and the path folders button.
+  await page.goto(`/browse/${folder}/middle/inner`);
+  await expect(page.getByRole("button", { name: "List view" })).toBeVisible();
+  // Each control answers a touch 21 px from its center in every direction, and no neighbor
+  // takes it: a 44 px area of its own. With a mouse, controls keep their visible size.
+  const areas = await page.evaluate(() => {
+    const controls = [
+      document.querySelector('[data-sidebar="trigger"]'),
+      document.querySelector('header a[aria-label="Nimbus home"]'),
+      document.querySelector('[aria-label="Account menu"]'),
+      document.querySelector(
+        'nav[aria-label="breadcrumb"] a[aria-label="My Drive"]',
+      ),
+      [...document.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("Show folders in this path"),
+      ),
+      document.querySelector('[aria-label="Sort and filter options"]'),
+      document.querySelector('[aria-label="List view"]'),
+      document.querySelector('[aria-label="Grid view"]'),
+    ];
+    return controls
+      .filter((control) => control instanceof HTMLElement)
+      .filter((control) => control.getBoundingClientRect().width > 0)
+      .map((control) => {
+        const box = control.getBoundingClientRect();
+        const x = box.left + box.width / 2;
+        const y = box.top + box.height / 2;
+        const answers = [
+          [-21, 0],
+          [21, 0],
+          [0, -21],
+          [0, 21],
+        ].every(([dx = 0, dy = 0]) => {
+          const hit = document.elementFromPoint(x + dx, y + dy);
+          return hit !== null && control.contains(hit);
+        });
+        return {
+          name:
+            control.getAttribute("aria-label") ??
+            control.textContent?.trim() ??
+            "",
+          answers,
+        };
+      });
+  });
+  expect(areas.length).toBeGreaterThanOrEqual(isMobile ? 8 : 6);
+  for (const area of areas)
+    expect(area, area.name).toEqual({ name: area.name, answers: isMobile });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+  ).toBe(false);
+});
+
 test("New is offered only where something can be created", async ({
   page,
   isMobile,

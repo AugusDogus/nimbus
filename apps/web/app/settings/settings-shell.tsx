@@ -42,7 +42,7 @@ export function SettingsShell({
       <SettingsSidebar isAdmin={isAdmin} />
       <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pb-(--impersonation-offset)">
         <header className="surface-grain sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 border-b border-border/40 bg-background px-4 md:px-6">
-          <SidebarTrigger className="size-8 shrink-0 text-muted-foreground" />
+          <SidebarTrigger className="touch-hit size-8 shrink-0 text-muted-foreground" />
           <Breadcrumb aria-label="Settings breadcrumb">
             <BreadcrumbList>
               <BreadcrumbItem>

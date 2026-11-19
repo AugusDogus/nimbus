@@ -53,10 +53,15 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
 
   return (
     <Breadcrumb className="min-w-0">
-      <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden text-sm sm:text-base">
+      {/* On touch screens the list's padding gives the root link room for its 44 px touch area,
+          which the list's clipping would otherwise cut; the negative margins keep the layout. */}
+      <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden text-sm pointer-coarse:-my-3.5 pointer-coarse:-ml-3.5 pointer-coarse:py-3.5 pointer-coarse:pl-3.5 sm:text-base">
         {/* Root: icon on mobile, text on desktop */}
         <BreadcrumbItem>
-          <BreadcrumbLink render={<Link to="/" aria-label="My Drive" />}>
+          <BreadcrumbLink
+            className="pointer-coarse:relative pointer-coarse:z-10 pointer-coarse:-m-3.5 pointer-coarse:p-3.5"
+            render={<Link to="/" aria-label="My Drive" />}
+          >
             <Home className="size-4 md:hidden" />
             <span className="max-md:hidden">My Drive</span>
           </BreadcrumbLink>
@@ -69,7 +74,13 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
             <BreadcrumbItem className={ellipsisClassName}>
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  render={<Button size="icon-sm" variant="ghost" />}
+                  render={
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      className="touch-hit"
+                    />
+                  }
                 >
                   <BreadcrumbEllipsis />
                   <span className="sr-only">Show folders in this path</span>

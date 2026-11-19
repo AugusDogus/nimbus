@@ -103,7 +103,7 @@ export function FiltersRow({
       <Button
         variant="ghost"
         size="sm"
-        className="md:hidden"
+        className="touch-hit md:hidden"
         onClick={() => setFilterDrawerOpen(true)}
         aria-label="Sort and filter options"
       >
@@ -250,7 +250,7 @@ export function FiltersRow({
               <ToggleGroupItem
                 value="list"
                 aria-label="List view"
-                className="size-8 rounded-md px-0 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
+                className="touch-hit size-8 rounded-md px-0 pointer-coarse:w-11 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
               />
             }
           >
@@ -266,7 +266,7 @@ export function FiltersRow({
               <ToggleGroupItem
                 value="grid"
                 aria-label="Grid view"
-                className="size-8 rounded-md px-0 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
+                className="touch-hit size-8 rounded-md px-0 pointer-coarse:w-11 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
               />
             }
           >
