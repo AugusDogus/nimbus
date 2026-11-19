@@ -224,7 +224,9 @@ export function EntryActionsButton({
       aria-expanded={open}
       data-state={open ? "open" : "closed"}
       tabIndex={tabbable ? 0 : -1}
-      className="absolute right-2 top-2 shrink-0 text-muted-foreground md:opacity-0 md:group-hover/entry:opacity-100 md:group-focus-within/entry:opacity-100 md:data-[state=open]:opacity-100"
+      // Shown only on hover where there is a mouse; touch screens of every width keep it visible,
+      // with a 44 px target centered where the smaller button sits.
+      className="absolute right-2 top-2 shrink-0 text-muted-foreground pointer-coarse:right-0.5 pointer-coarse:top-0.5 pointer-coarse:size-11 md:pointer-fine:opacity-0 md:pointer-fine:group-hover/entry:opacity-100 md:pointer-fine:group-focus-within/entry:opacity-100 md:pointer-fine:data-[state=open]:opacity-100"
       onClick={(event) => {
         event.stopPropagation();
         onOpen(event);
