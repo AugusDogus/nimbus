@@ -371,7 +371,13 @@ export function EntryMenuHost({
                 ? `${shown.targets.length.toLocaleString()} selected items`
                 : shown?.entry.name}
             </DrawerTitle>
-            <DrawerDescription>File actions</DrawerDescription>
+            <DrawerDescription>
+              {shown && shown.targets.length > 1
+                ? "Actions for every selected item"
+                : shown?.entry.type === "dir"
+                  ? "Folder actions"
+                  : "File actions"}
+            </DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-6">
             {items.map((item) => (
