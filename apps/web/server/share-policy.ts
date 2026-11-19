@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import type { DriveStore, Share, ShareMode } from "@nimbus/api/drive-store";
+import type { Share, ShareMode } from "@nimbus/api/drive-store";
+import type { ServedBody } from "./file-response";
 import type { FileVersion } from "./file-version";
 import { UnlockCookie, type UnlockScope } from "./unlock-cookie";
 
@@ -118,11 +119,16 @@ function viewedPages(
 }
 
 /**
- * Whether the request carries any proof of a counted view on its link, the only way a response
- * there goes uncounted. Proof cookies are scoped to their link's endpoint.
+ * How a file of this link is sent for `request`: `confirmed` only when it carries a proof that
+ * verifies for the version opened (signature, link, file, version and expiry), the only case in
+ * which the response can go uncounted. Anything else, such as a cookie that merely looks like
+ * a proof, keeps the fast zero-copy path and is counted as usual. The version comes from the
+ * file already open for the response; checking it opens nothing and starts nothing.
  */
-const holdsProofs = (request: Request) =>
-  UnlockCookie.family(transferCookies, request).length > 0;
+const servedBody =
+  (request: Request, share: Pick<Share, "token">, relative: string) =>
+  (version: FileVersion): ServedBody =>
+    continuesTransfer(request, share, relative, version) ? "confirmed" : "fast";
 
 /** Transfers one browser can continue at once, across a folder link's files. */
 const continuableTransfers = 16;
@@ -178,32 +184,6 @@ function allowPagesView(
 }
 
 /**
- * Count one download of `share` for a view, then run `deliver`, refunding the count unless it
- * delivered: a view whose answer is not a success, or whose request left before the answer, is
- * never charged. Returns null, without running `deliver`, when the link has no download left.
- *
- * The claim is atomic and comes first, so racing views never exceed the limit: a refund only
- * returns a claim this view held and used for nothing. A visitor cannot win a refund for
- * something delivered: once `deliver` answers with a success, the count stands whatever
- * happens to the connection afterwards.
- */
-async function countedView(
-  store: Pick<DriveStore, "claimDownload" | "refundDownload">,
-  share: Pick<Share, "id">,
-  deliver: () => Promise<Response>,
-): Promise<Response | null> {
-  if (!(await store.claimDownload(share.id))) return null;
-  let delivered = false;
-  try {
-    const response = await deliver();
-    delivered = response.ok;
-    return response;
-  } finally {
-    if (!delivered) await store.refundDownload(share.id);
-  }
-}
-
-/**
  * View-only links offer previews the browser renders inline. This removes the
  * download actions but cannot stop a visitor saving what their browser shows.
  */
@@ -221,9 +201,8 @@ export const SharePolicy = {
   countsAsTransfer,
   continuesView,
   continuesTransfer,
-  holdsProofs,
+  servedBody,
   allowContinuation,
   allowPagesView,
-  countedView,
   permitsResponse,
 } as const;

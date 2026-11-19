@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setSystemTime, test } from "bun:test";
 import type { Share } from "@nimbus/api/drive-store";
 import { SharePolicy } from "./share-policy";
 
@@ -258,89 +258,26 @@ test("a counted PDF pages view lets the same browser take that version's whole f
   );
 });
 
-test("a counted view is charged only when it delivers", async () => {
-  const store = {
-    count: 0,
-    limit: 1,
-    async claimDownload() {
-      if (this.count >= this.limit) return false;
-      this.count++;
-      return true;
-    },
-    async refundDownload() {
-      if (this.count > 0) this.count--;
-    },
-  };
-  const view = (deliver: () => Promise<Response>) =>
-    SharePolicy.countedView(store, share, deliver);
-  // Each answer that is not a success gives the download back: a decoder failure or timeout
-  // (422), a file changed while drawn (409), a full queue (429), a server error (500).
-  for (const status of [409, 422, 429, 500, 501]) {
-    expect((await view(async () => response(status)))?.status).toBe(status);
-    expect(store.count).toBe(0);
-  }
-  // A request that leaves before the answer throws its abort: given back, and passed on.
-  const abort = new DOMException("The request was cancelled.", "AbortError");
-  await expect(
-    view(async () => {
-      throw abort;
-    }),
-  ).rejects.toBe(abort);
-  expect(store.count).toBe(0);
-  // Delivered: charged. Nothing after the answer, such as the visitor leaving, refunds it.
-  expect((await view(async () => response(200)))?.status).toBe(200);
-  expect(store.count).toBe(1);
-  // No download left: refused without delivering anything.
-  let ran = false;
-  expect(
-    await view(async () => {
-      ran = true;
-      return response(200);
-    }),
-  ).toBeNull();
-  expect(ran).toBe(false);
-  expect(store.count).toBe(1);
-});
-
-test("a delivered view in flight holds its download, so racing views never exceed the limit", async () => {
-  const store = {
-    count: 0,
-    async claimDownload() {
-      if (this.count >= 1) return false;
-      this.count++;
-      return true;
-    },
-    async refundDownload() {
-      if (this.count > 0) this.count--;
-    },
-  };
-  let finish: (served: Response) => void = () => {};
-  const slow = SharePolicy.countedView(
-    store,
-    share,
-    () => new Promise<Response>((resolve) => (finish = resolve)),
-  );
-  // While the first view renders, another is refused; after it fails, one more may run.
-  expect(
-    await SharePolicy.countedView(store, share, async () => response(200)),
-  ).toBeNull();
-  finish(response(422));
-  expect((await slow)?.status).toBe(422);
-  expect(store.count).toBe(0);
-  expect(
-    (await SharePolicy.countedView(store, share, async () => response(200)))
-      ?.status,
-  ).toBe(200);
-  expect(store.count).toBe(1);
-});
-
-test("only a request carrying a proof cookie of the link can be served uncounted, so only it needs a confirmed body", () => {
+test("only a proof that verifies for the version sent selects confirmed streaming", () => {
   process.env.BETTER_AUTH_SECRET ??= "test-secret-test-secret-test-secret";
-  expect(SharePolicy.holdsProofs(get())).toBe(false);
-  expect(SharePolicy.holdsProofs(get({ cookie: "nimbus-session=1" }))).toBe(
-    false,
-  );
+  const body = (cookie: string, version = "1:2:3", link = share) =>
+    SharePolicy.servedBody(get({ cookie }), link, "docs/a.pdf")(version);
+  // Names that merely look like proofs, and a forged value under a real proof's name.
+  expect(body("nimbus-transfer-garbage=bogus")).toBe("fast");
+  expect(body("nimbus-transferable=bogus")).toBe("fast");
   const viewed = response(200);
   SharePolicy.allowPagesView(get(), viewed, share, "docs/a.pdf", "1:2:3");
-  expect(SharePolicy.holdsProofs(get({ cookie: jar("", viewed) }))).toBe(true);
+  const cookie = jar("", viewed);
+  const name = cookie.slice(0, cookie.indexOf("="));
+  expect(body(`${name}=${Date.now() + 60_000}.${"0".repeat(64)}`)).toBe("fast");
+  // A real proof: for this link, file and version only, until it expires.
+  expect(body(cookie)).toBe("confirmed");
+  expect(body(cookie, "1:2:4")).toBe("fast");
+  expect(body(cookie, "1:2:3", { ...share, token: "other" })).toBe("fast");
+  setSystemTime(new Date(Date.now() + 2 * 60 * 60 * 1000));
+  try {
+    expect(body(cookie)).toBe("fast");
+  } finally {
+    setSystemTime();
+  }
 });

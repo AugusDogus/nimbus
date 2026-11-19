@@ -7,7 +7,7 @@ import { open } from "node:fs/promises";
  * call it in `finally`.
  */
 export async function hookFileHandle(
-  method: "read" | "stat",
+  method: "read" | "stat" | "close",
   when: "before" | "after",
   call: number,
   run: () => Promise<void> | void,

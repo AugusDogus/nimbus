@@ -104,7 +104,7 @@ export async function serveFile(
   requested: string,
   access: Pick<Access, "require">,
   inline = false,
-  body: ServedBody = "fast",
+  body: (version: FileVersion) => ServedBody = () => "fast",
 ) {
   access.require(requested, "read");
   const opened = await openFile(request.method === "HEAD", requested);
@@ -119,8 +119,9 @@ export async function serveFile(
  * streams from the open descriptor and confirms the file's version after reading each chunk and
  * before sending it, ending the body as failed when it changed: a write moves the modification
  * time before it changes a byte, so every byte sent belongs to the version `servedVersion`
- * names. For a response that may go uncounted on a proof of that version. Smaller bodies are
- * always read whole and confirmed once.
+ * names. For a response that may go uncounted on a proof of that version: `serveFile` asks
+ * `body` with the version it opened, so the choice rests on the file actually sent. Smaller
+ * bodies are always read whole and confirmed once.
  */
 export type ServedBody = "fast" | "confirmed";
 
@@ -138,7 +139,7 @@ async function respond(
   request: Request,
   opened: Awaited<ReturnType<typeof openFile>>,
   inline: boolean,
-  body: ServedBody,
+  body: (version: FileVersion) => ServedBody,
 ) {
   const { handle, stats, absolute } = opened;
   try {
@@ -188,7 +189,7 @@ async function respond(
       versions.set(served, unchanged ? FileVersion.of(stats) : null);
       return served;
     }
-    if (body === "confirmed")
+    if (body(FileVersion.of(stats)) === "confirmed")
       return new Response(
         confirmedBody(handle, stats, response.start, response.end),
         response.init,

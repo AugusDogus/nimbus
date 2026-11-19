@@ -467,7 +467,7 @@ test("a confirmed body rewritten in place while it is sent ends as failed after 
       "docs/big.bin",
       access,
       false,
-      "confirmed",
+      () => "confirmed",
     );
     expect(servedVersion(served)).toBe(FileVersion.of(opened));
     const received: Uint8Array[] = [];
@@ -504,7 +504,7 @@ test("a confirmed body of an unchanged file is sent whole", async () => {
     "docs/big.bin",
     access,
     false,
-    "confirmed",
+    () => "confirmed",
   );
   expect(served.status).toBe(206);
   const body = new Uint8Array(await served.arrayBuffer());
