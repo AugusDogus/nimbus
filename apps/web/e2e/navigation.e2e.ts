@@ -379,3 +379,21 @@ test("New is offered only where something can be created", async ({
   ).toBeVisible();
   await expect(offered).toBeHidden();
 });
+
+test("an empty folder suggests dropping files only where files can be dragged in", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  const folder = `empty-${randomUUID()}`;
+  await (await client(context)).files.createFolder.mutate({ name: folder });
+  await page.goto(`/browse/${folder}`);
+  await expect(page.getByText("This folder is empty")).toBeVisible();
+  // The phone project has a touch screen only; the desktop one has a mouse.
+  const drop = page.getByText(
+    "Drop files here or use the New button to add content",
+  );
+  const tap = page.getByText("Tap New to upload files or create a folder");
+  await expect(isMobile ? tap : drop).toBeVisible();
+  await expect(isMobile ? drop : tap).toBeHidden();
+});

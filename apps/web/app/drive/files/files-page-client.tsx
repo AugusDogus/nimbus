@@ -182,8 +182,14 @@ export function FilesPageClient() {
               <h3 className="text-balance text-lg font-medium">
                 This folder is empty
               </h3>
+              {/* Files can be dropped in only with a mouse or trackpad; touch alone cannot drag them. */}
               <p className="text-pretty mt-1 text-sm text-muted-foreground">
-                Drop files here or use the New button to add content
+                <span className="hidden any-pointer-fine:inline">
+                  Drop files here or use the New button to add content
+                </span>
+                <span className="any-pointer-fine:hidden">
+                  Tap New to upload files or create a folder
+                </span>
               </p>
             </div>
           )}
