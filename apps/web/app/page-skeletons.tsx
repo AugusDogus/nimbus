@@ -117,7 +117,7 @@ export function FilesSkeleton({ view }: { view: "list" | "grid" | null }) {
           <Skeleton className="size-8 shrink-0" />
           <NimbusLogo className="size-7 shrink-0 md:hidden" />
           <div className="relative min-w-0 max-w-lg flex-1">
-            <div className="h-9 rounded-lg bg-muted/70 md:h-10 dark:bg-sidebar/70" />
+            <div className="h-9 rounded-lg bg-muted/70 pointer-coarse:h-11 md:h-10 md:pointer-coarse:h-11 dark:bg-sidebar/70" />
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1 md:gap-3">

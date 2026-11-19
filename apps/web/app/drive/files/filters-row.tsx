@@ -191,7 +191,7 @@ export function FiltersRow({
         <SelectTrigger
           aria-label="Sort files"
           size="sm"
-          className="hidden w-auto min-w-[140px] border-transparent bg-transparent shadow-none hover:bg-muted md:flex dark:bg-transparent"
+          className="touch-hit hidden w-auto min-w-[140px] border-transparent bg-transparent shadow-none hover:bg-muted md:flex dark:bg-transparent"
         >
           <SelectValue>
             <selectedSort.icon className="size-4" />
@@ -219,7 +219,7 @@ export function FiltersRow({
                 updatePreferences({ groupByType: pressed })
               }
               aria-label="Group files by type"
-              className="hidden md:inline-flex"
+              className="touch-hit hidden md:inline-flex"
             />
           }
         >

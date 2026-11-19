@@ -362,7 +362,7 @@ test("a missing folder says so at once, without an error toast", async ({
   ).toHaveCount(0);
 });
 
-test("header and toolbar controls have 44 px touch areas on touch screens only", async ({
+test("header and toolbar controls have 44 px touch areas on touch screens of every width", async ({
   page,
   context,
   isMobile,
@@ -375,26 +375,40 @@ test("header and toolbar controls have 44 px touch areas on touch screens only",
     path: `${folder}/middle`,
     name: "inner",
   });
-  // Three levels deep, so the breadcrumb shows the root link and the path folders button.
-  await page.goto(`/browse/${folder}/middle/inner`);
-  await expect(page.getByRole("button", { name: "List view" })).toBeVisible();
-  // Each control answers a touch 21 px from its center in every direction, and no neighbor
-  // takes it: a 44 px area of its own. With a mouse, controls keep their visible size.
-  const areas = await page.evaluate(() => {
-    const controls = [
-      document.querySelector('[data-sidebar="trigger"]'),
-      document.querySelector('header a[aria-label="Nimbus home"]'),
-      document.querySelector('[aria-label="Account menu"]'),
-      document.querySelector(
-        'nav[aria-label="breadcrumb"] a[aria-label="My Drive"]',
-      ),
-      [...document.querySelectorAll("button")].find((button) =>
-        button.textContent?.includes("Show folders in this path"),
-      ),
-      document.querySelector('[aria-label="Sort and filter options"]'),
-      document.querySelector('[aria-label="List view"]'),
-      document.querySelector('[aria-label="Grid view"]'),
-    ];
+  // Two entries, so selecting one shows every action, Select all included.
+  for (const name of ["leaf", "leaf-2"])
+    await rpc.files.createFolder.mutate({
+      path: `${folder}/middle/inner`,
+      name,
+    });
+  type Scope = "header" | "selection";
+  const measure = (scope: Scope) => {
+    const named = (label: string) =>
+      document.querySelector(`[aria-label="${label}"]`);
+    const controls =
+      scope === "selection"
+        ? [
+            ...document.querySelectorAll(
+              '[role="toolbar"][aria-label="Selected items"] button',
+            ),
+          ]
+        : [
+            document.querySelector('[data-sidebar="trigger"]'),
+            document.querySelector('header a[aria-label="Nimbus home"]'),
+            document.querySelector('input[name="q"]'),
+            named("Account menu"),
+            document.querySelector(
+              'nav[aria-label="breadcrumb"] a[aria-label="My Drive"]',
+            ),
+            [...document.querySelectorAll("button")].find((button) =>
+              button.textContent?.includes("Show folders in this path"),
+            ),
+            named("Sort and filter options"),
+            named("Sort files"),
+            named("Group files by type"),
+            named("List view"),
+            named("Grid view"),
+          ];
     return controls
       .filter((control) => control instanceof HTMLElement)
       .filter((control) => control.getBoundingClientRect().width > 0)
@@ -409,7 +423,7 @@ test("header and toolbar controls have 44 px touch areas on touch screens only",
           [0, 21],
         ].every(([dx = 0, dy = 0]) => {
           const hit = document.elementFromPoint(x + dx, y + dy);
-          return hit !== null && control.contains(hit);
+          return hit !== null && (control === hit || control.contains(hit));
         });
         return {
           name:
@@ -419,15 +433,73 @@ test("header and toolbar controls have 44 px touch areas on touch screens only",
           answers,
         };
       });
-  });
-  expect(areas.length).toBeGreaterThanOrEqual(isMobile ? 8 : 6);
-  for (const area of areas)
-    expect(area, area.name).toEqual({ name: area.name, answers: isMobile });
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth > innerWidth,
-    ),
-  ).toBe(false);
+  };
+  // The phone project has a touch screen, the desktop one a mouse. Touch decides, not width.
+  const widths = isMobile ? [360, 390, 768, 1024, 1440] : [768, 1440];
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 900 });
+    // Three levels deep, so the breadcrumb shows the root link and the path folders button.
+    await page.goto(`/browse/${folder}/middle/inner`);
+    await expect(page.getByRole("button", { name: "List view" })).toBeVisible();
+    // Each control answers a touch 21 px from its center in every direction, and no neighbor
+    // takes it: a 44 px area of its own. With a mouse, controls keep their visible size.
+    const header: Scope = "header";
+    const areas = await page.evaluate(measure, header);
+    expect(areas.length, `controls at ${width}`).toBeGreaterThanOrEqual(6);
+    for (const area of areas)
+      expect(area, `${area.name} at ${width}`).toEqual({
+        name: area.name,
+        answers: isMobile,
+      });
+    // Selecting swaps the toolbar for the selection's own. Ctrl+Space selects on every layout.
+    await page
+      .locator('[data-entry-name="leaf"]')
+      .filter({ visible: true })
+      .focus();
+    await page.keyboard.press("Control+Space");
+    await expect(
+      page.getByRole("toolbar", { name: "Selected items" }),
+    ).toContainText("1 selected");
+    // Star waits for the current stars; a disabled button takes no touches.
+    await expect(
+      page
+        .getByRole("toolbar", { name: "Selected items" })
+        .getByRole("button", { name: /star/i }),
+    ).toBeEnabled();
+    // Every action fits in the bar, none pushed out of view beside the sidebar.
+    expect(
+      await page
+        .getByRole("toolbar", { name: "Selected items" })
+        .evaluate((bar) => {
+          const outer = bar.getBoundingClientRect();
+          return [...bar.querySelectorAll("button")]
+            .map((button) => button.getBoundingClientRect())
+            .every(
+              (box) =>
+                box.left >= outer.left - 1 &&
+                box.right <= outer.right + 1 &&
+                box.right <= innerWidth,
+            );
+        }),
+      `selection actions fit at ${width}`,
+    ).toBe(true);
+    const selected: Scope = "selection";
+    const selection = await page.evaluate(measure, selected);
+    expect(
+      selection.length,
+      `selection controls at ${width}`,
+    ).toBeGreaterThanOrEqual(6);
+    for (const area of selection)
+      expect(area, `${area.name} at ${width}`).toEqual({
+        name: area.name,
+        answers: isMobile,
+      });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+    ).toBe(false);
+  }
 });
 
 test("New is offered only where something can be created", async ({

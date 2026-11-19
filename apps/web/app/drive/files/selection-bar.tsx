@@ -36,12 +36,13 @@ function Action({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "gap-2",
+        "touch-hit gap-2 pointer-coarse:min-w-11",
         destructive && "text-destructive hover:text-destructive",
       )}
     >
       {icon}
-      <span className="sr-only md:not-sr-only">{label}</span>
+      {/* Labels show from 1024 px, where the bar has room for them beside the sidebar. */}
+      <span className="sr-only lg:not-sr-only">{label}</span>
     </Button>
   );
 }
@@ -91,6 +92,7 @@ export function SelectionBar({
         size="icon-sm"
         aria-label="Clear selection"
         onClick={onClear}
+        className="touch-hit pointer-coarse:w-11"
       >
         <X className="size-4" />
       </Button>
@@ -98,7 +100,9 @@ export function SelectionBar({
         aria-live="polite"
         className="min-w-0 truncate px-1 text-sm font-medium tabular-nums"
       >
-        {targets.length.toLocaleString()} selected
+        {targets.length.toLocaleString()}
+        {/* Narrow touch screens keep the 44 px buttons in a row by showing only the count. */}
+        <span className="max-md:pointer-coarse:sr-only"> selected</span>
       </p>
       <div className="ml-auto flex items-center gap-0.5">
         {targets.length < total && (

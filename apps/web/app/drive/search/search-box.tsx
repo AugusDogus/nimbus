@@ -39,7 +39,7 @@ export function SearchBox() {
         autoComplete="off"
         placeholder="Search files"
         onFocus={() => setFocused(true)}
-        className="h-9 rounded-lg border-transparent bg-muted/70 pl-10 shadow-none focus-visible:border-ring md:h-10 dark:bg-sidebar/70"
+        className="h-9 rounded-lg border-transparent bg-muted/70 pl-10 shadow-none focus-visible:border-ring pointer-coarse:h-11 md:h-10 md:pointer-coarse:h-11 dark:bg-sidebar/70"
       />
       {focused && (
         <Suspense fallback={null}>
