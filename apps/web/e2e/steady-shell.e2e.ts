@@ -73,3 +73,42 @@ test("opening a folder leaves the sidebar exactly as it was", async ({
   ).toEqual([]);
   expect(await itemBoxes(page)).toEqual(before);
 });
+
+test("New hides in the frame that leaving a folder shows the next page", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Phones offer New as a floating button instead.");
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "New", exact: true }),
+  ).toBeVisible();
+  // Samples every frame: once Trash is the current page, New must already be hidden.
+  await page.evaluate(() => {
+    const late: string[] = [];
+    Object.assign(window, { lateNew: late });
+    const sample = () => {
+      const trash = document.querySelector(
+        '[data-slot="sidebar-container"] a[href="/trash"]',
+      );
+      const create = document.querySelector('button[aria-label="New"]');
+      if (
+        trash?.getAttribute("aria-current") === "page" &&
+        create &&
+        getComputedStyle(create).visibility !== "hidden"
+      )
+        late.push(`${Math.round(performance.now())} ms`);
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  await page
+    .locator('[data-slot="sidebar"]')
+    .getByRole("link", { name: "Trash", exact: true })
+    .click();
+  await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
+  await page.waitForTimeout(400);
+  expect(
+    await page.evaluate(() => ("lateNew" in window ? window.lateNew : null)),
+  ).toEqual([]);
+});

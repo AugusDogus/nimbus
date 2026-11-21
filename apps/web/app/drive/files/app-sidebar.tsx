@@ -88,8 +88,14 @@ export function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent className="gap-4 px-3 pt-4 group-data-[collapsible=icon]:px-0">
-        {/* Hidden in place, so the navigation below never moves between pages. */}
-        <div className={cn("flex justify-center", !offersNew && "invisible")}>
+        {/* Hidden in place, so the navigation below never moves between pages. The button's
+            transition would otherwise keep it visible for a moment after the page changes. */}
+        <div
+          className={cn(
+            "flex justify-center",
+            !offersNew && "invisible *:transition-none",
+          )}
+        >
           <DropdownMenu
             open={menuOpen}
             onOpenChange={(open) => setMenuOpen(open && creatable)}
