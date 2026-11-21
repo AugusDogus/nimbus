@@ -54,6 +54,11 @@ export function FilesPageClient() {
     ...capabilitiesQueryOptions(currentPath),
     enabled: isAuthed,
   });
+  // Items move up into the folder above, unless this is the account's top folder or that folder
+  // takes nothing from this account.
+  const parent = capabilities.data?.ancestors.at(-1);
+  const moveUp =
+    currentPath !== top && parent?.canWrite === true ? parent.path : null;
   const actions = useFileActions({ currentPath, includeStats });
   const upload = useUploads();
   // Files from the computer dropped on a folder go into that folder.
@@ -225,6 +230,7 @@ export function FilesPageClient() {
               sections={sections}
               actions={actions}
               drag={drag}
+              moveUp={moveUp}
               restoreKey={`${shownPath}:${view}`}
               label={trail.crumbs.at(-1)?.label ?? trail.root.label}
               toolbarRef={toolbarRef}

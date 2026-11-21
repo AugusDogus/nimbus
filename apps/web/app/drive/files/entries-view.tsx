@@ -45,6 +45,8 @@ type Props = {
   actions: ReturnType<typeof useFileActions>;
   /** Dragging items onto folders, owned by the page so its other folder targets share it. */
   drag: FileDrag;
+  /** The folder above the one shown when items may be moved up there; pages that are not a folder have none. */
+  moveUp?: string | null;
   /** Identifies the folder and view whose scroll position is saved and restored. */
   restoreKey: string;
   /** Accessible name of the collection, such as the folder name. */
@@ -75,6 +77,7 @@ export function EntriesView({
   sections,
   actions,
   drag,
+  moveUp = null,
   restoreKey,
   label,
   toolbarRef,
@@ -502,6 +505,7 @@ export function EntriesView({
         total={layout.entries.length}
         floating={!selectionSlot}
         actions={actions}
+        moveUp={moveUp}
         onOpen={open}
         onSelectAll={() => setSelection(Selection.all(order))}
         onClear={() => setSelection(Selection.empty)}
@@ -531,6 +535,7 @@ export function EntriesView({
         resolve={menuTarget}
         actions={actions}
         open={open}
+        moveUp={moveUp}
         onClosed={() => {
           // Actions that open a dialog move focus there. Otherwise return it to the entry.
           if (

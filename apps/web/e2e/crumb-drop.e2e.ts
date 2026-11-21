@@ -159,6 +159,106 @@ test.describe("dropping on the breadcrumb", () => {
     }
   });
 });
+
+test.describe("moving up one level without dragging", () => {
+  test.skip(({ isMobile }) => isMobile, "Keyboards and the selection bar.");
+
+  test("moves an item up from its menu by keyboard, and a selection from the selection bar", async ({
+    page,
+    context,
+  }) => {
+    const top = `up-${randomUUID()}`;
+    const rpc = await client(context);
+    const names = async (path: string) =>
+      FileListing.entries(await rpc.files.list.query({ path })).map(
+        (entry) => entry.name,
+      );
+    await rpc.files.createFolder.mutate({ name: top });
+    await rpc.files.createFolder.mutate({ path: top, name: "inner" });
+    for (const name of ["By keyboard", "Selected one", "Selected two"])
+      await rpc.files.createFolder.mutate({ path: `${top}/inner`, name });
+    await page.goto(`/browse/${top}/inner`);
+    const row = (name: string) =>
+      page.getByRole("link", { name, exact: true }).first();
+
+    await row("By keyboard").focus();
+    await page.keyboard.press("Shift+F10");
+    const item = page.getByRole("menuitem", { name: "Move up one level" });
+    await expect(item).toBeVisible();
+    for (let step = 0; step < 12; step++) {
+      if (await item.evaluate((element) => element === document.activeElement))
+        break;
+      await page.keyboard.press("ArrowDown");
+    }
+    await expect(item).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect.poll(() => names(top)).toContain("By keyboard");
+
+    const mod = process.platform === "darwin" ? "Meta" : "Control";
+    await row("Selected one").click({ modifiers: [mod] });
+    await row("Selected two").click({ modifiers: [mod] });
+    await page
+      .getByRole("toolbar", { name: "Selected items" })
+      .getByRole("button", { name: "Move up one level" })
+      .click();
+    await expect
+      .poll(() => names(top))
+      .toEqual(
+        expect.arrayContaining(["By keyboard", "Selected one", "Selected two"]),
+      );
+    expect(await names(`${top}/inner`)).toEqual([]);
+  });
+
+  test("is not offered in the account's top folder or below a folder it cannot write to", async ({
+    browser,
+    context,
+    page,
+    isMobile,
+  }) => {
+    const top = `no-up-${randomUUID()}`;
+    const rpc = await client(context);
+    await rpc.files.createFolder.mutate({ name: top });
+    await rpc.files.createFolder.mutate({ path: top, name: "mine" });
+    await rpc.files.createFolder.mutate({ path: `${top}/mine`, name: "inner" });
+    await rpc.files.createFolder.mutate({
+      path: `${top}/mine/inner`,
+      name: "Item",
+    });
+    const { member, memberContext, home } = await asMember(
+      browser,
+      context,
+      page,
+      isMobile,
+      [{ path: `${top}/mine`, permission: "admin" }],
+    );
+    try {
+      const offered = async (address: string, name: string) => {
+        await member.goto(address);
+        await member.getByRole("link", { name, exact: true }).first().focus();
+        await member.keyboard.press("Shift+F10");
+        await expect(member.getByRole("menuitem").first()).toBeVisible();
+        const count = await member
+          .getByRole("menuitem", { name: "Move up one level" })
+          .count();
+        await member.keyboard.press("Escape");
+        return count > 0;
+      };
+      expect(await offered(`/browse/${top}/mine/inner`, "Item")).toBe(true);
+      // The folder above "mine" only leads to it; nothing can go there.
+      expect(await offered(`/browse/${top}/mine`, "inner")).toBe(false);
+      await (
+        await client(memberContext)
+      ).files.createFolder.mutate({
+        path: home,
+        name: "Own",
+      });
+      expect(await offered(`/browse/${home}`, "Own")).toBe(false);
+    } finally {
+      await memberContext.close();
+    }
+  });
+});
+
 for (const [width, view] of [
   [768, "list"],
   [1024, "grid"],

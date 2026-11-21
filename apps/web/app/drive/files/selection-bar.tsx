@@ -1,5 +1,6 @@
 import {
   Copy,
+  CornerLeftUp,
   Download,
   FolderInput,
   ListChecks,
@@ -22,27 +23,36 @@ function Action({
   onClick,
   destructive,
   disabled,
+  className,
+  iconOnly = false,
 }: {
   label: string;
   icon: ReactNode;
   onClick: () => void;
   destructive?: boolean;
   disabled?: boolean;
+  className?: string;
+  /** Keeps the label for screen readers and the tooltip only, where the bar has no room for it. */
+  iconOnly?: boolean;
 }) {
   return (
     <Button
       variant="ghost"
       size="sm"
       disabled={disabled}
+      title={iconOnly ? label : undefined}
       onClick={onClick}
       className={cn(
         "touch-hit gap-2 pointer-coarse:min-w-11",
         destructive && "text-destructive hover:text-destructive",
+        className,
       )}
     >
       {icon}
       {/* Labels show from 1024 px, where the bar has room for them beside the sidebar. */}
-      <span className="sr-only lg:not-sr-only">{label}</span>
+      <span className={iconOnly ? "sr-only" : "sr-only lg:not-sr-only"}>
+        {label}
+      </span>
     </Button>
   );
 }
@@ -56,6 +66,7 @@ export function SelectionBar({
   total,
   floating,
   actions,
+  moveUp,
   onOpen,
   onSelectAll,
   onClear,
@@ -64,6 +75,8 @@ export function SelectionBar({
   total: number;
   floating: boolean;
   actions: ReturnType<typeof useFileActions>;
+  /** The folder above the one shown, where the selection may be moved up to, or null. */
+  moveUp: string | null;
   onOpen: (dialog: EntryDialog) => void;
   onSelectAll: () => void;
   onClear: () => void;
@@ -133,6 +146,16 @@ export function SelectionBar({
             label="Move"
             icon={<FolderInput className="size-4" />}
             onClick={() => onOpen({ action: "move", entries: targets })}
+          />
+        )}
+        {canMove && moveUp !== null && (
+          <Action
+            // Phones have no room for it beside the other 44 px actions; item menus offer it there.
+            className="max-md:hidden"
+            iconOnly
+            label="Move up one level"
+            icon={<CornerLeftUp className="size-4" />}
+            onClick={() => void actions.moveEntries(targets, moveUp)}
           />
         )}
         {canTrash && (

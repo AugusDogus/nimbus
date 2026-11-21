@@ -1,6 +1,7 @@
 import { useRef, useState, type MouseEvent, type ReactElement } from "react";
 import {
   Copy,
+  CornerLeftUp,
   Download,
   EllipsisVertical,
   Eye,
@@ -98,9 +99,21 @@ function starItem(
   };
 }
 
+/** Move `targets` into `moveUp`, the folder above the one shown, without dragging. */
+const moveUpItem = (
+  targets: readonly FileEntry[],
+  actions: ReturnType<typeof useFileActions>,
+  moveUp: string,
+): MenuItem => ({
+  label: "Move up one level",
+  icon: CornerLeftUp,
+  select: () => void actions.moveEntries(targets, moveUp),
+});
+
 /**
  * Actions for one entry, or for every target when the entry is part of a multi-selection.
- * `starred` is what is starred now.
+ * `starred` is what is starred now. `moveUp` is the folder above the one shown when items may
+ * be moved there, or null.
  */
 export function entryMenuItems(
   entry: FileEntry,
@@ -108,6 +121,7 @@ export function entryMenuItems(
   actions: ReturnType<typeof useFileActions>,
   open: (dialog: EntryDialog) => void,
   starred: StarredPaths,
+  moveUp: string | null,
 ): MenuItem[] {
   if (targets.length > 1) {
     const count = targets.length.toLocaleString();
@@ -131,6 +145,7 @@ export function entryMenuItems(
               icon: FolderInput,
               select: () => open({ action: "move", entries: targets }),
             },
+            ...(moveUp === null ? [] : [moveUpItem(targets, actions, moveUp)]),
           ]
         : []),
       ...(can.trash
@@ -192,6 +207,7 @@ export function entryMenuItems(
             icon: FolderInput,
             select: () => open({ action: "move", entries: [entry] }),
           },
+          ...(moveUp === null ? [] : [moveUpItem([entry], actions, moveUp)]),
         ]
       : []),
     ...(FileEntry.canTrash(entry)
@@ -292,6 +308,7 @@ export function EntryMenuHost({
   resolve,
   actions,
   open,
+  moveUp,
   onClosed,
 }: {
   /** The collection's element. The right-click area is rendered onto it, not around it. */
@@ -302,6 +319,8 @@ export function EntryMenuHost({
   resolve: (path: string) => EntryMenuTarget | null;
   actions: ReturnType<typeof useFileActions>;
   open: (dialog: EntryDialog) => void;
+  /** The folder above the one shown, where items may be moved up to, or null. */
+  moveUp: string | null;
   /** Return focus to the entry after the menu closes. The grid itself cannot hold focus. */
   onClosed: () => void;
 }) {
@@ -310,7 +329,7 @@ export function EntryMenuHost({
   if (menu !== null && menu !== shown) setShown(menu);
   const starred = useStarredPaths(menu !== null);
   const items = shown
-    ? entryMenuItems(shown.entry, shown.targets, actions, open, starred)
+    ? entryMenuItems(shown.entry, shown.targets, actions, open, starred, moveUp)
     : [];
   const popup = useRef<HTMLDivElement>(null);
   // The tree around `children` is the same in both modes. Swapping it when the mode changes would
