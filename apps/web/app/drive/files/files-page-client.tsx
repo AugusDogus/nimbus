@@ -166,6 +166,15 @@ export function FilesPageClient() {
             openDialog={onDialog}
             createFolder={actions.createFolder}
           />
+          {/* Such a folder lists only what leads to grants inside it; it is not empty or partial. */}
+          {listQuery.data && capabilities.data?.canRead === false && (
+            <p
+              role="note"
+              className="text-pretty text-sm text-muted-foreground"
+            >
+              Only folders leading to items shared with you are shown.
+            </p>
+          )}
           {listQuery.isLoading ? (
             <LoadingSkeleton view={view} />
           ) : listQuery.isError ? (

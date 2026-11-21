@@ -132,3 +132,45 @@ test("a folder the account may not open says so, the same whether or not it exis
     await memberContext.close();
   }
 });
+
+test("folders shown only as the way to something shared deeper say so, to members only", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  const top = `documents-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: top });
+  await rpc.files.createFolder.mutate({ path: top, name: "team" });
+  await rpc.files.createFolder.mutate({ path: `${top}/team`, name: "reports" });
+  await rpc.files.createFolder.mutate({ path: top, name: "private" });
+  const notice = (on: Page) =>
+    on.getByText("Only folders leading to items shared with you are shown.");
+  const { member, memberContext } = await asMember(
+    browser,
+    context,
+    page,
+    isMobile,
+    [{ path: `${top}/team/reports`, permission: "read" }],
+  );
+  try {
+    for (const folder of [top, `${top}/team`]) {
+      await member.goto(`/browse/${folder}`);
+      await expect(notice(member)).toBeVisible();
+    }
+    await expect(
+      member.locator('[data-entry-name="reports"]').first(),
+    ).toBeVisible();
+    await member.goto(`/browse/${top}/team/reports`);
+    await expect(member.getByText("This folder is empty")).toBeVisible();
+    await expect(notice(member)).toBeHidden();
+    await page.goto(`/browse/${top}`);
+    await expect(
+      page.locator('[data-entry-name="private"]').first(),
+    ).toBeVisible();
+    await expect(notice(page)).toBeHidden();
+  } finally {
+    await memberContext.close();
+  }
+});

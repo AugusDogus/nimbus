@@ -309,6 +309,23 @@ describe("drive workflows", () => {
       (await caller("reader").catalog.shared()).map((entry) => entry.path),
     ).toEqual(["docs"]);
   });
+  it("tells a folder browsed only on the way to a deeper grant from one the caller may read", async () => {
+    await caller().access.grant({
+      path: "docs/report.txt",
+      subject: { type: "user", id: "reader" },
+      permission: "read",
+    });
+    expect(
+      await caller("reader").access.capabilities({ path: "docs" }),
+    ).toMatchObject({ canRead: false, canWrite: false });
+    expect(
+      await caller("reader").access.capabilities({ path: "docs/report.txt" }),
+    ).toMatchObject({ canRead: true, canWrite: false });
+    expect(await caller().access.capabilities({ path: "docs" })).toMatchObject({
+      canRead: true,
+      canWrite: true,
+    });
+  });
   it("keeps links, direct grants, and stars on renamed items", async () => {
     const moved = await caller().shares.create({
       path: "docs/report.txt",

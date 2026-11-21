@@ -27,6 +27,8 @@ export const managementRouter = router({
     .query(async ({ ctx, input }) => {
       const target = await safePath(input.path);
       return {
+        /** False in a folder the caller may browse only on the way to something shared deeper. */
+        canRead: ctx.access.can(target.relative, "read"),
         canWrite: ctx.access.can(target.relative, "write"),
         canShare: ctx.access.can(target.relative, "admin"),
         isAdmin: ctx.access.isAdmin,
