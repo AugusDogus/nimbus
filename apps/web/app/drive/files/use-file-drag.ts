@@ -1,5 +1,5 @@
 import { TransferCode } from "./transfer-code";
-import { useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { DropTarget, type DragPayload, type DropVerdict } from "./drop-target";
 import { FileEntry } from "./types";
 
@@ -58,6 +58,24 @@ export function useFileDrag({ moveEntries, uploadInto }: Options) {
     setRendered(value);
   };
 
+  // The item the pointer last pressed. The browser starts a drag from whatever lies under the
+  // point that was pressed when the pointer has moved far enough, not from what was pressed: if
+  // the list moved meanwhile, such as when an item arrives above or the list scrolls, that is
+  // another item, perhaps not one that is selected. Such a drag never starts.
+  const pressed = useRef<string | null>(null);
+  useEffect(() => {
+    const remember = (event: PointerEvent) => {
+      pressed.current =
+        event.target instanceof Element
+          ? (event.target
+              .closest("[data-entry-path]")
+              ?.getAttribute("data-entry-path") ?? null)
+          : null;
+    };
+    addEventListener("pointerdown", remember, true);
+    return () => removeEventListener("pointerdown", remember, true);
+  }, []);
+
   const move = async (sources: readonly FileEntry[], target: DropTarget) => {
     setState({ status: "moving", sources, target });
     // The summary toast reports the outcome, one item or many; a failure stays until closed.
@@ -82,6 +100,10 @@ export function useFileDrag({ moveEntries, uploadInto }: Options) {
   ) => ({
     draggable: state.status !== "moving" && FileEntry.canMove(entry),
     onDragStart(event: DragEvent<HTMLElement>) {
+      if (pressed.current !== entry.path) {
+        event.preventDefault();
+        return;
+      }
       TransferCode.prepare();
       const selected = sources();
       const dragged = selected.filter(FileEntry.canMove);

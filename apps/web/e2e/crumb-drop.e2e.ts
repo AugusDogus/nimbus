@@ -372,6 +372,66 @@ test("files dragged in from the computer open … and upload into a hidden folde
   await expect(more).toHaveAttribute("aria-expanded", "false");
 });
 
+test("a drag starts only from the item that was pressed, even when the list moves under the pointer", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Touch moves items with Move to….");
+  const top = `pressed-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.prefs.set.mutate({
+    view: "list",
+    sortField: "name",
+    sortDirection: "asc",
+    groupByType: true,
+  });
+  await rpc.files.createFolder.mutate({ name: top });
+  for (const name of ["b-other", "c-one", "c-two", "z-target"])
+    await rpc.files.createFolder.mutate({ path: top, name });
+  const names = async (folder: string) =>
+    FileListing.entries(await rpc.files.list.query({ path: folder }))
+      .map((entry) => entry.name)
+      .sort();
+  await page.goto(`/browse/${top}`);
+  const row = (name: string) =>
+    page.getByRole("link", { name, exact: true }).first();
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  await row("c-one").click({ modifiers: [mod] });
+  await row("c-two").click({ modifiers: [mod] });
+  const pressed = await row("c-one").boundingBox();
+  if (!pressed) throw new Error("c-one is not on screen.");
+  await page.mouse.move(pressed.x + 20, pressed.y + pressed.height / 2);
+  await page.mouse.down();
+  // Another client adds an item above while the button is held: every row moves down one,
+  // and the pointer now rests on b-other, which is not selected.
+  await rpc.files.createFolder.mutate({ path: top, name: "a-new" });
+  await expect(row("a-new")).toBeVisible();
+  const target = await row("z-target").boundingBox();
+  if (!target) throw new Error("z-target is not on screen.");
+  await page.mouse.move(target.x + 20, target.y + target.height / 2, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  // Nothing moves: not b-other, which the browser would have dragged, nor what was pressed.
+  expect(await names(`${top}/z-target`)).toEqual([]);
+  expect(await names(top)).toEqual([
+    "a-new",
+    "b-other",
+    "c-one",
+    "c-two",
+    "z-target",
+  ]);
+  // Pressed again where nothing moves, the selection drags as shown.
+  await row("c-one").hover();
+  await page.mouse.down();
+  await row("z-target").hover();
+  await row("z-target").hover();
+  await page.mouse.up();
+  await expect.poll(() => names(`${top}/z-target`)).toEqual(["c-one", "c-two"]);
+});
+
 test("a drag says when part of the selection cannot be moved, and moves the rest", async ({
   page,
   context,
@@ -379,8 +439,12 @@ test("a drag says when part of the selection cannot be moved, and moves the rest
 }) => {
   test.skip(isMobile, "Touch moves items with Move to….");
   const top = `partial-${randomUUID()}`;
+  // Named to sort right after the dragged folder, so both are on screen together however many
+  // folders other tests left in the drive root.
+  const into = `${top}-into`;
   const rpc = await client(context);
   await rpc.files.createFolder.mutate({ name: top });
+  await rpc.files.createFolder.mutate({ name: into });
   await page.goto("/");
   const row = (name: string) =>
     page.getByRole("link", { name, exact: true }).first();
@@ -388,14 +452,19 @@ test("a drag says when part of the selection cannot be moved, and moves the rest
   // The folder holding the home folders never moves.
   await row(top).click({ modifiers: [mod] });
   await row("users").click({ modifiers: [mod] });
-  // A drag takes the selection as it is when it starts: only once both are selected.
-  await expect(
-    page.getByRole("toolbar", { name: "Selected items" }),
-  ).toContainText("2 selected");
+  // As a person drags: onto a folder already on screen, so nothing scrolls while the button is
+  // held. A list that moves under the pointer starts no drag (see the test above).
+  await row(into).scrollIntoViewIfNeeded();
   await row(top).hover();
+  await expect(row(top)).toBeInViewport({ ratio: 1 });
+  await expect(row(into)).toBeInViewport({ ratio: 1 });
+  // Measured once both are in place: hovering may have scrolled the list.
+  const target = await row(into).boundingBox();
+  if (!target) throw new Error(`${into} is not on screen.`);
   await page.mouse.down();
-  await row("docs").hover();
-  await row("docs").hover();
+  await page.mouse.move(target.x + 20, target.y + target.height / 2, {
+    steps: 5,
+  });
   await expect(
     page
       .getByRole("status")
@@ -404,13 +473,10 @@ test("a drag says when part of the selection cannot be moved, and moves the rest
   await page.mouse.up();
   await expect
     .poll(async () =>
-      FileListing.entries(await rpc.files.list.query({ path: "docs" })).map(
+      FileListing.entries(await rpc.files.list.query({ path: into })).map(
         (entry) => entry.name,
       ),
     )
-    .toContain(top);
-  await rpc.files.move.mutate({
-    sourcePath: `docs/${top}`,
-    destinationPath: "",
-  });
+    .toEqual([top]);
+  await rpc.files.delete.mutate({ path: into });
 });
