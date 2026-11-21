@@ -264,7 +264,10 @@ function describeAll(results: readonly TransferResult[], top = "") {
   } as const;
 }
 
-/** Each destination's part of a report, with every item that did not arrive and why. */
+/**
+ * Each destination's part of a report: its summary, and every item's outcome there, one line
+ * each, whatever the mix of outcomes.
+ */
 function sections(
   results: readonly TransferResult[],
   top = "",
@@ -272,21 +275,31 @@ function sections(
   return results.map((result) => {
     const verb = verbs[result.operation];
     const place = folderName(result.destination, top);
-    const summary = describe(result, top);
-    const done = result.transferred.length;
-    const total = done + result.failed.length + result.clashes.length;
     return {
-      summary: summary.ok
-        ? summary.message
-        : done
-          ? `${verb.done} ${done.toLocaleString()} of ${count(total)} to ${place}.`
-          : `Nothing was ${verb.none} to ${place}.`,
+      summary: describe(result, top).message,
       items: [
+        ...result.transferred.map((item) =>
+          item.name === item.source.name
+            ? `“${item.name}”: ${verb.none}.`
+            : `“${item.source.name}”: ${verb.none} as “${item.name}”.`,
+        ),
+        ...result.unconfirmed.map(
+          (item) =>
+            `“${item.name}”: Nimbus could not confirm whether it ${verb.one}. Check ${place}.`,
+        ),
         ...result.failed.map(
           (failure) => `“${failure.source.name}”: ${failure.reason}`,
         ),
         ...result.clashes.map(
-          (clash) => `“${clash.name}” is already in ${place}.`,
+          (clash) =>
+            `“${clash.name}”: the name is already used in ${place}, so it stayed where it was.`,
+        ),
+        ...result.skipped.map(
+          (clash) =>
+            `“${clash.name}”: skipped, as its name is taken in ${place}.`,
+        ),
+        ...result.alreadyThere.map(
+          (item) => `“${item.name}”: already in ${place}.`,
         ),
       ],
     };
@@ -377,6 +390,7 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
 export const TransferReport = {
   describe,
   describeAll,
+  sections,
   merge,
   skip,
   show,

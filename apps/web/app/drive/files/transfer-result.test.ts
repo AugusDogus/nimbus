@@ -248,6 +248,42 @@ describe("a report of several destinations", () => {
     });
   });
 
+  it("lists every item's outcome in Details, for every destination, whatever the mix", () => {
+    const [one, two] = TransferReport.sections([
+      result("one", {
+        transferred: [arrived("a.txt", "one")],
+        failed: [{ source: entry("failed.txt"), reason: "It is locked." }],
+        skipped: [
+          {
+            source: entry("skipped.txt"),
+            name: "skipped.txt",
+            suggestion: "x",
+          },
+        ],
+        alreadyThere: [entry("already.txt", "one")],
+        unconfirmed: [entry("unsure.txt")],
+      }),
+      result("two", {
+        clashes: [
+          { source: entry("clash.txt"), name: "clash.txt", suggestion: "x" },
+        ],
+      }),
+    ]);
+    for (const name of [
+      "a.txt",
+      "failed.txt",
+      "skipped.txt",
+      "already.txt",
+      "unsure.txt",
+    ])
+      expect(one?.items.some((line) => line.includes(`“${name}”`))).toBe(true);
+    expect(one?.summary).toContain("Skipped 1 item");
+    expect(one?.summary).toContain("“already.txt” was already there.");
+    expect(two?.items).toEqual([
+      "“clash.txt”: the name is already used in two, so it stayed where it was.",
+    ]);
+  });
+
   it("reports one destination as before", () => {
     expect(
       TransferReport.describeAll([
