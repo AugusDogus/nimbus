@@ -678,3 +678,30 @@ test("asks before stopping impersonation while a move runs", async ({
     await admin.close();
   }
 });
+
+test("keeps the menu item the keyboard moved to while the menu is still opening", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Keyboard menus are a desktop interaction.");
+  const drive = await tree({ "docs/a.txt": "a" });
+  await page.goto(href(`${drive.top}/docs`));
+  // A slow opening animation, so the keys below land before it completes, every time.
+  await page.addStyleTag({
+    content:
+      '[data-slot="context-menu-content"] { transition-duration: 1500ms !important; animation-duration: 1500ms !important; }',
+  });
+  await page.locator('[data-entry-name="a.txt"]').first().focus();
+  await page.keyboard.press("Shift+F10");
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  const chosen = await page.evaluate(
+    () => document.activeElement?.textContent ?? "",
+  );
+  await page.waitForTimeout(2000);
+  expect(
+    await page.evaluate(() => document.activeElement?.textContent ?? ""),
+  ).toBe(chosen);
+});

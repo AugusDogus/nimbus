@@ -354,10 +354,17 @@ export function EntryMenuHost({
         if (!next) onMenuChange(null);
       }}
       onOpenChangeComplete={(opened) => {
-        if (opened && menu?.surface.kind === "menu" && menu.surface.keyboard)
-          popup.current
-            ?.querySelector<HTMLElement>('[role="menuitem"]')
-            ?.focus();
+        if (!opened || menu?.surface.kind !== "menu" || !menu.surface.keyboard)
+          return;
+        // Only when focus is on no item yet: keys pressed while the menu opened have moved it.
+        const active = document.activeElement;
+        if (
+          active instanceof HTMLElement &&
+          active.getAttribute("role") === "menuitem" &&
+          popup.current?.contains(active)
+        )
+          return;
+        popup.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
       }}
     >
       <ContextMenuTrigger
