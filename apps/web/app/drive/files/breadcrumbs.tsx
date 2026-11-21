@@ -1,5 +1,4 @@
 import { HardDrive } from "lucide-react";
-import { Link } from "@/components/link";
 
 import {
   Breadcrumb,
@@ -18,22 +17,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import type { BreadcrumbTrail } from "./breadcrumb-trail";
 import { FolderLink } from "./folder-link";
 
 /**
- * Wide screens keep the parent visible: `My Drive > ... > Parent > Current`
+ * Wide screens keep the parent visible: `Files > ... > Parent > Current`
  * Narrower ones collapse it too:        `[drive icon] > ... > Current`
  *
+ * The root is the account's top folder, so `Files` is the home for an account limited to it.
  * Pure CSS: the parent shows from the `lg` breakpoint, where the sidebar leaves room for it.
  * The current folder's name truncates rather than being cut off.
  */
-export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
-  const isNested = pathSegments.length > 0;
-
-  const segmentCrumbs = pathSegments.map((segment, i) => ({
-    label: segment,
-    path: pathSegments.slice(0, i + 1).join("/"),
-  }));
+export function FileBreadcrumbs({ trail }: { trail: BreadcrumbTrail }) {
+  const segmentCrumbs = trail.crumbs;
+  const isNested = segmentCrumbs.length > 0;
 
   // The last segment is always rendered as the current (non-link) page.
   const currentPage = isNested ? segmentCrumbs[segmentCrumbs.length - 1] : null;
@@ -47,25 +44,30 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
   if (!isNested) {
     return (
       <h1 className="truncate text-balance text-xl font-medium sm:text-2xl">
-        My Drive
+        {trail.root.label}
       </h1>
     );
   }
 
   return (
     <Breadcrumb className="min-w-0">
-      {/* On touch screens the list's padding gives the root link room for its 44 px touch area,
-          which the list's clipping would otherwise cut; the negative margins keep the layout.
-          From 1024 px the link is the words "My Drive", wide enough, so it grows only in height. */}
-      <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden text-sm pointer-coarse:-my-3.5 pointer-coarse:py-3.5 max-lg:pointer-coarse:-ml-3.5 max-lg:pointer-coarse:pl-3.5 sm:text-base">
+      {/* On touch screens the root link grows by 14 px on every side to a 44 px touch area, at
+          every width: its icon, and the short word "Files", are narrower than that. The list's
+          padding gives it room its clipping would otherwise cut; negative margins keep the layout. */}
+      <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden text-sm pointer-coarse:-my-3.5 pointer-coarse:py-3.5 pointer-coarse:-ml-3.5 pointer-coarse:pl-3.5 sm:text-base">
         {/* Root: an icon until 1024 px, where the sidebar leaves room for its name */}
         <BreadcrumbItem>
           <BreadcrumbLink
-            className="whitespace-nowrap pointer-coarse:relative pointer-coarse:z-10 pointer-coarse:-my-3.5 pointer-coarse:py-3.5 max-lg:pointer-coarse:-mx-3.5 max-lg:pointer-coarse:px-3.5"
-            render={<Link to="/" aria-label="My Drive" />}
+            className="whitespace-nowrap pointer-coarse:relative pointer-coarse:z-10 pointer-coarse:-my-3.5 pointer-coarse:py-3.5 pointer-coarse:-mx-3.5 pointer-coarse:px-3.5"
+            render={
+              <FolderLink
+                path={trail.root.path}
+                aria-label={trail.root.label}
+              />
+            }
           >
             <HardDrive className="size-4 lg:hidden" />
-            <span className="max-lg:hidden">My Drive</span>
+            <span className="max-lg:hidden">{trail.root.label}</span>
           </BreadcrumbLink>
         </BreadcrumbItem>
 

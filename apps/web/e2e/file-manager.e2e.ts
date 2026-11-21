@@ -779,7 +779,7 @@ test("uploads to the drive root from the file picker, the folder picker and a dr
     await choose("Upload folder", path.join(local, `root-folder-${tag}`));
     // A drop on the folder's content delivers files through the same uploader.
     await page
-      .getByRole("heading", { name: "My Drive", exact: true })
+      .getByRole("heading", { name: "Files", exact: true })
       .evaluate((heading, name) => {
         const data = new DataTransfer();
         data.items.add(new File(["Drop"], name, { type: "text/plain" }));

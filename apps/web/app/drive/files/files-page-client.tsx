@@ -3,8 +3,10 @@ import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
+import { trpc } from "@/lib/trpc";
 import { trpcErrorCode } from "@/lib/trpc-error";
 
+import { BreadcrumbTrail } from "./breadcrumb-trail";
 import { FileBreadcrumbs } from "./breadcrumbs";
 import { capabilitiesQueryOptions } from "./capabilities";
 import { EntriesView } from "./entries-view";
@@ -13,6 +15,7 @@ import { FolderForbidden } from "./folder-forbidden";
 import { FiltersRow } from "./filters-row";
 import { useFolderPath } from "./folder-path";
 import { FolderNotFound } from "./folder-not-found";
+import { NavPlace } from "./nav-place";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { fileHref } from "./types";
 import { useEntryDialog } from "./use-entry-dialog";
@@ -23,12 +26,15 @@ import { useFilePreferences } from "./use-file-preferences";
 
 export function FilesPageClient() {
   const currentPath = useFolderPath();
-  const effectiveSegments = useMemo(
-    () => (currentPath ? currentPath.split("/") : []),
-    [currentPath],
-  );
   const { session } = useRouteContext({ from: "/_authed" });
   const isAuthed = Boolean(session);
+  // The layout loads the account before any folder shows, so the root is right from the start.
+  const me = useQuery({ ...trpc.access.me.queryOptions(), enabled: isAuthed });
+  const top = me.data?.top ?? "";
+  const trail = useMemo(
+    () => BreadcrumbTrail.of(currentPath, top, NavPlace.labels.files),
+    [currentPath, top],
+  );
 
   const { prefs, updatePreferences } = useFilePreferences(isAuthed);
   const view = prefs.view;
@@ -134,8 +140,8 @@ export function FilesPageClient() {
         }}
         className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-background px-4 py-3 md:-mx-6 md:flex md:justify-between md:px-6 lg:-mx-8 lg:-mt-8 lg:px-8"
       >
-        <div className="min-w-0 overflow-hidden pointer-coarse:-my-3 pointer-coarse:py-3 max-lg:pointer-coarse:-ml-3.5 max-lg:pointer-coarse:pl-3.5">
-          <FileBreadcrumbs pathSegments={effectiveSegments} />
+        <div className="min-w-0 overflow-hidden pointer-coarse:-my-3 pointer-coarse:py-3 pointer-coarse:-ml-3.5 pointer-coarse:pl-3.5">
+          <FileBreadcrumbs trail={trail} />
         </div>
         <FiltersRow
           prefs={prefs}
@@ -189,7 +195,7 @@ export function FilesPageClient() {
               sections={sections}
               actions={actions}
               restoreKey={`${shownPath}:${view}`}
-              label={effectiveSegments.at(-1) ?? "My Drive"}
+              label={trail.crumbs.at(-1)?.label ?? trail.root.label}
               toolbarRef={toolbarRef}
               selectionSlot={selectionSlot}
               dialog={dialog}

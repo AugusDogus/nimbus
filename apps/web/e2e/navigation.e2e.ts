@@ -397,7 +397,7 @@ test("header and toolbar controls have 44 px touch areas on touch screens of eve
             document.querySelector('input[name="q"]'),
             named("Account menu"),
             document.querySelector(
-              'nav[aria-label="breadcrumb"] a[aria-label="My Drive"]',
+              'nav[aria-label="breadcrumb"] a[aria-label="Files"]',
             ),
             [...document.querySelectorAll("button")].find((button) =>
               button.textContent?.includes("Show folders in this path"),
@@ -448,7 +448,7 @@ test("header and toolbar controls have 44 px touch areas on touch screens of eve
     // Touch areas change no layout: the root crumb stays on one line.
     expect(
       await page
-        .locator('nav[aria-label="breadcrumb"] a[aria-label="My Drive"]')
+        .locator('nav[aria-label="breadcrumb"] a[aria-label="Files"]')
         .evaluate((link) => {
           const line = parseFloat(getComputedStyle(link).lineHeight);
           const label = [...link.children].find(
@@ -659,7 +659,9 @@ test("New closes and creates nothing once the page has nowhere to create in", as
   await sidebarLink("Trash");
   await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
   await sidebarLink("Files");
-  await expect(page.getByRole("heading", { name: "My Drive" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Files", exact: true }),
+  ).toBeVisible();
   await openNew();
   await expect(newFolder).toBeVisible();
   await page.goBack();
@@ -667,7 +669,9 @@ test("New closes and creates nothing once the page has nowhere to create in", as
   await expect(newFolder).toBeHidden();
   await expect(upload).toBeHidden();
   await page.goForward();
-  await expect(page.getByRole("heading", { name: "My Drive" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Files", exact: true }),
+  ).toBeVisible();
   await expect(newFolder).toBeHidden();
 
   // A New folder dialog open when Back returns to Trash closes without creating.

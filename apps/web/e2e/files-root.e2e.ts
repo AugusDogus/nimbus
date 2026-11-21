@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import {
   adminEmail,
   asMember,
@@ -104,6 +104,88 @@ test("the administrator starts at the drive root, and a link followed through si
     await expect(admin).toHaveURL(`/browse/${folder}`);
   } finally {
     await fresh.close();
+  }
+});
+
+const breadcrumbRoot = (on: Page) =>
+  on.locator('nav[aria-label="breadcrumb"] a[aria-label="Files"]');
+const shownName = (on: Page) =>
+  on.locator('nav[aria-label="breadcrumb"] [aria-current="page"]');
+
+test("the breadcrumb roots at Files, the home for a member limited to it, linking real folders", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  const { member, memberContext, home } = await asMember(
+    browser,
+    context,
+    page,
+    isMobile,
+    [],
+  );
+  try {
+    const name = "Trip 100% #1";
+    await (
+      await client(memberContext)
+    ).files.createFolder.mutate({
+      path: home,
+      name,
+    });
+    await expect(member).toHaveURL(homeAddress(home));
+    await expect(
+      member.getByRole("heading", { name: "Files", exact: true }),
+    ).toBeVisible();
+    await member.getByRole("link", { name, exact: true }).click();
+    await expect(member).toHaveURL(
+      `${homeAddress(home)}/${encodeURIComponent(name)}`,
+    );
+    await expect(shownName(member)).toHaveText(name);
+    await expect(breadcrumbRoot(member)).toHaveAttribute(
+      "href",
+      homeAddress(home),
+    );
+    await breadcrumbRoot(member).click();
+    await expect(member).toHaveURL(homeAddress(home));
+  } finally {
+    await memberContext.close();
+  }
+});
+
+test("the breadcrumb shows the real ancestry for the administrator and for a member with a nested grant", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  const top = `documents-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: top });
+  await rpc.files.createFolder.mutate({ path: top, name: "team" });
+  await rpc.files.createFolder.mutate({ path: `${top}/team`, name: "reports" });
+  await page.goto(`/browse/${top}/team/reports`);
+  await expect(shownName(page)).toHaveText("reports");
+  await expect(breadcrumbRoot(page)).toHaveAttribute("href", "/");
+  const { member, memberContext } = await asMember(
+    browser,
+    context,
+    page,
+    isMobile,
+    [{ path: `${top}/team/reports`, permission: "read" }],
+  );
+  try {
+    await member.goto(`/browse/${top}/team`);
+    await expect(shownName(member)).toHaveText("team");
+    await expect(breadcrumbRoot(member)).toHaveAttribute("href", "/");
+    if (!isMobile)
+      await expect(
+        member
+          .locator('nav[aria-label="breadcrumb"]')
+          .getByRole("link", { name: top, exact: true }),
+      ).toBeVisible();
+  } finally {
+    await memberContext.close();
   }
 });
 
