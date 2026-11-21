@@ -144,6 +144,13 @@ describe("TransferResult", () => {
     const merged = TransferResult.merge(first, retry);
     expect(merged.clashes).toEqual([]);
     expect(merged.transferred).toHaveLength(3);
+    expect(
+      TransferResult.describe(TransferResult.skip({ ...first, failed: [] })),
+    ).toEqual({
+      ok: true,
+      message:
+        "Moved 1 item to archive. Skipped 2 items whose names were taken.",
+    });
     expect(TransferResult.describe(merged)).toEqual({
       ok: true,
       message:

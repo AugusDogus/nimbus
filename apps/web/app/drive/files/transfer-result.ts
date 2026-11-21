@@ -33,6 +33,8 @@ export type TransferResult = {
   destination: string;
   transferred: Transferred[];
   clashes: TransferClash[];
+  /** Clashing items the person chose to leave where they are. */
+  skipped: TransferClash[];
   failed: TransferFailure[];
 };
 
@@ -55,6 +57,7 @@ async function run(
     destination,
     transferred: [],
     clashes: [],
+    skipped: [],
     failed: [],
   };
   let next = 0;
@@ -101,6 +104,13 @@ function merge(earlier: TransferResult, later: TransferResult): TransferResult {
   };
 }
 
+/** `result` with its clashes left where they are, as the person chose. */
+const skip = (result: TransferResult): TransferResult => ({
+  ...result,
+  clashes: [],
+  skipped: [...result.skipped, ...result.clashes],
+});
+
 /** The items to try again: those whose name was taken and those that failed. */
 const unfinished = (result: TransferResult) => [
   ...result.clashes.map((item) => item.source),
@@ -125,6 +135,16 @@ function describe(result: TransferResult) {
   const total =
     result.transferred.length + result.clashes.length + result.failed.length;
   const done = result.transferred.length;
+  const skipped = result.skipped.length
+    ? ` Skipped ${count(result.skipped.length)} whose ${result.skipped.length === 1 ? "name was" : "names were"} taken.`
+    : "";
+  if (done === total && skipped)
+    return {
+      ok: true,
+      message: done
+        ? `${verb.done} ${count(done)} to ${place}.${skipped}`
+        : `Nothing was ${verb.none} to ${place}.${skipped}`,
+    } as const;
   if (done === total) {
     const [only, ...others] = result.transferred;
     if (only && others.length === 0)
@@ -166,4 +186,10 @@ function describe(result: TransferResult) {
   return { ok: false, message: parts.join(" ") } as const;
 }
 
-export const TransferResult = { run, merge, unfinished, describe } as const;
+export const TransferResult = {
+  run,
+  merge,
+  skip,
+  unfinished,
+  describe,
+} as const;
