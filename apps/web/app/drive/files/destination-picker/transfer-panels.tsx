@@ -1,6 +1,7 @@
 import { AlertCircle, CopyPlus } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { folderLabel } from "../drive-root";
@@ -55,6 +56,12 @@ export function ClashPanel({
   const inputId = useId();
   const place = folderLabel(destination);
   const trimmed = name.trim();
+  // The choice is what the person is asked for, so it takes focus.
+  const nameInput = useRef<HTMLInputElement>(null);
+  const keepBoth = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    (nameInput.current ?? keepBoth.current)?.focus();
+  }, []);
   return (
     <div
       role="alertdialog"
@@ -90,6 +97,7 @@ export function ClashPanel({
           <Label htmlFor={inputId}>New name</Label>
           <div className="flex gap-2">
             <Input
+              ref={nameInput}
               id={inputId}
               value={name}
               autoComplete="off"
@@ -104,6 +112,7 @@ export function ClashPanel({
       )}
       <div className="flex flex-wrap gap-2">
         <Button
+          ref={keepBoth}
           variant={single ? "outline" : "default"}
           disabled={busy}
           onClick={() => onChoose({ kind: "keep-both" })}
@@ -131,15 +140,24 @@ export function ClashPanel({
   );
 }
 
-/** What a transfer could not do, kept in view so the failed items can be tried again. */
+/** What Undo of the items that did arrive reported. */
+export type UndoSummary = { ok: boolean; message: string };
+
+/**
+ * What a transfer could not do, kept in view so the failed items can be tried again, with Undo
+ * for those that did arrive: the toast that reports them sits behind the picker meanwhile.
+ * It takes focus when it appears, as the button that started the transfer is disabled.
+ */
 export function FailurePanel({
   result,
   busy,
   onRetry,
+  onUndo,
 }: {
   result: TransferResult;
   busy: boolean;
   onRetry: () => void;
+  onUndo: () => Promise<UndoSummary>;
 }) {
   const verb = result.operation === "move" ? "moved" : "copied";
   const failed = result.failed.length;
@@ -151,8 +169,22 @@ export function FailurePanel({
     : failed === 1 && first
       ? `“${first.source.name}” was not ${verb}:`
       : `None of the ${failed.toLocaleString()} items were ${verb}:`;
+  const [undo, setUndo] = useState<
+    | { kind: "offered" }
+    | { kind: "undoing" }
+    | { kind: "done"; summary: UndoSummary }
+  >({ kind: "offered" });
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panel.current?.focus();
+  }, []);
   return (
-    <div role="alert" className="space-y-3 border-b bg-destructive/5 p-4">
+    <div
+      ref={panel}
+      role="alert"
+      tabIndex={-1}
+      className="space-y-3 border-b bg-destructive/5 p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       <div className="flex gap-3">
         <AlertCircle
           aria-hidden="true"
@@ -170,11 +202,39 @@ export function FailurePanel({
             Try again, or choose another folder for{" "}
             {failed === 1 ? "it" : "them"}.
           </p>
+          {undo.kind === "done" && (
+            <p
+              role="status"
+              className={cn(
+                "text-pretty text-sm",
+                undo.summary.ok ? "text-foreground" : "text-destructive",
+              )}
+            >
+              {undo.summary.message}
+            </p>
+          )}
         </div>
       </div>
-      <Button variant="outline" size="sm" disabled={busy} onClick={onRetry}>
-        Try again
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" disabled={busy} onClick={onRetry}>
+          Try again
+        </Button>
+        {done > 0 && undo.kind !== "done" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy || undo.kind === "undoing"}
+            onClick={() => {
+              setUndo({ kind: "undoing" });
+              void onUndo().then((summary) =>
+                setUndo({ kind: "done", summary }),
+              );
+            }}
+          >
+            Undo
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

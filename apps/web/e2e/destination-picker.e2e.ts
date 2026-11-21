@@ -321,10 +321,15 @@ test("keeps the picker open when a move fails, and retries what failed", async (
   await expect(
     dialog.getByRole("heading", { name: "Move “b.txt”" }),
   ).toBeVisible();
+  // The report takes focus, inside the picker, where its Undo can be reached.
+  await expect(failure).toBeFocused();
+  await failure.getByRole("button", { name: "Undo" }).click();
+  await expect(failure).toContainText("Moved “a.txt” back to docs.");
+  expect(await names("docs")).toEqual(["a.txt"]);
   await writeFile(at("docs/b.txt"), "b again");
   await failure.getByRole("button", { name: "Try again" }).click();
   await expect(dialog).toBeHidden();
-  expect(await names("archive")).toEqual(["a.txt", "b.txt"]);
+  expect(await names("archive")).toEqual(["b.txt"]);
   // The retry reports what it moved, with Undo of its own.
   await expect(
     page
@@ -520,6 +525,57 @@ test("makes a new folder to move into, and offers starred and recent destination
   await dialog.getByRole("button", { name: "Move to “favourite”" }).click();
   await expect(dialog).toBeHidden();
   expect(await names("favourite")).toEqual(["b.txt"]);
+});
+
+test("reports what moved, with Undo, however a picker with name clashes is closed", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Touch multi-selection is covered elsewhere.");
+  const { top, names } = await tree({
+    "docs/a.txt": "a",
+    "docs/b.txt": "mine",
+    "archive/b.txt": "theirs",
+  });
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  for (const close of ["Escape", "Close", "Cancel"] as const) {
+    await page.goto(href(`${top}/docs`));
+    for (const item of ["a.txt", "b.txt"])
+      await page
+        .getByRole("button", { name: item, exact: true })
+        .click({ modifiers: [mod] });
+    await page
+      .getByRole("toolbar", { name: "Selected items" })
+      .getByRole("button", { name: "Move", exact: true })
+      .click();
+    const dialog = picker(page);
+    await dialog.getByRole("button", { name: "Up one folder" }).click();
+    await folderRow(dialog, `${top}/archive`).click();
+    await dialog.getByRole("button", { name: "Move to “archive”" }).click();
+    await expect(
+      dialog.getByText("“b.txt” is already in archive"),
+    ).toBeVisible();
+    if (close === "Escape") await page.keyboard.press("Escape");
+    else if (close === "Close")
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    // The picker's own Cancel, below its clash choices.
+    else
+      await dialog
+        .getByRole("button", { name: "Cancel", exact: true })
+        .last()
+        .click();
+    await expect(dialog).toBeHidden();
+    // An error toast is announced through its own alert region, so Base UI keeps the toast
+    // itself out of the accessibility tree until it has focus: its buttons are found by text.
+    const report = page.locator('[data-slot="toast"]').filter({
+      hasText: "Moved 1 of 2 items to archive. “b.txt” is already there.",
+    });
+    await expect(
+      report.locator("button", { hasText: "Keep both" }),
+    ).toBeVisible();
+    await report.locator("button", { hasText: "Undo" }).click();
+    await expect.poll(() => names("docs")).toEqual(["a.txt", "b.txt"]);
+  }
 });
 
 test("never acts on the previous folder's rows while the next one loads", async ({

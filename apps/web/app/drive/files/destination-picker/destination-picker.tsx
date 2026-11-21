@@ -295,14 +295,54 @@ export function DestinationPicker({
     options: Parameters<typeof actions.transferEntries>[3],
   ) => actions.transferEntries(operation, items, to, options);
 
+  /**
+   * What the picker has done, reported once it has closed, however it closes or is left. A
+   * toast added while the modal picker is open, or closing, stays hidden from assistive
+   * technology and out of reach, so reports wait for it to unmount. `awaiting` holds a result
+   * whose clashes are still being decided: closed then, its moved items are reported with
+   * Undo, and its clashes with Keep both.
+   */
+  const reports = useRef<{
+    done: TransferResult[];
+    awaiting: TransferResult | null;
+  }>({ done: [], awaiting: null });
+  const report = (result: TransferResult) => {
+    reports.current.awaiting = null;
+    if (result.transferred.length || result.skipped.length)
+      reports.current.done.push(result);
+  };
+  const reportTransfer = useRef(actions.reportTransfer);
+  useEffect(() => {
+    reportTransfer.current = actions.reportTransfer;
+  });
+  useEffect(
+    () => () => {
+      const { done, awaiting } = reports.current;
+      reports.current = { done: [], awaiting: null };
+      for (const result of done) reportTransfer.current(result);
+      if (awaiting) reportTransfer.current(awaiting);
+    },
+    [],
+  );
+  /** Undo what `result` transferred, from the picker, and stop reporting it. */
+  const undoFromPicker = (result: TransferResult) => {
+    reports.current.done = reports.current.done.filter(
+      (item) => item !== result,
+    );
+    return TransferReport.undo(result, () => {
+      for (const key of ["files.list", "catalog", "trash"])
+        void queryClient.invalidateQueries({ queryKey: [key] });
+    });
+  };
+
   /** Report what a finished transfer did, and close or keep what is left to try again. */
   const settle = (result: TransferResult) => {
     if (result.clashes.length) {
+      reports.current.awaiting = result.transferred.length ? result : null;
       setPhase({ kind: "clashes", result });
       return;
     }
-    if (result.transferred.length || result.skipped.length)
-      actions.reportTransfer(result);
+    report(result);
     if (!result.failed.length) {
       onClose();
       return;
@@ -330,7 +370,9 @@ export function DestinationPicker({
       case "cancel": {
         // What already reached the destination stays there, with Undo in its report.
         const rest = TransferReport.skip(result);
-        if (rest.transferred.length) actions.reportTransfer(rest);
+        // Nothing arrived: the picker stays to choose another folder, with nothing to report.
+        if (rest.transferred.length) report(rest);
+        else reports.current.awaiting = null;
         if (rest.failed.length) {
           setPending(rest.failed.map((failure) => failure.source));
           setPhase({ kind: "failed", result: rest });
@@ -733,6 +775,7 @@ export function DestinationPicker({
                 onRetry={() => {
                   if (!busy) void submitTo(phase.result.destination);
                 }}
+                onUndo={() => undoFromPicker(phase.result)}
               />
             )}
             <div className="p-2">{body}</div>

@@ -115,13 +115,14 @@ export type ReportHandlers = {
   keepBoth: (result: TransferResult) => void;
 };
 
-/** Undo every transferred item of `result`, and say what happened to each. */
+/** Undo every transferred item of `result`, say what happened to each, and return that. */
 async function undo(result: TransferResult, refresh: () => void) {
   const items = await TransferUndo.run(result);
   refresh();
   const summary = TransferUndo.describe(result, items);
   if (summary.ok) toast.success(summary.message);
   else toast.error(summary.message);
+  return summary;
 }
 
 /**
@@ -146,4 +147,4 @@ function show(result: TransferResult, handlers: ReportHandlers) {
   else toast.error(summary.message, options);
 }
 
-export const TransferReport = { describe, merge, skip, show } as const;
+export const TransferReport = { describe, merge, skip, show, undo } as const;
