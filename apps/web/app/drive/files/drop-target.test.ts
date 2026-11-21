@@ -14,6 +14,7 @@ const entry = (path: string, type: "dir" | "file" = "dir"): FileEntry => ({
 const moving = (...paths: string[]): DragPayload => ({
   kind: "entries",
   sources: paths.map((path) => entry(path)),
+  skipped: 0,
 });
 const folder = (path: string, writable = true) => ({ path, writable });
 
@@ -81,5 +82,17 @@ describe("dropping on a folder", () => {
     expect(DropTarget.ofEntry({ ...entry("a/b"), permission: "read" })).toEqual(
       { path: "a/b", writable: false },
     );
+  });
+});
+
+describe("a drag that leaves items behind", () => {
+  it("says how many of the selection cannot be moved", () => {
+    expect(DropTarget.leftBehind({ dragged: 3, skipped: 2 })).toBe(
+      "2 of 5 items cannot be moved from here",
+    );
+    expect(DropTarget.leftBehind({ dragged: 1, skipped: 1 })).toBe(
+      "1 of 2 items cannot be moved from here",
+    );
+    expect(DropTarget.leftBehind({ dragged: 4, skipped: 0 })).toBeNull();
   });
 });

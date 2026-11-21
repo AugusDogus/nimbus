@@ -371,3 +371,42 @@ test("files dragged in from the computer open … and upload into a hidden folde
     .toContain("sprung.txt");
   await expect(more).toHaveAttribute("aria-expanded", "false");
 });
+
+test("a drag says when part of the selection cannot be moved, and moves the rest", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Touch moves items with Move to….");
+  const top = `partial-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: top });
+  await page.goto("/");
+  const row = (name: string) =>
+    page.getByRole("link", { name, exact: true }).first();
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  // The folder holding the home folders never moves.
+  await row(top).click({ modifiers: [mod] });
+  await row("users").click({ modifiers: [mod] });
+  await row(top).hover();
+  await page.mouse.down();
+  await row("docs").hover();
+  await row("docs").hover();
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "1 of 2 items cannot be moved from here" }),
+  ).toBeVisible();
+  await page.mouse.up();
+  await expect
+    .poll(async () =>
+      FileListing.entries(await rpc.files.list.query({ path: "docs" })).map(
+        (entry) => entry.name,
+      ),
+    )
+    .toContain(top);
+  await rpc.files.move.mutate({
+    sourcePath: `docs/${top}`,
+    destinationPath: "",
+  });
+});

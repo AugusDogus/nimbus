@@ -7,9 +7,12 @@ import type { FileEntry } from "./types";
  */
 export type DropTarget = { path: string; writable: boolean };
 
-/** What is being dragged: items from a listing, or files from the computer. */
+/**
+ * What is being dragged: items from a listing, with how many of the selection were left out
+ * because they cannot be moved, or files from the computer.
+ */
 export type DragPayload =
-  | { kind: "entries"; sources: readonly FileEntry[] }
+  | { kind: "entries"; sources: readonly FileEntry[]; skipped: number }
   | { kind: "files" };
 
 /** Whether a drop on a target is taken, and if not, why. */
@@ -58,7 +61,21 @@ function hint(result: DropVerdict, target: DropTarget) {
   }
 }
 
+/** Says that part of a selection stays where it is, or null when all of it is dragged. */
+function leftBehind({
+  dragged,
+  skipped,
+}: {
+  dragged: number;
+  skipped: number;
+}) {
+  if (skipped === 0) return null;
+  const total = dragged + skipped;
+  return `${skipped.toLocaleString()} of ${total.toLocaleString()} items cannot be moved from here`;
+}
+
 export const DropTarget = {
+  leftBehind,
   /** A folder row as a target. Files are not targets. */
   ofEntry: (entry: FileEntry): DropTarget | null =>
     entry.type === "dir"

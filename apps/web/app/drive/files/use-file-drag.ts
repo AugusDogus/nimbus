@@ -81,7 +81,8 @@ export function useFileDrag({ moveEntries, uploadInto }: Options) {
   ) => ({
     draggable: state.status !== "moving" && FileEntry.canMove(entry),
     onDragStart(event: DragEvent<HTMLElement>) {
-      const dragged = sources().filter(FileEntry.canMove);
+      const selected = sources();
+      const dragged = selected.filter(FileEntry.canMove);
       if (stateRef.current.status === "moving" || dragged.length === 0) {
         event.preventDefault();
         return;
@@ -95,7 +96,12 @@ export function useFileDrag({ moveEntries, uploadInto }: Options) {
       if (dragged.length > 1) setCountImage(event, dragged.length);
       setState({
         status: "dragging",
-        payload: { kind: "entries", sources: dragged },
+        // Items that cannot be moved stay behind, and the drag hint says so.
+        payload: {
+          kind: "entries",
+          sources: dragged,
+          skipped: selected.length - dragged.length,
+        },
         over: null,
       });
     },
