@@ -163,6 +163,32 @@ test.describe("moves whose answers arrive late", () => {
     await expect.poll(() => drive.names("docs")).toContain("b.txt");
   });
 
+  test("keeps a late report's Undo within reach while a picker covers the page", async ({
+    page,
+  }) => {
+    const drive = await tree({ "docs/a.txt": "a", "docs/b.txt": "b" });
+    await page.goto(href(`${drive.top}/docs`));
+    const late = await holdAnswers(page, "**/api/trpc/files.move*");
+    await action(page, "a.txt", "Move up one level", false);
+    await late.requested;
+    await action(page, "b.txt", "Move to…", false);
+    const dialog = picker(page);
+    await expect(
+      dialog.getByRole("heading", { name: "Move “b.txt”" }),
+    ).toBeVisible();
+    late.release();
+    await expect.poll(() => drive.names()).toContain("a.txt");
+    // Longer than a report lasts once it can be reached.
+    await page.waitForTimeout(11_000);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await toasts(page)
+      .filter({ hasText: "Moved “a.txt” to" })
+      .getByRole("button", { name: "Undo" })
+      .click();
+    await expect.poll(() => drive.names("docs")).toEqual(["a.txt", "b.txt"]);
+  });
+
   test("reports a late Move up whose name clashed while the picker asks about its own clash", async ({
     page,
   }) => {
