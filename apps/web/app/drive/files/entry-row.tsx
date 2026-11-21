@@ -53,8 +53,10 @@ type Props = {
   dropTarget: boolean;
   /** A move is running: nothing can be dragged until it ends. */
   dragLocked: boolean;
-  /** Touch layouts move items with the Move action instead of dragging. */
+  /** Narrow layouts open the actions drawer instead of a menu. */
   touch: boolean;
+  /** Items drag only with a mouse, trackpad or pen; touch moves them with the Move action. */
+  canDrag: boolean;
   /** The whole selection when this entry is part of a multi-selection, otherwise null. */
   selectionTargets: readonly FileEntry[] | null;
   /** This row's actions menu is open. */
@@ -82,6 +84,7 @@ export const EntryRow = memo(function EntryRow({
   dropTarget,
   dragLocked,
   touch,
+  canDrag,
   selectionTargets,
   menuOpen,
   actions,
@@ -94,7 +97,7 @@ export const EntryRow = memo(function EntryRow({
 }: Props) {
   const Icon = entry.type === "dir" ? Folder : FileText;
   // Handlers resolve at event time: the view's handlers do not exist during server rendering.
-  const drag = touch
+  const drag = !canDrag
     ? { draggable: false }
     : {
         draggable: !dragLocked && FileEntry.canMove(entry),

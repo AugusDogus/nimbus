@@ -116,3 +116,32 @@ for (const view of ["list", "grid"] as const) {
     ).toContain("Dropped notes.txt");
   });
 }
+
+test("dragging follows the pointer, not the window width: a mouse drags in a narrow window, touch alone never", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  const root = `pointer-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: root });
+  await rpc.files.createFolder.mutate({ path: root, name: "Into" });
+  await rpc.files.createFolder.mutate({ path: root, name: "Moved" });
+  // The phone project has a touch screen only, the desktop one a mouse.
+  await page.setViewportSize({ width: isMobile ? 1024 : 600, height: 800 });
+  await page.goto(`/browse/${root}`);
+  const source = page.getByRole("link", { name: "Moved", exact: true });
+  await expect(source).toBeVisible();
+  if (isMobile) {
+    await expect(source).not.toHaveAttribute("draggable", "true");
+    return;
+  }
+  await expect(source).toHaveAttribute("draggable", "true");
+  await source.dragTo(page.getByRole("link", { name: "Into", exact: true }));
+  await expect(source).toHaveCount(0);
+  expect(
+    FileListing.entries(
+      await rpc.files.list.query({ path: `${root}/Into` }),
+    ).map((entry) => entry.name),
+  ).toEqual(["Moved"]);
+});

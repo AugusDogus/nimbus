@@ -405,15 +405,19 @@ test("rows keep their elements through hydration and across the breakpoint, so a
   const target = entry(page, "one.txt");
   const isFirstRow = () =>
     target.evaluate((element) => element === Reflect.get(window, "firstRow"));
+  // The phone layout shows its own New button; touch alone never drags, at any width.
+  const phoneNew = page.getByRole("button", { name: "New file or folder" });
+  await expect(phoneNew).toBeVisible();
   await expect(target).toHaveAttribute("draggable", "false");
   expect(await isFirstRow()).toBe(true);
   const viewport = page.viewportSize();
   if (!viewport) throw new Error("The mobile project has no viewport size.");
   await page.setViewportSize({ width: 900, height: viewport.height });
-  await expect(target).toHaveAttribute("draggable", "true");
+  await expect(phoneNew).toBeHidden();
+  await expect(target).toHaveAttribute("draggable", "false");
   expect(await isFirstRow()).toBe(true);
   await page.setViewportSize(viewport);
-  await expect(target).toHaveAttribute("draggable", "false");
+  await expect(phoneNew).toBeVisible();
   expect(await isFirstRow()).toBe(true);
 
   const press = (type: "pointerdown" | "pointerup" | "click") =>

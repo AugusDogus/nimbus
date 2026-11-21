@@ -14,6 +14,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { useFinePointer } from "@/hooks/use-fine-pointer";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { EntryMenu, EntryMenuHost, type EntryMenuTarget } from "./entry-menu";
 import { EntryRow, type EntryRowHandlers } from "./entry-row";
@@ -80,6 +81,7 @@ export function EntriesView({
 }: Props) {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const canDrag = useFinePointer();
   const columns = useGridColumns();
   const layout = useMemo(
     () => EntryLayout.build(sections, view, view === "grid" ? columns : 1),
@@ -470,6 +472,7 @@ export function EntriesView({
         dropTarget={drag.isDropTarget(entry)}
         dragLocked={dragLocked}
         touch={isMobile}
+        canDrag={canDrag}
         selectionTargets={selected ? multiSelection : null}
         menuOpen={menu?.entry.path === entry.path}
         actions={actions}
