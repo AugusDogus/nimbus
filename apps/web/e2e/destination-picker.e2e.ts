@@ -521,3 +521,41 @@ test("makes a new folder to move into, and offers starred and recent destination
   await expect(dialog).toBeHidden();
   expect(await names("favourite")).toEqual(["b.txt"]);
 });
+
+test("never acts on the previous folder's rows while the next one loads", async ({
+  page,
+  isMobile,
+}) => {
+  const { top } = await tree({ "notes.txt": "notes" }, [
+    "many/inner",
+    "archive",
+  ]);
+  await page.goto(href(top));
+  await action(page, "notes.txt", "Move to…", isMobile);
+  const dialog = picker(page);
+  await expect(folderRow(dialog, `${top}/archive`)).toBeVisible();
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // Holds the next folder's listing and capability check until released.
+  await page.route("**/api/trpc/**", async (route) => {
+    if (route.request().url().includes("files.")) await held;
+    await route.fallback();
+  });
+  await folderRow(dialog, `${top}/many`).click();
+  // The breadcrumb names "many" at once; the rows still shown are its parent's.
+  await expect(dialog.getByText("many", { exact: true }).first()).toBeVisible();
+  const stale = dialog.locator('[aria-busy="true"]');
+  await expect(stale).toBeVisible();
+  await expect(stale).toHaveAttribute("inert", "");
+  await expect(
+    dialog.getByRole("button", { name: "Move to “many”" }),
+  ).toBeDisabled();
+  release();
+  await expect(folderRow(dialog, `${top}/many/inner`)).toBeVisible();
+  await expect(folderRow(dialog, `${top}/archive`)).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: "Move to “many”" }),
+  ).toBeEnabled();
+});

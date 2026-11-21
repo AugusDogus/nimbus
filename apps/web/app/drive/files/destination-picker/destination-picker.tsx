@@ -418,6 +418,7 @@ export function DestinationPicker({
   })();
   const canSubmit =
     eligibility?.kind === "eligible" &&
+    !(browsed !== null && listing.isPlaceholderData) &&
     phase.kind !== "clashes" &&
     !busy &&
     pending.length > 0;
@@ -501,6 +502,7 @@ export function DestinationPicker({
               label={`Folders matching ${searched}`}
               restoreKey={`picker-search:${searched}`}
               onOpen={openRow}
+              stale={results.isPlaceholderData}
             />
           ) : (
             <Notice>No folder you can add to matches “{searched}”.</Notice>
@@ -583,6 +585,7 @@ export function DestinationPicker({
         restoreKey={`picker:${view.path}`}
         onOpen={openRow}
         focusRequest={listing.isPlaceholderData ? undefined : focusRequest}
+        stale={listing.isPlaceholderData}
       />
     ) : (
       <Notice>No folders here.</Notice>

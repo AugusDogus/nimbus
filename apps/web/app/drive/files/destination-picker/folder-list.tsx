@@ -38,6 +38,7 @@ export function FolderList({
   restoreKey,
   onOpen,
   focusRequest,
+  stale = false,
 }: {
   rows: readonly FolderRow[];
   label: string;
@@ -50,6 +51,11 @@ export function FolderList({
    * once, so focus stays in the list while the keyboard moves through folders.
    */
   focusRequest?: { id: number; path: string | null };
+  /**
+   * The rows belong to the folder or search left behind while the next one loads. They stay
+   * in view so the list does not jump, but take no input, so none acts under the new place.
+   */
+  stale?: boolean;
 }) {
   const layout = useMemo(
     () => EntryLayout.build([{ title: "", entries: rows }], "list", 1),
@@ -173,7 +179,9 @@ export function FolderList({
       ref={containerRef}
       role="listbox"
       aria-label={label}
-      className="relative"
+      aria-busy={stale}
+      inert={stale}
+      className={cn("relative transition-opacity", stale && "opacity-50")}
       style={{ height: layout.height }}
       onKeyDown={onKeyDown}
     >
