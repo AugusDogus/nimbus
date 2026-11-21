@@ -1,3 +1,4 @@
+import { TransferCode } from "./transfer-code";
 import { useRef, useState, type DragEvent } from "react";
 import { DropTarget, type DragPayload, type DropVerdict } from "./drop-target";
 import { FileEntry } from "./types";
@@ -81,6 +82,7 @@ export function useFileDrag({ moveEntries, uploadInto }: Options) {
   ) => ({
     draggable: state.status !== "moving" && FileEntry.canMove(entry),
     onDragStart(event: DragEvent<HTMLElement>) {
+      TransferCode.prepare();
       const selected = sources();
       const dragged = selected.filter(FileEntry.canMove);
       if (stateRef.current.status === "moving" || dragged.length === 0) {

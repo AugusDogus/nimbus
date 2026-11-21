@@ -1,4 +1,11 @@
-import { useRef, useState, type MouseEvent, type ReactElement } from "react";
+import { TransferCode } from "./transfer-code";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactElement,
+} from "react";
 import {
   Copy,
   CornerLeftUp,
@@ -328,6 +335,10 @@ export function EntryMenuHost({
   const [shown, setShown] = useState(menu);
   if (menu !== null && menu !== shown) setShown(menu);
   const starred = useStarredPaths(menu !== null);
+  // A menu may move items: what does so loads while the person chooses.
+  useEffect(() => {
+    if (menu !== null) TransferCode.prepare();
+  }, [menu]);
   const items = shown
     ? entryMenuItems(shown.entry, shown.targets, actions, open, starred, moveUp)
     : [];

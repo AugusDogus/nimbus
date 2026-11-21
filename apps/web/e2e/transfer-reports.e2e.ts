@@ -393,3 +393,36 @@ test("asks before signing out while a move runs, and signs out only when confirm
     await account.memberContext.close();
   }
 });
+
+test("starts no move when the code that reports it cannot load", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    process.env.CI !== "true",
+    "Only the production build has the report's own file.",
+  );
+  const manifest = z
+    .record(z.string(), z.object({ file: z.string() }))
+    .parse(
+      JSON.parse(
+        await readFile(
+          path.resolve("apps/web/dist/.vite/manifest.json"),
+          "utf8",
+        ),
+      ),
+    );
+  const report = manifest["app/drive/files/transfer-report.ts"]?.file;
+  if (!report) throw new Error("The build has no file for the report.");
+  const drive = await tree({ "docs/a.txt": "a" });
+  await page.goto(href(`${drive.top}/docs`));
+  await page.route(
+    (url) => url.pathname === `/${report}`,
+    (route) => route.fulfill({ status: 404, body: "Not found" }),
+  );
+  await action(page, "a.txt", "Move up one level", isMobile);
+  await expect(
+    toasts(page).filter({ hasText: "Nothing was moved" }),
+  ).toBeVisible();
+  expect(await drive.names("docs")).toEqual(["a.txt"]);
+});

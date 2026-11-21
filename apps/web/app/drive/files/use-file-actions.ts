@@ -10,6 +10,7 @@ import { fileListQueryOptions } from "./use-file-list";
 import { BulkResult } from "./bulk-result";
 import type { TransferOperation, TransferResult } from "./transfer-result";
 import { DropTarget } from "./drop-target";
+import { TransferCode } from "./transfer-code";
 import { fileHref, FileEntry } from "./types";
 
 function invalidateFileQueries() {
@@ -191,9 +192,25 @@ export function useFileActions({
         names?: ReadonlyMap<string, string>;
       } = {},
     ) => {
-      // Loaded with the first transfer, like the picker and the report.
-      const { TransferResult } = await import("./transfer-result");
       const items = FileEntry.outermost(entries);
+      // Nothing is sent unless what reports it has loaded: otherwise nothing has changed, and
+      // every item says so.
+      const code = await TransferCode.load().catch(() => null);
+      if (!code)
+        return {
+          operation,
+          destination: destinationPath,
+          transferred: [],
+          clashes: [],
+          skipped: [],
+          failed: items.map((source) => ({
+            source,
+            reason: `Nothing was ${operation === "move" ? "moved" : "copied"}: part of Nimbus could not load. Reload the page and try again.`,
+          })),
+          alreadyThere: [],
+          unconfirmed: [],
+        } satisfies TransferResult;
+      const [{ TransferResult }] = code;
       // Items already in the destination stay as they are, and the result says so; the
       // others move there.
       const moving =
@@ -227,26 +244,34 @@ export function useFileActions({
       also: readonly TransferResult[] = [],
     ): TransferResult {
       invalidateFileQueries();
-      void import("./transfer-report").then(({ TransferReport }) =>
-        TransferReport.show([result, ...also], {
-          refresh: invalidateFileQueries,
-          open: (folder) => void navigate({ href: fileHref(folder) }),
-          // Opens the picker at the clashes, when the page is shown with no dialog open.
-          choose: clashes.current
-            ? (earlier) => clashes.current?.(earlier) ?? false
-            : undefined,
-          keepBoth: (earlier) =>
-            void Promise.all(
-              earlier.map((result) =>
-                transferEntries(
-                  result.operation,
-                  result.clashes.map((clash) => clash.source),
-                  result.destination,
-                  { clash: "keep-both" },
+      // Loaded before the transfer started (see `transferEntries`), unless it never started.
+      void TransferCode.load().then(
+        ([, { TransferReport }]) =>
+          TransferReport.show([result, ...also], {
+            refresh: invalidateFileQueries,
+            open: (folder) => void navigate({ href: fileHref(folder) }),
+            // Opens the picker at the clashes, when the page is shown with no dialog open.
+            choose: clashes.current
+              ? (earlier) => clashes.current?.(earlier) ?? false
+              : undefined,
+            keepBoth: (earlier) =>
+              void Promise.all(
+                earlier.map((result) =>
+                  transferEntries(
+                    result.operation,
+                    result.clashes.map((clash) => clash.source),
+                    result.destination,
+                    { clash: "keep-both" },
+                  ),
                 ),
-              ),
-            ).then(([first, ...others]) => first && report(first, others)),
-        }),
+              ).then(([first, ...others]) => first && report(first, others)),
+          }),
+        // Only when the transfer never started, which its items say.
+        () =>
+          toast.error(
+            result.failed[0]?.reason ??
+              "Nimbus could not show this report. Reload the page, then check the folder.",
+          ),
       );
       return result;
     },
