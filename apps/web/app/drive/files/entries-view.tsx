@@ -25,7 +25,6 @@ import { EntryLayout, entryGeometry, type EntrySection } from "./entry-layout";
 import { PreviewDialog } from "./preview-dialog";
 import { Selection } from "./selection";
 import { SelectionBar } from "./selection-bar";
-import { ShortcutHelp } from "./shortcut-help";
 import { fileHref, FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
 import { DragHint } from "./drag-hint";
@@ -39,6 +38,9 @@ const SharingDialog = lazyComponent(async () => ({
   default: (await import("./sharing-dialog")).SharingDialog,
 }));
 const VersionsDialog = lazyComponent(() => import("./versions-dialog"));
+const ShortcutHelp = lazyComponent(async () => ({
+  default: (await import("./shortcut-help")).ShortcutHelp,
+}));
 
 type Props = {
   view: "list" | "grid";
@@ -117,6 +119,9 @@ export function EntriesView({
   );
   const [menu, setMenu] = useState<EntryMenu | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  // The shortcut help loads when first opened, and stays mounted so it can animate closed.
+  const [helpWanted, setHelpWanted] = useState(false);
+  if (helpOpen && !helpWanted) setHelpWanted(true);
   // Entries can leave the folder through live updates, moves, and other clients.
   const retained = Selection.retain(selection, order);
   if (retained !== selection) setSelection(retained);
@@ -634,18 +639,20 @@ export function EntriesView({
         </div>
       </EntryMenuHost>
       {bar && (selectionSlot ? createPortal(bar, selectionSlot) : bar)}
-      <ShortcutHelp
-        open={helpOpen}
-        onOpenChange={setHelpOpen}
-        onClosed={() => {
-          if (!focusPath) return;
-          containerRef.current
-            ?.querySelector<HTMLElement>(
-              `[data-entry-path="${CSS.escape(focusPath)}"]`,
-            )
-            ?.focus();
-        }}
-      />
+      {helpWanted && (
+        <ShortcutHelp
+          open={helpOpen}
+          onOpenChange={setHelpOpen}
+          onClosed={() => {
+            if (!focusPath) return;
+            containerRef.current
+              ?.querySelector<HTMLElement>(
+                `[data-entry-path="${CSS.escape(focusPath)}"]`,
+              )
+              ?.focus();
+          }}
+        />
+      )}
       {dialog?.action === "preview" ? (
         <PreviewDialog
           entry={dialog.entry}
