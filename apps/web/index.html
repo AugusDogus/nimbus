@@ -38,6 +38,10 @@
     <script type="module" src="/client/main.tsx"></script>
   </head>
   <body class="antialiased">
+    <!-- The impersonation banner's place, first in tab order. It exists before any dialog can
+         open, so an open dialog hides it from assistive technology with the rest of the page,
+         even when the banner itself loads later. -->
+    <div id="impersonation-banner"></div>
     <div id="root"></div>
   </body>
 </html>

@@ -3,6 +3,9 @@ import { createPortal } from "react-dom";
 import { UserRoundCog } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+/** The element index.html provides for the banner. */
+const hostId = "impersonation-banner";
+
 /** Where an administrator returns after impersonating: the page the action lives on. */
 const returnTo = "/settings/admin";
 
@@ -12,10 +15,19 @@ const returnTo = "/settings/admin";
  * renders first in the page so it is first in tab order. Dialogs, at z-50, cover it.
  */
 export default function ImpersonationBanner({ email }: { email: string }) {
-  const [host] = useState(() => document.createElement("div"));
+  // The page provides the banner's place from the start (see index.html): a place created now,
+  // while a dialog is open, would escape the dialog hiding the rest of the page from assistive
+  // technology. Only a page without one gets a place made here, as before.
+  const [host] = useState(() => {
+    const provided = document.getElementById(hostId);
+    return provided
+      ? { element: provided, owned: false }
+      : { element: document.createElement("div"), owned: true };
+  });
   useLayoutEffect(() => {
-    document.body.prepend(host);
-    return () => host.remove();
+    if (!host.owned) return;
+    document.body.prepend(host.element);
+    return () => host.element.remove();
   }, [host]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +97,6 @@ export default function ImpersonationBanner({ email }: { email: string }) {
         </p>
       )}
     </section>,
-    host,
+    host.element,
   );
 }

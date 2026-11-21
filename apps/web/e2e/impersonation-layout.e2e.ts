@@ -293,3 +293,38 @@ test("a persistent error toast leaves the banner, New button and selection bar r
     bar.getByRole("button", { name: "Trash", exact: true }),
   ]);
 });
+
+test("a banner that loads while a dialog is open stays hidden behind it, then returns", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "The order of loading is the same at every size.");
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await impersonate(page);
+  // Holds the code that renders the banner until a dialog is open.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/after-start*", async (route) => {
+    await held;
+    await route.fallback();
+  });
+  await page.goto("/home");
+  await page.getByRole("button", { name: "New", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New folder", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "New folder", exact: true });
+  await expect(dialog).toBeVisible();
+  release();
+  const section = page.locator('section[aria-label="Impersonation"]');
+  await expect(section).toBeVisible();
+  // Shown under the dialog's backdrop, but out of reach of assistive technology meanwhile.
+  await expect(page.getByRole("region", { name: "Impersonation" })).toHaveCount(
+    0,
+  );
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(
+    page.getByRole("region", { name: "Impersonation" }),
+  ).toBeVisible();
+});
