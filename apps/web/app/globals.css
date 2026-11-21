@@ -178,7 +178,8 @@
     [data-slot="dialog-content"],
     [data-slot="sheet-content"],
     [data-slot="alert-dialog-content"],
-    [data-slot="drawer-content"]
+    [data-slot="drawer-content"],
+    [data-slot="sidebar"][data-mobile="true"]
   )
   [data-slot="toast-viewport"] {
   opacity: 0;
@@ -188,7 +189,8 @@
     [data-slot="dialog-content"],
     [data-slot="sheet-content"],
     [data-slot="alert-dialog-content"],
-    [data-slot="drawer-content"]
+    [data-slot="drawer-content"],
+    [data-slot="sidebar"][data-mobile="true"]
   )
   [data-slot="toast"] {
   pointer-events: none;

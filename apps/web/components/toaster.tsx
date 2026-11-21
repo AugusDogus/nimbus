@@ -6,10 +6,13 @@ import {
 } from "@/components/ui/toast";
 import { connectToasts } from "@/lib/toast";
 
-/** Whether a modal dialog, sheet or drawer covers the page, keeping toasts out of reach. */
+/**
+ * Whether a modal dialog, sheet or drawer covers the page, keeping toasts out of reach. The
+ * phone sidebar is a sheet under a slot of its own.
+ */
 const covered = () =>
   document.querySelector(
-    '[data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"], [data-slot="drawer-content"]',
+    '[data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"], [data-slot="drawer-content"], [data-slot="sidebar"][data-mobile="true"]',
   ) !== null;
 
 const watchCover = (changed: () => void) => {

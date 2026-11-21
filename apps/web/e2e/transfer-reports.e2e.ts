@@ -705,3 +705,26 @@ test("keeps the menu item the keyboard moved to while the menu is still opening"
     await page.evaluate(() => document.activeElement?.textContent ?? ""),
   ).toBe(chosen);
 });
+
+test("holds a report while the phone sidebar covers the page", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "Only phones show the sidebar over the page.");
+  const drive = await tree({ "docs/a.txt": "a" });
+  await page.goto(href(`${drive.top}/docs`));
+  await action(page, "a.txt", "Move up one level", isMobile);
+  const report = toasts(page).filter({ hasText: "Moved “a.txt” to" });
+  await expect(report).toBeVisible();
+  await page
+    .getByRole("button", { name: "Toggle Sidebar", exact: true })
+    .click();
+  const sidebar = page.getByRole("dialog", { name: "Sidebar" });
+  await expect(sidebar).toBeVisible();
+  // Longer than the report lasts once it can be reached.
+  await page.waitForTimeout(11_000);
+  await page.keyboard.press("Escape");
+  await expect(sidebar).toBeHidden();
+  await report.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(() => drive.names("docs")).toEqual(["a.txt"]);
+});
