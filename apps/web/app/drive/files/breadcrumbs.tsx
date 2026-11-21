@@ -1,4 +1,4 @@
-import { Home } from "lucide-react";
+import { HardDrive } from "lucide-react";
 import { Link } from "@/components/link";
 
 import {
@@ -22,7 +22,7 @@ import { FolderLink } from "./folder-link";
 
 /**
  * Wide screens keep the parent visible: `My Drive > ... > Parent > Current`
- * Narrower ones collapse it too:        `Home > ... > Current`
+ * Narrower ones collapse it too:        `[drive icon] > ... > Current`
  *
  * Pure CSS: the parent shows from the `lg` breakpoint, where the sidebar leaves room for it.
  * The current folder's name truncates rather than being cut off.
@@ -64,7 +64,7 @@ export function FileBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
             className="whitespace-nowrap pointer-coarse:relative pointer-coarse:z-10 pointer-coarse:-my-3.5 pointer-coarse:py-3.5 max-lg:pointer-coarse:-mx-3.5 max-lg:pointer-coarse:px-3.5"
             render={<Link to="/" aria-label="My Drive" />}
           >
-            <Home className="size-4 lg:hidden" />
+            <HardDrive className="size-4 lg:hidden" />
             <span className="max-lg:hidden">My Drive</span>
           </BreadcrumbLink>
         </BreadcrumbItem>
