@@ -15,8 +15,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { NimbusLogo } from "@/components/nimbus-logo";
-import { NimbusWordmark } from "@/components/nimbus-wordmark";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,10 +22,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -74,19 +70,7 @@ export function AppSidebar({
   const closeNavigation = () => setOpenMobile(false);
 
   return (
-    <Sidebar collapsible="icon" variant="inset">
-      <SidebarHeader className="h-16 justify-center px-3 group-data-[collapsible=icon]:px-0">
-        <Link
-          to="/"
-          aria-label="Nimbus home"
-          onClick={closeNavigation}
-          className="flex h-12 items-center gap-3 rounded-xl px-2 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
-        >
-          <NimbusLogo className="size-8 shrink-0" />
-          <NimbusWordmark className="group-data-[collapsible=icon]:hidden" />
-        </Link>
-      </SidebarHeader>
-
+    <>
       <SidebarContent className="gap-4 px-3 pt-4 group-data-[collapsible=icon]:px-0">
         {/* Hidden in place, so the navigation below never moves between pages. The button's
             transition would otherwise keep it visible for a moment after the page changes. */}
@@ -226,6 +210,6 @@ export function AppSidebar({
         </SidebarMenu>
         {isAdmin && <StorageIndicator storage={storage} />}
       </SidebarFooter>
-    </Sidebar>
+    </>
   );
 }

@@ -3,12 +3,9 @@
 import { Link } from "@/components/link";
 import { UploadProgress } from "@/components/upload-progress";
 import { usePathname } from "@/hooks/use-pathname";
-import type { CSSProperties, ReactNode } from "react";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
+import type { ReactNode } from "react";
+import { AppFrame } from "@/components/app-frame";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -18,11 +15,6 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { SettingsSidebar, settingsPages } from "./settings-sidebar";
-
-const sidebarStyle: CSSProperties & Record<`--${string}`, string> = {
-  "--sidebar-width": "16rem",
-  "--sidebar-width-icon": "4rem",
-};
 
 export function SettingsShell({
   isAdmin,
@@ -35,39 +27,36 @@ export function SettingsShell({
   const page = settingsPages.find((page) => page.href === pathname);
 
   return (
-    <SidebarProvider
-      style={sidebarStyle}
-      className="surface-grain h-dvh min-h-0 overflow-hidden"
-    >
-      <SettingsSidebar isAdmin={isAdmin} />
-      <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pb-(--impersonation-offset) [scrollbar-gutter:stable]">
-        <header className="surface-grain sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 border-b border-border/40 bg-background px-4 md:px-6">
-          <SidebarTrigger className="touch-hit size-8 shrink-0 text-muted-foreground" />
-          <Breadcrumb aria-label="Settings breadcrumb">
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink render={<Link to="/settings" />}>
-                  Settings
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              {page?.section === "Administration" && (
-                <>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem>Administration</BreadcrumbItem>
-                </>
-              )}
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>{page?.label ?? "Settings"}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-        </header>
-        <UploadProgress />
-        <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 md:px-6 lg:px-8 lg:py-8">
-          {children}
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+    <>
+      <AppFrame.SidebarBody>
+        <SettingsSidebar isAdmin={isAdmin} />
+      </AppFrame.SidebarBody>
+      <header className="surface-grain sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 border-b border-border/40 bg-background px-4 md:px-6">
+        <SidebarTrigger className="touch-hit size-8 shrink-0 text-muted-foreground" />
+        <Breadcrumb aria-label="Settings breadcrumb">
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink render={<Link to="/settings" />}>
+                Settings
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            {page?.section === "Administration" && (
+              <>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>Administration</BreadcrumbItem>
+              </>
+            )}
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>{page?.label ?? "Settings"}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      </header>
+      <UploadProgress />
+      <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 md:px-6 lg:px-8 lg:py-8">
+        {children}
+      </div>
+    </>
   );
 }

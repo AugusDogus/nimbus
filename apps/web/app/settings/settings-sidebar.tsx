@@ -11,15 +11,11 @@ import {
   UserRound,
   Users,
 } from "lucide-react";
-import { NimbusLogo } from "@/components/nimbus-logo";
-import { NimbusWordmark } from "@/components/nimbus-wordmark";
 import {
-  Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
   SidebarGroupLabel,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -71,18 +67,7 @@ export function SettingsSidebar({ isAdmin }: { isAdmin: boolean }) {
   const closeNavigation = () => setOpenMobile(false);
 
   return (
-    <Sidebar collapsible="icon" variant="inset">
-      <SidebarHeader className="h-16 justify-center px-3 group-data-[collapsible=icon]:px-0">
-        <Link
-          to="/"
-          aria-label="Nimbus home"
-          onClick={closeNavigation}
-          className="flex h-12 items-center gap-3 rounded-xl px-2 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
-        >
-          <NimbusLogo className="size-8" />
-          <NimbusWordmark className="group-data-[collapsible=icon]:hidden" />
-        </Link>
-      </SidebarHeader>
+    <>
       <SidebarContent className="gap-4 pt-4">
         <nav aria-label="Settings">
           {(["Settings", "Administration"] as const).map((section) => {
@@ -137,6 +122,6 @@ export function SettingsSidebar({ isAdmin }: { isAdmin: boolean }) {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
-    </Sidebar>
+    </>
   );
 }

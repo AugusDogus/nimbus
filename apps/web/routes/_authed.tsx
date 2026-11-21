@@ -1,4 +1,5 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { AppFrame } from "@/components/app-frame";
 import { UploadProvider } from "@/components/upload-provider";
 import { sessionQuery } from "@/lib/session-query";
 
@@ -16,7 +17,9 @@ export const Route = createFileRoute("/_authed")({
   },
   component: () => (
     <UploadProvider>
-      <Outlet />
+      <AppFrame.Root>
+        <Outlet />
+      </AppFrame.Root>
     </UploadProvider>
   ),
 });

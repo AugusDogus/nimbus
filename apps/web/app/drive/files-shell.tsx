@@ -1,6 +1,6 @@
 import { FolderPlus, FolderUp, Plus, Shield, Upload } from "lucide-react";
 import { Link, useRouteContext } from "@tanstack/react-router";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -40,11 +40,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
+import { AppFrame } from "@/components/app-frame";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { capabilitiesQueryOptions } from "./files/capabilities";
 import { FolderPath, useFolderPath } from "./files/folder-path";
 import { fileListQueryOptions } from "./files/use-file-list";
@@ -64,11 +61,6 @@ import { collectDrop, type CollectedUpload } from "@/lib/upload-sources";
 
 type FilesShellProps = {
   children: ReactNode;
-};
-
-const sidebarStyle: CSSProperties & Record<`--${string}`, string> = {
-  "--sidebar-width": "16rem",
-  "--sidebar-width-icon": "4rem",
 };
 
 export function FilesShell({ children }: FilesShellProps) {
@@ -157,210 +149,205 @@ export function FilesShell({ children }: FilesShellProps) {
   });
 
   return (
-    <SidebarProvider
-      style={sidebarStyle}
-      className="surface-grain h-dvh min-h-0 overflow-hidden"
-    >
-      <AppSidebar
-        storage={storage}
-        canWrite={canWrite}
-        offersNew={offersNew}
-        isAdmin={isAdmin}
-        newContent={newContent}
-      />
-      <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pb-(--impersonation-offset) [scrollbar-gutter:stable]">
-        <header className="surface-grain sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-background px-4 md:gap-4 md:px-6">
-          {/* On phones the toggle and logo sit 44 px apart, so their touch areas do not overlap. */}
-          <div className="flex min-w-0 flex-1 items-center gap-2 max-md:pointer-coarse:gap-3.5 md:gap-4">
-            {/* Desktop: sidebar trigger */}
-            <SidebarTrigger className="touch-hit size-8 shrink-0 text-muted-foreground" />
+    <>
+      <AppFrame.SidebarBody>
+        <AppSidebar
+          storage={storage}
+          canWrite={canWrite}
+          offersNew={offersNew}
+          isAdmin={isAdmin}
+          newContent={newContent}
+        />
+      </AppFrame.SidebarBody>
+      <header className="surface-grain sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-background px-4 md:gap-4 md:px-6">
+        {/* On phones the toggle and logo sit 44 px apart, so their touch areas do not overlap. */}
+        <div className="flex min-w-0 flex-1 items-center gap-2 max-md:pointer-coarse:gap-3.5 md:gap-4">
+          {/* Desktop: sidebar trigger */}
+          <SidebarTrigger className="touch-hit size-8 shrink-0 text-muted-foreground" />
 
-            {/* Mobile: brand logo */}
-            <Link
-              to="/"
-              className="touch-hit shrink-0 md:hidden"
-              aria-label="Nimbus home"
-            >
-              <NimbusLogo className="size-7" />
-            </Link>
+          {/* Mobile: brand logo */}
+          <Link
+            to="/"
+            className="touch-hit shrink-0 md:hidden"
+            aria-label="Nimbus home"
+          >
+            <NimbusLogo className="size-7" />
+          </Link>
 
-            {/* Search bar -- always visible */}
-            <SearchBox />
-          </div>
-
-          <div className="flex shrink-0 items-center gap-1 md:gap-3">
-            {session ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      aria-label="Account menu"
-                      className="touch-hit relative size-9 rounded-full"
-                    />
-                  }
-                >
-                  <Avatar>
-                    <AvatarFallback className="bg-secondary text-secondary-foreground">
-                      {session.user.name?.charAt(0).toUpperCase() ||
-                        session.user.email?.charAt(0).toUpperCase() ||
-                        "U"}
-                    </AvatarFallback>
-                  </Avatar>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel>
-                      <div className="flex flex-col space-y-1">
-                        {session.user.name && (
-                          <p className="text-sm font-medium">
-                            {session.user.name}
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground">
-                          {session.user.email}
-                        </p>
-                      </div>
-                    </DropdownMenuLabel>
-                    {isAdmin && (
-                      <DropdownMenuItem render={<Link to="/admin" />}>
-                        <Shield />
-                        Administration
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      if (LeaveGuard.busy()) setSignOutAsked(true);
-                      else void signOut();
-                    }}
-                    variant="destructive"
-                  >
-                    Sign out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Link to="/login" className={buttonVariants({ size: "sm" })}>
-                Sign in
-              </Link>
-            )}
-          </div>
-        </header>
-
-        <UploadProgress />
-        <AlertDialog open={signOutAsked} onOpenChange={setSignOutAsked}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-balance">
-                Sign out while something is still running?
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                A move, copy or upload is still running. Signing out now ends it
-                without a report or Undo.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Stay signed in</AlertDialogCancel>
-              <AlertDialogAction
-                variant="destructive"
-                onClick={() => {
-                  setSignOutAsked(false);
-                  void signOut();
-                }}
-              >
-                Sign out
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-        <div
-          className="flex-1 overflow-x-clip px-4 pb-24 pt-6 md:px-6 md:pb-6 lg:px-8 lg:pt-8"
-          onDragOver={(event) => {
-            if (
-              canWrite &&
-              offersNew &&
-              event.dataTransfer.types.includes("Files")
-            )
-              event.preventDefault();
-          }}
-          onDrop={(event) => {
-            if (!event.dataTransfer.types.includes("Files")) return;
-            event.preventDefault();
-            // Folder entries must be read during the drop event, before the browser clears them.
-            if (canWrite && offersNew)
-              void collectDrop(event.dataTransfer).then(uploadFiles);
-          }}
-        >
-          {children}
+          {/* Search bar -- always visible */}
+          <SearchBox />
         </div>
 
-        {/* Mobile FAB for New actions */}
-        {canWrite && offersNew && (
-          <>
-            <Button
-              size="lg"
-              className="fixed bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px))] right-4 z-20 h-14 gap-2.5 rounded-full bg-create text-create-foreground shadow-lg hover:bg-create/90 has-[>svg]:px-6 md:hidden"
-              onClick={() => setFabDrawerOpen(true)}
-              aria-label="New file or folder"
-              data-toast-clearance="narrow"
-            >
-              <Plus className="size-5" strokeWidth={1.8} />
-              New
-            </Button>
+        <div className="flex shrink-0 items-center gap-1 md:gap-3">
+          {session ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    aria-label="Account menu"
+                    className="touch-hit relative size-9 rounded-full"
+                  />
+                }
+              >
+                <Avatar>
+                  <AvatarFallback className="bg-secondary text-secondary-foreground">
+                    {session.user.name?.charAt(0).toUpperCase() ||
+                      session.user.email?.charAt(0).toUpperCase() ||
+                      "U"}
+                  </AvatarFallback>
+                </Avatar>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>
+                    <div className="flex flex-col space-y-1">
+                      {session.user.name && (
+                        <p className="text-sm font-medium">
+                          {session.user.name}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {session.user.email}
+                      </p>
+                    </div>
+                  </DropdownMenuLabel>
+                  {isAdmin && (
+                    <DropdownMenuItem render={<Link to="/admin" />}>
+                      <Shield />
+                      Administration
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => {
+                    if (LeaveGuard.busy()) setSignOutAsked(true);
+                    else void signOut();
+                  }}
+                  variant="destructive"
+                >
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Link to="/login" className={buttonVariants({ size: "sm" })}>
+              Sign in
+            </Link>
+          )}
+        </div>
+      </header>
 
-            <Drawer
-              showSwipeHandle
-              open={fabDrawerOpen}
-              onOpenChange={setFabDrawerOpen}
+      <UploadProgress />
+      <AlertDialog open={signOutAsked} onOpenChange={setSignOutAsked}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-balance">
+              Sign out while something is still running?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              A move, copy or upload is still running. Signing out now ends it
+              without a report or Undo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay signed in</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                setSignOutAsked(false);
+                void signOut();
+              }}
             >
-              <DrawerContent>
-                <DrawerHeader>
-                  <DrawerTitle>Create new</DrawerTitle>
-                  <DrawerDescription className="sr-only">
-                    Create a new file or folder
-                  </DrawerDescription>
-                </DrawerHeader>
-                <div className="flex flex-col gap-1 px-4 pb-6">
-                  <DrawerClose
-                    render={
-                      <DrawerActionItem onClick={newContent.openFolderDialog} />
-                    }
-                  >
-                    <FolderPlus className="size-5 text-muted-foreground" />
-                    New folder
-                  </DrawerClose>
-                  <DrawerClose
-                    render={
-                      <DrawerActionItem onClick={newContent.triggerFileInput} />
-                    }
-                  >
-                    <Upload className="size-5 text-muted-foreground" />
-                    Upload file
-                  </DrawerClose>
-                  <DrawerClose
-                    render={
-                      <DrawerActionItem
-                        onClick={newContent.triggerFolderInput}
-                      />
-                    }
-                  >
-                    <FolderUp className="size-5 text-muted-foreground" />
-                    Upload folder
-                  </DrawerClose>
-                </div>
-              </DrawerContent>
-            </Drawer>
-          </>
-        )}
+              Sign out
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <div
+        className="flex-1 overflow-x-clip px-4 pb-24 pt-6 md:px-6 md:pb-6 lg:px-8 lg:pt-8"
+        onDragOver={(event) => {
+          if (
+            canWrite &&
+            offersNew &&
+            event.dataTransfer.types.includes("Files")
+          )
+            event.preventDefault();
+        }}
+        onDrop={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          // Folder entries must be read during the drop event, before the browser clears them.
+          if (canWrite && offersNew)
+            void collectDrop(event.dataTransfer).then(uploadFiles);
+        }}
+      >
+        {children}
+      </div>
 
-        <HiddenFileInput
-          fileInputRef={newContent.fileInputRef}
-          handleFileChange={newContent.handleFileChange}
-        />
-        <NewFolderDialog state={newContent} />
-      </SidebarInset>
-    </SidebarProvider>
+      {/* Mobile FAB for New actions */}
+      {canWrite && offersNew && (
+        <>
+          <Button
+            size="lg"
+            className="fixed bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px))] right-4 z-20 h-14 gap-2.5 rounded-full bg-create text-create-foreground shadow-lg hover:bg-create/90 has-[>svg]:px-6 md:hidden"
+            onClick={() => setFabDrawerOpen(true)}
+            aria-label="New file or folder"
+            data-toast-clearance="narrow"
+          >
+            <Plus className="size-5" strokeWidth={1.8} />
+            New
+          </Button>
+
+          <Drawer
+            showSwipeHandle
+            open={fabDrawerOpen}
+            onOpenChange={setFabDrawerOpen}
+          >
+            <DrawerContent>
+              <DrawerHeader>
+                <DrawerTitle>Create new</DrawerTitle>
+                <DrawerDescription className="sr-only">
+                  Create a new file or folder
+                </DrawerDescription>
+              </DrawerHeader>
+              <div className="flex flex-col gap-1 px-4 pb-6">
+                <DrawerClose
+                  render={
+                    <DrawerActionItem onClick={newContent.openFolderDialog} />
+                  }
+                >
+                  <FolderPlus className="size-5 text-muted-foreground" />
+                  New folder
+                </DrawerClose>
+                <DrawerClose
+                  render={
+                    <DrawerActionItem onClick={newContent.triggerFileInput} />
+                  }
+                >
+                  <Upload className="size-5 text-muted-foreground" />
+                  Upload file
+                </DrawerClose>
+                <DrawerClose
+                  render={
+                    <DrawerActionItem onClick={newContent.triggerFolderInput} />
+                  }
+                >
+                  <FolderUp className="size-5 text-muted-foreground" />
+                  Upload folder
+                </DrawerClose>
+              </div>
+            </DrawerContent>
+          </Drawer>
+        </>
+      )}
+
+      <HiddenFileInput
+        fileInputRef={newContent.fileInputRef}
+        handleFileChange={newContent.handleFileChange}
+      />
+      <NewFolderDialog state={newContent} />
+    </>
   );
 }

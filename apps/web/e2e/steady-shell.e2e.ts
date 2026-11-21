@@ -145,3 +145,47 @@ test("a page that scrolls is as wide as one that does not", async ({
   ).toBe(false);
   expect(await headerWidth()).toBe(scrolling);
 });
+
+test("Settings and the files pages share one sidebar", async ({
+  page,
+  isMobile,
+}) => {
+  const node = isMobile
+    ? '[data-slot="sidebar-wrapper"]'
+    : '[data-slot="sidebar"]';
+  const sameNode = () =>
+    page.evaluate(
+      (selector) =>
+        "sidebarNode" in window &&
+        window.sidebarNode === document.querySelector(selector),
+      node,
+    );
+  const sidebar = page.locator('[data-slot="sidebar"]');
+  const go = async (name: string) => {
+    if (isMobile)
+      await page.getByRole("button", { name: "Toggle Sidebar" }).click();
+    await sidebar.getByRole("link", { name, exact: true }).click();
+  };
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Account menu" }),
+  ).toBeVisible();
+  if (!isMobile) {
+    // A collapsed sidebar stays collapsed in Settings and back.
+    await page.getByRole("button", { name: "Toggle Sidebar" }).click();
+    await expect(sidebar).toHaveAttribute("data-state", "collapsed");
+  }
+  await page.evaluate((selector) => {
+    Object.assign(window, { sidebarNode: document.querySelector(selector) });
+  }, node);
+  await go("Settings");
+  await expect(page).toHaveURL("/settings/appearance");
+  expect(await sameNode()).toBe(true);
+  if (!isMobile)
+    await expect(sidebar).toHaveAttribute("data-state", "collapsed");
+  await go("Back to files");
+  await expect(page).toHaveURL("/");
+  expect(await sameNode()).toBe(true);
+  if (!isMobile)
+    await expect(sidebar).toHaveAttribute("data-state", "collapsed");
+});
