@@ -9,6 +9,7 @@ import { FileBreadcrumbs } from "./breadcrumbs";
 import { capabilitiesQueryOptions } from "./capabilities";
 import { EntriesView } from "./entries-view";
 import { FolderError } from "./folder-error";
+import { FolderForbidden } from "./folder-forbidden";
 import { FiltersRow } from "./filters-row";
 import { useFolderPath } from "./folder-path";
 import { FolderNotFound } from "./folder-not-found";
@@ -110,13 +111,19 @@ export function FilesPageClient() {
     null,
   );
 
-  // A folder that is missing or cannot be opened replaces the page, until a listing exists.
-  if (listQuery.isError && !listQuery.data)
-    return trpcErrorCode(listQuery.error) === "NOT_FOUND" ? (
+  // A folder that is missing, refused or cannot be opened replaces the page, until a listing
+  // exists. The server refuses a folder the account may not browse before looking it up, so
+  // a refusal says nothing about whether it exists.
+  if (listQuery.isError && !listQuery.data) {
+    const code = trpcErrorCode(listQuery.error);
+    return code === "NOT_FOUND" ? (
       <FolderNotFound />
+    ) : code === "FORBIDDEN" ? (
+      <FolderForbidden />
     ) : (
       <FolderError reset={() => void listQuery.refetch()} />
     );
+  }
 
   return (
     <>

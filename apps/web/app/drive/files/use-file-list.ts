@@ -22,9 +22,11 @@ export const fileListQueryOptions = (path: string, includeStats: boolean) =>
   queryOptions<FileEntry[]>({
     queryKey: ["files.list", path, includeStats],
     queryFn: () => fetchFileList(path, includeStats),
-    // A missing folder stays missing: show "Folder not found" at once instead of after retries.
-    retry: (failures, error) =>
-      trpcErrorCode(error) !== "NOT_FOUND" && failures < 3,
+    // A missing folder stays missing, and a refused one refused: say so at once, not after retries.
+    retry: (failures, error) => {
+      const code = trpcErrorCode(error);
+      return code !== "NOT_FOUND" && code !== "FORBIDDEN" && failures < 3;
+    },
   });
 
 export const useFileList = ({

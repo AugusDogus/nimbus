@@ -39,10 +39,10 @@ import { StorageIndicator } from "./storage-indicator";
 import { NavPlace } from "./nav-place";
 
 const navItems = [
-  { icon: HardDrive, label: "Files", href: "/", place: "files" },
-  { icon: Users, label: "Shared", href: "/shared", place: "shared" },
-  { icon: Clock, label: "Recent", href: "/recent", place: "recent" },
-  { icon: Star, label: "Starred", href: "/starred", place: "starred" },
+  { icon: HardDrive, href: "/", place: "files" },
+  { icon: Users, href: "/shared", place: "shared" },
+  { icon: Clock, href: "/recent", place: "recent" },
+  { icon: Star, href: "/starred", place: "starred" },
 ] as const;
 
 type AppSidebarProps = {
@@ -152,11 +152,12 @@ export function AppSidebar({
           <SidebarMenu className="gap-1">
             {navItems.map((item) => {
               const active = item.place === place;
+              const label = NavPlace.labels[item.place];
               return (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
                     isActive={active}
-                    tooltip={item.label}
+                    tooltip={label}
                     className="h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto"
                     render={
                       <Link
@@ -167,7 +168,7 @@ export function AppSidebar({
                     }
                   >
                     <item.icon strokeWidth={1.7} />
-                    <span>{item.label}</span>
+                    <span>{label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               );
@@ -180,7 +181,7 @@ export function AppSidebar({
         <SidebarMenu className="flex-row items-center justify-between gap-1 group-data-[collapsible=icon]:flex-col">
           <SidebarMenuItem className="min-w-0 flex-1 group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:flex-none">
             <SidebarMenuButton
-              tooltip="Trash"
+              tooltip={NavPlace.labels.trash}
               isActive={place === "trash"}
               className="h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto"
               render={
@@ -192,19 +193,19 @@ export function AppSidebar({
               }
             >
               <Trash2 strokeWidth={1.7} />
-              <span>Trash</span>
+              <span>{NavPlace.labels.trash}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem className="shrink-0 group-data-[collapsible=icon]:w-full">
             <SidebarMenuButton
-              tooltip="Settings"
+              tooltip={NavPlace.labels.settings}
               isActive={place === "settings"}
               className="size-10 justify-center rounded-xl p-0 group-data-[collapsible=icon]:mx-auto"
               render={
                 <Link
                   to="/settings"
-                  aria-label="Settings"
-                  title="Settings"
+                  aria-label={NavPlace.labels.settings}
+                  title={NavPlace.labels.settings}
                   aria-current={place === "settings" ? "page" : undefined}
                   onClick={closeNavigation}
                 />

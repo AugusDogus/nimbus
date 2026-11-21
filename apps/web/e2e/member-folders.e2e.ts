@@ -81,3 +81,54 @@ test("an empty folder the account can only read does not suggest adding to it", 
     await memberContext.close();
   }
 });
+
+test("a folder the account may not open says so, the same whether or not it exists", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  const hidden = `not-shared-${randomUUID()}`;
+  await (await client(context)).files.createFolder.mutate({ name: hidden });
+  const { member, memberContext } = await asMember(
+    browser,
+    context,
+    page,
+    isMobile,
+    [],
+  );
+  try {
+    for (const folder of [hidden, `missing-${randomUUID()}`]) {
+      await member.goto(`/browse/${folder}`);
+      // Retrying a refusal only delays the answer by several seconds.
+      await expect(
+        member.getByRole("heading", {
+          name: "You do not have access to this folder",
+          exact: true,
+        }),
+      ).toBeVisible({ timeout: 4_000 });
+      await expect(
+        member.getByText(
+          "Ask a server administrator, or the person who shared it with you, for access.",
+        ),
+      ).toBeVisible();
+      await expect(member.getByText("Could not open this folder")).toBeHidden();
+      await expect(
+        member
+          .getByRole("region", { name: /Notifications/ })
+          .getByText("not shared with you"),
+      ).toHaveCount(0);
+    }
+    // A missing folder the account could open is still just missing.
+    await member.goto("/home");
+    await expect(member).toHaveURL(/\/browse\/users\//);
+    await member.goto(
+      `${new URL(member.url()).pathname}/missing-${randomUUID()}`,
+    );
+    await expect(
+      member.getByRole("heading", { name: "Folder not found", exact: true }),
+    ).toBeVisible();
+  } finally {
+    await memberContext.close();
+  }
+});

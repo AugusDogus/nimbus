@@ -268,8 +268,9 @@ export function useFileActions({
         queryKey: ["catalog", "bookmarks"],
       });
     } catch (error) {
-      // An item that no longer exists says so where it was opened.
-      if (trpcErrorCode(error) === "NOT_FOUND") return;
+      // An item that no longer exists, or may not be opened, says so where it was opened.
+      const code = trpcErrorCode(error);
+      if (code === "NOT_FOUND" || code === "FORBIDDEN") return;
       toast.error(
         error instanceof Error
           ? error.message
