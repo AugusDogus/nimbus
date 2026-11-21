@@ -49,7 +49,7 @@ export function EditEntryDialog({
   actions,
   onClose,
 }: {
-  dialog: Exclude<EntryDialog, { action: "preview" | "share" | "versions" }>;
+  dialog: Extract<EntryDialog, { action: "rename" | "delete" }>;
   actions: ReturnType<typeof useFileActions>;
   onClose: () => void;
 }) {
@@ -57,14 +57,26 @@ export function EditEntryDialog({
     return (
       <RenameDialog entry={dialog.entry} actions={actions} onClose={onClose} />
     );
-  if (dialog.action === "delete")
-    return (
-      <TrashDialog
-        entries={dialog.entries}
-        actions={actions}
-        onClose={onClose}
-      />
-    );
+  return (
+    <TrashDialog entries={dialog.entries} actions={actions} onClose={onClose} />
+  );
+}
+
+/**
+ * The move or copy picker of a page, when `dialog` opens one. Pages render it beside their
+ * listing, not inside it: a move can empty the listing, and the picker must stay to report
+ * what failed.
+ */
+export function TransferDialog({
+  dialog,
+  actions,
+  onClose,
+}: {
+  dialog: EntryDialog | null;
+  actions: ReturnType<typeof useFileActions>;
+  onClose: () => void;
+}) {
+  if (dialog?.action !== "move" && dialog?.action !== "copy") return null;
   return (
     <DestinationPicker
       operation={dialog.action}

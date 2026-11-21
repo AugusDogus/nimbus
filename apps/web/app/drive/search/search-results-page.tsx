@@ -2,6 +2,7 @@ import { Link } from "@/components/link";
 import { useCallback, useMemo } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { TransferDialog } from "../files/entry-dialogs";
 import { EntriesView } from "../files/entries-view";
 import type { FileEntry } from "../files/types";
 import { useEntryDialog } from "../files/use-entry-dialog";
@@ -64,6 +65,11 @@ export function SearchResultsPage({ query }: { query: string }) {
   return (
     <div className="space-y-6">
       <h1 className="text-balance text-2xl font-semibold">{title}</h1>
+      <TransferDialog
+        dialog={dialog}
+        actions={actions}
+        onClose={() => onDialog(null)}
+      />
       {(search.pending || !search.settled) &&
       query &&
       !search.entries.length &&

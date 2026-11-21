@@ -2,6 +2,7 @@ import { Link } from "@/components/link";
 import { useQuery } from "@tanstack/react-query";
 import { trpcClient } from "@/lib/trpc";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { TransferDialog } from "./files/entry-dialogs";
 import { EntriesView } from "./files/entries-view";
 import { useEntryDialog } from "./files/use-entry-dialog";
 import { useFileActions } from "./files/use-file-actions";
@@ -65,6 +66,11 @@ export function LibraryPage({
           </Button>
         </div>
       )}
+      <TransferDialog
+        dialog={dialog}
+        actions={actions}
+        onClose={() => onDialog(null)}
+      />
       {active.isError && active.data === undefined ? (
         <p role="alert" className="text-pretty text-destructive">
           {active.error.message}

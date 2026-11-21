@@ -9,6 +9,7 @@ import { trpcErrorCode } from "@/lib/trpc-error";
 import { BreadcrumbTrail } from "./breadcrumb-trail";
 import { FileBreadcrumbs } from "./breadcrumbs";
 import { capabilitiesQueryOptions } from "./capabilities";
+import { TransferDialog } from "./entry-dialogs";
 import { EntriesView } from "./entries-view";
 import { sortEntries } from "./entry-sort";
 import { FolderError } from "./folder-error";
@@ -192,6 +193,11 @@ export function FilesPageClient() {
               Only folders leading to items shared with you are shown.
             </p>
           )}
+          <TransferDialog
+            dialog={dialog}
+            actions={actions}
+            onClose={() => onDialog(null)}
+          />
           {listQuery.isLoading ? (
             <LoadingSkeleton view={view} />
           ) : listQuery.isError ? (

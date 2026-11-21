@@ -657,7 +657,7 @@ export function EntriesView({
       ) : dialog?.action === "versions" ? (
         <VersionsDialog entry={dialog.entry} onClose={() => onDialog(null)} />
       ) : (
-        dialog && (
+        (dialog?.action === "rename" || dialog?.action === "delete") && (
           <EditEntryDialog
             key={
               dialog.action === "rename"
