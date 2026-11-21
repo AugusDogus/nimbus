@@ -110,6 +110,8 @@ export type SearchRequest = {
   depth?: SearchDepth;
   /** Ranks the caller's recent and frequent opens first within each layer. */
   history?: readonly HistoryEntry[];
+  /** `folders` finds folders only, ranked and limited among themselves. All entries by default. */
+  only?: "folders";
   /**
    * Continue after the page that returned this `next`. Text no page returned
    * (or one for another request, or from an earlier run) restarts the search.
@@ -286,6 +288,7 @@ const requestDigest = (request: SearchRequest) =>
     request.root,
     request.depth ?? "instant",
     request.scope.type === "all" ? null : [...request.scope.paths].sort(),
+    request.only ?? null,
   ]);
 
 /** How a page reads the query's words beyond as typed; see `Cursor`. */
@@ -413,6 +416,7 @@ function scanDelta(
     const boost = boosts.get(id) ?? 0;
     const length = Buffer.byteLength(name.folded);
     const offer = (rank: number) => {
+      if (plan.foldersOnly && !view.isFolder(id)) return;
       const kept = offered(rank);
       if (kept >= 0) add(kept);
     };
@@ -956,6 +960,7 @@ function prepare(
       boosts,
       after,
       fuzzyOnly: false,
+      foldersOnly: request.only === "folders",
     },
     null,
     UNREAD,

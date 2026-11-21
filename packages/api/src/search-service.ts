@@ -62,6 +62,11 @@ export type SearchOptions = {
   cursor?: string;
   history?: readonly HistoryEntry[];
   signal?: AbortSignal;
+  /**
+   * `destinations` finds only folders the caller can write to, such as for a move. The index
+   * filters both before it limits the results, so a page is never short of them.
+   */
+  find?: "entries" | "destinations";
 };
 
 /** A search result as callers see it: the entry, which layer found it, and where it matched. */
@@ -93,6 +98,12 @@ export async function searchEntries(
   options: SearchOptions = {},
 ) {
   const service = runningService();
+  const destinations = options.find === "destinations";
+  // Write access comes from write and admin grants alone: searching only beneath them leaves
+  // out everything else before the index ranks anything.
+  const scopeGrants = destinations
+    ? access.grants.filter((grant) => grant.permission !== "read")
+    : access.grants;
   const answer = await service.search(
     {
       query,
@@ -100,7 +111,8 @@ export async function searchEntries(
       limit,
       scope: access.isAdmin
         ? { type: "all" }
-        : { type: "grants", paths: access.grants.map((grant) => grant.path) },
+        : { type: "grants", paths: scopeGrants.map((grant) => grant.path) },
+      only: destinations ? "folders" : undefined,
       depth: options.depth,
       // A cursor that cannot be opened is passed on as text no page
       // returned, so the search restarts and says so.
@@ -114,7 +126,7 @@ export async function searchEntries(
   );
   const entries = await Promise.all(
     answer.hits.map(async (hit): Promise<SearchEntry | null> => {
-      if (!access.can(hit.path, "read")) return null;
+      if (!access.can(hit.path, destinations ? "write" : "read")) return null;
       try {
         return {
           ...(await entryAt(hit.path)),

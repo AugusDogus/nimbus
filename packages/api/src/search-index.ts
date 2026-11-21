@@ -148,6 +148,7 @@ export function createSearchIndex(initialCapacity = 1024) {
     plainStarts: new Int32Array([1]),
     plainSlot: new Int32Array(0),
     plainLead: new Uint8Array(0),
+    folder: new Uint8Array([1]),
   };
   /** Entries added since compaction whose plain name differs from their folded one. */
   const deltaPlain = new Set<number>();
@@ -476,9 +477,11 @@ export function createSearchIndex(initialCapacity = 1024) {
     );
     nextPlainLead.set(plainLeads);
     const parentSlot = sharedInt32(used);
+    const folder = new Uint8Array(new SharedArrayBuffer(used));
     for (let slot = 0; slot < used; slot++) {
       const id = order[slot];
       parentSlot[slot] = id === ROOT ? NONE : nextSlotOf[parent[id]];
+      if (kinds[id] === DIR) folder[slot] = 1;
     }
     words.compact(previousLayout.slotId, nextSlotOf);
     previous = {
@@ -501,6 +504,7 @@ export function createSearchIndex(initialCapacity = 1024) {
       plainStarts: nextPlainStarts,
       plainSlot: nextPlainSlot,
       plainLead: nextPlainLead,
+      folder,
     };
     slotOf = nextSlotOf;
     deltaNames.clear();

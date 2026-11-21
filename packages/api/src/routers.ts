@@ -9,7 +9,7 @@ import { UserPreferences } from "./context";
 import { getDataRoot } from "./data-root";
 import { statPath } from "./fs-utils";
 import { isFsError } from "./safe-path";
-import { getAccess } from "./access";
+import { getAccess, permissionFor } from "./access";
 import type { DriveStore, Permission } from "./drive-store";
 import { FolderAccess } from "./folder-access";
 import { Homes } from "./homes";
@@ -294,6 +294,28 @@ export const appRouter = router({
         );
       }),
 
+    /**
+     * What the caller may do in one folder, for choosing it as a destination: the folder's own
+     * permission, which a listing of its parent states for each child but nothing states for
+     * the folder a view starts in.
+     */
+    destination: protectedProcedure
+      .input(z.object({ path: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const target = lexicalPath(input.path);
+        // Before the disk is looked at, so the answer reveals nothing about hidden folders.
+        if (!ctx.access.canBrowse(target.relative))
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "You do not have access to this folder. Ask its owner to share it with you.",
+          });
+        await requireFolder(target.relative);
+        return {
+          path: target.relative,
+          permission: permissionFor(ctx.access, target.relative),
+        };
+      }),
     createFolder: protectedProcedure
       .input(z.object({ path: z.string().optional(), name: fileNameSchema }))
       .mutation(async ({ ctx, input }) => {

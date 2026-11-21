@@ -107,6 +107,51 @@ export const catalogRouter = router({
         })),
       };
     }),
+  /**
+   * Folders the caller can move or copy into whose names match `query`, across everything
+   * the caller can browse. Files and folders without write access are filtered out by the
+   * index before it applies `limit`.
+   */
+  destinations: protectedProcedure
+    .input(
+      z.object({
+        query: z.string().trim().min(1).max(200),
+        limit: z.number().int().min(1).max(50).default(30),
+      }),
+    )
+    .query(async ({ ctx, input, signal }) => {
+      const result = await searchEntries(
+        ctx.access,
+        "",
+        input.query,
+        input.limit,
+        {
+          depth: "full",
+          history: searchHistory(
+            await ctx.drive.listBookmarks(ctx.access.user.id),
+          ),
+          signal,
+          find: "destinations",
+        },
+      );
+      const isFixed = await Homes.protection(ctx.drive);
+      return {
+        complete: result.complete,
+        truncated: result.truncated,
+        entries: result.entries.flatMap((entry) =>
+          entry.type === "dir"
+            ? [
+                {
+                  name: entry.name,
+                  path: entry.path,
+                  permission: permissionFor(ctx.access, entry.path),
+                  fixed: isFixed(entry.path),
+                },
+              ]
+            : [],
+        ),
+      };
+    }),
   bookmarks: protectedProcedure.query(async ({ ctx }) => {
     const isFixed = await Homes.protection(ctx.drive);
     const results = [];

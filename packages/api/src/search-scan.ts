@@ -51,6 +51,8 @@ export type SearchLayout = {
   /** Word-to-name postings for these slots (search-words.ts): key i's slots, sorted. */
   readonly postingStart: Int32Array;
   readonly postingSlots: Int32Array;
+  /** 1 for the slots of folders, for searches that want folders only. */
+  readonly folder: Uint8Array;
 };
 
 /**
@@ -92,6 +94,11 @@ export type ScanPlan = {
    * same scratch space (`marksEarlierLayers`), and the caller keeps its ranks.
    */
   fuzzyOnly: boolean;
+  /**
+   * Rank folders only, such as destinations for a move: files still count toward the words
+   * the query's names hold, but never take a place in the results or their limit.
+   */
+  foldersOnly: boolean;
 };
 
 /** Whether a scan of `plan` leaves the marks the fuzzy layer needs, so a fuzzy-only scan can follow it. */
@@ -530,11 +537,14 @@ export function scanLayout(
 ) {
   const { marks } = scratch;
   const { terms, after } = plan;
+  const { folder } = layout;
   const keep =
-    after < 0
+    after < 0 && !plan.foldersOnly
       ? add
       : (rank: number) => {
-          if (rank > after) add(rank);
+          if (rank <= after) return;
+          if (plan.foldersOnly && !folder[Rank.order(rank)]) return;
+          add(rank);
         };
   if (plan.fuzzyOnly)
     return (
