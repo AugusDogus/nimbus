@@ -331,6 +331,29 @@ describe("a transfer whose outcome is not known", () => {
   });
 });
 
+describe("a retry whose outcome is not known", () => {
+  it("leaves no clash open for an item it may have transferred", () => {
+    const a = entry("a.txt");
+    const earlier: TransferResult = {
+      operation: "move",
+      destination: "archive",
+      transferred: [],
+      clashes: [{ source: a, name: "a.txt", suggestion: "a (1).txt" }],
+      skipped: [],
+      failed: [],
+      alreadyThere: [],
+      unconfirmed: [],
+    };
+    const merged = TransferReport.merge(earlier, {
+      ...earlier,
+      clashes: [],
+      unconfirmed: [a],
+    });
+    expect(merged.clashes).toEqual([]);
+    expect(merged.unconfirmed).toEqual([a]);
+  });
+});
+
 describe("a transfer whose answers are lost", () => {
   const lost = () => new TRPCClientError("Failed to fetch");
 

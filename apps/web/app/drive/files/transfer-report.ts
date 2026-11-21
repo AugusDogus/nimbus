@@ -14,13 +14,17 @@ import type { FileEntry } from "./types";
  * first transfer finishes, so no page loads it up front.
  */
 
-/** `later`, a retry of some of `earlier`'s items, applied to it: each item counted once. */
+/**
+ * `later`, a retry of some of `earlier`'s items, applied to it: each item counted once, as the
+ * retry left it. An item the retry may have transferred is no longer an open clash or failure.
+ */
 function merge(earlier: TransferResult, later: TransferResult): TransferResult {
-  const retried = new Set(
-    [...later.transferred, ...later.clashes, ...later.failed].map(
+  const retried = new Set([
+    ...[...later.transferred, ...later.clashes, ...later.failed].map(
       (item) => item.source.path,
     ),
-  );
+    ...later.unconfirmed.map((item) => item.path),
+  ]);
   const keep = <T extends { source: FileEntry }>(items: readonly T[]) =>
     items.filter((item) => !retried.has(item.source.path));
   return {

@@ -509,3 +509,33 @@ test.describe("transfers still running", () => {
     await expect(page.getByText("Moved “a.txt” back to docs.")).toBeVisible();
   });
 });
+
+test("drops an old clash once its item's Keep both may have gone through", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Touch multi-selection is covered elsewhere.");
+  const drive = await tree({
+    "docs/a.txt": "mine",
+    "docs/b.txt": "b",
+    "archive/a.txt": "theirs",
+  });
+  await page.goto(href(`${drive.top}/docs`));
+  await select(page, ["a.txt", "b.txt"]);
+  await page
+    .getByRole("toolbar", { name: "Selected items" })
+    .getByRole("button", { name: "Move", exact: true })
+    .click();
+  const dialog = picker(page);
+  await moveToSibling(dialog, drive.top, "archive");
+  await expect(dialog.getByText("“a.txt” is already in archive")).toBeVisible();
+  await loseAnswers(page, "**/api/trpc/files.move*");
+  await dialog.getByRole("button", { name: "Keep both", exact: true }).click();
+  // No clash panel left offering Keep both for something that may have moved.
+  await expect(dialog).toBeHidden();
+  await expect(
+    toasts(page).filter({
+      hasText: "Nimbus could not confirm whether “a.txt” moved.",
+    }),
+  ).toBeVisible();
+});
