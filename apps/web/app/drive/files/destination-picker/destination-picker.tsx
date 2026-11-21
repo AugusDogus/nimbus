@@ -152,7 +152,8 @@ export function DestinationPicker({
   // Files opens the account's top folder, as the sidebar does: the drive root, or the home of an
   // account limited to it. The picker never leaves it: its breadcrumb is rooted there, and a
   // folder outside it, such as one shared before a grant was revoked, is never opened.
-  const top = useQuery({ ...trpc.access.me.queryOptions() }).data?.top ?? "";
+  const me = useQuery({ ...trpc.access.me.queryOptions() }).data;
+  const top = me?.top ?? "";
   const withinTop = (path: string) =>
     top === "" || path === top || path.startsWith(`${top}/`);
   const inside = (path: string) => (withinTop(path) ? path : top);
@@ -164,6 +165,19 @@ export function DestinationPicker({
   }));
   const [history, setHistory] = useState<View[]>([]);
   const [query, setQuery] = useState("");
+  // A top folder that changes while the picker is open, such as when a grant outside the home
+  // is revoked, starts the picker over there: nothing outside the new top stays in view or in
+  // Back's history. The top learned once the account loads only moves a view outside it.
+  const [rootedAt, setRootedAt] = useState(me === undefined ? null : top);
+  if (me !== undefined && rootedAt !== top) {
+    setRootedAt(top);
+    if (rootedAt !== null) {
+      setHistory([]);
+      setView({ kind: "folder", path: top });
+      setQuery("");
+    } else if (view.kind === "folder" && !withinTop(view.path))
+      setView({ kind: "folder", path: top });
+  }
   const searched = useDeferredValue(query.trim());
   const [creating, setCreating] = useState<
     { kind: "closed" } | { kind: "naming"; error: string | null; busy: boolean }

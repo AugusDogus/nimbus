@@ -1064,3 +1064,52 @@ test("reports a picker that sent items to four folders as one, with one Undo for
   expect(await names("docs")).toEqual(["a.txt", "b.txt", "c.txt"]);
   expect(await names("four")).toEqual([".keep", "d.txt"]);
 });
+
+test("returns an open picker to the account's top folder when that top narrows", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  const { top } = await tree({ "docs/a.txt": "a" }, ["archive"]);
+  const admin = await client(context);
+  const account = await asMember(browser, context, page, isMobile, [
+    { path: top, permission: "write" },
+  ]);
+  try {
+    const member = account.member;
+    await member.clock.install();
+    await member.goto(href(`${top}/docs`));
+    await action(member, "a.txt", "Move to…", isMobile);
+    const dialog = picker(member);
+    await dialog.getByRole("button", { name: "Up one folder" }).click();
+    await expect(folderRow(dialog, `${top}/archive`)).toBeVisible();
+    const me = await (await client(account.memberContext)).access.me.query();
+    for (const grant of await admin.access.permissions.query({ path: top }))
+      if (grant.subject.type === "user" && grant.subject.id === me.id)
+        await admin.access.revoke.mutate({ path: top, id: grant.id });
+    const refreshed = member.waitForResponse((response) =>
+      response.url().includes("access.me"),
+    );
+    await member.clock.fastForward(31_000);
+    await member.evaluate(() =>
+      window.dispatchEvent(new Event("visibilitychange")),
+    );
+    expect(await (await refreshed).text()).toContain(
+      JSON.stringify(account.home),
+    );
+    // The picker is back at the new top, with nowhere outside it to go back to.
+    await expect(
+      dialog.getByText("Destination: Files", { exact: true }),
+    ).toBeVisible();
+    await expect(folderRow(dialog, `${top}/archive`)).toHaveCount(0);
+    await expect(
+      dialog.getByRole("button", { name: "Up one folder" }),
+    ).toBeDisabled();
+    await expect(
+      dialog.getByRole("button", { name: "Back", exact: true }),
+    ).toBeDisabled();
+  } finally {
+    await account.memberContext.close();
+  }
+});
