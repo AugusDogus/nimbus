@@ -168,7 +168,7 @@ export function FilesShell({ children }: FilesShellProps) {
         isAdmin={isAdmin}
         newContent={newContent}
       />
-      <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pb-(--impersonation-offset)">
+      <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pb-(--impersonation-offset) [scrollbar-gutter:stable]">
         <header className="surface-grain sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-background px-4 md:gap-4 md:px-6">
           {/* On phones the toggle and logo sit 44 px apart, so their touch areas do not overlap. */}
           <div className="flex min-w-0 flex-1 items-center gap-2 max-md:pointer-coarse:gap-3.5 md:gap-4">

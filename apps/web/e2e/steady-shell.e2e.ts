@@ -112,3 +112,36 @@ test("New hides in the frame that leaving a folder shows the next page", async (
     await page.evaluate(() => ("lateNew" in window ? window.lateNew : null)),
   ).toEqual([]);
 });
+
+test("a page that scrolls is as wide as one that does not", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Phone scrollbars overlay the page.");
+  // An empty folder is short however full the rest of the drive is.
+  const empty = `steady-${randomUUID()}`;
+  await (await client(context)).files.createFolder.mutate({ name: empty });
+  const headerWidth = () =>
+    page
+      .locator('[data-slot="sidebar-inset"] > header')
+      .evaluate((header) => header.getBoundingClientRect().width);
+  await page.goto("/settings/account");
+  await expect(
+    page.getByRole("heading", { name: "Account", exact: true }),
+  ).toBeVisible();
+  expect(
+    await page
+      .locator('[data-slot="sidebar-inset"]')
+      .evaluate((main) => main.scrollHeight > main.clientHeight),
+  ).toBe(true);
+  const scrolling = await headerWidth();
+  await page.goto(`/browse/${empty}`);
+  await expect(page.getByText("This folder is empty")).toBeVisible();
+  expect(
+    await page
+      .locator('[data-slot="sidebar-inset"]')
+      .evaluate((main) => main.scrollHeight > main.clientHeight),
+  ).toBe(false);
+  expect(await headerWidth()).toBe(scrolling);
+});
