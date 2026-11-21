@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { toast, type ToastAction } from "@/lib/toast";
 
 import { queryClient, trpcClient } from "@/lib/trpc";
+import { sessionQuery } from "@/lib/session-query";
 import { trpcErrorCode } from "@/lib/trpc-error";
 import { fileListQueryOptions } from "./use-file-list";
 
@@ -205,6 +206,13 @@ export function useFileActions({
   const reportTransfer = useCallback(
     function report(result: TransferResult): TransferResult {
       invalidateFileQueries();
+      const account = queryClient.getQueryData(sessionQuery.queryKey)?.user.id;
+      if (result.transferred.length && account)
+        // Loaded on demand, like the picker that lists them.
+        void import("./destination-picker/recent-destinations").then(
+          ({ RecentDestinations }) =>
+            RecentDestinations.record(account, result.destination),
+        );
       const summary = TransferResult.describe(result);
       const actions: ToastAction[] = [];
       if (result.transferred.length)
