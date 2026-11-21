@@ -141,4 +141,29 @@ describe("name clashes when moving and copying", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await read("docs/report.txt")).toBe("mine");
   });
+
+  it("number names at the 255-byte limit within it, on a move clash and a copy", async () => {
+    const long = `${"n".repeat(251)}.txt`;
+    await writeFile(path.join(root, "docs", long), "mine");
+    await writeFile(path.join(root, "archive", long), "theirs");
+    const clash = await caller().files.move({
+      sourcePath: `docs/${long}`,
+      destinationPath: "archive",
+    });
+    if (clash.kind !== "clash") throw new Error("Expected a clash.");
+    expect(Buffer.byteLength(clash.suggestion)).toBeLessThanOrEqual(255);
+    expect(clash.suggestion.endsWith(" (1).txt")).toBe(true);
+    const kept = await caller().files.move({
+      sourcePath: `docs/${long}`,
+      destinationPath: "archive",
+      clash: "keep-both",
+    });
+    expect(kept).toMatchObject({ kind: "transferred", name: clash.suggestion });
+    const copied = await caller().files.copy({
+      sourcePath: `archive/${long}`,
+      destinationPath: "archive",
+    });
+    expect(copied).toMatchObject({ kind: "transferred" });
+    expect(await read(`archive/${long}`)).toBe("theirs");
+  });
 });
