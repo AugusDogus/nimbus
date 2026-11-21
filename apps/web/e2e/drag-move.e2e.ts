@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
-import { client, test, upload } from "./helpers";
+import { asMember, client, test, upload } from "./helpers";
 import { FileListing } from "@nimbus/api/file-listing";
 
 for (const view of ["list", "grid"] as const) {
@@ -104,16 +104,27 @@ for (const view of ["list", "grid"] as const) {
       );
       return transfer;
     });
+    // Files from the computer dropped on a folder go into that folder, as the hint says.
+    await target.dispatchEvent("dragover", { dataTransfer: uploadDrop });
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: `Upload to “${destination}”` }),
+    ).toBeVisible();
     await target.dispatchEvent("drop", { dataTransfer: uploadDrop });
     await uploadDrop.dispose();
-    await expect(
-      page.getByRole("button", { name: "Dropped notes.txt", exact: true }),
-    ).toBeVisible();
+    await expect
+      .poll(async () =>
+        FileListing.entries(
+          await rpc.files.list.query({ path: `${root}/${destination}` }),
+        ).map((entry) => entry.name),
+      )
+      .toContain("Dropped notes.txt");
     expect(
       FileListing.entries(await rpc.files.list.query({ path: root })).map(
         (entry) => entry.name,
       ),
-    ).toContain("Dropped notes.txt");
+    ).not.toContain("Dropped notes.txt");
   });
 }
 
@@ -144,4 +155,110 @@ test("dragging follows the pointer, not the window width: a mouse drags in a nar
       await rpc.files.list.query({ path: `${root}/Into` }),
     ).map((entry) => entry.name),
   ).toEqual(["Moved"]);
+});
+
+test("files from the computer dropped on a folder the account can only view are refused, not uploaded elsewhere", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Phones have no files to drag in from a desktop.");
+  const viewOnly = `view-only-${randomUUID()}`;
+  const writable = `writable-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: viewOnly });
+  await rpc.files.createFolder.mutate({ name: writable });
+  const { member, memberContext } = await asMember(
+    browser,
+    context,
+    page,
+    isMobile,
+    [
+      { path: viewOnly, permission: "read" },
+      { path: writable, permission: "write" },
+    ],
+  );
+  try {
+    await member.goto("/");
+    const drop = (name: string) =>
+      member.evaluateHandle((file) => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(["From the desktop."], file));
+        return transfer;
+      }, name);
+    const refused = await drop("refused.txt");
+    const viewOnlyRow = member.getByRole("link", {
+      name: viewOnly,
+      exact: true,
+    });
+    await viewOnlyRow.dispatchEvent("dragover", { dataTransfer: refused });
+    await expect(viewOnlyRow).toHaveAttribute("data-drop-target", "refused");
+    await expect(
+      member
+        .getByRole("status")
+        .filter({ hasText: `You can only view “${viewOnly}”` }),
+    ).toBeVisible();
+    await viewOnlyRow.dispatchEvent("drop", { dataTransfer: refused });
+    const taken = await drop("taken.txt");
+    await member
+      .getByRole("link", { name: writable, exact: true })
+      .dispatchEvent("drop", { dataTransfer: taken });
+    await expect
+      .poll(async () =>
+        FileListing.entries(await rpc.files.list.query({ path: writable })).map(
+          (entry) => entry.name,
+        ),
+      )
+      .toEqual(["taken.txt"]);
+    expect(
+      FileListing.entries(await rpc.files.list.query({ path: viewOnly })),
+    ).toEqual([]);
+  } finally {
+    await memberContext.close();
+  }
+});
+
+test("files from the computer dropped on a folder while a move is still running go into that folder", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Phones do not drag.");
+  const root = `while-moving-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: root });
+  for (const name of ["Moving", "Into", "Files go here"])
+    await rpc.files.createFolder.mutate({ path: root, name });
+  // Hold the move, as a slow server would, while the files are dropped.
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(/files\.move/, async (route) => {
+    await released;
+    await route.continue();
+  });
+  await page.goto(`/browse/${root}`);
+  const row = (name: string) => page.getByRole("link", { name, exact: true });
+  await row("Moving").dragTo(row("Into"));
+  await expect(row("Moving")).toHaveAttribute("aria-busy", "true");
+  const files = await page.evaluateHandle(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(["Meanwhile."], "meanwhile.txt"));
+    return transfer;
+  });
+  const target = row("Files go here");
+  await target.dispatchEvent("dragover", { dataTransfer: files });
+  await target.dispatchEvent("drop", { dataTransfer: files });
+  release();
+  const names = async (path: string) =>
+    FileListing.entries(await rpc.files.list.query({ path })).map(
+      (entry) => entry.name,
+    );
+  await expect
+    .poll(() => names(`${root}/Files go here`))
+    .toEqual(["meanwhile.txt"]);
+  await expect.poll(() => names(`${root}/Into`)).toEqual(["Moving"]);
+  expect(await names(root)).not.toContain("meanwhile.txt");
 });

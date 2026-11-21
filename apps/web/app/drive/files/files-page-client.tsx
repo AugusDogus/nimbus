@@ -21,6 +21,8 @@ import { fileHref } from "./types";
 import { useEntryDialog } from "./use-entry-dialog";
 import { useFileActions } from "./use-file-actions";
 import { useFileDrag } from "./use-file-drag";
+import { useUploads } from "@/components/upload-provider";
+import { collectDrop } from "@/lib/upload-sources";
 import { useFileList } from "./use-file-list";
 import { WebMcpFileTools } from "./webmcp-tools";
 import { useFilePreferences } from "./use-file-preferences";
@@ -52,7 +54,17 @@ export function FilesPageClient() {
     enabled: isAuthed,
   });
   const actions = useFileActions({ currentPath, includeStats });
-  const drag = useFileDrag(actions);
+  const upload = useUploads();
+  // Files from the computer dropped on a folder go into that folder.
+  const drag = useFileDrag({
+    moveEntries: actions.moveEntries,
+    uploadInto: (transfer, path) => {
+      if (!session) return;
+      void collectDrop(transfer).then((collected) =>
+        upload.uploadFiles(collected, { path, userId: session.user.id }),
+      );
+    },
+  });
   const { recordVisit } = actions;
   const { selection: dialog, select: onDialog } = useEntryDialog(
     currentPath,

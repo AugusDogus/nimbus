@@ -19,7 +19,15 @@ type Options = {
     sources: readonly FileEntry[],
     destinationPath: string,
   ) => Promise<unknown>;
+  /**
+   * Uploads files dropped from the computer into a folder. It must read `transfer` at once: the
+   * browser empties it when the drop event ends. Without it, such drops reach the page instead.
+   */
+  uploadInto?: (transfer: DataTransfer, destinationPath: string) => void;
 };
+
+const isFileDrag = (event: DragEvent<HTMLElement>) =>
+  event.dataTransfer.types.includes("Files");
 
 /** A compact "3 items" drag image, so a multi-item drag does not show a single row. */
 function setCountImage(event: DragEvent<HTMLElement>, count: number) {
@@ -38,7 +46,7 @@ function setCountImage(event: DragEvent<HTMLElement>, count: number) {
  * them through `targetProps`, given the folder as a `DropTarget`, so rows and breadcrumbs share
  * one drag and one set of rules (see `DropTarget.verdict`).
  */
-export function useFileDrag({ moveEntries }: Options) {
+export function useFileDrag({ moveEntries, uploadInto }: Options) {
   const [state, setRendered] = useState<DragState>({ status: "idle" });
   // Handlers read the latest state from this ref: memoized rows keep handlers from earlier renders.
   const stateRef = useRef<DragState>(state);
@@ -99,22 +107,41 @@ export function useFileDrag({ moveEntries }: Options) {
     },
   });
 
+  /**
+   * The drag an event over a target belongs to: this view's item drag, or files from the
+   * computer when this page uploads. Other drags pass through to the page.
+   */
+  const dragOf = (event: DragEvent<HTMLElement>): DragPayload | null => {
+    const items = itemDrag(event);
+    if (items) return items.payload;
+    // Files from the computer drop independently of a move still running.
+    return uploadInto && isFileDrag(event) ? { kind: "files" } : null;
+  };
+
   /** Drop handlers for a folder shown anywhere: a row, a breadcrumb. */
   const targetProps = (target: DropTarget) => ({
     onDragOver(event: DragEvent<HTMLElement>) {
-      const current = itemDrag(event);
-      if (!current) return;
+      const payload = dragOf(event);
+      if (!payload) return;
+      // A refused target takes the event too, so the page does not upload the files itself.
       event.preventDefault();
       event.stopPropagation();
-      const verdict = DropTarget.verdict(current.payload, target);
+      const verdict = DropTarget.verdict(payload, target);
       event.dataTransfer.dropEffect =
-        verdict.kind === "refused" ? "none" : "move";
+        verdict.kind === "refused"
+          ? "none"
+          : verdict.kind === "upload"
+            ? "copy"
+            : "move";
       setState((latest) =>
-        latest.status === "dragging" &&
-        (latest.over?.target.path !== target.path ||
-          latest.over.verdict.kind !== verdict.kind)
-          ? { ...latest, over: { target, verdict } }
-          : latest,
+        latest.status === "moving"
+          ? latest
+          : latest.status === "idle"
+            ? { status: "dragging", payload, over: { target, verdict } }
+            : latest.over?.target.path !== target.path ||
+                latest.over.verdict.kind !== verdict.kind
+              ? { ...latest, over: { target, verdict } }
+              : latest,
       );
     },
     onDragLeave(event: DragEvent<HTMLElement>) {
@@ -123,22 +150,32 @@ export function useFileDrag({ moveEntries }: Options) {
         event.currentTarget.contains(event.relatedTarget)
       )
         return;
+      // Files from the computer end their drag outside the page without telling it.
       setState((current) =>
         current.status === "dragging" &&
         current.over?.target.path === target.path
-          ? { ...current, over: null }
+          ? current.payload.kind === "files"
+            ? { status: "idle" }
+            : { ...current, over: null }
           : current,
       );
     },
     onDrop(event: DragEvent<HTMLElement>) {
-      // Only this view's item drag moves entries. Files from the computer still reach the uploader.
-      const current = itemDrag(event);
-      if (!current || current.payload.kind !== "entries") return;
+      const payload = dragOf(event);
+      if (!payload) return;
       event.preventDefault();
       event.stopPropagation();
-      if (DropTarget.accepts(current.payload, target))
-        void move(current.payload.sources, target);
-      else setState({ status: "idle" });
+      const accepted = DropTarget.accepts(payload, target);
+      if (payload.kind === "entries" && accepted)
+        void move(payload.sources, target);
+      else {
+        if (payload.kind === "files" && accepted)
+          uploadInto?.(event.dataTransfer, target.path);
+        // A move still running keeps its state until it ends.
+        setState((current) =>
+          current.status === "moving" ? current : { status: "idle" },
+        );
+      }
     },
   });
 
@@ -162,7 +199,7 @@ export function useFileDrag({ moveEntries }: Options) {
         : []
     ).some((source) => source.path === entry.path);
 
-  return { state, sourceProps, targetProps, dropState, isDragging };
+  return { state, over, sourceProps, targetProps, dropState, isDragging };
 }
 
 export type FileDrag = ReturnType<typeof useFileDrag>;

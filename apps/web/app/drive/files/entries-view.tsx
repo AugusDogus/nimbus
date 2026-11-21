@@ -27,6 +27,7 @@ import { SelectionBar } from "./selection-bar";
 import { ShortcutHelp } from "./shortcut-help";
 import { fileHref, FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
+import { DragHint } from "./drag-hint";
 import { DropTarget } from "./drop-target";
 import type { FileDrag } from "./use-file-drag";
 import { useGridColumns } from "./use-grid-columns";
@@ -506,6 +507,7 @@ export function EntriesView({
 
   return (
     <>
+      <DragHint drag={drag} />
       {drag.state.status === "moving" && (
         <p role="status" className="sr-only">
           Moving{" "}
