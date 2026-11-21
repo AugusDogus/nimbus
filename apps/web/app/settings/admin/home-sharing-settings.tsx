@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import type { AdminConfirmation } from "./admin-confirmation-dialog";
 import { SettingsSection } from "../settings-section";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 const queryKey = ["admin", "home-container-sharing"];
 
@@ -18,7 +19,7 @@ type Entry = {
   label: string;
 };
 
-const place = (path: string) => (path ? `"${path}"` : "My Drive");
+const place = (path: string) => (path ? `"${path}"` : DriveRoot.label);
 const homes = (count: number) =>
   `${count} ${count === 1 ? "home folder" : "home folders"}`;
 
@@ -114,7 +115,7 @@ export function HomeSharingSettings({
   return (
     <SettingsSection
       title="Home folders"
-      description={`Every account gets a private home folder in ${container}. Sharing that folder, or a folder above it such as My Drive, would give access to all ${count}.`}
+      description={`Every account gets a private home folder in ${container}. Sharing that folder, or a folder above it such as ${DriveRoot.label}, would give access to all ${count}.`}
     >
       <div className="flex items-start justify-between gap-4 px-4 py-5 sm:px-5">
         <div className="min-w-0 space-y-1">
@@ -148,7 +149,7 @@ export function HomeSharingSettings({
             }
             onConfirm({
               title: "Allow sharing the home folders container?",
-              description: `Anyone who manages sharing on ${container} or a folder above it, such as My Drive, will be able to share it. One grant or public link there gives access to all ${count}, including files their owners never shared, and new accounts get no home folder while it exists. An upload link there lets anyone with it add files beside them, without opening them. Each share asks for an extra confirmation first. Nothing is shared now.`,
+              description: `Anyone who manages sharing on ${container} or a folder above it, such as ${DriveRoot.label}, will be able to share it. One grant or public link there gives access to all ${count}, including files their owners never shared, and new accounts get no home folder while it exists. An upload link there lets anyone with it add files beside them, without opening them. Each share asks for an extra confirmation first. Nothing is shared now.`,
               confirmLabel: "Allow sharing",
               action: async () => {
                 setError(null);

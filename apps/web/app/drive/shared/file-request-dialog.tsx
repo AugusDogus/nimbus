@@ -25,6 +25,7 @@ import {
   HomesExposureGate,
   useHomesExposure,
 } from "./home-folders-notice";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 export type EditableFileRequest = {
   id: string;
@@ -157,8 +158,8 @@ export default function FileRequestDialog({
     mode.kind === "create"
       ? mode.folder.path
         ? mode.folder.name
-        : "My Drive"
-      : mode.request.path || "My Drive";
+        : DriveRoot.label
+      : mode.request.path || DriveRoot.label;
   return (
     <Dialog
       open

@@ -24,6 +24,7 @@ import {
 import { fileListQueryOptions } from "./use-file-list";
 import { FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 /** Dialogs opened from entry menus, the selection bar, and keyboard shortcuts. */
 export type EntryDialog =
@@ -250,7 +251,7 @@ function DestinationDialog({
     (folder) => folder.type === "dir" && !sources.has(folder.path),
   );
   const destinationEntry: FileEntry = {
-    name: destination.split("/").pop() || "My Drive",
+    name: DriveRoot.nameOf(destination),
     path: destination,
     type: "dir",
     // The server checks write access when the change is submitted.
@@ -302,7 +303,7 @@ function DestinationDialog({
           </DialogHeader>
           <div className="space-y-3 py-4">
             <p className="break-all text-sm">
-              Destination: {destination || "My Drive"}
+              Destination: {destination || DriveRoot.label}
             </p>
             {destination && (
               <Button

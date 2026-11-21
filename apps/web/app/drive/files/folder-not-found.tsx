@@ -1,5 +1,6 @@
 import { Link } from "@/components/link";
 import { buttonVariants } from "@/components/ui/button";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 export function FolderNotFound() {
   return (
@@ -10,7 +11,7 @@ export function FolderNotFound() {
         again.
       </p>
       <Link to="/" className={buttonVariants()}>
-        Open My Drive
+        Open {DriveRoot.label}
       </Link>
     </div>
   );

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 /** `text` with the server's match ranges marked: sorted, disjoint [start, end) offsets. */
 export function Highlighted({
@@ -25,8 +26,8 @@ export function Highlighted({
   return <>{parts}</>;
 }
 
-/** "a/b/c.txt" → "a/b"; root items read as My Drive. */
+/** "a/b/c.txt" → "a/b"; root items read as the drive root's name. */
 export const parentLabel = (path: string) => {
   const slash = path.lastIndexOf("/");
-  return slash < 0 ? "My Drive" : path.slice(0, slash);
+  return slash < 0 ? DriveRoot.label : path.slice(0, slash);
 };

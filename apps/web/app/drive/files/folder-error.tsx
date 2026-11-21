@@ -1,5 +1,6 @@
 import { Link } from "@/components/link";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 export function FolderError({ reset }: { reset: () => void }) {
   return (
@@ -14,7 +15,7 @@ export function FolderError({ reset }: { reset: () => void }) {
       <div className="flex gap-3">
         <Button onClick={reset}>Try again</Button>
         <Link to="/" className={buttonVariants({ variant: "outline" })}>
-          Open My Drive
+          Open {DriveRoot.label}
         </Link>
       </div>
     </div>

@@ -5,6 +5,7 @@ import { readDirectory } from "@nimbus/api/file-browser";
 import { numberedName } from "@nimbus/api/numbered-name";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { getDataRoot } from "@nimbus/api/data-root";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 /** One member of a ZIP: a folder marker or a file read from disk. Names use `/` separators. */
 export type ArchiveEntry =
@@ -28,7 +29,7 @@ export async function resolveArchiveRoots(
     access.require(target.relative, "read");
     const existing = await requireExisting(target.relative);
     const isDirectory = existing.stats.isDirectory();
-    const base = path.posix.basename(target.relative) || "My Drive";
+    const base = path.posix.basename(target.relative) || DriveRoot.label;
     // Items from different folders can share a name. Number them like the browser would.
     let name = base;
     for (let index = 1; used.has(name.toLowerCase()); index++)

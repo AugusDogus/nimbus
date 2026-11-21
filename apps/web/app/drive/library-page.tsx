@@ -5,6 +5,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { EntriesView } from "./files/entries-view";
 import { useEntryDialog } from "./files/use-entry-dialog";
 import { useFileActions } from "./files/use-file-actions";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 export function LibraryPage({
   kind,
@@ -88,7 +89,7 @@ export function LibraryPage({
                 : "Files you preview and folders you visit will appear here."}
           </p>
           <Link to="/" className={buttonVariants({ variant: "outline" })}>
-            Open My Drive
+            Open {DriveRoot.label}
           </Link>
         </div>
       )}

@@ -28,6 +28,7 @@ import {
   HomesExposureGate,
   useHomesExposure,
 } from "../shared/home-folders-notice";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 const permissions: Record<Permission, string> = {
   read: "View and download",
@@ -184,7 +185,7 @@ export function SharingDialog({
             </Select>
             <HomeFoldersNotice
               id="share-grant-homes"
-              name={entry.path ? entry.name : "My Drive"}
+              name={entry.path ? entry.name : DriveRoot.label}
               sharing="grant"
               exposure={exposure}
               acknowledged={grantAcknowledged}
@@ -280,7 +281,7 @@ export function SharingDialog({
             />
             <HomeFoldersNotice
               id="share-link-homes"
-              name={entry.path ? entry.name : "My Drive"}
+              name={entry.path ? entry.name : DriveRoot.label}
               sharing="link"
               exposure={exposure}
               acknowledged={linkAcknowledged}

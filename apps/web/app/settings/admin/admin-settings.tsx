@@ -16,6 +16,7 @@ import { CreateAccountDialog } from "./create-account-dialog";
 import { GroupDialog, type GroupEditor } from "./group-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
 import { HomeSharingSettings } from "./home-sharing-settings";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 // Opens on demand; keep it out of the page's first load.
 const SharingDialog = lazyComponent(async () => ({
@@ -201,11 +202,13 @@ export function AdminSettings() {
       <SettingsSection title="Drive access">
         <div className="flex flex-col items-start justify-between gap-4 px-4 py-5 sm:flex-row sm:items-center sm:px-5">
           <div className="space-y-1">
-            <p className="text-sm font-medium">Who can access My Drive</p>
+            <p className="text-sm font-medium">
+              Who can access all of {DriveRoot.label}
+            </p>
             <p className="max-w-prose text-pretty text-sm text-muted-foreground">
               New accounts start with only their own home folder. Share
-              individual folders with them. Sharing all of My Drive also shares
-              every home folder; see Home folders below.
+              individual folders with them. Sharing all of {DriveRoot.label}{" "}
+              also shares every home folder; see Home folders below.
             </p>
           </div>
           <Button
@@ -234,7 +237,7 @@ export function AdminSettings() {
       )}
       {sharing && (
         <SharingDialog
-          entry={{ name: "My Drive", path: "", type: "dir" }}
+          entry={{ name: DriveRoot.label, path: "", type: "dir" }}
           onClose={() => setSharing(false)}
         />
       )}

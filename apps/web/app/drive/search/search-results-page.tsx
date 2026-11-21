@@ -8,6 +8,7 @@ import { useEntryDialog } from "../files/use-entry-dialog";
 import { useFileActions } from "../files/use-file-actions";
 import { Highlighted, parentLabel } from "./highlight";
 import { useSearch, type SearchResultEntry } from "./use-search";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 const PAGE = 200;
 const count = new Intl.NumberFormat();
@@ -83,7 +84,7 @@ export function SearchResultsPage({ query }: { query: string }) {
             No matching files. Try a different filename.
           </p>
           <Link to="/" className={buttonVariants({ variant: "outline" })}>
-            Open My Drive
+            Open {DriveRoot.label}
           </Link>
         </div>
       )}

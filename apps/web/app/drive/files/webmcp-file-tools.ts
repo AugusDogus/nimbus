@@ -2,6 +2,7 @@ import type {} from "webmcp-types";
 import { trpcClient } from "@/lib/trpc";
 import type { EntryDialog } from "./entry-dialogs";
 import { FileEntry } from "./types";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 /** What the folder view lends its tools; read at call time so tools see the current folder. */
 export type FileToolsPage = {
@@ -118,14 +119,13 @@ export async function registerFileTools(
       {
         name: "nimbus.open_folder",
         title: "Open a folder",
-        description: 'Navigate Nimbus to a folder. Use "" for My Drive.',
+        description: `Navigate Nimbus to a folder. Use "" for the drive root, ${DriveRoot.label}.`,
         inputSchema: {
           type: "object",
           properties: {
             path: {
               type: "string",
-              description:
-                'Folder path relative to the drive root; "" is My Drive.',
+              description: `Folder path relative to the drive root; "" is the root, ${DriveRoot.label}.`,
             },
           },
           required: ["path"],

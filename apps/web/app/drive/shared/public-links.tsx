@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { EditableLink } from "./edit-link-dialog";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 // The editor is only needed after a click; keep it out of the page's first load.
 const EditLinkDialog = lazyComponent(() => import("./edit-link-dialog"));
@@ -73,7 +74,7 @@ export function PublicLinks() {
                   href={`/s/${share.token}`}
                   className="block truncate text-sm font-medium underline underline-offset-4"
                 >
-                  {share.path || "My Drive"}
+                  {share.path || DriveRoot.label}
                 </a>
                 <p className="mt-1 text-xs tabular-nums text-muted-foreground">
                   {share.passwordProtected

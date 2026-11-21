@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Access } from "./access";
 import { requireExisting, safePath } from "./file-operations";
 import { isFsError } from "./safe-path";
+import { DriveRoot } from "./drive-root";
 
 export type FileEntry = {
   name: string;
@@ -24,7 +25,7 @@ const createdMs = (stats: { birthtimeMs: number; mtimeMs: number }) =>
 export async function entryAt(requested: string): Promise<StatedEntry> {
   const target = await requireExisting(requested);
   return {
-    name: target.relative.split("/").pop() || "My Drive",
+    name: DriveRoot.nameOf(target.relative),
     path: target.relative,
     type: target.stats.isDirectory() ? "dir" : "file",
     mtime: target.stats.mtimeMs,

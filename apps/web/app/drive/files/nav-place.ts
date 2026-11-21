@@ -1,4 +1,5 @@
 import { FolderPath } from "./folder-path";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 /**
  * The sidebar item a page belongs to: "files" for every folder view, wherever it is in the
@@ -14,7 +15,7 @@ export type NavPlace =
 
 /** What the sidebar calls each place. Messages that name a place use these too. */
 const labels = {
-  files: "Files",
+  files: DriveRoot.label,
   shared: "Shared",
   recent: "Recent",
   starred: "Starred",

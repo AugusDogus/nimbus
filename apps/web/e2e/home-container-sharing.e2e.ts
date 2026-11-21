@@ -3,7 +3,7 @@ import { expect } from "@playwright/test";
 import { action, client, login, origin, password, test } from "./helpers";
 
 /**
- * Sharing the folder that holds every home folder (`users`), or My Drive above it, is off by
+ * Sharing the folder that holds every home folder (`users`), or the drive root (Files) above it, is off by
  * default for everyone; an administrator can allow it, and then each share needs an extra
  * confirmation. The setting is global, so every test turns it off again. Pages start signed in
  * as the administrator.
@@ -30,7 +30,7 @@ test.describe("sharing the home folders container", () => {
       });
   });
 
-  test("with the setting off, an administrator is told why My Drive cannot be shared", async ({
+  test("with the setting off, an administrator is told why Files cannot be shared", async ({
     page,
     context,
   }) => {
@@ -38,7 +38,7 @@ test.describe("sharing the home folders container", () => {
     await page
       .getByRole("button", { name: "Manage drive access", exact: true })
       .click();
-    const dialog = page.getByRole("dialog", { name: "Share My Drive" });
+    const dialog = page.getByRole("dialog", { name: "Share Files" });
     await expect(
       dialog.getByText("Sharing this folder is turned off").first(),
     ).toBeVisible();
@@ -148,7 +148,7 @@ test.describe("sharing the home folders container", () => {
     await page
       .getByRole("button", { name: "Manage drive access", exact: true })
       .click();
-    const dialog = page.getByRole("dialog", { name: "Share My Drive" });
+    const dialog = page.getByRole("dialog", { name: "Share Files" });
     const linkWarning = dialog.locator("#share-link-homes");
     await expect(linkWarning).toContainText(
       "This gives access to every home folder",
@@ -175,7 +175,7 @@ test.describe("sharing the home folders container", () => {
       .getByRole("button", { name: "Request files", exact: true })
       .click();
     const request = page.getByRole("dialog", {
-      name: "Request files for My Drive",
+      name: "Request files for Files",
     });
     const upload = request.getByRole("button", {
       name: "Create upload link",
@@ -219,8 +219,8 @@ test.describe("sharing the home folders container", () => {
     const list = page.getByRole("list", {
       name: "Sharing that reaches every home folder",
     });
-    await expect(list.getByText(/^Public link to My Drive/)).toBeVisible();
-    await expect(list.getByText(/^Upload link for My Drive/)).toBeVisible();
+    await expect(list.getByText(/^Public link to Files/)).toBeVisible();
+    await expect(list.getByText(/^Upload link for Files/)).toBeVisible();
     await page.getByRole("button", { name: "Remove all", exact: true }).click();
     const removeAll = page.getByRole("alertdialog");
     await removeAll
@@ -261,7 +261,7 @@ test.describe("sharing the home folders container", () => {
         .getByRole("button", { name: "Manage drive access", exact: true })
         .click();
       const warning = page
-        .getByRole("dialog", { name: "Share My Drive" })
+        .getByRole("dialog", { name: "Share Files" })
         .locator("#share-grant-homes");
       await expect(warning).toBeVisible();
       const box = await warning.boundingBox();

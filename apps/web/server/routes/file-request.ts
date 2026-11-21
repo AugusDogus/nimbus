@@ -10,6 +10,7 @@ import {
 } from "@/server/file-request-access";
 import { RateLimiter } from "@/server/rate-limit";
 import { RequestBody } from "@/server/request-body";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 type Context = { params: Promise<{ token: string }> };
 const noStore = { "Cache-Control": "no-store" };
@@ -33,7 +34,7 @@ export async function GET(request: Request, context: Context) {
     );
     return Response.json(
       {
-        folder: path.posix.basename(fileRequest.path) || "My Drive",
+        folder: path.posix.basename(fileRequest.path) || DriveRoot.label,
         note: fileRequest.note,
         expiresAt: fileRequest.expiresAt,
         maxFileBytes: FileRequest.maxUploadBytes(fileRequest, used),

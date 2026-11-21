@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { LinkSettingsDraft, LinkSettingsFields } from "./link-settings";
+import { DriveRoot } from "@nimbus/api/drive-root";
 
 export type EditableLink = {
   id: string;
@@ -88,7 +89,7 @@ export default function EditLinkDialog({
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="min-w-0 break-words pr-6 text-balance">
-            Edit link to {link.path || "My Drive"}
+            Edit link to {link.path || DriveRoot.label}
           </DialogTitle>
           <DialogDescription>
             Changes apply to the existing link address.

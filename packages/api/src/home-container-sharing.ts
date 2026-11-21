@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { DriveStore } from "./drive-store";
 import { Homes } from "./homes";
+import { DriveRoot } from "./drive-root";
 
 /**
  * Sharing the folder that holds every home folder, or a folder above it.
@@ -90,7 +91,7 @@ function where(
   path: string,
   exposure: { container: string; relation: "is" | "above" },
 ) {
-  const name = path === "" ? "My Drive" : `"${path}"`;
+  const name = path === "" ? DriveRoot.label : `"${path}"`;
   return exposure.relation === "is"
     ? `${name} is the folder that holds every user's home folder`
     : `${name} contains "${exposure.container}", the folder that holds every user's home folder`;
