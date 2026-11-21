@@ -8,6 +8,7 @@ import { fileListQueryOptions } from "./use-file-list";
 
 import { BulkResult } from "./bulk-result";
 import type { TransferOperation, TransferResult } from "./transfer-result";
+import { DropTarget } from "./drop-target";
 import { fileHref, FileEntry } from "./types";
 
 function invalidateFileQueries() {
@@ -177,7 +178,10 @@ export function useFileActions({
       return TransferResult.run(
         operation,
         destinationPath,
-        FileEntry.outermost(entries),
+        // Items already in the destination stay as they are; the others move there.
+        operation === "move"
+          ? DropTarget.notIn(FileEntry.outermost(entries), destinationPath)
+          : FileEntry.outermost(entries),
         (entry) =>
           trpcClient.files[operation].mutate({
             sourcePath: entry.path,

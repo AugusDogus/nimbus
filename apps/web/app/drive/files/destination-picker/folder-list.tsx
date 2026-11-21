@@ -10,10 +10,7 @@ import { cn } from "@/lib/utils";
 import { typeaheadMatch } from "../entry-keys";
 import { EntryLayout } from "../entry-layout";
 import { useVirtualRows } from "../use-virtual-rows";
-import {
-  DestinationEligibility,
-  type Eligibility,
-} from "./destination-eligibility";
+import { DropTarget, type DropVerdict } from "../drop-target";
 
 /** One folder offered in the picker. */
 export type FolderRow = {
@@ -21,11 +18,13 @@ export type FolderRow = {
   name: string;
   /** Where the folder is, for rows outside the browsed folder such as search results. */
   detail?: string;
-  eligibility: Eligibility;
+  /** Whether the folder takes the items, and if not, why; see `DropTarget.forItems`. */
+  eligibility: DropVerdict;
 };
 
 const navigable = (row: FolderRow) =>
-  row.eligibility.kind === "eligible" || row.eligibility.navigable;
+  row.eligibility.kind !== "refused" ||
+  DropTarget.leadsOn(row.eligibility.reason);
 
 /**
  * Folders as a list with one Tab stop: arrows, Home, End, Page Up and Down move between them,
@@ -193,7 +192,7 @@ export function FolderList({
         const index = position.start;
         const open = navigable(row);
         const blocked =
-          row.eligibility.kind === "blocked" ? row.eligibility.reason : null;
+          row.eligibility.kind === "refused" ? row.eligibility.reason : null;
         return (
           <div
             key={row.path}
@@ -237,7 +236,7 @@ export function FolderList({
             </span>
             {blocked && (
               <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                {DestinationEligibility.labels[blocked]}
+                {DropTarget.labels[blocked]}
               </span>
             )}
             {open && (

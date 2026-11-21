@@ -15,29 +15,82 @@ export type DragPayload =
   | { kind: "entries"; sources: readonly FileEntry[]; skipped: number }
   | { kind: "files" };
 
-/** Whether a drop on a target is taken, and if not, why. */
+/**
+ * Why a folder cannot take the items:
+ * - `read-only`: the account can only view it;
+ * - `itself`: it is one of the items;
+ * - `inside-itself`: it is inside one of the items, which cannot hold itself;
+ * - `already-there`: every item is in it already, so moving them there changes nothing.
+ */
+export type RefusalReason =
+  | "read-only"
+  | "itself"
+  | "inside-itself"
+  | "already-there";
+
+/**
+ * Whether a folder takes what is offered, and if not, why: a drop on a row or a breadcrumb,
+ * or a destination in the move and copy picker.
+ */
 export type DropVerdict =
   | { kind: "move" }
+  | { kind: "copy" }
   | { kind: "upload" }
-  | {
-      kind: "refused";
-      reason: "read-only" | "itself" | "inside-itself" | "already-there";
-    };
+  | { kind: "refused"; reason: RefusalReason };
 
 const parentOf = (path: string) => path.split("/").slice(0, -1).join("/");
 
-function verdict(payload: DragPayload, target: DropTarget): DropVerdict {
+/**
+ * Whether `target` takes `sources` by `operation`. Items from several folders, as search finds
+ * them, can go into one of those folders: only those not already there move.
+ */
+function forItems(
+  operation: "move" | "copy",
+  sources: readonly { path: string }[],
+  target: DropTarget,
+): DropVerdict {
   if (!target.writable) return { kind: "refused", reason: "read-only" };
-  if (payload.kind === "files") return { kind: "upload" };
-  const { sources } = payload;
   if (sources.some((source) => source.path === target.path))
     return { kind: "refused", reason: "itself" };
   if (sources.some((source) => target.path.startsWith(`${source.path}/`)))
     return { kind: "refused", reason: "inside-itself" };
-  if (sources.some((source) => parentOf(source.path) === target.path))
+  if (
+    operation === "move" &&
+    sources.length > 0 &&
+    sources.every((source) => parentOf(source.path) === target.path)
+  )
     return { kind: "refused", reason: "already-there" };
-  return { kind: "move" };
+  return { kind: operation };
 }
+
+function verdict(payload: DragPayload, target: DropTarget): DropVerdict {
+  if (payload.kind === "files")
+    return target.writable
+      ? { kind: "upload" }
+      : { kind: "refused", reason: "read-only" };
+  return forItems("move", payload.sources, target);
+}
+
+/** `sources` without those already in the folder at `path`, which a move there leaves alone. */
+const notIn = <T extends { path: string }>(
+  sources: readonly T[],
+  path: string,
+) => sources.filter((source) => parentOf(source.path) !== path);
+
+/** A few words beside a folder that cannot take the items, as the picker lists it. */
+const labels: Record<RefusalReason, string> = {
+  "read-only": "Read-only",
+  itself: "The item itself",
+  "inside-itself": "Inside the item",
+  "already-there": "Already here",
+};
+
+/**
+ * Whether a refused folder can still be opened to reach folders inside it: one the account
+ * can only view may lead to writable ones; an item and what lies inside it never do.
+ */
+const leadsOn = (reason: RefusalReason) =>
+  reason === "read-only" || reason === "already-there";
 
 /** What the pointer says over a target: where things go, or why they cannot. */
 function hint(result: DropVerdict, target: DropTarget) {
@@ -45,6 +98,8 @@ function hint(result: DropVerdict, target: DropTarget) {
   switch (result.kind) {
     case "move":
       return `Move to ${name}`;
+    case "copy":
+      return `Copy to ${name}`;
     case "upload":
       return `Upload to ${name}`;
     case "refused":
@@ -82,6 +137,10 @@ export const DropTarget = {
       ? { path: entry.path, writable: entry.permission !== "read" }
       : null,
   verdict,
+  forItems,
+  notIn,
+  labels,
+  leadsOn,
   hint,
   /** Whether a drop would be taken. */
   accepts: (payload: DragPayload, target: DropTarget) =>

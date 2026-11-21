@@ -96,3 +96,54 @@ describe("a drag that leaves items behind", () => {
     expect(DropTarget.leftBehind({ dragged: 4, skipped: 0 })).toBeNull();
   });
 });
+
+describe("moving or copying items into a folder", () => {
+  const sources = [{ path: "projects/alpha" }, { path: "projects/notes.txt" }];
+
+  it("refuses moving items into the folder they are all in, but not copying them there", () => {
+    expect(DropTarget.forItems("move", sources, folder("projects"))).toEqual({
+      kind: "refused",
+      reason: "already-there",
+    });
+    expect(DropTarget.forItems("copy", sources, folder("projects"))).toEqual({
+      kind: "copy",
+    });
+  });
+
+  it("takes items from several folders into one of them, moving only those not there", () => {
+    const mixed = [...sources, { path: "elsewhere/x.txt" }];
+    expect(DropTarget.forItems("move", mixed, folder("projects"))).toEqual({
+      kind: "move",
+    });
+    expect(
+      DropTarget.notIn(mixed, "projects").map((source) => source.path),
+    ).toEqual(["elsewhere/x.txt"]);
+  });
+
+  it("refuses the items and what lies inside them, for copies too", () => {
+    for (const operation of ["move", "copy"] as const) {
+      expect(
+        DropTarget.forItems(operation, sources, folder("projects/alpha")),
+      ).toEqual({ kind: "refused", reason: "itself" });
+      expect(
+        DropTarget.forItems(operation, sources, folder("projects/alpha/deep")),
+      ).toEqual({ kind: "refused", reason: "inside-itself" });
+    }
+    expect(
+      DropTarget.forItems("move", sources, folder("projects/alpha-2")),
+    ).toEqual({ kind: "move" });
+  });
+
+  it("keeps a refused folder open when it can lead to one that takes the items", () => {
+    expect(DropTarget.leadsOn("read-only")).toBe(true);
+    expect(DropTarget.leadsOn("already-there")).toBe(true);
+    expect(DropTarget.leadsOn("itself")).toBe(false);
+    expect(DropTarget.leadsOn("inside-itself")).toBe(false);
+    expect(
+      DropTarget.hint(
+        { kind: "refused", reason: "read-only" },
+        folder("shared", false),
+      ),
+    ).toBe("You can only view “shared”, so nothing can go there");
+  });
+});

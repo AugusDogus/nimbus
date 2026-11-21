@@ -97,9 +97,7 @@ test("opens where the items are, keeps one size, and contains long names", async
   // Measured once the opening animation has finished.
   await page.waitForTimeout(400);
   // It opens in the item's folder, which is where it already is.
-  await expect(dialog.getByRole("status")).toHaveText(
-    "This item is already here. Choose another folder.",
-  );
+  await expect(dialog.getByRole("status")).toHaveText(`Already in “${top}”.`);
   await expect(
     dialog.getByRole("button", { name: `Move to “${top}”` }),
   ).toBeDisabled();
@@ -463,7 +461,7 @@ test("shows a member which granted folders take items, and why the others do not
     );
     await folderRow(dialog, `${top}/readonly`).click();
     await expect(dialog.getByRole("status")).toHaveText(
-      "You can only view this folder, so this item cannot go here. Open a folder inside it or choose another.",
+      "You can only view “readonly”, so nothing can go there.",
     );
     await expect(
       dialog.getByRole("button", { name: "Move to “readonly”" }),

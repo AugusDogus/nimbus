@@ -47,6 +47,7 @@ import { sessionQuery } from "@/lib/session-query";
 import { trpcErrorCode } from "@/lib/trpc-error";
 import { cn } from "@/lib/utils";
 import { DriveRoot } from "@nimbus/api/drive-root";
+import { DropTarget } from "../drop-target";
 import { sortEntries } from "../entry-sort";
 import { TransferReport } from "../transfer-report";
 import type { TransferOperation, TransferResult } from "../transfer-result";
@@ -55,10 +56,6 @@ import type { useFileActions } from "../use-file-actions";
 import { dialogOpener } from "../use-entry-dialog";
 import { fileListQueryOptions } from "../use-file-list";
 import { needsStats, prefsQueryOptions } from "../use-file-preferences";
-import {
-  DestinationEligibility,
-  type Eligibility,
-} from "./destination-eligibility";
 import { FolderList, type FolderRow } from "./folder-list";
 import { RecentDestinations } from "./recent-destinations";
 import { ClashPanel, FailurePanel, type ClashChoice } from "./transfer-panels";
@@ -239,7 +236,10 @@ export function DestinationPicker({
     path: folder.path,
     name: folder.name,
     detail: folder.detail,
-    eligibility: DestinationEligibility.of(operation, pending, folder),
+    eligibility: DropTarget.forItems(operation, pending, {
+      path: folder.path,
+      writable: folder.permission !== "read",
+    }),
   });
 
   const folderRows = useMemo(() => {
@@ -249,7 +249,10 @@ export function DestinationPicker({
       (entry): FolderRow => ({
         path: entry.path,
         name: entry.name,
-        eligibility: DestinationEligibility.of(operation, pending, entry),
+        eligibility: DropTarget.forItems(operation, pending, {
+          path: entry.path,
+          writable: entry.permission !== "read",
+        }),
       }),
     );
   }, [browsed, listing.data, prefs, operation, pending]);
@@ -281,12 +284,12 @@ export function DestinationPicker({
     )?.focus();
   }, [focusAction]);
 
-  const destination =
+  const destination: DropTarget | null =
     browsed !== null && capability.data?.path === browsed
-      ? { path: browsed, permission: capability.data.permission }
+      ? { path: browsed, writable: capability.data.permission !== "read" }
       : null;
-  const eligibility: Eligibility | null = destination
-    ? DestinationEligibility.of(operation, pending, destination)
+  const eligibility = destination
+    ? DropTarget.forItems(operation, pending, destination)
     : null;
 
   const transfer = async (
@@ -360,7 +363,7 @@ export function DestinationPicker({
     );
   };
   const submit = () => {
-    if (!destination || eligibility?.kind !== "eligible" || busy) return;
+    if (!destination || eligibility?.kind !== operation || busy) return;
     void submitTo(destination.path);
   };
 
@@ -453,19 +456,18 @@ export function DestinationPicker({
       return trpcErrorCode(capability.error) === "NOT_FOUND"
         ? "This folder no longer exists. Choose another."
         : `Nimbus could not check whether you can add items here: ${capability.error.message}`;
-    if (!eligibility) return "Checking what you can do here…";
-    if (eligibility.kind === "blocked")
-      return DestinationEligibility.explain(eligibility.reason, pending.length);
+    if (!eligibility || !destination) return "Checking what you can do here…";
+    if (eligibility.kind === "refused")
+      return `${DropTarget.hint(eligibility, destination)}.`;
     return null;
   })();
   const canSubmit =
-    eligibility?.kind === "eligible" &&
+    eligibility?.kind === operation &&
     !(browsed !== null && listing.isPlaceholderData) &&
     phase.kind !== "clashes" &&
     !busy &&
     pending.length > 0;
-  const canCreate =
-    destination !== null && destination.permission !== "read" && !busy;
+  const canCreate = destination !== null && destination.writable && !busy;
 
   const places: {
     key: string;
@@ -591,7 +593,7 @@ export function DestinationPicker({
         name: DriveRoot.nameOf(path),
         detail: path ? spelled(parentOf(path)) : undefined,
         // Checked when opened: the folder may have moved or changed since.
-        eligibility: { kind: "eligible" } as const,
+        eligibility: { kind: operation },
       }));
       return rows.length ? (
         <FolderList
