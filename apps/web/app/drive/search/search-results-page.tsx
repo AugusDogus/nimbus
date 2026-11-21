@@ -6,6 +6,7 @@ import { EntriesView } from "../files/entries-view";
 import type { FileEntry } from "../files/types";
 import { useEntryDialog } from "../files/use-entry-dialog";
 import { useFileActions } from "../files/use-file-actions";
+import { useFileDrag } from "../files/use-file-drag";
 import { Highlighted, parentLabel } from "./highlight";
 import { useSearch, type SearchResultEntry } from "./use-search";
 import { DriveRoot } from "@nimbus/api/drive-root";
@@ -41,6 +42,7 @@ export function SearchResultsPage({ query }: { query: string }) {
     [byPath],
   );
   const actions = useFileActions({ currentPath: "", includeStats: true });
+  const drag = useFileDrag(actions);
   const { selection: dialog, select: onDialog } = useEntryDialog(
     "search",
     actions.recordVisit,
@@ -72,6 +74,7 @@ export function SearchResultsPage({ query }: { query: string }) {
           view="list"
           sections={sections}
           actions={actions}
+          drag={drag}
           restoreKey={`search:${query}`}
           label={title}
           renderName={renderName}

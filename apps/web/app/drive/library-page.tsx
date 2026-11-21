@@ -5,6 +5,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { EntriesView } from "./files/entries-view";
 import { useEntryDialog } from "./files/use-entry-dialog";
 import { useFileActions } from "./files/use-file-actions";
+import { useFileDrag } from "./files/use-file-drag";
 import { DriveRoot } from "@nimbus/api/drive-root";
 
 export function LibraryPage({
@@ -30,6 +31,7 @@ export function LibraryPage({
           (entry) => kind !== "starred" || entry.starred,
         );
   const actions = useFileActions({ currentPath: "", includeStats: true });
+  const drag = useFileDrag(actions);
   const { selection: dialog, select: onDialog } = useEntryDialog(
     kind,
     actions.recordVisit,
@@ -74,6 +76,7 @@ export function LibraryPage({
           view="list"
           sections={[{ title: "", entries }]}
           actions={actions}
+          drag={drag}
           restoreKey={`${kind}:`}
           label={title}
           dialog={dialog}

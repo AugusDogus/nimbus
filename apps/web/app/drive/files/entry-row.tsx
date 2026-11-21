@@ -50,7 +50,8 @@ type Props = {
   selectionActive: boolean;
   tabbable: boolean;
   dragging: boolean;
-  dropTarget: boolean;
+  /** Whether a drag over this folder would be taken, refused, or it is not under the pointer. */
+  dropState: "allowed" | "refused" | null;
   /** A move is running: nothing can be dragged until it ends. */
   dragLocked: boolean;
   /** Narrow layouts open the actions drawer instead of a menu. */
@@ -81,7 +82,7 @@ export const EntryRow = memo(function EntryRow({
   selectionActive,
   tabbable,
   dragging,
-  dropTarget,
+  dropState,
   dragLocked,
   touch,
   canDrag,
@@ -174,20 +175,27 @@ export const EntryRow = memo(function EntryRow({
   const common = {
     ...drag,
     "aria-busy": dragLocked && dragging,
-    "data-drop-target": dropTarget || undefined,
+    "data-drop-target":
+      dropState === "allowed"
+        ? true
+        : dropState === "refused"
+          ? "refused"
+          : undefined,
     className: classes(
       "w-full rounded-lg text-left [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-ring",
       view === "list"
         ? "flex h-12 items-center gap-3 py-3 pl-3 pr-12"
         : "relative flex h-42 flex-col items-center justify-center gap-3 border px-4 pb-4 pt-10",
       // Background states are exclusive, so no class merging is needed.
-      selected || dropTarget
+      selected || dropState === "allowed"
         ? "bg-accent"
         : view === "grid"
           ? "bg-muted/30 hover:bg-accent/70"
           : "hover:bg-accent/70",
       dragging && "opacity-50",
-      dropTarget && "ring-2 ring-inset ring-primary",
+      dropState === "allowed" && "ring-2 ring-inset ring-primary",
+      dropState === "refused" &&
+        "cursor-not-allowed ring-2 ring-inset ring-destructive/50",
     ),
     tabIndex: tabbable ? 0 : -1,
     "data-entry-name": entry.name,

@@ -27,7 +27,8 @@ import { SelectionBar } from "./selection-bar";
 import { ShortcutHelp } from "./shortcut-help";
 import { fileHref, FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
-import { useFileDrag } from "./use-file-drag";
+import { DropTarget } from "./drop-target";
+import type { FileDrag } from "./use-file-drag";
 import { useGridColumns } from "./use-grid-columns";
 import { useVirtualRows } from "./use-virtual-rows";
 
@@ -41,6 +42,8 @@ type Props = {
   view: "list" | "grid";
   sections: readonly EntrySection<FileEntry>[];
   actions: ReturnType<typeof useFileActions>;
+  /** Dragging items onto folders, owned by the page so its other folder targets share it. */
+  drag: FileDrag;
   /** Identifies the folder and view whose scroll position is saved and restored. */
   restoreKey: string;
   /** Accessible name of the collection, such as the folder name. */
@@ -70,6 +73,7 @@ export function EntriesView({
   view,
   sections,
   actions,
+  drag,
   restoreKey,
   label,
   toolbarRef,
@@ -126,7 +130,6 @@ export function EntriesView({
     obstructionRef: toolbarRef ?? fallbackToolbar,
     restoreKey,
   });
-  const drag = useFileDrag(actions);
   const pendingFocus = useRef<string | null>(null);
   const typeahead = useRef<{
     text: string;
@@ -428,7 +431,13 @@ export function EntriesView({
       focus: (entry) => {
         if (focusPath !== entry.path) setFocusPath(entry.path);
       },
-      dragProps: (entry) => drag.getDragProps(entry, () => targetsFor(entry)),
+      dragProps: (entry) => {
+        const target = DropTarget.ofEntry(entry);
+        return {
+          ...drag.sourceProps(entry, () => targetsFor(entry)),
+          ...(target && drag.targetProps(target)),
+        };
+      },
     };
   });
   const [handlers] = useState<EntryRowHandlers>(() => {
@@ -469,7 +478,7 @@ export function EntriesView({
         selectionActive={selectionActive}
         tabbable={entry.path === tabStop}
         dragging={drag.isDragging(entry)}
-        dropTarget={drag.isDropTarget(entry)}
+        dropState={drag.dropState(entry.path)}
         dragLocked={dragLocked}
         touch={isMobile}
         canDrag={canDrag}

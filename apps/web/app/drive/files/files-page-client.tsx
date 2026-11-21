@@ -20,6 +20,7 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import { fileHref } from "./types";
 import { useEntryDialog } from "./use-entry-dialog";
 import { useFileActions } from "./use-file-actions";
+import { useFileDrag } from "./use-file-drag";
 import { useFileList } from "./use-file-list";
 import { WebMcpFileTools } from "./webmcp-tools";
 import { useFilePreferences } from "./use-file-preferences";
@@ -51,6 +52,7 @@ export function FilesPageClient() {
     enabled: isAuthed,
   });
   const actions = useFileActions({ currentPath, includeStats });
+  const drag = useFileDrag(actions);
   const { recordVisit } = actions;
   const { selection: dialog, select: onDialog } = useEntryDialog(
     currentPath,
@@ -194,6 +196,7 @@ export function FilesPageClient() {
               view={view}
               sections={sections}
               actions={actions}
+              drag={drag}
               restoreKey={`${shownPath}:${view}`}
               label={trail.crumbs.at(-1)?.label ?? trail.root.label}
               toolbarRef={toolbarRef}
