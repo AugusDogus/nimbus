@@ -1,4 +1,5 @@
 import { HardDrive } from "lucide-react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 
 import {
   Breadcrumb,
@@ -17,8 +18,52 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { BreadcrumbTrail } from "./breadcrumb-trail";
+import { cn } from "@/lib/utils";
+import type { BreadcrumbTrail, Crumb } from "./breadcrumb-trail";
+import type { DropTarget } from "./drop-target";
 import { FolderLink } from "./folder-link";
+
+/** Hovering the collapsed folders this long while dragging opens them, to drop on one. */
+const springMs = 600;
+
+/**
+ * What makes the trail's folders take drops: the page's drag, and which of them the account may
+ * write to. The current folder is never a target; its items are already there.
+ */
+export type CrumbDrop = {
+  /** Items from the page are being dragged. */
+  dragging: boolean;
+  /** Files dragged in from the computer can be dropped on the trail's folders. */
+  acceptsFiles: boolean;
+  writable: (path: string) => boolean;
+  targetProps: (target: DropTarget) => {
+    onDragOver: (event: DragEvent<HTMLElement>) => void;
+    onDragLeave: (event: DragEvent<HTMLElement>) => void;
+    onDrop: (event: DragEvent<HTMLElement>) => void;
+  };
+  dropState: (path: string) => "allowed" | "refused" | null;
+};
+
+/** Drop handlers, state and styling for a crumb, or nothing without a drag to take. */
+function crumbDrop(drop: CrumbDrop | undefined, crumb: Crumb) {
+  if (!drop) return { className: undefined };
+  const state = drop.dropState(crumb.path);
+  return {
+    ...drop.targetProps({
+      path: crumb.path,
+      writable: drop.writable(crumb.path),
+    }),
+    "data-drop-target":
+      state === "allowed" ? true : state === "refused" ? "refused" : undefined,
+    className: cn(
+      "rounded-md",
+      state === "allowed" &&
+        "bg-accent text-foreground outline-2 -outline-offset-2 outline-primary",
+      state === "refused" &&
+        "cursor-not-allowed outline-2 -outline-offset-2 outline-destructive/50",
+    ),
+  };
+}
 
 /**
  * Wide screens keep the parent visible: `Files > ... > Parent > Current`
@@ -28,8 +73,45 @@ import { FolderLink } from "./folder-link";
  * Pure CSS: the parent shows from the `lg` breakpoint, where the sidebar leaves room for it.
  * The current folder's name truncates rather than being cut off.
  */
-export function FileBreadcrumbs({ trail }: { trail: BreadcrumbTrail }) {
+export function FileBreadcrumbs({
+  trail,
+  drop,
+}: {
+  trail: BreadcrumbTrail;
+  /** Makes every folder above the current one a drop target. */
+  drop?: CrumbDrop;
+}) {
   const segmentCrumbs = trail.crumbs;
+  const [menuOpen, setMenuOpen] = useState(false);
+  // The collapsed folders open by themselves while something is dragged over them, and close
+  // again once that drag ends, wherever it was dropped. The page knows when its own item drag
+  // ends; files from the computer end theirs with a drop, or by leaving the window.
+  const [sprung, setSprung] = useState<"items" | "files" | null>(null);
+  const spring = useRef<ReturnType<typeof setTimeout> | null>(null);
+  if (sprung === "items" && !drop?.dragging) {
+    setSprung(null);
+    setMenuOpen(false);
+  }
+  useEffect(() => {
+    if (sprung !== "files") return;
+    const close = () => {
+      setSprung(null);
+      setMenuOpen(false);
+    };
+    const left = (event: globalThis.DragEvent) => {
+      if (event.relatedTarget === null) close();
+    };
+    window.addEventListener("drop", close, true);
+    window.addEventListener("dragleave", left, true);
+    return () => {
+      window.removeEventListener("drop", close, true);
+      window.removeEventListener("dragleave", left, true);
+    };
+  }, [sprung]);
+  const cancelSpring = () => {
+    if (spring.current !== null) clearTimeout(spring.current);
+    spring.current = null;
+  };
   const isNested = segmentCrumbs.length > 0;
 
   // The last segment is always rendered as the current (non-link) page.
@@ -58,7 +140,11 @@ export function FileBreadcrumbs({ trail }: { trail: BreadcrumbTrail }) {
         {/* Root: an icon until 1024 px, where the sidebar leaves room for its name */}
         <BreadcrumbItem>
           <BreadcrumbLink
-            className="whitespace-nowrap pointer-coarse:relative pointer-coarse:z-10 pointer-coarse:-my-3.5 pointer-coarse:py-3.5 pointer-coarse:-mx-3.5 pointer-coarse:px-3.5"
+            {...crumbDrop(drop, trail.root)}
+            className={cn(
+              "whitespace-nowrap pointer-coarse:relative pointer-coarse:z-10 pointer-coarse:-my-3.5 pointer-coarse:py-3.5 pointer-coarse:-mx-3.5 pointer-coarse:px-3.5",
+              crumbDrop(drop, trail.root).className,
+            )}
             render={
               <FolderLink
                 path={trail.root.path}
@@ -76,8 +162,33 @@ export function FileBreadcrumbs({ trail }: { trail: BreadcrumbTrail }) {
           <>
             <BreadcrumbSeparator className={ellipsisClassName} />
             <BreadcrumbItem className={ellipsisClassName}>
-              <DropdownMenu>
+              {/* Not modal, so a drag can still reach the rest of the page while it is open. */}
+              <DropdownMenu
+                open={menuOpen}
+                onOpenChange={(open) => {
+                  setMenuOpen(open);
+                  if (!open) setSprung(null);
+                }}
+                modal={false}
+              >
                 <DropdownMenuTrigger
+                  onDragEnter={(event) => {
+                    const kind = drop?.dragging
+                      ? "items"
+                      : drop?.acceptsFiles &&
+                          event.dataTransfer.types.includes("Files")
+                        ? "files"
+                        : null;
+                    if (kind === null || menuOpen || spring.current !== null)
+                      return;
+                    spring.current = setTimeout(() => {
+                      spring.current = null;
+                      setSprung(kind);
+                      setMenuOpen(true);
+                    }, springMs);
+                  }}
+                  onDragLeave={cancelSpring}
+                  onDrop={cancelSpring}
                   render={
                     <Button
                       size="icon-sm"
@@ -94,7 +205,11 @@ export function FileBreadcrumbs({ trail }: { trail: BreadcrumbTrail }) {
                     {middleCrumbs.map((crumb) => (
                       <DropdownMenuItem
                         key={crumb.path}
-                        className={crumb === parent ? "lg:hidden" : undefined}
+                        {...crumbDrop(drop, crumb)}
+                        className={cn(
+                          crumb === parent && "lg:hidden",
+                          crumbDrop(drop, crumb).className,
+                        )}
                         render={<FolderLink path={crumb.path} />}
                       >
                         {crumb.label}
@@ -106,7 +221,10 @@ export function FileBreadcrumbs({ trail }: { trail: BreadcrumbTrail }) {
             </BreadcrumbItem>
             <BreadcrumbSeparator className="max-lg:hidden" />
             <BreadcrumbItem className="max-lg:hidden">
-              <BreadcrumbLink render={<FolderLink path={parent.path} />}>
+              <BreadcrumbLink
+                {...crumbDrop(drop, parent)}
+                render={<FolderLink path={parent.path} />}
+              >
                 {parent.label}
               </BreadcrumbLink>
             </BreadcrumbItem>

@@ -21,6 +21,12 @@ import {
 import { emptyTrash } from "./trash-empty";
 import { TopFolder } from "./top-folder";
 
+/** The folders above `path`, the drive root first; none above the root. */
+const ancestorsOf = (path: string) => {
+  const segments = path ? path.split("/") : [];
+  return segments.map((_, depth) => segments.slice(0, depth).join("/"));
+};
+
 export const managementRouter = router({
   ...homeContainerSharingProcedures,
   capabilities: protectedProcedure
@@ -33,6 +39,15 @@ export const managementRouter = router({
         canWrite: ctx.access.can(target.relative, "write"),
         canShare: ctx.access.can(target.relative, "admin"),
         isAdmin: ctx.access.isAdmin,
+        /**
+         * Each folder above this one, from the drive root down to its parent, and whether the
+         * caller may write there: where moving something up a level, or dropping it on a
+         * breadcrumb, can put it.
+         */
+        ancestors: ancestorsOf(target.relative).map((path) => ({
+          path,
+          canWrite: ctx.access.can(path, "write"),
+        })),
       };
     }),
   me: protectedProcedure.query(async ({ ctx }) => {

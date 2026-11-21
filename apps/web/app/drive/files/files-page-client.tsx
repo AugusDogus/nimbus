@@ -21,6 +21,7 @@ import { fileHref } from "./types";
 import { useEntryDialog } from "./use-entry-dialog";
 import { useFileActions } from "./use-file-actions";
 import { useFileDrag } from "./use-file-drag";
+import { DragHint } from "./drag-hint";
 import { useUploads } from "@/components/upload-provider";
 import { collectDrop } from "@/lib/upload-sources";
 import { useFileList } from "./use-file-list";
@@ -155,7 +156,22 @@ export function FilesPageClient() {
         className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-background px-4 py-3 md:-mx-6 md:flex md:justify-between md:px-6 lg:-mx-8 lg:-mt-8 lg:px-8"
       >
         <div className="min-w-0 overflow-hidden pointer-coarse:-my-3 pointer-coarse:py-3 pointer-coarse:-ml-3.5 pointer-coarse:pl-3.5">
-          <FileBreadcrumbs trail={trail} />
+          <FileBreadcrumbs
+            trail={trail}
+            drop={{
+              dragging:
+                drag.state.status === "dragging" &&
+                drag.state.payload.kind === "entries",
+              acceptsFiles: true,
+              // Unknown until the folder's capabilities arrive, and refused meanwhile.
+              writable: (path) =>
+                capabilities.data?.ancestors.some(
+                  (ancestor) => ancestor.path === path && ancestor.canWrite,
+                ) ?? false,
+              targetProps: drag.targetProps,
+              dropState: drag.dropState,
+            }}
+          />
         </div>
         <FiltersRow
           prefs={prefs}
@@ -219,6 +235,8 @@ export function FilesPageClient() {
             />
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-center">
+              {/* Files from the computer can still be dropped on the breadcrumb's folders. */}
+              <DragHint drag={drag} />
               <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-muted">
                 <Folder className="size-8 text-muted-foreground" />
               </div>

@@ -326,6 +326,30 @@ describe("drive workflows", () => {
       canWrite: true,
     });
   });
+  it("tells which folders above one the caller may write to, the drive root first", async () => {
+    await caller().access.grant({
+      path: "docs/report.txt",
+      subject: { type: "user", id: "reader" },
+      permission: "read",
+    });
+    expect(
+      (await caller("reader").access.capabilities({ path: "docs/report.txt" }))
+        .ancestors,
+    ).toEqual([
+      { path: "", canWrite: false },
+      { path: "docs", canWrite: false },
+    ]);
+    expect(
+      (await caller().access.capabilities({ path: "docs/report.txt" }))
+        .ancestors,
+    ).toEqual([
+      { path: "", canWrite: true },
+      { path: "docs", canWrite: true },
+    ]);
+    expect(
+      (await caller().access.capabilities({ path: "" })).ancestors,
+    ).toEqual([]);
+  });
   it("keeps links, direct grants, and stars on renamed items", async () => {
     const moved = await caller().shares.create({
       path: "docs/report.txt",

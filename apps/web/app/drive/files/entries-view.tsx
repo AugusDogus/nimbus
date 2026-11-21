@@ -493,17 +493,20 @@ export function EntriesView({
     );
   };
 
-  const bar = selectionActive ? (
-    <SelectionBar
-      targets={selectedEntries}
-      total={layout.entries.length}
-      floating={!selectionSlot}
-      actions={actions}
-      onOpen={open}
-      onSelectAll={() => setSelection(Selection.all(order))}
-      onClear={() => setSelection(Selection.empty)}
-    />
-  ) : null;
+  // The bar covers the breadcrumb, whose folders take drops: it steps aside during a drag and
+  // returns, with the selection unchanged, when the drag ends however it ends.
+  const bar =
+    selectionActive && drag.state.status !== "dragging" ? (
+      <SelectionBar
+        targets={selectedEntries}
+        total={layout.entries.length}
+        floating={!selectionSlot}
+        actions={actions}
+        onOpen={open}
+        onSelectAll={() => setSelection(Selection.all(order))}
+        onClear={() => setSelection(Selection.empty)}
+      />
+    ) : null;
 
   return (
     <>
