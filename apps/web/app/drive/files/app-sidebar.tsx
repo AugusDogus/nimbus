@@ -5,7 +5,6 @@ import {
   Clock,
   FolderPlus,
   HardDrive,
-  House,
   Plus,
   Settings,
   Star,
@@ -37,13 +36,13 @@ import {
 import type { NewContentState } from "./use-new-content";
 import type { StorageSummary } from "./use-file-storage";
 import { StorageIndicator } from "./storage-indicator";
+import { NavPlace } from "./nav-place";
 
 const navItems = [
-  { icon: House, label: "My files", href: "/home" },
-  { icon: HardDrive, label: "My Drive", href: "/" },
-  { icon: Users, label: "Shared", href: "/shared" },
-  { icon: Clock, label: "Recent", href: "/recent" },
-  { icon: Star, label: "Starred", href: "/starred" },
+  { icon: HardDrive, label: "Files", href: "/", place: "files" },
+  { icon: Users, label: "Shared", href: "/shared", place: "shared" },
+  { icon: Clock, label: "Recent", href: "/recent", place: "recent" },
+  { icon: Star, label: "Starred", href: "/starred", place: "starred" },
 ] as const;
 
 type AppSidebarProps = {
@@ -63,6 +62,7 @@ export function AppSidebar({
   isAdmin,
 }: AppSidebarProps) {
   const pathname = usePathname();
+  const place = NavPlace.of(pathname);
   const { setOpenMobile } = useSidebar();
   // The menu closes, and stays closed, once this page cannot create, such as after Back to Trash.
   const creatable = canWrite && offersNew;
@@ -151,9 +151,7 @@ export function AppSidebar({
         <nav aria-label="Files">
           <SidebarMenu className="gap-1">
             {navItems.map((item) => {
-              const active =
-                pathname === item.href ||
-                (item.href === "/" && pathname.startsWith("/browse/"));
+              const active = item.place === place;
               return (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
@@ -183,12 +181,12 @@ export function AppSidebar({
           <SidebarMenuItem className="min-w-0 flex-1 group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:flex-none">
             <SidebarMenuButton
               tooltip="Trash"
-              isActive={pathname === "/trash"}
+              isActive={place === "trash"}
               className="h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto"
               render={
                 <Link
                   to="/trash"
-                  aria-current={pathname === "/trash" ? "page" : undefined}
+                  aria-current={place === "trash" ? "page" : undefined}
                   onClick={closeNavigation}
                 />
               }
@@ -200,14 +198,14 @@ export function AppSidebar({
           <SidebarMenuItem className="shrink-0 group-data-[collapsible=icon]:w-full">
             <SidebarMenuButton
               tooltip="Settings"
-              isActive={pathname === "/settings"}
+              isActive={place === "settings"}
               className="size-10 justify-center rounded-xl p-0 group-data-[collapsible=icon]:mx-auto"
               render={
                 <Link
                   to="/settings"
                   aria-label="Settings"
                   title="Settings"
-                  aria-current={pathname === "/settings" ? "page" : undefined}
+                  aria-current={place === "settings" ? "page" : undefined}
                   onClick={closeNavigation}
                 />
               }

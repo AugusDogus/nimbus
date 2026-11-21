@@ -96,7 +96,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   await expect(
     page.getByRole("heading", { name: "Recent", exact: true }),
   ).toBeVisible();
-  await navigate(page, "My Drive", isMobile);
+  await navigate(page, "Files", isMobile);
   await page.getByRole("link", { name: folder, exact: true }).click();
   await expect(page).toHaveURL(`/browse/${folder}`);
   await page
@@ -119,7 +119,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
       .locator(`[data-entry-path="${folder}/${filename}"]`)
       .filter({ visible: true }),
   ).toBeVisible();
-  await navigate(page, "My Drive", isMobile);
+  await navigate(page, "Files", isMobile);
   await page.getByRole("link", { name: folder, exact: true }).click();
   await expect(page).toHaveURL(`/browse/${folder}`);
   await action(page, filename, "Rename", isMobile);

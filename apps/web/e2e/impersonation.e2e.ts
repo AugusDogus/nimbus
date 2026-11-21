@@ -4,7 +4,6 @@ import {
   action,
   adminEmail,
   createFolder,
-  navigate,
   origin,
   password,
   test,
@@ -41,7 +40,8 @@ test("an administrator signs in as a member, acts as them, and returns to their 
   const banner = page.getByRole("region", { name: "Impersonation" });
   await expect(banner).toContainText(`You are signed in as ${email}`);
   // As the member: create a folder in their home and move it to trash.
-  await navigate(page, "My files", isMobile);
+  await page.goto("/home");
+  await expect(page).toHaveURL(/\/browse\/users\//);
   const folder = `impersonated-${randomUUID().slice(0, 8)}`;
   await createFolder(page, folder, isMobile);
   await action(page, folder, "Move to trash", isMobile);

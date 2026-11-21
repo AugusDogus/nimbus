@@ -1,4 +1,4 @@
-import { Clock, HardDrive, House, Star, Trash2, Users } from "lucide-react";
+import { Clock, HardDrive, Star, Trash2, Users } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { NimbusWordmark } from "@/components/nimbus-wordmark";
@@ -18,8 +18,7 @@ const sidebarStyle: CSSProperties = {
 };
 
 const navItems = [
-  { icon: House, label: "My files" },
-  { icon: HardDrive, label: "My Drive" },
+  { icon: HardDrive, label: "Files" },
   { icon: Users, label: "Shared" },
   { icon: Clock, label: "Recent" },
   { icon: Star, label: "Starred" },

@@ -163,10 +163,9 @@ test("keeps primary navigation and utility actions usable in both themes", async
     const primary = page
       .locator('[data-slot="sidebar-content"]')
       .getByRole("link");
-    await expect(primary).toHaveCount(5);
+    await expect(primary).toHaveCount(4);
     for (const [name, href] of [
-      ["My files", "/home"],
-      ["My Drive", "/"],
+      ["Files", "/"],
       ["Shared", "/shared"],
       ["Recent", "/recent"],
       ["Starred", "/starred"],
@@ -645,7 +644,7 @@ test("New closes and creates nothing once the page has nowhere to create in", as
   await page.goto("/");
   await sidebarLink("Trash");
   await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
-  await sidebarLink("My Drive");
+  await sidebarLink("Files");
   await expect(page.getByRole("heading", { name: "My Drive" })).toBeVisible();
   await openNew();
   await expect(newFolder).toBeVisible();

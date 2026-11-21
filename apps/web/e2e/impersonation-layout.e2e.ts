@@ -54,7 +54,7 @@ test("the drawer's last action stays reachable with the impersonation banner on 
   await page.goto("/");
   const banner = page.getByRole("region", { name: "Impersonation" });
   await expect(banner).toBeVisible();
-  await navigate(page, "My files", true);
+  await page.goto("/home");
   const folder = `banner-${randomUUID().slice(0, 8)}`;
   await createFolder(page, folder, true);
   // The "Created folder" toast times out on its own; it would cover the drawer's foot. A pointer
@@ -101,7 +101,7 @@ for (const size of [
     await page.goto("/");
     const banner = page.getByRole("region", { name: "Impersonation" });
     await expect(banner).toBeVisible();
-    await navigate(page, "My files", true);
+    await page.goto("/home");
     const folder = `banner-${randomUUID().slice(0, 8)}`;
     await createFolder(page, folder, true);
     const create = page.getByRole("button", {
@@ -170,7 +170,7 @@ for (const size of [
     await expect(stop).toBeFocused();
     // Below dialogs: an open dialog covers the banner.
     const narrow = size.width < 768;
-    await navigate(page, "My files", narrow);
+    await page.goto("/home");
     await page
       .getByRole("button", {
         name: narrow ? "New file or folder" : "New",
@@ -222,7 +222,7 @@ test("a persistent error toast leaves the banner, New button and selection bar r
   await page.goto("/");
   const banner = page.getByRole("region", { name: "Impersonation" });
   await expect(banner).toBeVisible();
-  await navigate(page, "My files", true);
+  await page.goto("/home");
   const folder = `toast-${randomUUID().slice(0, 8)}`;
   await createFolder(page, folder, true);
   const select = () =>
