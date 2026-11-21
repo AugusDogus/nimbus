@@ -37,12 +37,19 @@ export function FolderList({
   label,
   restoreKey,
   onOpen,
+  focusRequest,
 }: {
   rows: readonly FolderRow[];
   label: string;
   /** Identifies the list, so returning to a folder restores its scroll position. */
   restoreKey: string;
   onOpen: (row: FolderRow) => void;
+  /**
+   * Move focus into the list once its rows are shown: to the row of `path` when it has one,
+   * such as the folder just left by going up, otherwise to the first row. Each new `id` asks
+   * once, so focus stays in the list while the keyboard moves through folders.
+   */
+  focusRequest?: { id: number; path: string | null };
 }) {
   const layout = useMemo(
     () => EntryLayout.build([{ title: "", entries: rows }], "list", 1),
@@ -76,6 +83,22 @@ export function FolderList({
     pendingFocus.current = next;
     virtual.revealRow(EntryLayout.rowOf(layout, next));
   };
+
+  // A focus request picks its row while rendering; the effect below moves focus there.
+  const [handledRequest, setHandledRequest] = useState<number | null>(null);
+  if (focusRequest && focusRequest.id !== handledRequest && rows.length > 0) {
+    const index = rows.findIndex((row) => row.path === focusRequest.path);
+    setHandledRequest(focusRequest.id);
+    setFocused({ key: restoreKey, index: Math.max(0, index) });
+  }
+  const appliedRequest = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (handledRequest === null || appliedRequest.current === handledRequest)
+      return;
+    appliedRequest.current = handledRequest;
+    pendingFocus.current = focusIndex;
+    virtual.revealRow(EntryLayout.rowOf(layout, focusIndex));
+  });
 
   // A row moved to by keyboard may not have been rendered yet: focus it once it is.
   useLayoutEffect(() => {

@@ -10,9 +10,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  Fragment,
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
@@ -50,6 +52,7 @@ import { TransferReport } from "../transfer-report";
 import type { TransferOperation, TransferResult } from "../transfer-result";
 import type { FileEntry } from "../types";
 import type { useFileActions } from "../use-file-actions";
+import { dialogOpener } from "../use-entry-dialog";
 import { fileListQueryOptions } from "../use-file-list";
 import { needsStats, prefsQueryOptions } from "../use-file-preferences";
 import {
@@ -156,6 +159,17 @@ export function DestinationPicker({
   const busy = phase.kind === "working";
   const account = queryClient.getQueryData(sessionQuery.queryKey)?.user.id;
   const viewport = useVisualViewport(mobile);
+  const [opener] = useState(dialogOpener);
+  // Focus goes back to what opened the picker; Base UI would pick the menu item, gone by then.
+  const finalFocus = () => (opener?.isConnected ? opener : true);
+
+  // Where focus goes in the next list shown, after moving through folders from the list.
+  const [focusRequest, setFocusRequest] = useState<{
+    id: number;
+    path: string | null;
+  }>();
+  const focusListAt = (path: string | null) =>
+    setFocusRequest((current) => ({ id: (current?.id ?? 0) + 1, path }));
 
   const go = (next: View) => {
     setHistory((past) => [...past, view]);
@@ -239,6 +253,33 @@ export function DestinationPicker({
       }),
     );
   }, [browsed, listing.data, prefs, operation, pending]);
+
+  // A folder without subfolders has no row to focus: the action that fits it takes focus.
+  const submitRef = useRef<HTMLButtonElement>(null);
+  const upRef = useRef<HTMLButtonElement>(null);
+  const emptyFolder =
+    browsed !== null && listing.data !== undefined && folderRows.length === 0;
+  // Counts the times focus moved to an action; each change moves it once more.
+  const [focusAction, setFocusAction] = useState(0);
+  const capabilityKnown =
+    capability.data?.path === browsed || capability.isError;
+  if (
+    focusRequest &&
+    emptyFolder &&
+    capabilityKnown &&
+    !listing.isPlaceholderData
+  ) {
+    setFocusRequest(undefined);
+    setFocusAction((count) => count + 1);
+  }
+  useEffect(() => {
+    if (focusAction === 0) return;
+    const submitButton = submitRef.current;
+    (submitButton && !submitButton.disabled
+      ? submitButton
+      : upRef.current
+    )?.focus();
+  }, [focusAction]);
 
   const destination =
     browsed !== null && capability.data?.path === browsed
@@ -347,6 +388,12 @@ export function DestinationPicker({
   const onPickerKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.altKey && event.key === "ArrowUp" && browsed) {
       event.preventDefault();
+      // The folder just left is focused in its parent, as in a desktop file manager.
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest('[role="listbox"]')
+      )
+        focusListAt(browsed);
       up();
     }
   };
@@ -414,7 +461,10 @@ export function DestinationPicker({
     },
   ];
 
-  const openRow = (row: FolderRow) => go({ kind: "folder", path: row.path });
+  const openRow = (row: FolderRow) => {
+    focusListAt(null);
+    go({ kind: "folder", path: row.path });
+  };
 
   const body = (() => {
     if (phase.kind === "clashes")
@@ -532,6 +582,7 @@ export function DestinationPicker({
         label={`Folders in ${folderLabel(view.path)}`}
         restoreKey={`picker:${view.path}`}
         onOpen={openRow}
+        focusRequest={listing.isPlaceholderData ? undefined : focusRequest}
       />
     ) : (
       <Notice>No folders here.</Notice>
@@ -635,6 +686,7 @@ export function DestinationPicker({
             <Button
               variant="ghost"
               size="icon-sm"
+              ref={upRef}
               aria-label="Up one folder"
               aria-keyshortcuts="Alt+ArrowUp"
               disabled={!browsed || busy}
@@ -705,6 +757,7 @@ export function DestinationPicker({
             Cancel
           </Button>
           <Button
+            ref={submitRef}
             disabled={!canSubmit}
             onClick={submit}
             aria-label={
@@ -741,6 +794,7 @@ export function DestinationPicker({
         <SheetContent
           side="bottom"
           data-picker=""
+          finalFocus={finalFocus}
           className="h-dvh max-h-dvh gap-0 rounded-none border-0 p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
           style={
             viewport
@@ -756,6 +810,7 @@ export function DestinationPicker({
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent
         data-picker=""
+        finalFocus={finalFocus}
         className="flex h-[min(560px,calc(100dvh-2rem))] w-[calc(100%-2rem)] max-w-[760px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px]"
       >
         {content}
@@ -816,30 +871,32 @@ function PathCrumbs({
           const last = index === visible.length - 1;
           const key = crumb ? crumb.path || "/" : "folded";
           return (
-            <BreadcrumbItem key={key} className={last ? "min-w-0" : "shrink-0"}>
+            <Fragment key={key}>
               {index > 0 && <BreadcrumbSeparator />}
-              {crumb === null || crumb === undefined ? (
-                <span aria-hidden="true" className="px-0.5">
-                  …
-                </span>
-              ) : last ? (
-                <BreadcrumbPage
-                  className="truncate font-medium"
-                  title={crumb.label}
-                >
-                  {crumb.label}
-                </BreadcrumbPage>
-              ) : (
-                <BreadcrumbLink
-                  render={<button type="button" />}
-                  title={crumb.label}
-                  onClick={() => onOpen(crumb.path)}
-                  className="max-w-40 truncate"
-                >
-                  {crumb.label}
-                </BreadcrumbLink>
-              )}
-            </BreadcrumbItem>
+              <BreadcrumbItem className={last ? "min-w-0" : "shrink-0"}>
+                {crumb === null || crumb === undefined ? (
+                  <span aria-hidden="true" className="px-0.5">
+                    …
+                  </span>
+                ) : last ? (
+                  <BreadcrumbPage
+                    className="truncate font-medium"
+                    title={crumb.label}
+                  >
+                    {crumb.label}
+                  </BreadcrumbPage>
+                ) : (
+                  <BreadcrumbLink
+                    render={<button type="button" />}
+                    title={crumb.label}
+                    onClick={() => onOpen(crumb.path)}
+                    className="max-w-40 truncate"
+                  >
+                    {crumb.label}
+                  </BreadcrumbLink>
+                )}
+              </BreadcrumbItem>
+            </Fragment>
           );
         })}
       </BreadcrumbList>
