@@ -484,3 +484,40 @@ test("shows a member which granted folders take items, and why the others do not
     await memberContext.close();
   }
 });
+
+test("makes a new folder to move into, and offers starred and recent destinations", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  const { top, names } = await tree({ "docs/a.txt": "a", "docs/b.txt": "b" }, [
+    "favourite",
+  ]);
+  await (
+    await client(context)
+  ).catalog.bookmark.mutate({
+    path: `${top}/favourite`,
+    starred: true,
+  });
+  await page.goto(href(`${top}/docs`));
+  await action(page, "a.txt", "Move to…", isMobile);
+  let dialog = picker(page);
+  await dialog.getByRole("button", { name: "Up one folder" }).click();
+  await dialog.getByRole("button", { name: "New folder" }).click();
+  await dialog.getByLabel("New folder name").fill("made here");
+  await dialog.getByRole("button", { name: "Create", exact: true }).click();
+  // The new folder is opened and becomes the destination.
+  await dialog.getByRole("button", { name: "Move to “made here”" }).click();
+  await expect(dialog).toBeHidden();
+  expect(await names("made here")).toEqual(["a.txt"]);
+
+  await action(page, "b.txt", "Move to…", isMobile);
+  dialog = picker(page);
+  await dialog.getByRole("button", { name: "Recent", exact: true }).click();
+  await expect(folderRow(dialog, `${top}/made here`)).toBeVisible();
+  await dialog.getByRole("button", { name: "Starred", exact: true }).click();
+  await folderRow(dialog, `${top}/favourite`).click();
+  await dialog.getByRole("button", { name: "Move to “favourite”" }).click();
+  await expect(dialog).toBeHidden();
+  expect(await names("favourite")).toEqual(["b.txt"]);
+});
