@@ -83,6 +83,26 @@ describe("home folders", () => {
     ).toEqual(["reader"]);
   });
 
+  it("opens Files at the home until something outside it is shared, and at the root for administrators", async () => {
+    await ready();
+    await Homes.provision(memory.store, {
+      id: "reader",
+      email: "reader@example.test",
+    });
+    expect(await caller("reader").access.me()).toMatchObject({
+      home: "users/reader",
+      top: "users/reader",
+    });
+    await mkdir(path.join(root, "team"));
+    await caller("user-1").access.grant({
+      path: "team",
+      subject: { type: "user", id: "reader" },
+      permission: "read",
+    });
+    expect((await caller("reader").access.me()).top).toBe("");
+    expect((await caller("user-1").access.me()).top).toBe("");
+  });
+
   it("never adopts an existing folder, comparing names case-insensitively", async () => {
     await ready();
     await mkdir(path.join(root, "users/Reader"), { recursive: true });

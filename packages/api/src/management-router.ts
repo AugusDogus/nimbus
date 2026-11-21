@@ -19,6 +19,7 @@ import {
   HomeContainerSharing,
 } from "./home-container-sharing";
 import { emptyTrash } from "./trash-empty";
+import { TopFolder } from "./top-folder";
 
 export const managementRouter = router({
   ...homeContainerSharingProcedures,
@@ -34,11 +35,16 @@ export const managementRouter = router({
         isAdmin: ctx.access.isAdmin,
       };
     }),
-  me: protectedProcedure.query(async ({ ctx }) => ({
-    ...ctx.access.user,
-    isAdmin: ctx.access.isAdmin,
-    home: await ctx.drive.homeOf(ctx.access.user.id),
-  })),
+  me: protectedProcedure.query(async ({ ctx }) => {
+    const home = await ctx.drive.homeOf(ctx.access.user.id);
+    return {
+      ...ctx.access.user,
+      isAdmin: ctx.access.isAdmin,
+      home,
+      /** The folder Files opens: the drive root, or the home for an account limited to it. */
+      top: TopFolder.of(ctx.access, home),
+    };
+  }),
   people: protectedProcedure
     .input(z.object({ path: z.string() }))
     .query(async ({ ctx, input }) => {
