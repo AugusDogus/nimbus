@@ -132,18 +132,24 @@ export function DestinationPicker({
   actions,
   onClose,
   pinned = [],
+  resume,
 }: {
   operation: TransferOperation;
   entries: readonly FileEntry[];
   actions: ReturnType<typeof useFileActions>;
   onClose: () => void;
   pinned?: readonly PinnedPlace[];
+  /**
+   * A move made without the picker whose names clash in its destination: the picker opens
+   * there, asking about the clashes, and reports what already moved however it closes.
+   */
+  resume?: TransferResult;
 }) {
   const mobile = useIsMobile();
   const [first] = entries;
   const [view, setView] = useState<View>({
     kind: "folder",
-    path: first ? parentOf(first.path) : "",
+    path: resume ? resume.destination : first ? parentOf(first.path) : "",
   });
   const [history, setHistory] = useState<View[]>([]);
   const [query, setQuery] = useState("");
@@ -151,7 +157,9 @@ export function DestinationPicker({
   const [creating, setCreating] = useState<
     { kind: "closed" } | { kind: "naming"; error: string | null; busy: boolean }
   >({ kind: "closed" });
-  const [phase, setPhase] = useState<Phase>({ kind: "choosing" });
+  const [phase, setPhase] = useState<Phase>(
+    resume ? { kind: "clashes", result: resume } : { kind: "choosing" },
+  );
   // Items still to transfer: all of them at first, then those that failed.
   const [pending, setPending] = useState(entries);
   const busy = phase.kind === "working";
@@ -318,7 +326,10 @@ export function DestinationPicker({
   const reports = useRef<{
     done: TransferResult[];
     awaiting: TransferResult | null;
-  }>({ done: [], awaiting: null });
+  }>({
+    done: [],
+    awaiting: resume?.transferred.length ? resume : null,
+  });
   const report = (result: TransferResult) => {
     reports.current.awaiting = null;
     if (result.transferred.length || result.skipped.length)

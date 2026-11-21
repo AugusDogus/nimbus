@@ -20,7 +20,11 @@ import { FolderNotFound } from "./folder-not-found";
 import { NavPlace } from "./nav-place";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { fileHref } from "./types";
-import { useEntryDialog } from "./use-entry-dialog";
+import {
+  useClashChoices,
+  useClashHandoff,
+  useEntryDialog,
+} from "./use-entry-dialog";
 import { useFileActions } from "./use-file-actions";
 import { useFileDrag } from "./use-file-drag";
 import { DragHint } from "./drag-hint";
@@ -61,7 +65,12 @@ export function FilesPageClient() {
   const parent = capabilities.data?.ancestors.at(-1);
   const moveUp =
     currentPath !== top && parent?.canWrite === true ? parent.path : null;
-  const actions = useFileActions({ currentPath, includeStats });
+  const clashHandoff = useClashHandoff();
+  const actions = useFileActions({
+    currentPath,
+    includeStats,
+    onClashes: clashHandoff.onClashes,
+  });
   const upload = useUploads();
   // Files from the computer dropped on a folder go into that folder.
   const drag = useFileDrag({
@@ -78,6 +87,7 @@ export function FilesPageClient() {
     currentPath,
     recordVisit,
   );
+  useClashChoices(clashHandoff, onDialog);
   const navigate = useNavigate();
   useEffect(() => {
     if (isAuthed && currentPath) void recordVisit(currentPath);

@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import type { TransferResult } from "./transfer-result";
 import type { FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
 
@@ -37,6 +38,8 @@ export type EntryDialog =
   | { action: "rename"; entry: FileEntry }
   | { action: "move"; entries: readonly FileEntry[] }
   | { action: "copy"; entries: readonly FileEntry[] }
+  /** Name clashes of a move made without the picker, for the person to decide. */
+  | { action: "clashes"; result: TransferResult }
   | { action: "delete"; entries: readonly FileEntry[] };
 
 const subject = (entries: readonly FileEntry[]) =>
@@ -76,6 +79,16 @@ export function TransferDialog({
   actions: ReturnType<typeof useFileActions>;
   onClose: () => void;
 }) {
+  if (dialog?.action === "clashes")
+    return (
+      <DestinationPicker
+        operation={dialog.result.operation}
+        entries={dialog.result.clashes.map((clash) => clash.source)}
+        resume={dialog.result}
+        actions={actions}
+        onClose={onClose}
+      />
+    );
   if (dialog?.action !== "move" && dialog?.action !== "copy") return null;
   return (
     <DestinationPicker

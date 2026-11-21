@@ -5,7 +5,11 @@ import { cn } from "@/lib/utils";
 import { TransferDialog } from "../files/entry-dialogs";
 import { EntriesView } from "../files/entries-view";
 import type { FileEntry } from "../files/types";
-import { useEntryDialog } from "../files/use-entry-dialog";
+import {
+  useClashChoices,
+  useClashHandoff,
+  useEntryDialog,
+} from "../files/use-entry-dialog";
 import { useFileActions } from "../files/use-file-actions";
 import { useFileDrag } from "../files/use-file-drag";
 import { Highlighted, parentLabel } from "./highlight";
@@ -42,12 +46,18 @@ export function SearchResultsPage({ query }: { query: string }) {
     },
     [byPath],
   );
-  const actions = useFileActions({ currentPath: "", includeStats: true });
+  const clashHandoff = useClashHandoff();
+  const actions = useFileActions({
+    currentPath: "",
+    includeStats: true,
+    onClashes: clashHandoff.onClashes,
+  });
   const drag = useFileDrag(actions);
   const { selection: dialog, select: onDialog } = useEntryDialog(
     "search",
     actions.recordVisit,
   );
+  useClashChoices(clashHandoff, onDialog);
   const title = `Search: ${query}`;
   // Typo and abbreviation matches always rank last, so a heading can separate them.
   const sections = useMemo(() => {

@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { toast } from "@/lib/toast";
 
 import { queryClient, trpcClient } from "@/lib/trpc";
@@ -84,12 +84,22 @@ function downloadFrame() {
 type UseFileActionsOptions = {
   currentPath: string;
   includeStats: boolean;
+  /**
+   * Takes a move made without the picker whose names clash in the destination, to offer the
+   * choices; see `useClashHandoff`. Without it, the report offers Keep both.
+   */
+  onClashes?: (result: TransferResult) => void;
 };
 
 export function useFileActions({
   currentPath,
   includeStats,
+  onClashes,
 }: UseFileActionsOptions) {
+  const clashes = useRef(onClashes);
+  useEffect(() => {
+    clashes.current = onClashes;
+  });
   const createFolder = useCallback(
     async (name: string) => {
       try {
@@ -216,9 +226,21 @@ export function useFileActions({
     [navigate, transferEntries],
   );
 
+  /**
+   * Move without the picker, as drops and Move up one level do. Name clashes go to the page's
+   * picker, which reports the whole move once they are decided; otherwise this reports it.
+   */
   const moveEntries = useCallback(
-    async (entries: readonly FileEntry[], destinationPath: string) =>
-      reportTransfer(await transferEntries("move", entries, destinationPath)),
+    async (entries: readonly FileEntry[], destinationPath: string) => {
+      const result = await transferEntries("move", entries, destinationPath);
+      const resolve = clashes.current;
+      if (result.clashes.length && resolve) {
+        invalidateFileQueries();
+        resolve(result);
+        return result;
+      }
+      return reportTransfer(result);
+    },
     [reportTransfer, transferEntries],
   );
 

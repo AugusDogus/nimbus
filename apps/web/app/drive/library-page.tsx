@@ -4,7 +4,11 @@ import { trpcClient } from "@/lib/trpc";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { TransferDialog } from "./files/entry-dialogs";
 import { EntriesView } from "./files/entries-view";
-import { useEntryDialog } from "./files/use-entry-dialog";
+import {
+  useClashChoices,
+  useClashHandoff,
+  useEntryDialog,
+} from "./files/use-entry-dialog";
 import { useFileActions } from "./files/use-file-actions";
 import { useFileDrag } from "./files/use-file-drag";
 import { DriveRoot } from "@nimbus/api/drive-root";
@@ -31,12 +35,18 @@ export function LibraryPage({
       : (bookmarks.data ?? []).filter(
           (entry) => kind !== "starred" || entry.starred,
         );
-  const actions = useFileActions({ currentPath: "", includeStats: true });
+  const clashHandoff = useClashHandoff();
+  const actions = useFileActions({
+    currentPath: "",
+    includeStats: true,
+    onClashes: clashHandoff.onClashes,
+  });
   const drag = useFileDrag(actions);
   const { selection: dialog, select: onDialog } = useEntryDialog(
     kind,
     actions.recordVisit,
   );
+  useClashChoices(clashHandoff, onDialog);
   const title =
     kind === "shared"
       ? "Shared with me"
