@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { openSync } from "node:fs";
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -16,12 +17,15 @@ await writeFile(manifest, JSON.stringify({ dataRoot: data }));
 // CI builds first. Exercise that build without compilation delays during tests. Locally the
 // development server and Vite run, on a Vite port derived from the test port.
 const production = process.env.CI === "true";
+// CI keeps the server's output in a file to upload when a test fails; Playwright drops its stdout.
+const logFile = process.env.NIMBUS_E2E_SERVER_LOG;
+const output = logFile ? openSync(logFile, "a") : "inherit";
 const child = Bun.spawn(
   ["bun", production ? "server/start.ts" : "server/dev.ts"],
   {
     cwd: app,
-    stdout: "inherit",
-    stderr: "inherit",
+    stdout: output,
+    stderr: output,
     env: {
       ...process.env,
       NODE_ENV: production ? "production" : "development",
