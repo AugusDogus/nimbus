@@ -53,11 +53,12 @@ export function SearchResultsPage({ query }: { query: string }) {
     onClashes: clashHandoff.onClashes,
   });
   const drag = useFileDrag(actions);
-  const { selection: dialog, select: onDialog } = useEntryDialog(
-    "search",
-    actions.recordVisit,
-  );
-  useClashChoices(clashHandoff, onDialog);
+  const {
+    selection: dialog,
+    select: onDialog,
+    offer,
+  } = useEntryDialog("search", actions.recordVisit);
+  useClashChoices(clashHandoff, offer);
   const title = `Search: ${query}`;
   // Typo and abbreviation matches always rank last, so a heading can separate them.
   const sections = useMemo(() => {

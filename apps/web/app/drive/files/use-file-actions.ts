@@ -85,10 +85,11 @@ type UseFileActionsOptions = {
   currentPath: string;
   includeStats: boolean;
   /**
-   * Takes a move made without the picker whose names clash in the destination, to offer the
-   * choices; see `useClashHandoff`. Without it, the report offers Keep both.
+   * Offered a move made without the picker whose names clash in the destination, to show the
+   * choices; says whether it took it (see `useClashHandoff`). A move it does not take, or any
+   * without it, is reported with Keep both.
    */
-  onClashes?: (result: TransferResult) => void;
+  onClashes?: (result: TransferResult) => boolean;
 };
 
 export function useFileActions({
@@ -169,6 +170,12 @@ export function useFileActions({
 
   const navigate = useNavigate();
 
+  // Every transfer the server may have carried out ends in a report the person can reach,
+  // whatever the page was doing when its answer arrived. Each transfer runs through
+  // `transferEntries`, and its result goes to exactly one owner: the picker that started it
+  // (or was opened fresh for its clashes), which reports when it closes, or `reportTransfer`,
+  // straight away. A result is never handed to UI that did not take it.
+
   /**
    * Move or copy `entries` into `destinationPath` without reporting. `clash` says what happens
    * to a taken name (see `files.move`); `names` gives single items a name of their own.
@@ -222,6 +229,10 @@ export function useFileActions({
         TransferReport.show([result, ...also], {
           refresh: invalidateFileQueries,
           open: (folder) => void navigate({ href: fileHref(folder) }),
+          // Opens the picker at the clashes, when the page is shown with no dialog open.
+          choose: clashes.current
+            ? (earlier) => clashes.current?.(earlier) ?? false
+            : undefined,
           keepBoth: (earlier) =>
             void Promise.all(
               earlier.map((result) =>
@@ -241,16 +252,16 @@ export function useFileActions({
   );
 
   /**
-   * Move without the picker, as drops and Move up one level do. Name clashes go to the page's
-   * picker, which reports the whole move once they are decided; otherwise this reports it.
+   * Move without the picker, as drops and Move up one level do. Name clashes go to a picker
+   * opened for them, which reports the whole move once they are decided. When the page cannot
+   * open one, such as while another dialog is open or after the person left the page, this
+   * reports the move at once, with Undo for what moved and the choices for the clashes.
    */
   const moveEntries = useCallback(
     async (entries: readonly FileEntry[], destinationPath: string) => {
       const result = await transferEntries("move", entries, destinationPath);
-      const resolve = clashes.current;
-      if (result.clashes.length && resolve) {
+      if (result.clashes.length && clashes.current?.(result)) {
         invalidateFileQueries();
-        resolve(result);
         return result;
       }
       return reportTransfer(result);

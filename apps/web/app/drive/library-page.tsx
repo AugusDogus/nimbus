@@ -42,11 +42,12 @@ export function LibraryPage({
     onClashes: clashHandoff.onClashes,
   });
   const drag = useFileDrag(actions);
-  const { selection: dialog, select: onDialog } = useEntryDialog(
-    kind,
-    actions.recordVisit,
-  );
-  useClashChoices(clashHandoff, onDialog);
+  const {
+    selection: dialog,
+    select: onDialog,
+    offer,
+  } = useEntryDialog(kind, actions.recordVisit);
+  useClashChoices(clashHandoff, offer);
   const title =
     kind === "shared"
       ? "Shared with me"

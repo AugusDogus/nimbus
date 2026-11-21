@@ -122,6 +122,11 @@ export type ReportHandlers = {
   /** Refresh what the page shows after files changed. */
   refresh: () => void;
   open: (folder: string) => void;
+  /**
+   * Open the picker at `result`'s clashes, to rename or keep both; says whether it opened.
+   * Absent where no page can show the picker.
+   */
+  choose?: (result: TransferResult) => boolean;
   /** Transfer the clashing items of each result again, keeping both, and report it once. */
   keepBoth: (results: readonly TransferResult[]) => void;
 };
@@ -292,6 +297,25 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
       label: "Keep both",
       run: () => handlers.keepBoth(clashing),
     });
+  const [onlyClashing, ...alsoClashing] = clashing;
+  const { choose } = handlers;
+  if (onlyClashing && alsoClashing.length === 0 && choose) {
+    // Only the clashes go to the picker: what moved is this report's to undo.
+    const asked: TransferResult = {
+      ...onlyClashing,
+      transferred: [],
+      skipped: [],
+      failed: [],
+      alreadyThere: [],
+    };
+    actions.push({
+      label: onlyClashing.clashes.length === 1 ? "Rename…" : "Choose…",
+      // A page that cannot show the picker now leaves the choice in a report again.
+      run: () => {
+        if (!choose(asked)) show([asked], handlers);
+      },
+    });
+  }
   if (others.length)
     actions.push({
       label: "Details",

@@ -37,15 +37,32 @@ export function useEntryDialog(
     scope: string;
     dialog: EntryDialog;
   } | null>(null);
+  // What is open as of the last call, before React renders it: two calls in one tick see it.
+  const latest = useRef(open);
   const select = useCallback(
     (dialog: EntryDialog | null) => {
       if (dialog !== null) lastOpener = openerNow();
-      setOpen(dialog === null ? null : { scope, dialog });
+      const next = dialog === null ? null : { scope, dialog };
+      latest.current = next;
+      setOpen(next);
       if (dialog?.action === "preview") void recordVisit(dialog.entry.path);
     },
     [scope, recordVisit],
   );
-  return { selection: open?.scope === scope ? open.dialog : null, select };
+  /** Open `dialog` only when no dialog of this view is open; says whether it did. */
+  const offer = useCallback(
+    (dialog: EntryDialog) => {
+      if (latest.current?.scope === scope) return false;
+      select(dialog);
+      return true;
+    },
+    [scope, select],
+  );
+  return {
+    selection: open?.scope === scope ? open.dialog : null,
+    select,
+    offer,
+  };
 }
 
 /**
@@ -53,15 +70,17 @@ export function useEntryDialog(
  * Move up one level) open the picker at the destination, showing the clashes with the same
  * choices: rename, keep both, skip. A page's file actions are created before its dialog, so
  * they reach it through this hand-off: pass `onClashes` to `useFileActions`, then connect the
- * page's dialog with `useClashChoices`.
+ * page's dialog with `useClashChoices`. The page takes a move only while it is shown and no
+ * other dialog is open; `onClashes` says whether it took it, and a move it did not take is
+ * reported instead, so it is never lost.
  */
 export function useClashHandoff() {
-  const target = useRef<((result: TransferResult) => void) | null>(null);
+  const target = useRef<((result: TransferResult) => boolean) | null>(null);
   return useMemo(
     () => ({
-      onClashes: (result: TransferResult) => target.current?.(result),
-      /** Send clashes to `choose` from now on. */
-      connect: (choose: (result: TransferResult) => void) => {
+      onClashes: (result: TransferResult) => target.current?.(result) ?? false,
+      /** Send clashes to `choose` from now on, or to nothing. */
+      connect: (choose: ((result: TransferResult) => boolean) | null) => {
         target.current = choose;
       },
     }),
@@ -69,12 +88,13 @@ export function useClashHandoff() {
   );
 }
 
-/** Opens `select`'s picker for the clashes `handoff` receives. */
+/** Opens a picker with `offer` for the clashes `handoff` receives, while the page is shown. */
 export function useClashChoices(
   handoff: ReturnType<typeof useClashHandoff>,
-  select: (dialog: EntryDialog) => void,
+  offer: (dialog: EntryDialog) => boolean,
 ) {
   useEffect(() => {
-    handoff.connect((result) => select({ action: "clashes", result }));
-  }, [handoff, select]);
+    handoff.connect((result) => offer({ action: "clashes", result }));
+    return () => handoff.connect(null);
+  }, [handoff, offer]);
 }

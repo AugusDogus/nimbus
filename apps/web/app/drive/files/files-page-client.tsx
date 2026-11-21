@@ -83,11 +83,12 @@ export function FilesPageClient() {
     },
   });
   const { recordVisit } = actions;
-  const { selection: dialog, select: onDialog } = useEntryDialog(
-    currentPath,
-    recordVisit,
-  );
-  useClashChoices(clashHandoff, onDialog);
+  const {
+    selection: dialog,
+    select: onDialog,
+    offer,
+  } = useEntryDialog(currentPath, recordVisit);
+  useClashChoices(clashHandoff, offer);
   const navigate = useNavigate();
   useEffect(() => {
     if (isAuthed && currentPath) void recordVisit(currentPath);
