@@ -18,6 +18,7 @@ import {
   ItemIdentity,
   RECEIPT_LIFETIME_MS,
   TransferReceipt,
+  USED_RECEIPT_LIMIT,
 } from "./transfer-receipt";
 
 const fields = {
@@ -85,6 +86,21 @@ describe("transfer receipts", () => {
     expect(
       TransferReceipt.verify(receipt, "user-1", 1_001 + RECEIPT_LIFETIME_MS),
     ).toEqual({ ok: false, reason: "expired" });
+  });
+
+  it("remember undone receipts within a bound, forgetting only expired ones", () => {
+    TransferReceipt.forgetUsedForTest();
+    const old = TransferReceipt.issue(fields, 1_000);
+    TransferReceipt.markUsed(old);
+    expect(TransferReceipt.wasUsed(old)).toBe(true);
+    for (let index = 1; index < USED_RECEIPT_LIMIT; index++)
+      TransferReceipt.markUsed(TransferReceipt.issue(fields, 50_000));
+    // Full of live receipts: no room, so undo is refused rather than one forgotten.
+    expect(TransferReceipt.canMarkUsed(50_000)).toBe(false);
+    // Once the first has expired anyway, it makes room.
+    expect(TransferReceipt.canMarkUsed(1_001 + RECEIPT_LIFETIME_MS)).toBe(true);
+    expect(TransferReceipt.wasUsed(old)).toBe(false);
+    TransferReceipt.forgetUsedForTest();
   });
 
   it("parse only well-formed receipts", () => {

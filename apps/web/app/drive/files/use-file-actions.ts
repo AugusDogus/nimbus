@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { toast } from "@/lib/toast";
 
@@ -7,7 +8,7 @@ import { fileListQueryOptions } from "./use-file-list";
 
 import { BulkResult } from "./bulk-result";
 import { TransferResult } from "./transfer-result";
-import { FileEntry } from "./types";
+import { fileHref, FileEntry } from "./types";
 
 function invalidateFileQueries() {
   void queryClient.invalidateQueries({ queryKey: ["files.list"] });
@@ -15,6 +16,17 @@ function invalidateFileQueries() {
   void queryClient.invalidateQueries({ queryKey: ["trash"] });
   void queryClient.invalidateQueries({ queryKey: ["shares"] });
   void queryClient.invalidateQueries({ queryKey: ["files.storage"] });
+}
+
+/** Undo every transferred item of `result`, and say what happened to each. */
+async function undoTransfer(result: TransferResult) {
+  // Loaded on demand: most transfers are never undone.
+  const { TransferUndo } = await import("./transfer-undo");
+  const items = await TransferUndo.run(result);
+  invalidateFileQueries();
+  const summary = TransferUndo.describe(result, items);
+  if (summary.ok) toast.success(summary.message);
+  else toast.error(summary.message);
 }
 
 function buildRenamedPath(entryPath: string, newName: string) {
@@ -124,22 +136,6 @@ export function useFileActions({
     [currentPath, includeStats],
   );
 
-  const moveEntry = useCallback(
-    async (sourcePath: string, destinationPath: string) => {
-      try {
-        await trpcClient.files.move.mutate({ sourcePath, destinationPath });
-        invalidateFileQueries();
-        toast.success("Moved successfully");
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Failed to move.";
-        toast.error(message);
-        throw error;
-      }
-    },
-    [],
-  );
-
   const deleteEntry = useCallback(async (entryPath: string) => {
     try {
       await trpcClient.files.delete.mutate({ path: entryPath });
@@ -171,13 +167,30 @@ export function useFileActions({
     return result;
   };
 
-  const reportTransfer = (result: TransferResult) => {
-    invalidateFileQueries();
-    const summary = TransferResult.describe(result);
-    if (summary.ok) toast.success(summary.message);
-    else toast.error(summary.message);
-    return result;
-  };
+  const navigate = useNavigate();
+  const reportTransfer = useCallback(
+    (result: TransferResult) => {
+      invalidateFileQueries();
+      const summary = TransferResult.describe(result);
+      // Whatever reached the destination can be undone, also after a partial failure.
+      const options = result.transferred.length
+        ? {
+            actions: [
+              { label: "Undo", run: () => void undoTransfer(result) },
+              {
+                label: "Open folder",
+                run: () =>
+                  void navigate({ href: fileHref(result.destination) }),
+              },
+            ],
+          }
+        : undefined;
+      if (summary.ok) toast.success(summary.message, options);
+      else toast.error(summary.message, options);
+      return result;
+    },
+    [navigate],
+  );
 
   const moveEntries = useCallback(
     async (entries: readonly FileEntry[], destinationPath: string) =>
@@ -193,7 +206,7 @@ export function useFileActions({
             }),
         ),
       ),
-    [],
+    [reportTransfer],
   );
 
   const copyEntries = useCallback(
@@ -210,7 +223,7 @@ export function useFileActions({
             }),
         ),
       ),
-    [],
+    [reportTransfer],
   );
 
   const trashEntries = useCallback(
@@ -308,7 +321,6 @@ export function useFileActions({
   return {
     createFolder,
     renameEntry,
-    moveEntry,
     moveEntries,
     copyEntries,
     trashEntries,

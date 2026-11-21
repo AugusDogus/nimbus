@@ -277,16 +277,12 @@ function DestinationDialog({
           onSubmit={(event) => {
             event.preventDefault();
             void submit(async () => {
-              const [entry, ...rest] = entries;
-              if (action === "move" && entry && rest.length === 0) {
-                await actions.moveEntry(entry.path, destination);
-                return true;
-              }
-              // The summary toast reports partial failures.
-              if (action === "move")
-                await actions.moveEntries(entries, destination);
-              else await actions.copyEntries(entries, destination);
-              return true;
+              // The summary toast reports partial failures, with Undo for what moved.
+              const result =
+                action === "move"
+                  ? await actions.moveEntries(entries, destination)
+                  : await actions.copyEntries(entries, destination);
+              return result.transferred.length > 0;
             });
           }}
         >

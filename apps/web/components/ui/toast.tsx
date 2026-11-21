@@ -12,8 +12,11 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
+/** Buttons a toast offers besides closing, such as Undo. */
+type ToastData = { actions?: readonly { label: string; run: () => void }[] };
+
 /** The app's toasts. Base UI drops toasts added before a `Toaster` mounts and subscribes. */
-const toast = ToastPrimitive.createToastManager();
+const toast = ToastPrimitive.createToastManager<ToastData>();
 
 function ToastProvider({ ...props }: ToastPrimitive.Provider.Props) {
   return <ToastPrimitive.Provider {...props} />;
@@ -184,7 +187,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
 }
 
 function ToastList() {
-  const { toasts } = ToastPrimitive.useToastManager();
+  const { toasts, close } = ToastPrimitive.useToastManager<ToastData>();
 
   // Toasts that time out need no close button: they also swipe away, or close with Escape after
   // F6 moves focus to them. One that stays until dismissed (timeout 0) has one.
@@ -195,6 +198,24 @@ function ToastList() {
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <ToastTitle />
           <ToastDescription />
+          {toastItem.data?.actions && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {toastItem.data.actions.map((action) => (
+                <Button
+                  key={action.label}
+                  variant="outline"
+                  size="sm"
+                  className="touch-hit"
+                  onClick={() => {
+                    close(toastItem.id);
+                    action.run();
+                  }}
+                >
+                  {action.label}
+                </Button>
+              ))}
+            </div>
+          )}
         </div>
         <ToastAction />
         {toastItem.timeout === 0 && <ToastClose className="-my-1 -mr-2" />}

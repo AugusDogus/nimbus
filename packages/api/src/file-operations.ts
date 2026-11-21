@@ -27,7 +27,11 @@ import {
 } from "./safe-path";
 import { PendingChanges } from "./pending-changes";
 import { Staging } from "./staging";
-import { ItemIdentity } from "./transfer-receipt";
+import {
+  ItemIdentity,
+  TransferReceipt,
+  type ReceiptRefusal,
+} from "./transfer-receipt";
 import { VacantPath } from "./vacant-path";
 
 export async function safePath(requested: string) {
@@ -609,6 +613,162 @@ export async function moveItem(
       ),
     { trash: [trashId] },
   );
+}
+
+/** Why undoing a transfer changed nothing for one item. */
+export type UndoRefusal =
+  | ReceiptRefusal
+  /** Something other than the transferred item is where it ended up. */
+  | "changed"
+  /** Nothing is where it ended up. */
+  | "missing"
+  /** A move cannot go back: something else now has the item's original name. */
+  | "original-taken"
+  /** The account may no longer change the item or the folder it came from. */
+  | "forbidden"
+  /** Undone already: a receipt works once. */
+  | "used"
+  /** Nimbus is remembering as many undone receipts as it can; see `USED_RECEIPT_LIMIT`. */
+  | "busy"
+  /** Anything else the move or trash refused, with its own reason. */
+  | "refused";
+
+export type UndoOutcome =
+  | { kind: "undone"; receipt: TransferReceipt }
+  | {
+      kind: "kept";
+      receipt: TransferReceipt;
+      reason: UndoRefusal;
+      message: string;
+    };
+
+const quoted = (relative: string) => `“${path.posix.basename(relative)}”`;
+const folderOf = (relative: string) => {
+  const parent = path.posix.dirname(relative);
+  return parent === "." ? "the top folder" : quoted(parent);
+};
+
+/** What happened to an item whose transfer was not undone, and where it is. */
+function keptMessage(
+  receipt: TransferReceipt,
+  reason: UndoRefusal,
+  cause = "",
+) {
+  const item = quoted(receipt.from);
+  const stays =
+    receipt.operation === "move"
+      ? `${item} stayed in ${folderOf(receipt.to)}`
+      : `The copy ${quoted(receipt.to)} was kept`;
+  switch (reason) {
+    case "forged":
+    case "other-account":
+      return `This undo was not issued to your account, so nothing was changed.`;
+    case "expired":
+      return `${stays}: it can only be undone for an hour after it happened. Move or delete it yourself.`;
+    case "restarted":
+      return `${stays}: Nimbus restarted since, so this change can no longer be undone. ${receipt.operation === "move" ? "Move it back" : "Delete it"} yourself.`;
+    case "used":
+      return "This change was already undone, so nothing more was changed.";
+    case "busy":
+      return `${stays}: Nimbus is undoing too many changes at once. Nothing was changed; try again in a few minutes.`;
+    case "changed":
+      return receipt.operation === "move"
+        ? `${item} was changed since and stayed in ${folderOf(receipt.to)}.`
+        : `The copy ${quoted(receipt.to)} was changed since, so it was kept.`;
+    case "missing":
+      return receipt.operation === "move"
+        ? `${item} is no longer in ${folderOf(receipt.to)}, so nothing was moved back.`
+        : `The copy ${quoted(receipt.to)} is no longer there, so there was nothing to remove.`;
+    case "original-taken":
+      return `Something else is now called ${item} in ${folderOf(receipt.from)}, so ${item} stayed in ${folderOf(receipt.to)}.`;
+    case "forbidden":
+    case "refused":
+      return `${stays}. ${cause}`;
+  }
+}
+
+const kept = (
+  receipt: TransferReceipt,
+  reason: UndoRefusal,
+  cause?: string,
+): UndoOutcome => ({
+  kind: "kept",
+  receipt,
+  reason,
+  message: keptMessage(receipt, reason, cause),
+});
+
+/**
+ * Undo one move or copy from its receipt, checking everything again as of now: the receipt
+ * was issued to this account and is recent, the same item is still where the transfer left it,
+ * and the account may still make the reverse change. A move goes back only to its vacant
+ * original path; a copy goes to trash, where it stays recoverable. Anything that no longer
+ * matches is left alone, with the reason. Never throws for an expected refusal.
+ */
+export async function undoTransfer(
+  store: DriveStore,
+  access: Access,
+  receipt: TransferReceipt,
+): Promise<UndoOutcome> {
+  const verified = TransferReceipt.verify(receipt, access.user.id);
+  if (!verified.ok) return kept(receipt, verified.reason);
+  try {
+    const landed = lexicalPath(receipt.to);
+    const original = lexicalPath(receipt.from);
+    // Before anything is looked up, as a move or trash checks, so nothing reveals what exists.
+    access.require(landed.relative, "write");
+    if (receipt.operation === "move")
+      access.require(original.relative, "write");
+    const trashId = randomUUID();
+    return await mutateFiles(
+      receipt.operation === "move"
+        ? [landed.relative, original.relative]
+        : [landed.relative],
+      { userId: access.user.id },
+      async () => {
+        const current = await getAccess(store, access.user.id);
+        current.require(landed.relative, "write");
+        // Inside the scope, so two undos of one receipt cannot both pass.
+        if (TransferReceipt.wasUsed(receipt)) return kept(receipt, "used");
+        if (!TransferReceipt.canMarkUsed()) return kept(receipt, "busy");
+        const at = await safePath(landed.relative);
+        // A folder moved back may have gained or lost entries since; a copy is trashed only
+        // exactly as it was made, never with work added to it.
+        const match = await ItemIdentity.matchAt(
+          at.absolute,
+          receipt.identity,
+          receipt.operation === "move" ? "entries" : "exact",
+        );
+        if (match !== "same") return kept(receipt, match);
+        if (receipt.operation === "copy") {
+          await trashUnlocked(store, current, at.relative, trashId);
+          TransferReceipt.markUsed(receipt);
+          return { kind: "undone", receipt } satisfies UndoOutcome;
+        }
+        current.require(original.relative, "write");
+        const back = await safePath(original.relative);
+        if (await statOrNull(back.absolute))
+          return kept(receipt, "original-taken");
+        await moveUnlocked(
+          store,
+          current,
+          at.relative,
+          back.relative,
+          "refuse",
+          trashId,
+        );
+        TransferReceipt.markUsed(receipt);
+        return { kind: "undone", receipt } satisfies UndoOutcome;
+      },
+      { trash: [trashId] },
+    );
+  } catch (error) {
+    if (!(error instanceof TRPCError)) throw error;
+    if (error.code === "FORBIDDEN")
+      return kept(receipt, "forbidden", error.message);
+    if (error.code === "NOT_FOUND") return kept(receipt, "missing");
+    return kept(receipt, "refused", error.message);
+  }
 }
 
 export async function trashItem(

@@ -78,9 +78,9 @@ for (const view of ["list", "grid"] as const) {
     });
     await sourceConflict.dragTo(target);
     // One report, which stays until closed and names the item; the reason is the server's.
-    const failure = page
-      .getByRole("alert")
-      .filter({ hasText: `Nothing was moved. “${conflict}”` });
+    const failure = page.getByRole("alert").filter({
+      hasText: `Nothing was moved to ${destination}. “${conflict}”`,
+    });
     await expect(failure).toHaveCount(1);
     await expect(page.getByRole("alert")).toHaveCount(1);
     await page.locator('[aria-label="Close toast"]').click();

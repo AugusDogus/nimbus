@@ -133,7 +133,45 @@ function verify(
   return { ok: true };
 }
 
-export const TransferReceipt = { schema, issue, verify } as const;
+/**
+ * Receipts already undone, by id, until they expire anyway. Kept in memory: a restart ends
+ * every receipt issued before it (`restarted`), so nothing here needs to outlive the process,
+ * and undoing writes nothing more to the database than the change itself.
+ */
+const used = new Map<string, number>();
+
+/** Receipts remembered as undone at most: more than an hour of undos on one server. */
+export const USED_RECEIPT_LIMIT = 100_000;
+
+/** Whether `receipt` was undone already. */
+const wasUsed = (receipt: TransferReceipt) => used.has(receipt.id);
+
+/**
+ * Room to remember one more undone receipt, after forgetting those expired anyway. Without
+ * it the caller refuses to undo rather than forget a receipt that still works.
+ */
+function canMarkUsed(now = Date.now()) {
+  if (used.size < USED_RECEIPT_LIMIT) return true;
+  for (const [id, expires] of used) if (expires < now) used.delete(id);
+  return used.size < USED_RECEIPT_LIMIT;
+}
+
+/** Remember `receipt` as undone until it would have expired. */
+const markUsed = (receipt: TransferReceipt) =>
+  void used.set(receipt.id, receipt.issuedAt + RECEIPT_LIFETIME_MS);
+
+/** Forget every undone receipt, for tests. */
+const forgetUsedForTest = () => used.clear();
+
+export const TransferReceipt = {
+  schema,
+  issue,
+  verify,
+  wasUsed,
+  canMarkUsed,
+  markUsed,
+  forgetUsedForTest,
+} as const;
 
 type IdentityStats = Pick<
   BigIntStats,

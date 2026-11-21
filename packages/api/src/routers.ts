@@ -23,6 +23,8 @@ import {
   requireExisting,
   safePath,
   trashItem,
+  undoTransfer,
+  type UndoOutcome,
 } from "./file-operations";
 import {
   managementRouter,
@@ -104,6 +106,9 @@ const defaultPreferences: UserPreferences = {
   sortDirection: "asc",
   groupByType: true,
 };
+
+/** Receipts one undo request may carry; clients send more in several requests. */
+export const UNDO_BATCH = 500;
 
 /** How often a live event stream re-checks its session while events arrive. */
 export const SESSION_RECHECK_MS = 1000;
@@ -354,6 +359,23 @@ export const appRouter = router({
             if (!nameTaken) throw error;
           }
         }
+      }),
+    /**
+     * Undo moves and copies from their receipts, one after another, each checked again as of
+     * now (see `undoTransfer`). Each outcome says what happened to its item.
+     */
+    undo: protectedProcedure
+      .input(
+        z.object({
+          receipts: z.array(TransferReceipt.schema).min(1).max(UNDO_BATCH),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const outcomes: UndoOutcome[] = [];
+        // Last transferred first, so a move into a folder moved in the same batch unwinds in order.
+        for (const receipt of [...input.receipts].reverse())
+          outcomes.push(await undoTransfer(ctx.drive, ctx.access, receipt));
+        return { outcomes: outcomes.reverse() };
       }),
     delete: protectedProcedure
       .input(z.object({ path: z.string() }))
