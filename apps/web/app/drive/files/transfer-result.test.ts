@@ -158,4 +158,37 @@ describe("TransferResult", () => {
         "Moved 3 items to archive. 2 got new names because the name was taken.",
     });
   });
+
+  it("names the items a move left where they already were", async () => {
+    const result = await TransferResult.run(
+      "move",
+      "archive",
+      [entry("incoming.txt")],
+      async (item) => ({
+        kind: "transferred",
+        name: item.name,
+        path: `archive/${item.name}`,
+        receipt: receipt(item.path, `archive/${item.name}`),
+      }),
+    );
+    const mixed = {
+      ...result,
+      alreadyThere: [entry("already.txt", "archive")],
+    };
+    expect(TransferReport.describe(mixed)).toEqual({
+      ok: true,
+      message:
+        "Moved “incoming.txt” to archive. “already.txt” was already there.",
+    });
+    expect(
+      TransferReport.describe({
+        ...mixed,
+        transferred: [],
+        alreadyThere: [entry("a.txt", "archive"), entry("b.txt", "archive")],
+      }),
+    ).toEqual({
+      ok: true,
+      message: "Nothing was moved to archive. 2 items were already there.",
+    });
+  });
 });

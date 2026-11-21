@@ -185,13 +185,16 @@ export function useFileActions({
     ) => {
       // Loaded with the first transfer, like the picker and the report.
       const { TransferResult } = await import("./transfer-result");
-      return TransferResult.run(
+      const items = FileEntry.outermost(entries);
+      // Items already in the destination stay as they are, and the result says so; the
+      // others move there.
+      const moving =
+        operation === "move" ? DropTarget.notIn(items, destinationPath) : items;
+      const staying = items.filter((item) => !moving.includes(item));
+      const result = await TransferResult.run(
         operation,
         destinationPath,
-        // Items already in the destination stay as they are; the others move there.
-        operation === "move"
-          ? DropTarget.notIn(FileEntry.outermost(entries), destinationPath)
-          : FileEntry.outermost(entries),
+        moving,
         (entry) =>
           trpcClient.files[operation].mutate({
             sourcePath: entry.path,
@@ -200,6 +203,7 @@ export function useFileActions({
             clash: options.clash,
           }),
       );
+      return { ...result, alreadyThere: staying };
     },
     [],
   );

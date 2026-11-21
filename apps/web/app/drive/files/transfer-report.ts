@@ -60,10 +60,19 @@ function describe(result: TransferResult, top = "") {
   const total =
     result.transferred.length + result.clashes.length + result.failed.length;
   const done = result.transferred.length;
-  const skipped = result.skipped.length
-    ? ` Skipped ${count(result.skipped.length)} whose ${result.skipped.length === 1 ? "name was" : "names were"} taken.`
-    : "";
-  if (done === total && skipped)
+  const [stayed, ...alsoStayed] = result.alreadyThere;
+  const skipped = `${
+    result.skipped.length
+      ? ` Skipped ${count(result.skipped.length)} whose ${result.skipped.length === 1 ? "name was" : "names were"} taken.`
+      : ""
+  }${
+    stayed
+      ? alsoStayed.length
+        ? ` ${result.alreadyThere.length.toLocaleString()} items were already there.`
+        : ` “${stayed.name}” was already there.`
+      : ""
+  }`;
+  if (done === total && (result.skipped.length > 0 || (skipped && done === 0)))
     return {
       ok: true,
       message: done
@@ -75,23 +84,24 @@ function describe(result: TransferResult, top = "") {
     if (only && others.length === 0)
       return {
         ok: true,
-        message:
+        message: `${
           only.name === only.source.name
             ? `${verb.done} “${only.name}” to ${place}.`
-            : `${verb.done} “${only.source.name}” to ${place} as “${only.name}”.`,
+            : `${verb.done} “${only.source.name}” to ${place} as “${only.name}”.`
+        }${skipped}`,
       } as const;
     const renamed = result.transferred.filter(
       (item) => item.name !== item.source.name,
     ).length;
     return {
       ok: true,
-      message: `${verb.done} ${count(total)} to ${place}.${renamed ? ` ${renamed === 1 ? "1 got a new name" : `${renamed.toLocaleString()} got new names`} because the name was taken.` : ""}`,
+      message: `${verb.done} ${count(total)} to ${place}.${renamed ? ` ${renamed === 1 ? "1 got a new name" : `${renamed.toLocaleString()} got new names`} because the name was taken.` : ""}${skipped}`,
     } as const;
   }
   const head = done
     ? `${verb.done} ${done.toLocaleString()} of ${count(total)} to ${place}.`
     : `Nothing was ${verb.none} to ${place}.`;
-  const parts = [head];
+  const parts = [head + skipped];
   const [clash, ...otherClashes] = result.clashes;
   if (clash)
     parts.push(

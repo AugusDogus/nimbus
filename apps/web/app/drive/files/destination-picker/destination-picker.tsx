@@ -485,7 +485,11 @@ export function DestinationPicker({
     if (!eligibility || !destination) return "Checking what you can do here…";
     if (eligibility.kind === "refused")
       return `${DropTarget.hint(eligibility, destination)}.`;
-    return null;
+    const staying =
+      operation === "move"
+        ? DropTarget.alreadyThere(pending, destination)
+        : null;
+    return staying && `${staying}.`;
   })();
   const canSubmit =
     eligibility?.kind === operation &&

@@ -43,6 +43,8 @@ export type TransferResult = {
   /** Clashing items the person chose to leave where they are. */
   skipped: TransferClash[];
   failed: TransferFailure[];
+  /** Items a move left alone because they are in the destination already. */
+  alreadyThere: FileEntry[];
 };
 
 /** Transfer every item, a bounded number at a time (see `BulkResult.each`). */
@@ -60,6 +62,7 @@ async function run(
     clashes: [],
     skipped: [],
     failed: [],
+    alreadyThere: [],
   };
   await BulkResult.each(
     items,

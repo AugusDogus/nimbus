@@ -146,4 +146,19 @@ describe("moving or copying items into a folder", () => {
       ),
     ).toBe("You can only view “shared”, so nothing can go there");
   });
+
+  it("says how many of the items are already in the folder and stay there", () => {
+    const mixed = [...sources, { path: "elsewhere/x.txt" }];
+    expect(DropTarget.alreadyThere(mixed, folder("projects"))).toBe(
+      "2 of 3 items are already in “projects” and stay there",
+    );
+    expect(
+      DropTarget.alreadyThere(
+        [{ path: "projects/a.txt" }, { path: "elsewhere/x.txt" }],
+        folder("projects"),
+      ),
+    ).toBe("1 of 2 items is already in “projects” and stays there");
+    expect(DropTarget.alreadyThere(sources, folder("archive"))).toBeNull();
+    expect(DropTarget.alreadyThere(sources, folder("projects"))).toBeNull();
+  });
 });

@@ -116,6 +116,20 @@ function hint(result: DropVerdict, target: DropTarget) {
   }
 }
 
+/**
+ * Says that some of the items are in the target already and stay there while the others
+ * move, or null when none are, or all are (which `verdict` refuses).
+ */
+function alreadyThere(
+  sources: readonly { path: string }[],
+  target: DropTarget,
+) {
+  const staying = sources.length - notIn(sources, target.path).length;
+  if (staying === 0 || staying === sources.length) return null;
+  const name = `“${DriveRoot.nameOf(target.path)}”`;
+  return `${staying.toLocaleString()} of ${sources.length.toLocaleString()} items ${staying === 1 ? "is" : "are"} already in ${name} and ${staying === 1 ? "stays" : "stay"} there`;
+}
+
 /** Says that part of a selection stays where it is, or null when all of it is dragged. */
 function leftBehind({
   dragged,
@@ -131,6 +145,7 @@ function leftBehind({
 
 export const DropTarget = {
   leftBehind,
+  alreadyThere,
   /** A folder row as a target. Files are not targets. */
   ofEntry: (entry: FileEntry): DropTarget | null =>
     entry.type === "dir"

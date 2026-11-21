@@ -46,6 +46,7 @@ const moved: TransferResult = {
   ],
   clashes: [],
   skipped: [],
+  alreadyThere: [],
   failed: [],
 };
 
@@ -115,6 +116,7 @@ describe("TransferUndo", () => {
       transferred: [transferred("copy", "docs/a.txt", "archive/a (1).txt")],
       clashes: [],
       skipped: [],
+      alreadyThere: [],
       failed: [],
     };
     expect(

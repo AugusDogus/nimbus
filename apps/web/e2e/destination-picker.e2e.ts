@@ -741,3 +741,45 @@ test("roots the picker at Files as each kind of account sees it", async ({
     await homeOnly.memberContext.close();
   }
 });
+
+test("says which items are already in the destination, and reports them as staying there", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Touch multi-selection is covered elsewhere.");
+  const { top, names } = await tree({
+    "archive/already.txt": "already",
+    "docs/incoming.txt": "incoming",
+  });
+  const rpc = await client(context);
+  for (const file of ["archive/already.txt", "docs/incoming.txt"])
+    await rpc.catalog.bookmark.mutate({
+      path: `${top}/${file}`,
+      starred: true,
+    });
+  await page.goto("/starred");
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  for (const name of ["already.txt", "incoming.txt"])
+    await page
+      .getByRole("button", { name, exact: true })
+      .click({ modifiers: [mod] });
+  await page
+    .getByRole("toolbar", { name: "Selected items" })
+    .getByRole("button", { name: "Move", exact: true })
+    .click();
+  const dialog = picker(page);
+  await dialog.getByRole("button", { name: "Up one folder" }).click();
+  await folderRow(dialog, `${top}/archive`).click();
+  await expect(dialog.getByRole("status")).toHaveText(
+    "1 of 2 items is already in “archive” and stays there.",
+  );
+  await dialog.getByRole("button", { name: "Move to “archive”" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(
+    page.getByText(
+      "Moved “incoming.txt” to archive. “already.txt” was already there.",
+    ),
+  ).toBeVisible();
+  expect(await names("archive")).toEqual(["already.txt", "incoming.txt"]);
+});

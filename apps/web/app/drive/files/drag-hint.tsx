@@ -16,7 +16,15 @@ export function DragHint({ drag }: { drag: FileDrag }) {
           skipped: payload.skipped,
         })
       : null;
-  const text = [over && DropTarget.hint(over.verdict, over.target), behind]
+  const staying =
+    payload?.kind === "entries" && over?.verdict.kind === "move"
+      ? DropTarget.alreadyThere(payload.sources, over.target)
+      : null;
+  const text = [
+    over && DropTarget.hint(over.verdict, over.target),
+    staying,
+    behind,
+  ]
     .filter(Boolean)
     .join(". ");
   return (
