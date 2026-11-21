@@ -1,3 +1,4 @@
+import { MoveUp } from "./move-up";
 import { lazyComponent } from "@/components/lazy-component";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -46,7 +47,7 @@ type Props = {
   /** Dragging items onto folders, owned by the page so its other folder targets share it. */
   drag: FileDrag;
   /** The folder above the one shown when items may be moved up there; pages that are not a folder have none. */
-  moveUp?: string | null;
+  moveUp?: MoveUp;
   /** Identifies the folder and view whose scroll position is saved and restored. */
   restoreKey: string;
   /** Accessible name of the collection, such as the folder name. */
@@ -77,7 +78,7 @@ export function EntriesView({
   sections,
   actions,
   drag,
-  moveUp = null,
+  moveUp = MoveUp.none,
   restoreKey,
   label,
   toolbarRef,

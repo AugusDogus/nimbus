@@ -38,6 +38,7 @@ import { DrawerActionItem } from "@/components/drawer-action-item";
 import { starControl, useStarredPaths, type StarredPaths } from "./starred";
 import { FileEntry } from "./types";
 import type { EntryDialog } from "./entry-dialogs";
+import { MoveUp } from "./move-up";
 import type { useFileActions } from "./use-file-actions";
 
 type MenuItem = {
@@ -106,21 +107,33 @@ function starItem(
   };
 }
 
-/** Move `targets` into `moveUp`, the folder above the one shown, without dragging. */
-const moveUpItem = (
+/**
+ * Move `targets` up into the folder above the one shown, without dragging: offered when they may
+ * go there, and disabled in its place while that is not known (see `MoveUp`).
+ */
+const moveUpItems = (
   targets: readonly FileEntry[],
   actions: ReturnType<typeof useFileActions>,
-  moveUp: string,
-): MenuItem => ({
-  label: "Move up one level",
-  icon: CornerLeftUp,
-  select: () => void actions.moveEntries(targets, moveUp),
-});
+  moveUp: MoveUp,
+): MenuItem[] => {
+  if (moveUp.kind === "none") return [];
+  const into = moveUp.kind === "into" ? moveUp.path : null;
+  return [
+    {
+      label: "Move up one level",
+      icon: CornerLeftUp,
+      disabled: into === null,
+      select: () => {
+        if (into !== null) void actions.moveEntries(targets, into);
+      },
+    },
+  ];
+};
 
 /**
  * Actions for one entry, or for every target when the entry is part of a multi-selection.
- * `starred` is what is starred now. `moveUp` is the folder above the one shown when items may
- * be moved there, or null.
+ * `starred` is what is starred now. `moveUp` says whether items may move up into the folder
+ * above the one shown.
  */
 export function entryMenuItems(
   entry: FileEntry,
@@ -128,7 +141,7 @@ export function entryMenuItems(
   actions: ReturnType<typeof useFileActions>,
   open: (dialog: EntryDialog) => void,
   starred: StarredPaths,
-  moveUp: string | null,
+  moveUp: MoveUp,
 ): MenuItem[] {
   if (targets.length > 1) {
     const count = targets.length.toLocaleString();
@@ -152,7 +165,7 @@ export function entryMenuItems(
               icon: FolderInput,
               select: () => open({ action: "move", entries: targets }),
             },
-            ...(moveUp === null ? [] : [moveUpItem(targets, actions, moveUp)]),
+            ...moveUpItems(targets, actions, moveUp),
           ]
         : []),
       ...(can.trash
@@ -214,7 +227,7 @@ export function entryMenuItems(
             icon: FolderInput,
             select: () => open({ action: "move", entries: [entry] }),
           },
-          ...(moveUp === null ? [] : [moveUpItem([entry], actions, moveUp)]),
+          ...moveUpItems([entry], actions, moveUp),
         ]
       : []),
     ...(FileEntry.canTrash(entry)
@@ -326,21 +339,33 @@ export function EntryMenuHost({
   resolve: (path: string) => EntryMenuTarget | null;
   actions: ReturnType<typeof useFileActions>;
   open: (dialog: EntryDialog) => void;
-  /** The folder above the one shown, where items may be moved up to, or null. */
-  moveUp: string | null;
+  /** Whether items may move up into the folder above the one shown (see `MoveUp`). */
+  moveUp: MoveUp;
   /** Return focus to the entry after the menu closes. The grid itself cannot hold focus. */
   onClosed: () => void;
 }) {
   // The last menu stays rendered while it animates closed, in place and with its items.
   const [shown, setShown] = useState(menu);
-  if (menu !== null && menu !== shown) setShown(menu);
+  // What Move up was when the menu opened: its items stay as they opened (see `MoveUp.steady`).
+  const [moveUpAtOpen, setMoveUpAtOpen] = useState(moveUp);
+  if (menu !== null && menu !== shown) {
+    setShown(menu);
+    setMoveUpAtOpen(moveUp);
+  }
   const starred = useStarredPaths(menu !== null);
   // A menu may move items: what does so loads while the person chooses.
   useEffect(() => {
     if (menu !== null) TransferCode.prepare();
   }, [menu]);
   const items = shown
-    ? entryMenuItems(shown.entry, shown.targets, actions, open, starred, moveUp)
+    ? entryMenuItems(
+        shown.entry,
+        shown.targets,
+        actions,
+        open,
+        starred,
+        MoveUp.steady(moveUpAtOpen, moveUp),
+      )
     : [];
   const popup = useRef<HTMLDivElement>(null);
   // The tree around `children` is the same in both modes. Swapping it when the mode changes would

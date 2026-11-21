@@ -1,3 +1,4 @@
+import { MoveUp } from "./move-up";
 import {
   Copy,
   CornerLeftUp,
@@ -8,7 +9,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { EntryDialog } from "./entry-dialogs";
@@ -75,13 +76,16 @@ export function SelectionBar({
   total: number;
   floating: boolean;
   actions: ReturnType<typeof useFileActions>;
-  /** The folder above the one shown, where the selection may be moved up to, or null. */
-  moveUp: string | null;
+  /** Whether the selection may move up into the folder above the one shown (see `MoveUp`). */
+  moveUp: MoveUp;
   onOpen: (dialog: EntryDialog) => void;
   onSelectAll: () => void;
   onClear: () => void;
 }) {
   const { move: canMove, trash: canTrash } = selectionCapabilities(targets);
+  // The bar keeps its buttons in place while it shows, as a menu does (see `MoveUp.steady`).
+  const [moveUpAtOpen] = useState(moveUp);
+  const up = MoveUp.steady(moveUpAtOpen, moveUp);
   const star = starControl(targets, useStarredPaths(true), actions.setStarred);
   return (
     <div
@@ -148,14 +152,18 @@ export function SelectionBar({
             onClick={() => onOpen({ action: "move", entries: targets })}
           />
         )}
-        {canMove && moveUp !== null && (
+        {canMove && up.kind !== "none" && (
           <Action
             // Phones have no room for it beside the other 44 px actions; item menus offer it there.
             className="max-md:hidden"
             iconOnly
             label="Move up one level"
             icon={<CornerLeftUp className="size-4" />}
-            onClick={() => void actions.moveEntries(targets, moveUp)}
+            disabled={up.kind !== "into"}
+            onClick={() => {
+              if (up.kind === "into")
+                void actions.moveEntries(targets, up.path);
+            }}
           />
         )}
         {canTrash && (

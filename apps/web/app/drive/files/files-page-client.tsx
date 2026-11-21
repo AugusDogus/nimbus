@@ -1,3 +1,4 @@
+import { MoveUp } from "./move-up";
 import { Folder, HardDrive } from "lucide-react";
 import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -61,10 +62,16 @@ export function FilesPageClient() {
     enabled: isAuthed,
   });
   // Items move up into the folder above, unless this is the account's top folder or that folder
-  // takes nothing from this account.
+  // takes nothing from this account; not known while what it allows is loading.
   const parent = capabilities.data?.ancestors.at(-1);
-  const moveUp =
-    currentPath !== top && parent?.canWrite === true ? parent.path : null;
+  const moveUp: MoveUp =
+    currentPath === top
+      ? MoveUp.none
+      : capabilities.isPending
+        ? MoveUp.unknown
+        : parent?.canWrite === true
+          ? { kind: "into", path: parent.path }
+          : MoveUp.none;
   const clashHandoff = useClashHandoff();
   const actions = useFileActions({
     currentPath,

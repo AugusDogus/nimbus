@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { FileListing } from "@nimbus/api/file-listing";
-import { asMember, client, test } from "./helpers";
+import { asMember, client, test, whenCanCreate } from "./helpers";
 
 const trail = (page: Page) => page.locator('nav[aria-label="breadcrumb"]');
 
@@ -234,6 +234,9 @@ test.describe("moving up one level without dragging", () => {
     try {
       const offered = async (address: string, name: string) => {
         await member.goto(address);
+        // Once the page has what the folders allow, as a person sees from New turning usable:
+        // a menu opened before then shows Move up disabled in place until it is known.
+        await whenCanCreate(member);
         await member.getByRole("link", { name, exact: true }).first().focus();
         await member.keyboard.press("Shift+F10");
         await expect(member.getByRole("menuitem").first()).toBeVisible();
@@ -257,6 +260,61 @@ test.describe("moving up one level without dragging", () => {
       await memberContext.close();
     }
   });
+});
+
+test("shows the same items from the moment a menu opens, while the folder above is still being checked", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  const top = `steady-${randomUUID()}`;
+  const rpc = await client(context);
+  await rpc.files.createFolder.mutate({ name: top });
+  await rpc.files.createFolder.mutate({ path: top, name: "mine" });
+  await rpc.files.createFolder.mutate({ path: `${top}/mine`, name: "inner" });
+  await rpc.files.createFolder.mutate({
+    path: `${top}/mine/inner`,
+    name: "Item",
+  });
+  // A slow connection: what the folders allow arrives two seconds late.
+  await page.route(
+    (url) => url.pathname.includes("access.capabilities"),
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await route.continue();
+    },
+  );
+  await page.goto(`/browse/${top}/mine/inner`);
+  const item = page.getByRole("link", { name: "Item", exact: true }).first();
+  await expect(item).toBeVisible();
+  // Opened at once, as a person might.
+  if (isMobile)
+    await page
+      .getByRole("button", { name: "Actions for Item", exact: true })
+      .click();
+  else {
+    await item.focus();
+    await page.keyboard.press("Shift+F10");
+  }
+  const items = isMobile
+    ? page.getByRole("dialog").getByRole("button")
+    : page.getByRole("menuitem");
+  await expect(items.first()).toBeVisible();
+  const read = () =>
+    items.evaluateAll((elements) =>
+      elements.map((element) => element.textContent?.trim() ?? ""),
+    );
+  const opened = await read();
+  // Longer than the answer takes: nothing appears, disappears or moves meanwhile.
+  await page.waitForTimeout(2500);
+  expect(await read()).toEqual(opened);
+  expect(opened).toContain("Move up one level");
+  const moveUp = isMobile
+    ? page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Move up one level" })
+    : page.getByRole("menuitem", { name: "Move up one level" });
+  await expect(moveUp).toBeEnabled();
 });
 
 for (const [width, view] of [
