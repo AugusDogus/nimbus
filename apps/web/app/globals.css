@@ -169,3 +169,27 @@
     }
   }
 }
+
+/* While a dialog, sheet or drawer covers the page, toasts cannot be reached, and their time is
+   held (see HoldWhileCovered in toaster.tsx): they step aside instead of lying over it, and
+   come back with their full time once it closes. Outside any layer, so it outranks the
+   toasts' own utilities. */
+:root:has(
+    [data-slot="dialog-content"],
+    [data-slot="sheet-content"],
+    [data-slot="alert-dialog-content"],
+    [data-slot="drawer-content"]
+  )
+  [data-slot="toast-viewport"] {
+  opacity: 0;
+  pointer-events: none;
+}
+:root:has(
+    [data-slot="dialog-content"],
+    [data-slot="sheet-content"],
+    [data-slot="alert-dialog-content"],
+    [data-slot="drawer-content"]
+  )
+  [data-slot="toast"] {
+  pointer-events: none;
+}

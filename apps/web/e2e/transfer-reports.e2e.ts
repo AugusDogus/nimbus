@@ -539,3 +539,30 @@ test("drops an old clash once its item's Keep both may have gone through", async
     }),
   ).toBeVisible();
 });
+
+test("holds every report while a dialog covers the page, then gives it its time", async ({
+  page,
+  isMobile,
+}) => {
+  const drive = await tree({ "docs/a.txt": "a", "docs/b.txt": "b" });
+  await page.goto(href(`${drive.top}/docs`));
+  await action(page, "a.txt", "Move up one level", isMobile);
+  const report = toasts(page).filter({ hasText: "Moved “a.txt” to" });
+  await expect(report).toBeVisible();
+  // A report already showing, then covered.
+  await action(page, "b.txt", "Move to…", isMobile);
+  await expect(picker(page)).toBeVisible();
+  await page.waitForTimeout(11_000);
+  await page.keyboard.press("Escape");
+  await expect(picker(page)).toBeHidden();
+  await report.getByRole("button", { name: "Undo" }).click();
+  const undone = page.getByText("Moved “a.txt” back to docs.");
+  await expect(undone).toBeVisible();
+  // An Undo confirmation, then covered.
+  await action(page, "b.txt", "Move to…", isMobile);
+  await expect(picker(page)).toBeVisible();
+  await page.waitForTimeout(6_000);
+  await page.keyboard.press("Escape");
+  await expect(picker(page)).toBeHidden();
+  await expect(undone).toBeVisible();
+});

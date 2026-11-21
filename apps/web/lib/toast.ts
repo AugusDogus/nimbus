@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 
 /**
  * A button on a toast, such as Undo. Choosing it runs `run` and closes the toast, unless it
- * `keepsToast`, as Details does: then the toast stays, its time held until the promise `run`
- * returns settles, such as when the dialog it opened closes, and its other actions within reach.
+ * `keepsToast`, as Details does: then the toast stays, with its other actions within reach,
+ * its time held while the dialog it opened covers the page.
  */
 export type ToastAction =
   | { label: string; run: () => void; keepsToast?: never }

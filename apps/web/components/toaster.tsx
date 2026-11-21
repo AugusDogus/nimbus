@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import {
   Toaster as ToastUI,
   toast as toastManager,
+  useToastManager,
 } from "@/components/ui/toast";
 import { connectToasts } from "@/lib/toast";
 
@@ -11,18 +12,40 @@ const covered = () =>
     '[data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"], [data-slot="drawer-content"]',
   ) !== null;
 
-/**
- * A toast added while a modal covers the page cannot be reached until it closes: its time is
- * held until then, so an Undo that arrives late, under a dialog, is not gone before it is seen.
- */
-function holdWhileCovered(id: string, timeout: number) {
-  toastManager.update(id, { timeout: 0 });
-  const observer = new MutationObserver(() => {
-    if (covered()) return;
-    observer.disconnect();
-    toastManager.update(id, { timeout });
-  });
+const watchCover = (changed: () => void) => {
+  const observer = new MutationObserver(changed);
   observer.observe(document.body, { childList: true, subtree: true });
+  return () => observer.disconnect();
+};
+
+/**
+ * Every toast's time is held while a dialog, sheet or drawer covers the page, since nobody can
+ * reach it then, and starts again in full once the page is uncovered: a report or an Undo
+ * confirmation, shown before the dialog opened or while it is open, is never gone unseen.
+ */
+function HoldWhileCovered() {
+  const { toasts, update } = useToastManager();
+  const isCovered = useSyncExternalStore(watchCover, covered, () => false);
+  // The timeouts of the toasts held now, to give back.
+  const held = useRef(new Map<string, number | undefined>());
+  useEffect(() => {
+    if (isCovered) {
+      for (const shown of toasts)
+        if (
+          !held.current.has(shown.id) &&
+          shown.timeout !== 0 &&
+          shown.type !== "loading" &&
+          shown.transitionStatus !== "ending"
+        ) {
+          held.current.set(shown.id, shown.timeout);
+          update(shown.id, { timeout: 0 });
+        }
+      return;
+    }
+    for (const [id, timeout] of held.current) update(id, { timeout });
+    held.current.clear();
+  }, [isCovered, toasts, update]);
+  return null;
 }
 
 /** Connects `toast()` to the UI once its provider listens, which Base UI requires. */
@@ -33,20 +56,18 @@ function ConnectToasts() {
         ({ actions, ...request }) => {
           // An error may be the only place that says what failed: it stays until closed, and
           // screen readers announce it at once. A toast offering an action such as Undo stays
-          // long enough to reach it: ten seconds once no dialog covers it, paused while the
-          // toasts are hovered or focused or the window is in the background, and held while a
-          // dialog it opened, such as Details, is open (see `ToastAction`).
-          const reachFor = request.type !== "error" && actions ? 10_000 : null;
-          const id = toastManager.add({
+          // long enough to reach it: ten seconds. Every toast's time is paused while the
+          // toasts are hovered or focused or the window is in the background, and held while
+          // a dialog covers the page (see `HoldWhileCovered`), Details included.
+          toastManager.add({
             ...request,
             data: { actions },
             ...(request.type === "error"
               ? { timeout: 0, priority: "high" }
-              : reachFor
-                ? { timeout: reachFor }
+              : actions
+                ? { timeout: 10_000 }
                 : {}),
           });
-          if (reachFor && covered()) holdWhileCovered(id, reachFor);
         },
         (id) => toastManager.close(id),
       ),
@@ -62,7 +83,9 @@ function ConnectToasts() {
 export function Toaster() {
   return (
     <>
-      <ToastUI />
+      <ToastUI>
+        <HoldWhileCovered />
+      </ToastUI>
       {/* After the toaster, so its effect runs once the toaster's provider has subscribed. */}
       <ConnectToasts />
     </>

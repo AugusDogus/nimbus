@@ -192,7 +192,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
 }
 
 function ToastList() {
-  const { toasts, close, update } = ToastPrimitive.useToastManager<ToastData>();
+  const { toasts, close } = ToastPrimitive.useToastManager<ToastData>();
 
   // Toasts that time out need no close button: they also swipe away, or close with Escape after
   // F6 moves focus to them. One that stays until dismissed (timeout 0) has one.
@@ -217,12 +217,8 @@ function ToastList() {
                       action.run();
                       return;
                     }
-                    // Held while what the action opened is open, then given its full time again.
-                    const { timeout } = toastItem;
-                    update(toastItem.id, { timeout: 0 });
-                    void action
-                      .run()
-                      .finally(() => update(toastItem.id, { timeout }));
+                    // What it opens covers the page, which holds the toast's time meanwhile.
+                    void action.run();
                   }}
                 >
                   {action.label}
