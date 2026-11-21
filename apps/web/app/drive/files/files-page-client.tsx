@@ -10,6 +10,7 @@ import { BreadcrumbTrail } from "./breadcrumb-trail";
 import { FileBreadcrumbs } from "./breadcrumbs";
 import { capabilitiesQueryOptions } from "./capabilities";
 import { EntriesView } from "./entries-view";
+import { sortEntries } from "./entry-sort";
 import { FolderError } from "./folder-error";
 import { FolderForbidden } from "./folder-forbidden";
 import { FiltersRow } from "./filters-row";
@@ -81,35 +82,10 @@ export function FilesPageClient() {
     if (isAuthed && currentPath) void recordVisit(currentPath);
   }, [currentPath, isAuthed, recordVisit]);
 
-  const sortedEntries = useMemo(() => {
-    const sorted = [...entries].sort((a, b) => {
-      // When grouping, always sort folders first
-      if (prefs.groupByType && a.type !== b.type) {
-        return a.type === "dir" ? -1 : 1;
-      }
-
-      let comparison = 0;
-      switch (prefs.sortField) {
-        case "name":
-          comparison = a.name.localeCompare(b.name);
-          break;
-        case "type":
-          comparison = a.type.localeCompare(b.type);
-          break;
-        case "modified":
-          comparison = (a.mtime ?? 0) - (b.mtime ?? 0);
-          break;
-        case "size":
-          comparison = (a.size ?? 0) - (b.size ?? 0);
-          break;
-        default:
-          comparison = 0;
-      }
-
-      return prefs.sortDirection === "desc" ? -comparison : comparison;
-    });
-    return sorted;
-  }, [entries, prefs.groupByType, prefs.sortDirection, prefs.sortField]);
+  const sortedEntries = useMemo(
+    () => sortEntries(entries, prefs),
+    [entries, prefs],
+  );
 
   const sections = useMemo(
     () =>
