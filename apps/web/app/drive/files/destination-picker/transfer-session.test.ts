@@ -237,3 +237,39 @@ describe("a picker session", () => {
     expect(report?.alreadyThere).toEqual([there]);
   });
 });
+
+describe("a held session", () => {
+  const a = entry("docs/a.txt");
+
+  it("reports a transfer still running when the picker closed once it finishes", async () => {
+    const session = TransferSession.held(TransferSession.start("move", [a]));
+    let answer: (result: TransferResult) => void = () => {};
+    const running = session.run(
+      () =>
+        new Promise<TransferResult>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const reports: TransferSession[] = [];
+    session.close((done) => reports.push(done));
+    expect(reports).toEqual([]);
+    answer(result("archive", { transferred: [moved(a, "archive")] }));
+    await running;
+    expect(reports).toHaveLength(1);
+    expect(
+      TransferSession.results(
+        reports[0] ?? TransferSession.start("move", []),
+      )[0]?.destination,
+    ).toBe("archive");
+    // Reported once, however often it is closed.
+    session.close((done) => reports.push(done));
+    expect(reports).toHaveLength(1);
+  });
+
+  it("reports at once when nothing is running", () => {
+    const session = TransferSession.held(TransferSession.start("move", [a]));
+    const reports: TransferSession[] = [];
+    session.close((done) => reports.push(done));
+    expect(reports).toHaveLength(1);
+  });
+});

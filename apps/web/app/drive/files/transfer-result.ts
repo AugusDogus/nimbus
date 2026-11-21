@@ -47,7 +47,11 @@ export type TransferResult = {
   alreadyThere: FileEntry[];
 };
 
-/** Transfer every item, a bounded number at a time (see `BulkResult.each`). */
+/**
+ * Transfer every item, a bounded number at a time (see `BulkResult.each`). Nothing could
+ * report the transfer, or offer its Undo, once the page is gone, so leaving or reloading the
+ * page asks first while it runs.
+ */
 async function run(
   operation: TransferOperation,
   destination: string,
@@ -64,30 +68,37 @@ async function run(
     failed: [],
     alreadyThere: [],
   };
-  await BulkResult.each(
-    items,
-    async (source) => {
-      try {
-        const outcome = await transfer(source);
-        if (outcome.kind === "clash")
-          result.clashes.push({
-            source,
-            name: outcome.name,
-            suggestion: outcome.suggestion,
-          });
-        else
-          result.transferred.push({
-            source,
-            name: outcome.name,
-            path: outcome.path,
-            receipt: outcome.receipt,
-          });
-      } catch (error) {
-        result.failed.push({ source, reason: BulkResult.reasonOf(error) });
-      }
-    },
-    concurrency,
-  );
+  // One listener per run: another run that finishes first must not remove this one's.
+  const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+  addEventListener("beforeunload", warn);
+  try {
+    await BulkResult.each(
+      items,
+      async (source) => {
+        try {
+          const outcome = await transfer(source);
+          if (outcome.kind === "clash")
+            result.clashes.push({
+              source,
+              name: outcome.name,
+              suggestion: outcome.suggestion,
+            });
+          else
+            result.transferred.push({
+              source,
+              name: outcome.name,
+              path: outcome.path,
+              receipt: outcome.receipt,
+            });
+        } catch (error) {
+          result.failed.push({ source, reason: BulkResult.reasonOf(error) });
+        }
+      },
+      concurrency,
+    );
+  } finally {
+    removeEventListener("beforeunload", warn);
+  }
   return result;
 }
 

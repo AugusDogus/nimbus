@@ -335,34 +335,35 @@ export function DestinationPicker({
     ? DropTarget.forItems(operation, pending, destination)
     : null;
 
-  /**
-   * Everything the picker has done, reported once it has closed, however it closes or is left:
-   * one report per destination, with Undo for what reached it, Keep both for names still taken,
-   * and what failed and why. A toast added while the modal picker is open, or closing, stays
-   * hidden from assistive technology and out of reach, so reports wait for it to unmount.
-   */
-  const session = useRef(
-    resume
-      ? TransferSession.record(
-          TransferSession.start(operation, entries),
-          resume,
-        )
-      : TransferSession.start(operation, entries),
-  );
-  /** Transfer `items`, which are open in the session, and record what the server answered. */
-  const transfer = async (
-    items: readonly FileEntry[],
-    to: string,
-    options: Parameters<typeof actions.transferEntries>[3],
-  ) => {
-    const result = await actions.transferEntries(operation, items, to, options);
-    session.current = TransferSession.record(session.current, result);
-    return result;
-  };
   const reportTransfer = useRef(actions.reportTransfer);
   useEffect(() => {
     reportTransfer.current = actions.reportTransfer;
   });
+  /**
+   * Everything the picker has done, reported once it has closed, however it closes or is left,
+   * and once nothing it started is still running: one report per destination, with Undo for
+   * what reached it, Keep both for names still taken, and what failed and why. A toast added
+   * while the modal picker is open, or closing, stays hidden from assistive technology and out
+   * of reach, so reports wait for it to unmount. The session is held outside the picker, so a
+   * transfer that finishes after the picker or its page is gone still reports, on whatever page
+   * is open by then.
+   */
+  const [held] = useState(() =>
+    TransferSession.held(
+      resume
+        ? TransferSession.record(
+            TransferSession.start(operation, entries),
+            resume,
+          )
+        : TransferSession.start(operation, entries),
+    ),
+  );
+  /** Transfer `items`, which are open in the session, and record what the server answered. */
+  const transfer = (
+    items: readonly FileEntry[],
+    to: string,
+    options: Parameters<typeof actions.transferEntries>[3],
+  ) => held.run(() => actions.transferEntries(operation, items, to, options));
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
@@ -371,16 +372,17 @@ export function DestinationPicker({
       // A tick later, so a remount in development (React's StrictMode) reports nothing.
       setTimeout(() => {
         if (mounted.current) return;
-        const results = TransferSession.results(session.current);
-        session.current = TransferSession.start(session.current.operation, []);
-        for (const result of results) reportTransfer.current(result);
+        held.close((session) => {
+          for (const result of TransferSession.results(session))
+            reportTransfer.current(result);
+        });
       });
     };
-  }, []);
+  }, [held]);
   /** Undo, from the picker, what `result` transferred and is still in place; stop reporting it. */
   const undoFromPicker = async (result: TransferResult) => {
     const current = new Set(
-      TransferSession.transferred(session.current).map(
+      TransferSession.transferred(held.current()).map(
         (item) => item.receipt.id,
       ),
     );
@@ -396,13 +398,17 @@ export function DestinationPicker({
           void queryClient.invalidateQueries({ queryKey: [key] });
       },
     );
-    session.current = TransferSession.undone(session.current, undo.undone);
+    held.update((session) => TransferSession.undone(session, undo.undone));
     return undo;
   };
 
-  /** Show what a finished transfer did, and close, or keep what is left to try again. */
+  /**
+   * Show what a finished transfer did, and close, or keep what is left to try again. A picker
+   * closed meanwhile does nothing more: its session reports the transfer.
+   */
   const settle = (result: TransferResult) => {
-    setPending(TransferSession.pending(session.current));
+    if (!mounted.current) return;
+    setPending(TransferSession.pending(held.current()));
     if (result.clashes.length) {
       setPhase({ kind: "clashes", result });
       return;
@@ -435,14 +441,14 @@ export function DestinationPicker({
         // whose names are taken stay where they are, and are reported so, with Keep both,
         // unless they go elsewhere first.
         const rest = TransferReport.skip(result);
-        setPending(TransferSession.pending(session.current));
+        setPending(TransferSession.pending(held.current()));
         if (rest.failed.length) setPhase({ kind: "failed", result: rest });
         else if (rest.transferred.length) onClose();
         else setPhase({ kind: "choosing" });
         return;
       }
       case "skip":
-        session.current = TransferSession.skip(session.current, result.clashes);
+        held.update((session) => TransferSession.skip(session, result.clashes));
         settle(TransferReport.skip(result));
         return;
       case "keep-both":
@@ -512,6 +518,8 @@ export function DestinationPicker({
       : "Copies get the destination's permissions, without links or direct permissions. A taken name gets a number.";
 
   const status = (() => {
+    if (busy)
+      return `The ${operation} goes on if you close this, and Nimbus reports when it is done.`;
     if (browsed === null) return "Choose a folder to open it.";
     if (capability.isError)
       return trpcErrorCode(capability.error) === "NOT_FOUND"
@@ -913,8 +921,9 @@ export function DestinationPicker({
     </div>
   );
 
+  // Closing while a transfer runs leaves it running; its report follows when it finishes.
   const onOpenChange = (open: boolean) => {
-    if (!open && !busy) onClose();
+    if (!open) onClose();
   };
   if (mobile)
     return (

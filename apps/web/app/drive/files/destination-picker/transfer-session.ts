@@ -183,6 +183,49 @@ function results(session: TransferSession): TransferResult[] {
   );
 }
 
+/**
+ * A session kept outside React, so it outlives the picker that runs it. A transfer still
+ * running when the picker closes, or its page is left, is recorded when it finishes; the
+ * session is reported once, when the picker has closed and nothing is running any more.
+ */
+function held(initial: TransferSession) {
+  let session = initial;
+  let running = 0;
+  let state:
+    | { kind: "open" }
+    | { kind: "closed"; report: (session: TransferSession) => void }
+    | { kind: "reported" } = { kind: "open" };
+  const settle = () => {
+    if (state.kind !== "closed" || running > 0) return;
+    const { report } = state;
+    state = { kind: "reported" };
+    report(session);
+  };
+  return {
+    current: () => session,
+    update: (change: (session: TransferSession) => TransferSession) => {
+      session = change(session);
+    },
+    /** Run a transfer of open items, and record what the server answered. */
+    run: async (transfer: () => Promise<TransferResult>) => {
+      running++;
+      try {
+        const result = await transfer();
+        session = record(session, result);
+        return result;
+      } finally {
+        running--;
+        settle();
+      }
+    },
+    /** The picker has closed: `report` the session now, or once its transfers finish. */
+    close: (report: (session: TransferSession) => void) => {
+      if (state.kind === "open") state = { kind: "closed", report };
+      settle();
+    },
+  };
+}
+
 export const TransferSession = {
   start,
   record,
@@ -191,4 +234,5 @@ export const TransferSession = {
   pending,
   transferred,
   results,
+  held,
 } as const;

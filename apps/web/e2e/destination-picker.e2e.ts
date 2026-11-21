@@ -874,6 +874,24 @@ async function moveToSibling(dialog: Locator, top: string, folder: string) {
 
 const toasts = (page: Page) => page.locator('[data-slot="toast"]');
 
+/** Holds every move request until the returned function is called. */
+async function holdMoves(page: Page) {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let seen = () => {};
+  const requested = new Promise<void>((resolve) => {
+    seen = resolve;
+  });
+  await page.route("**/api/trpc/files.move*", async (route) => {
+    seen();
+    await held;
+    await route.continue();
+  });
+  return { requested, release };
+}
+
 test("moves only what did not arrive when the rest go elsewhere, keeping the earlier move's Undo", async ({
   page,
   isMobile,
@@ -900,4 +918,84 @@ test("moves only what did not arrive when the rest go elsewhere, keeping the ear
   await expect(report).toContainText("archive");
   await report.getByRole("button", { name: "Undo" }).first().click();
   await expect.poll(() => names("docs")).toContain("b.txt");
+});
+
+test("reports a move that finishes after the page changed", async ({
+  page,
+  isMobile,
+}) => {
+  const { top, names } = await tree({ "docs/a.txt": "a" }, ["archive"]);
+  await page.goto(href(top));
+  await page.getByRole("link", { name: "docs", exact: true }).click();
+  await action(page, "a.txt", "Move to…", isMobile);
+  const dialog = picker(page);
+  const moves = await holdMoves(page);
+  void moveToSibling(dialog, top, "archive");
+  await moves.requested;
+  await page.goBack();
+  await expect(dialog).toBeHidden();
+  // Longer than the picker waits before it reports.
+  await page.waitForTimeout(100);
+  moves.release();
+  await expect.poll(() => names("archive")).toEqual(["a.txt"]);
+  const report = toasts(page).filter({
+    hasText: "Moved “a.txt” to archive.",
+  });
+  await report.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(() => names("docs")).toEqual(["a.txt"]);
+});
+
+test("closes during a move, which reports when it finishes without closing what opened since", async ({
+  page,
+  isMobile,
+}) => {
+  const { top, names } = await tree({ "docs/a.txt": "a", "docs/b.txt": "b" }, [
+    "archive",
+  ]);
+  await page.goto(href(`${top}/docs`));
+  await action(page, "a.txt", "Move to…", isMobile);
+  const dialog = picker(page);
+  const moves = await holdMoves(page);
+  void moveToSibling(dialog, top, "archive");
+  await moves.requested;
+  await expect(dialog.getByRole("status")).toContainText(
+    "The move goes on if you close this",
+  );
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  // Another picker opened meanwhile stays open when the first move finishes.
+  await action(page, "b.txt", "Move to…", isMobile);
+  await expect(
+    dialog.getByRole("heading", { name: "Move “b.txt”" }),
+  ).toBeVisible();
+  moves.release();
+  await expect.poll(() => names("archive")).toEqual(["a.txt"]);
+  await page.waitForTimeout(300);
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await toasts(page)
+    .filter({ hasText: "Moved “a.txt” to archive." })
+    .getByRole("button", { name: "Undo" })
+    .click();
+  await expect.poll(() => names("docs")).toEqual(["a.txt", "b.txt"]);
+});
+
+test("asks before the page is left while a move is running", async ({
+  page,
+  isMobile,
+}) => {
+  const { top } = await tree({ "docs/a.txt": "a" }, ["archive"]);
+  await page.goto(href(`${top}/docs`));
+  await action(page, "a.txt", "Move to…", isMobile);
+  const dialog = picker(page);
+  const moves = await holdMoves(page);
+  void moveToSibling(dialog, top, "archive");
+  await moves.requested;
+  const asked = page.waitForEvent("dialog");
+  await page.close({ runBeforeUnload: true });
+  const prompt = await asked;
+  expect(prompt.type()).toBe("beforeunload");
+  await prompt.accept();
+  moves.release();
 });
