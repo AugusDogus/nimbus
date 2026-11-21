@@ -7,6 +7,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 import { clientZodMini } from "./vite/client-zod-mini";
+import { preloadPruning } from "./vite/preload-pruning";
 import { startupChunkGroups } from "./vite/startup-chunk-groups";
 import { htmlNonce } from "./client/html-nonce";
 import { builtFilesList } from "./server/static-files";
@@ -144,6 +145,7 @@ function precompress(): Plugin {
 export default defineConfig(({ command }) => {
   const startup =
     command === "build" ? startupChunkGroups(root, chunkPlan, 0) : undefined;
+  const preloads = preloadPruning();
   return {
     root,
     resolve: { tsconfigPaths: true },
@@ -154,7 +156,11 @@ export default defineConfig(({ command }) => {
       manifest: true,
       // Every browser the build targets but Safari 16.4 to 16.x preloads modules natively;
       // without the polyfill those few simply skip preloading.
-      modulePreload: { polyfill: false },
+      modulePreload: {
+        polyfill: false,
+        // Files the importing code already loaded need no preloading again.
+        resolveDependencies: preloads.resolveDependencies,
+      },
       rolldownOptions: {
         // The public share and upload pages and the sign-in pages are server-rendered and
         // hydrate through entries of their own, which load none of the signed-in app.
@@ -199,6 +205,7 @@ export default defineConfig(({ command }) => {
       preloadFonts(),
       precompress(),
       startup?.plugin,
+      preloads.plugin,
       clientZodMini(),
     ],
   };
