@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   rename,
@@ -140,6 +141,12 @@ describe("item identities", () => {
     isDirectory: () => kind === "dir",
     isFile: () => kind === "file",
   });
+  /** Readings of one path with a birth time, as ext4, btrfs and XFS report them. */
+  const born = (
+    kind: "file" | "dir",
+    birth: bigint,
+    times: Parameters<typeof unborn>[1],
+  ) => ({ ...unborn(kind, times), birthtimeNs: birth });
 
   it("recognise an item after a rename, and nothing where it was", async () => {
     await writeFile(at("a.txt"), "data");
@@ -217,19 +224,24 @@ describe("item identities", () => {
     );
   });
 
-  it("refuse a folder put in the item's place, even one reusing its inode number", async () => {
+  it("with birth times, refuse a folder put in the item's place on its inode number, but not one with entries changed", async () => {
     const identity = await ItemIdentity.identityAt("x", async () =>
-      unborn("dir", { ctime: BigInt(50), mtime: BigInt(40) }),
+      born("dir", BigInt(20), { ctime: BigInt(50), mtime: BigInt(40) }),
     );
-    const read = (times: Parameters<typeof unborn>[1]) => async () =>
-      unborn("dir", times);
+    const read =
+      (birth: bigint, times: Parameters<typeof unborn>[1]) => async () =>
+        born("dir", birth, times);
     // Another inode is another folder, whatever its times.
     expect(
       await ItemIdentity.matchAt(
         "x",
         identity,
         "entries",
-        read({ ino: BigInt(101), ctime: BigInt(60), mtime: BigInt(60) }),
+        read(BigInt(20), {
+          ino: BigInt(101),
+          ctime: BigInt(60),
+          mtime: BigInt(60),
+        }),
       ),
     ).toBe("changed");
     // The same inode with entries changed since: the folder itself.
@@ -238,17 +250,86 @@ describe("item identities", () => {
         "x",
         identity,
         "entries",
-        read({ ctime: BigInt(60), mtime: BigInt(60) }),
+        read(BigInt(20), { ctime: BigInt(60), mtime: BigInt(60) }),
       ),
     ).toBe("same");
+    // The same inode, given by ext4 to a folder created after the item was deleted.
+    expect(
+      await ItemIdentity.matchAt(
+        "x",
+        identity,
+        "entries",
+        read(BigInt(60), { ctime: BigInt(60), mtime: BigInt(60) }),
+      ),
+    ).toBe("changed");
     // Times from before the transfer cannot be the folder as it was left.
     expect(
       await ItemIdentity.matchAt(
         "x",
         identity,
         "entries",
-        read({ ctime: BigInt(30), mtime: BigInt(30) }),
+        read(BigInt(20), { ctime: BigInt(30), mtime: BigInt(30) }),
       ),
+    ).toBe("changed");
+  });
+
+  it("without birth times, take a moved folder back only as it was left", async () => {
+    const identity = await ItemIdentity.identityAt("x", async () =>
+      unborn("dir", { ctime: BigInt(50), mtime: BigInt(40) }),
+    );
+    const read = (times: Parameters<typeof unborn>[1]) => async () =>
+      unborn("dir", times);
+    expect(
+      await ItemIdentity.matchAt(
+        "x",
+        identity,
+        "entries",
+        read({ ctime: BigInt(50), mtime: BigInt(40) }),
+      ),
+    ).toBe("same");
+    // Entries changed since, or a folder created in its place on the same inode number: these
+    // read alike, so both are refused.
+    expect(
+      await ItemIdentity.matchAt(
+        "x",
+        identity,
+        "entries",
+        read({ ctime: BigInt(60), mtime: BigInt(60) }),
+      ),
+    ).toBe("changed");
+    expect(
+      await ItemIdentity.matchAt(
+        "x",
+        identity,
+        "entries",
+        read({ ino: BigInt(101), ctime: BigInt(60), mtime: BigInt(60) }),
+      ),
+    ).toBe("changed");
+  });
+
+  it("refuse a real folder created in the item's place, read as if its inode number were reused", async () => {
+    await mkdir(at("x"));
+    const original = await lstat(at("x"), { bigint: true });
+    const identity = await ItemIdentity.identityAt(at("x"));
+    await rm(at("x"), { recursive: true });
+    await Bun.sleep(5);
+    await mkdir(at("x"));
+    // What ext4 does and this machine's filesystem may not: the new folder gets the old inode.
+    const reused = async (absolute: string) => {
+      const stats = await lstat(absolute, { bigint: true });
+      return {
+        dev: original.dev,
+        ino: original.ino,
+        birthtimeNs: stats.birthtimeNs,
+        ctimeNs: stats.ctimeNs,
+        mtimeNs: stats.mtimeNs,
+        size: stats.size,
+        isDirectory: () => stats.isDirectory(),
+        isFile: () => stats.isFile(),
+      };
+    };
+    expect(
+      await ItemIdentity.matchAt(at("x"), identity, "entries", reused),
     ).toBe("changed");
   });
 

@@ -175,7 +175,14 @@ export const TransferReceipt = {
 
 type IdentityStats = Pick<
   BigIntStats,
-  "dev" | "ino" | "ctimeNs" | "mtimeNs" | "size" | "isDirectory" | "isFile"
+  | "dev"
+  | "ino"
+  | "birthtimeNs"
+  | "ctimeNs"
+  | "mtimeNs"
+  | "size"
+  | "isDirectory"
+  | "isFile"
 >;
 type StatAt = (absolute: string) => Promise<IdentityStats>;
 const statAt: StatAt = (absolute) => lstat(absolute, { bigint: true });
@@ -184,48 +191,59 @@ const statAt: StatAt = (absolute) => lstat(absolute, { bigint: true });
  * Which item a receipt is about, recognised later at the path it was moved or copied to.
  *
  * Birth times cannot name items in production: Unraid user shares (shfs, a FUSE filesystem)
- * report none, for files or folders, so whatever names an item must work without them. An
- * identity is the item's device and inode number, its change time and its modification time
- * (and a file's size), all read after the transfer, since a rename itself moves the change
- * time.
+ * report none (0), for files or folders, so whatever names an item must work without them. An
+ * identity is the item's device and inode number, its birth time (0 where there is none), its
+ * change time and its modification time (and a file's size), all read after the transfer,
+ * since a rename itself moves the change time.
  *
  * The change time is the core of it: no program can set it, and writing, truncating,
  * replacing, renaming, linking, chmod and setting the modification time all move it. A file
  * with the same name, size and modification time put in the item's place still has another
  * change time. The inode number tells an item from one put in its place within the same
- * clock tick. Inode numbers hold only while a filesystem stays mounted (shfs hands them out
- * again on every mount), which is why receipts end when the server restarts.
+ * clock tick where the filesystem does not hand a freed number straight out again; ext4
+ * does, so there something deleted and replaced within one tick of the transfer would pass.
+ * Inode numbers hold only while a filesystem stays mounted (shfs hands them out again on
+ * every mount), which is why receipts end when the server restarts. Since they are reused,
+ * nothing is ever accepted on its inode number alone.
  *
  * - `exact`: everything matches. Any change since, to the item or its entries, counts.
- * - `entries` (moving a folder back): the folder also counts as itself when its entries changed
- *   since and nothing else did. Adding, removing or renaming an entry sets a folder's change
- *   and modification times to the same later value; a chmod or rename of the folder moves the
- *   change time alone, and a folder created in its place has another inode number.
+ * - `entries` (moving a folder back): where the filesystem reports birth times, the folder
+ *   also counts as itself when its entries changed since and nothing else did. Adding,
+ *   removing or renaming an entry sets a folder's change and modification times to the same
+ *   later value, and keeps its birth time; a chmod or rename of the folder moves the change
+ *   time alone, and a folder created in its place, even on the same inode number, has a later
+ *   birth time. Without birth times such a folder cannot be told from the original with
+ *   entries changed, so there `entries` is `exact`: Undo refuses a folder whose entries
+ *   changed since.
  *
  * Copies are trashed only on `exact`, so a copy someone has added to is never trashed by Undo.
  * Changes deeper inside a folder do not touch its own times and are not seen.
  */
 const identityOf = (stats: IdentityStats) =>
   [
-    "v2",
+    "v3",
     stats.isDirectory() ? "dir" : "file",
     stats.dev,
     stats.ino,
+    stats.birthtimeNs,
     stats.ctimeNs,
     stats.mtimeNs,
     stats.isDirectory() ? BigInt(0) : stats.size,
   ].join(":");
 
 const parse = (identity: string) => {
-  const parts = /^v2:(dir|file):(\d+):(\d+):(\d+):(\d+):(\d+)$/.exec(identity);
+  const parts = /^v3:(dir|file):(\d+):(\d+):(\d+):(\d+):(\d+):(\d+)$/.exec(
+    identity,
+  );
   if (!parts) return null;
   return {
     kind: parts[1],
     dev: parts[2],
     ino: parts[3],
-    ctime: BigInt(parts[4] ?? "0"),
-    mtime: BigInt(parts[5] ?? "0"),
-    size: parts[6],
+    birth: BigInt(parts[4] ?? "0"),
+    ctime: BigInt(parts[5] ?? "0"),
+    mtime: BigInt(parts[6] ?? "0"),
+    size: parts[7],
   };
 };
 
@@ -265,6 +283,8 @@ async function matchAt(
     now.kind === "dir" &&
     now.dev === recorded.dev &&
     now.ino === recorded.ino &&
+    recorded.birth > BigInt(0) &&
+    now.birth === recorded.birth &&
     now.ctime === now.mtime &&
     now.ctime > recorded.ctime
   )
