@@ -28,6 +28,7 @@ function merge(earlier: TransferResult, later: TransferResult): TransferResult {
     transferred: [...earlier.transferred, ...later.transferred],
     clashes: [...keep(earlier.clashes), ...later.clashes],
     failed: [...keep(earlier.failed), ...later.failed],
+    unconfirmed: [...earlier.unconfirmed, ...later.unconfirmed],
   };
 }
 
@@ -41,9 +42,27 @@ const skip = (result: TransferResult): TransferResult => ({
 const count = (n: number) =>
   n === 1 ? "1 item" : `${n.toLocaleString()} items`;
 const verbs = {
-  move: { done: "Moved", none: "moved" },
-  copy: { done: "Copied", none: "copied" },
+  move: { done: "Moved", none: "moved", one: "moved", many: "moved" },
+  copy: {
+    done: "Copied",
+    none: "copied",
+    one: "was copied",
+    many: "were copied",
+  },
 } as const;
+
+/**
+ * "Nimbus could not confirm whether “a.txt” moved. Check Archive.": what to say of items whose
+ * answer was lost, without claiming either outcome.
+ */
+function unconfirmedPart(result: TransferResult, place: string) {
+  const verb = verbs[result.operation];
+  const [only, ...others] = result.unconfirmed;
+  if (!only) return null;
+  return others.length
+    ? `Nimbus could not confirm whether ${count(result.unconfirmed.length)} ${verb.many}. Check ${place}.`
+    : `Nimbus could not confirm whether “${only.name}” ${verb.one}. Check ${place}.`;
+}
 
 /**
  * A summary for a toast: "Moved 3 items to Archive.", "Copied “a.txt” to Archive as
@@ -54,7 +73,10 @@ function describe(result: TransferResult, top = "") {
   const verb = verbs[result.operation];
   const place = folderName(result.destination, top);
   const total =
-    result.transferred.length + result.clashes.length + result.failed.length;
+    result.transferred.length +
+    result.clashes.length +
+    result.failed.length +
+    result.unconfirmed.length;
   const done = result.transferred.length;
   const [stayed, ...alsoStayed] = result.alreadyThere;
   const skipped = `${
@@ -94,10 +116,14 @@ function describe(result: TransferResult, top = "") {
       message: `${verb.done} ${count(total)} to ${place}.${renamed ? ` ${renamed === 1 ? "1 got a new name" : `${renamed.toLocaleString()} got new names`} because the name was taken.` : ""}${skipped}`,
     } as const;
   }
+  const unsure = unconfirmedPart(result, place);
+  // Nothing is said to have stayed while some items may have moved.
   const head = done
     ? `${verb.done} ${done.toLocaleString()} of ${count(total)} to ${place}.`
-    : `Nothing was ${verb.none} to ${place}.`;
-  const parts = [head + skipped];
+    : unsure
+      ? ""
+      : `Nothing was ${verb.none} to ${place}.`;
+  const parts = [(head + skipped).trim(), unsure ?? ""].filter(Boolean);
   const [clash, ...otherClashes] = result.clashes;
   if (clash)
     parts.push(
@@ -144,7 +170,7 @@ async function undo(result: TransferResult, refresh: () => void) {
   const items = await TransferUndo.run(result);
   refresh();
   const summary = TransferUndo.describe(result, items, topFolder());
-  const kept = items.flatMap((item) => (item.kind === "kept" ? [item] : []));
+  const kept = items.flatMap((item) => (item.kind === "undone" ? [] : [item]));
   if (summary.ok) toast.success(summary.message);
   else
     toast.error(
@@ -193,7 +219,8 @@ function describeAll(results: readonly TransferResult[], top = "") {
   const clashes = sum((result) => result.clashes);
   const skipped = sum((result) => result.skipped);
   const already = sum((result) => result.alreadyThere);
-  const total = done + failed + clashes;
+  const unsure = sum((result) => result.unconfirmed);
+  const total = done + failed + clashes + unsure;
   const reached = results.filter((result) => result.transferred.length);
   const [onlyReached] = reached;
   const where =
@@ -202,11 +229,17 @@ function describeAll(results: readonly TransferResult[], top = "") {
       : `${reached.length.toLocaleString()} folders`;
   const parts = [
     !done
-      ? `Nothing was ${verb.none}.`
+      ? unsure
+        ? ""
+        : `Nothing was ${verb.none}.`
       : done === total
         ? `${verb.done} ${count(done)} to ${where}.`
         : `${verb.done} ${done.toLocaleString()} of ${count(total)} to ${where}.`,
-  ];
+  ].filter(Boolean);
+  if (unsure)
+    parts.push(
+      `Nimbus could not confirm whether ${count(unsure)} ${unsure === 1 ? verb.one : verb.many}; see Details for where to check.`,
+    );
   if (failed)
     parts.push(
       `${count(failed)} could not be ${verb.none}; see Details for why.`,
@@ -225,7 +258,10 @@ function describeAll(results: readonly TransferResult[], top = "") {
     parts.push(
       `${count(already)} ${already === 1 ? "was" : "were"} already there.`,
     );
-  return { ok: !failed && !clashes, message: parts.join(" ") } as const;
+  return {
+    ok: !failed && !clashes && !unsure,
+    message: parts.join(" "),
+  } as const;
 }
 
 /** Each destination's part of a report, with every item that did not arrive and why. */
@@ -274,9 +310,8 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
       RecentDestinations.record(account, result.destination);
   const top = topFolder();
   const summary = describeAll(results, top);
-  const [onlyReached, ...alsoReached] = reached;
   const actions: ToastAction[] = [];
-  if (onlyReached) {
+  if (reached.length) {
     const everything: TransferResult = {
       ...first,
       transferred: reached.flatMap((result) => result.transferred),
@@ -285,12 +320,16 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
       label: "Undo",
       run: () => void undo(everything, handlers.refresh),
     });
-    if (alsoReached.length === 0)
-      actions.push({
-        label: "Open folder",
-        run: () => handlers.open(onlyReached.destination),
-      });
   }
+  // One folder to look in: where items went, or may have gone.
+  const [onlyPlace, ...otherPlaces] = results.filter(
+    (result) => result.transferred.length || result.unconfirmed.length,
+  );
+  if (onlyPlace && otherPlaces.length === 0)
+    actions.push({
+      label: "Open folder",
+      run: () => handlers.open(onlyPlace.destination),
+    });
   const clashing = results.filter((result) => result.clashes.length);
   if (clashing.length)
     actions.push({
@@ -307,6 +346,7 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
       skipped: [],
       failed: [],
       alreadyThere: [],
+      unconfirmed: [],
     };
     actions.push({
       label: onlyClashing.clashes.length === 1 ? "Rename…" : "Choose…",

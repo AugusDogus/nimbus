@@ -13,10 +13,15 @@ type Open =
   | { kind: "clash"; destination: string; clash: TransferClash }
   | { kind: "failed"; destination: string; failure: TransferFailure };
 
-/** An item left where it is on purpose: its name was taken and skipped, or it was there. */
+/**
+ * An item the session will not transfer again: its name was taken and skipped, it was there
+ * already, or Nimbus could not learn whether its transfer was carried out. Trying that one
+ * again could transfer it twice.
+ */
 type Settled =
   | { kind: "skipped"; destination: string; clash: TransferClash }
-  | { kind: "already-there"; destination: string; source: FileEntry };
+  | { kind: "already-there"; destination: string; source: FileEntry }
+  | { kind: "unconfirmed"; destination: string; source: FileEntry };
 
 /**
  * Everything one picker did, across every destination it was pointed at. Items that reached a
@@ -71,6 +76,11 @@ function record(
     })),
     ...result.alreadyThere.map((source): Settled => ({
       kind: "already-there",
+      destination,
+      source,
+    })),
+    ...result.unconfirmed.map((source): Settled => ({
+      kind: "unconfirmed",
       destination,
       source,
     })),
@@ -156,6 +166,7 @@ function results(session: TransferSession): TransferResult[] {
         skipped: [],
         failed: [],
         alreadyThere: [],
+        unconfirmed: [],
       },
     ]),
   );
@@ -170,7 +181,9 @@ function results(session: TransferSession): TransferResult[] {
   for (const item of session.settled) {
     const result = byDestination.get(item.destination);
     if (item.kind === "skipped") result?.skipped.push(item.clash);
-    else result?.alreadyThere.push(item.source);
+    else if (item.kind === "already-there")
+      result?.alreadyThere.push(item.source);
+    else result?.unconfirmed.push(item.source);
   }
   return [...byDestination.values()].filter(
     (result) =>
@@ -178,7 +191,8 @@ function results(session: TransferSession): TransferResult[] {
         result.clashes.length +
         result.skipped.length +
         result.failed.length +
-        result.alreadyThere.length >
+        result.alreadyThere.length +
+        result.unconfirmed.length >
       0,
   );
 }

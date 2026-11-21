@@ -1,4 +1,6 @@
 import type { TransferReceipt } from "@nimbus/api/transfer-receipt";
+import { TRPCClientError } from "@trpc/client";
+import { trpcErrorCode } from "@/lib/trpc-error";
 import { BulkResult } from "./bulk-result";
 import type { FileEntry } from "./types";
 
@@ -45,12 +47,25 @@ export type TransferResult = {
   failed: TransferFailure[];
   /** Items a move left alone because they are in the destination already. */
   alreadyThere: FileEntry[];
+  /**
+   * Items whose request may have been carried out, but whose answer was lost and could not be
+   * learned later: Nimbus does not know whether they moved.
+   */
+  unconfirmed: FileEntry[];
 };
 
 /**
- * Transfer every item, a bounded number at a time (see `BulkResult.each`). Nothing could
- * report the transfer, or offer its Undo, once the page is gone, so leaving or reloading the
- * page asks first while it runs.
+ * The server's answer was lost, not a refusal: the request may have been carried out, so
+ * nothing about the item's outcome can be claimed.
+ */
+export const answerLost = (error: unknown) =>
+  error instanceof TRPCClientError && trpcErrorCode(error) === undefined;
+
+/**
+ * Transfer every item, a bounded number at a time (see `BulkResult.each`). An item whose answer
+ * is lost is not counted as failed, since the server may have carried it out: it is
+ * `unconfirmed`, and never sent again. Nothing could report the transfer, or offer its Undo,
+ * once the page is gone, so leaving or reloading the page asks first while it runs.
  */
 async function run(
   operation: TransferOperation,
@@ -67,6 +82,7 @@ async function run(
     skipped: [],
     failed: [],
     alreadyThere: [],
+    unconfirmed: [],
   };
   // One listener per run: another run that finishes first must not remove this one's.
   const warn = (event: BeforeUnloadEvent) => event.preventDefault();
@@ -91,7 +107,9 @@ async function run(
               receipt: outcome.receipt,
             });
         } catch (error) {
-          result.failed.push({ source, reason: BulkResult.reasonOf(error) });
+          if (answerLost(error)) result.unconfirmed.push(source);
+          else
+            result.failed.push({ source, reason: BulkResult.reasonOf(error) });
         }
       },
       concurrency,

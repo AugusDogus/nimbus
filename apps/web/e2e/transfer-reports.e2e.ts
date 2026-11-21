@@ -69,6 +69,12 @@ async function moveUp(page: Page, names: readonly string[]) {
     .click();
 }
 
+async function moveToSibling(dialog: Locator, top: string, folder: string) {
+  await dialog.getByRole("button", { name: "Up one folder" }).click();
+  await dialog.locator(`[data-folder-path="${top}/${folder}"]`).click();
+  await dialog.getByRole("button", { name: `Move to “${folder}”` }).click();
+}
+
 /**
  * Lets the first `count` requests matching `pattern` (the client sends requests made together
  * as one) reach the server, which carries them
@@ -93,6 +99,14 @@ async function holdAnswers(page: Page, pattern: string, count = 1) {
     await route.fulfill({ response });
   });
   return { requested, release };
+}
+
+/** Lets matching requests reach the server, which carries them out, and loses each answer. */
+async function loseAnswers(page: Page, pattern: string) {
+  await page.route(pattern, async (route) => {
+    await route.fetch();
+    await route.abort("connectionreset");
+  });
 }
 
 test.describe("moves whose answers arrive late", () => {
@@ -234,4 +248,49 @@ test.describe("moves whose answers arrive late", () => {
       .poll(() => drive.names("docs"))
       .toEqual(["a.txt", "b.txt", "c.txt", "e.txt"]);
   });
+});
+
+test("says it could not confirm a move whose answer was lost, and never claims it moved or not", async ({
+  page,
+  isMobile,
+}) => {
+  const drive = await tree({ "docs/a.txt": "a", "archive/.keep": "" });
+  await page.goto(href(`${drive.top}/docs`));
+  await action(page, "a.txt", "Move to…", isMobile);
+  await loseAnswers(page, "**/api/trpc/files.move*");
+  await moveToSibling(picker(page), drive.top, "archive");
+  await expect(picker(page)).toBeHidden();
+  // The server did move it; Nimbus cannot know that, and says so.
+  expect(await drive.names("archive")).toEqual([".keep", "a.txt"]);
+  const report = toasts(page).filter({
+    hasText: "Nimbus could not confirm whether “a.txt” moved. Check archive.",
+  });
+  await expect(report).toBeVisible();
+  await expect(report).not.toContainText("Nothing was moved");
+  await button(report, "Open folder").click();
+  await expect(page).toHaveURL(new RegExp(`${href(`${drive.top}/archive`)}$`));
+});
+
+test("says it could not confirm an Undo whose answer was lost", async ({
+  page,
+  isMobile,
+}) => {
+  const drive = await tree({ "docs/a.txt": "a", "archive/.keep": "" });
+  await page.goto(href(`${drive.top}/docs`));
+  await action(page, "a.txt", "Move to…", isMobile);
+  await moveToSibling(picker(page), drive.top, "archive");
+  await expect(picker(page)).toBeHidden();
+  await loseAnswers(page, "**/api/trpc/files.undo*");
+  await toasts(page)
+    .filter({ hasText: "Moved “a.txt” to archive." })
+    .getByRole("button", { name: "Undo" })
+    .click();
+  // The toast itself: Base UI also announces an error in an alert region of its own.
+  await expect(
+    toasts(page).filter({
+      hasText:
+        "Nimbus could not confirm whether “a.txt” was put back. Check docs and archive.",
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("Nothing was undone")).toHaveCount(0);
 });

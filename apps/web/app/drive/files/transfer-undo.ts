@@ -1,29 +1,36 @@
 import { trpcClient } from "@/lib/trpc";
 import { folderName } from "./destination-picker/folder-name";
-import type { TransferResult } from "./transfer-result";
+import { answerLost, type TransferResult } from "./transfer-result";
 
 type Outcome = Awaited<
   ReturnType<typeof trpcClient.files.undo.mutate>
 >["outcomes"][number];
 
-/** What undoing one item did: undone, or left as it is with the reason why. */
+/**
+ * What undoing one item did: undone, left as it is with the reason why, or not known, when the
+ * answer was lost.
+ */
 export type UndoItem =
   | { kind: "undone"; name: string }
-  | { kind: "kept"; name: string; message: string };
+  | { kind: "kept"; name: string; message: string }
+  | { kind: "unconfirmed"; name: string; message: string };
 
 /** Receipts per request; the server accepts at most this many at once. */
 const batch = 500;
 
+type Receipt = TransferResult["transferred"][number]["receipt"];
+
 /**
  * Ask the server to undo every transferred item of `result`. The server checks each receipt
- * again and reports per item; a request that fails reports its items as left alone.
+ * again and reports per item. A request the server refused reports its items as left alone;
+ * one whose answer was lost reports them as not known, since it may have been carried out,
+ * and is never sent again.
  */
 async function run(
   result: TransferResult,
-  undo: (
-    receipts: TransferResult["transferred"][number]["receipt"][],
-  ) => Promise<{ outcomes: Outcome[] }> = (receipts) =>
-    trpcClient.files.undo.mutate({ receipts }),
+  undo: (receipts: Receipt[]) => Promise<{ outcomes: readonly Outcome[] }> = (
+    receipts,
+  ) => trpcClient.files.undo.mutate({ receipts }),
 ): Promise<UndoItem[]> {
   const items: UndoItem[] = [];
   for (let start = 0; start < result.transferred.length; start += batch) {
@@ -39,14 +46,22 @@ async function run(
         );
       });
     } catch (error) {
-      const reason =
-        error instanceof Error ? error.message : "The server did not answer.";
-      for (const item of slice)
-        items.push({
-          kind: "kept",
-          name: item.source.name,
-          message: `Nothing was undone for “${item.source.name}”, because the request failed: ${reason}`,
-        });
+      for (const item of slice) {
+        const name = item.source.name;
+        items.push(
+          answerLost(error)
+            ? {
+                kind: "unconfirmed",
+                name,
+                message: `Nimbus could not confirm whether “${name}” was put back. Check ${folderName(parentOf(item.receipt.from), "")} and ${folderName(parentOf(item.receipt.to), "")}.`,
+              }
+            : {
+                kind: "kept",
+                name,
+                message: `Nothing was undone for “${name}”, because the request failed: ${error instanceof Error ? error.message : "The server did not say why."}`,
+              },
+        );
+      }
     }
   }
   return items;
@@ -66,7 +81,9 @@ function describe(
   top = "",
 ) {
   const undone = items.filter((item) => item.kind === "undone").length;
-  const kept = items.flatMap((item) => (item.kind === "kept" ? [item] : []));
+  // Items left as they are, and items Nimbus could not learn about, each with its message.
+  const kept = items.flatMap((item) => (item.kind === "undone" ? [] : [item]));
+  const unsure = kept.some((item) => item.kind === "unconfirmed");
   const total = items.length;
   const copies = result.operation === "copy";
   const [first, ...rest] = kept;
@@ -96,15 +113,23 @@ function describe(
           : `Moved ${total.toLocaleString()} items back${where}.`,
     } as const;
   }
+  // Nothing is said to have stayed while some items may have been put back.
   const head = undone
     ? copies
       ? `Moved ${undone.toLocaleString()} of ${total.toLocaleString()} copies to trash.`
       : `Moved ${undone.toLocaleString()} of ${total.toLocaleString()} items back.`
-    : "Nothing was undone.";
-  const more = rest.length
-    ? ` ${rest.length === 1 ? "1 more item was" : `${rest.length.toLocaleString()} more items were`} left as ${rest.length === 1 ? "it is" : "they are"}.`
-    : "";
-  return { ok: false, message: `${head} ${first.message}${more}` } as const;
+    : unsure
+      ? ""
+      : "Nothing was undone.";
+  const more = !rest.length
+    ? ""
+    : rest.some((item) => item.kind === "unconfirmed")
+      ? ` ${rest.length === 1 ? "1 more item was" : `${rest.length.toLocaleString()} more items were`} left as ${rest.length === 1 ? "it is" : "they are"} or could not be confirmed; see Details.`
+      : ` ${rest.length === 1 ? "1 more item was" : `${rest.length.toLocaleString()} more items were`} left as ${rest.length === 1 ? "it is" : "they are"}.`;
+  return {
+    ok: false,
+    message: `${head ? `${head} ` : ""}${first.message}${more}`,
+  } as const;
 }
 
 export const TransferUndo = { run, describe } as const;

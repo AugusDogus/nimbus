@@ -200,6 +200,17 @@ export function FailurePanel({
             ))}
           </ul>
           <Names names={result.failed.map((failure) => failure.source.name)} />
+          {result.unconfirmed.length > 0 && (
+            <p className="text-pretty text-sm text-muted-foreground">
+              Nimbus could not confirm whether{" "}
+              {result.unconfirmed.length === 1
+                ? `“${result.unconfirmed[0]?.name ?? ""}”`
+                : `${result.unconfirmed.length.toLocaleString()} more items`}{" "}
+              {result.operation === "move" ? "moved" : "got copied"}. Check{" "}
+              {place}; the report after this lists{" "}
+              {result.unconfirmed.length === 1 ? "it" : "them"}.
+            </p>
+          )}
           <p className="text-pretty text-sm text-muted-foreground">
             Try again, or choose another folder for{" "}
             {failed === 1 ? "it" : "them"}.

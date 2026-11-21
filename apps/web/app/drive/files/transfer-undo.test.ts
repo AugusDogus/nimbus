@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { TransferReceipt } from "@nimbus/api/transfer-receipt";
 import type { TransferResult } from "./transfer-result";
+import { TRPCClientError } from "@trpc/client";
 import { TransferUndo } from "./transfer-undo";
 
 const transferred = (
@@ -47,6 +48,7 @@ const moved: TransferResult = {
   clashes: [],
   skipped: [],
   alreadyThere: [],
+  unconfirmed: [],
   failed: [],
 };
 
@@ -117,10 +119,31 @@ describe("TransferUndo", () => {
       clashes: [],
       skipped: [],
       alreadyThere: [],
+      unconfirmed: [],
       failed: [],
     };
     expect(
       TransferUndo.describe(copied, [{ kind: "undone", name: "a.txt" }]),
     ).toEqual({ ok: true, message: "Moved the copy “a (1).txt” to trash." });
+  });
+
+  it("says it cannot confirm an Undo whose answer was lost, and never guesses", async () => {
+    let sent = 0;
+    const unknown = await TransferUndo.run(moved, async () => {
+      sent++;
+      throw new TRPCClientError("Failed to fetch");
+    });
+    expect(sent).toBe(1);
+    expect(unknown.map((item) => item.kind)).toEqual([
+      "unconfirmed",
+      "unconfirmed",
+      "unconfirmed",
+    ]);
+    const summary = TransferUndo.describe(moved, unknown);
+    expect(summary.ok).toBe(false);
+    expect(summary.message).toStartWith(
+      "Nimbus could not confirm whether “a.txt” was put back. Check docs and archive.",
+    );
+    expect(summary.message).not.toContain("Nothing was undone");
   });
 });

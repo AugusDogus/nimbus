@@ -35,6 +35,7 @@ const result = (
   skipped: [],
   failed: [],
   alreadyThere: [],
+  unconfirmed: [],
   ...parts,
 });
 const moved = (source: FileEntry, destination: string) => {
@@ -235,6 +236,24 @@ describe("a picker session", () => {
     const [report] = TransferSession.results(session);
     expect(paths(report?.skipped)).toEqual(["docs/a.txt"]);
     expect(report?.alreadyThere).toEqual([there]);
+  });
+});
+
+describe("a session with unconfirmed items", () => {
+  it("never tries again an item that may have moved, and reports it where it was sent", () => {
+    const a = entry("docs/a.txt");
+    const b = entry("docs/b.txt");
+    let session = TransferSession.start("move", [a, b]);
+    session = TransferSession.record(
+      session,
+      result("archive", {
+        unconfirmed: [a],
+        failed: [{ source: b, reason: "Locked." }],
+      }),
+    );
+    expect(TransferSession.pending(session)).toEqual([b]);
+    const [report] = TransferSession.results(session);
+    expect(report?.unconfirmed).toEqual([a]);
   });
 });
 

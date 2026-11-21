@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { TransferReceipt } from "@nimbus/api/transfer-receipt";
+import { TRPCClientError } from "@trpc/client";
 import { TransferReport } from "./transfer-report";
 import { TransferResult } from "./transfer-result";
 import type { FileEntry } from "./types";
@@ -211,6 +212,7 @@ describe("a report of several destinations", () => {
     skipped: [],
     failed: [],
     alreadyThere: [],
+    unconfirmed: [],
     ...parts,
   });
 
@@ -252,5 +254,64 @@ describe("a report of several destinations", () => {
         result("one", { transferred: [arrived("a.txt", "one")] }),
       ]),
     ).toEqual({ ok: true, message: "Moved “a.txt” to one." });
+  });
+});
+
+describe("a transfer whose answers are lost", () => {
+  const lost = () => new TRPCClientError("Failed to fetch");
+  const refused = (message: string) =>
+    new TRPCClientError(message, {
+      result: {
+        error: { message, code: -32600, data: { code: "BAD_REQUEST" } },
+      },
+    });
+
+  it("never claims an outcome for an item whose answer was lost", async () => {
+    const items = [entry("a.txt"), entry("b.txt"), entry("c.txt")];
+    const result = await TransferResult.run(
+      "move",
+      "archive",
+      items,
+      async (item) => {
+        if (item.name === "a.txt")
+          return {
+            kind: "transferred",
+            name: item.name,
+            path: `archive/${item.name}`,
+            receipt: receipt(item.path, `archive/${item.name}`),
+          };
+        if (item.name === "b.txt") throw refused("It is locked.");
+        throw lost();
+      },
+    );
+    expect(result.failed).toEqual([
+      { source: items[1] ?? entry("missing"), reason: "It is locked." },
+    ]);
+    expect(result.unconfirmed.map((item) => item.name)).toEqual(["c.txt"]);
+    // Never "Nothing was moved", nor that c.txt failed.
+    expect(TransferReport.describe(result)).toEqual({
+      ok: false,
+      message:
+        "Moved 1 of 3 items to archive. Nimbus could not confirm whether “c.txt” moved. Check archive. “b.txt”: It is locked.",
+    });
+  });
+
+  it("says only that it cannot confirm a copy whose answer was lost", async () => {
+    let sent = 0;
+    const result = await TransferResult.run(
+      "copy",
+      "archive",
+      [entry("a.txt")],
+      async () => {
+        sent++;
+        throw lost();
+      },
+    );
+    // Sent once: a request that may have been carried out is never sent again.
+    expect(sent).toBe(1);
+    expect(result.failed).toEqual([]);
+    expect(TransferReport.describe(result).message).toBe(
+      "Nimbus could not confirm whether “a.txt” was copied. Check archive.",
+    );
   });
 });
