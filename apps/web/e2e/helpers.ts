@@ -4,10 +4,12 @@ import { createTRPCClient, httpBatchLink } from "@trpc/client";
 import {
   expect,
   test as base,
+  type Browser,
   type BrowserContext,
   type Download,
   type Page,
 } from "@playwright/test";
+import type { Permission } from "@nimbus/api/drive-store";
 import type { AppRouter } from "@nimbus/api/routers";
 
 export const port = process.env.NIMBUS_E2E_PORT ?? "3100";
@@ -133,4 +135,54 @@ export async function downloadText(download: Download) {
   if (file === null)
     throw new Error("The browser did not save the requested download.");
   return readFile(file, "utf8");
+}
+
+/**
+ * Signs a new member account in on its own page, after the administrator in `context` grants it
+ * `grants`. Folders named in them must exist. Close the returned context when done. It signs in
+ * without a destination, so it starts where any account does.
+ */
+export async function asMember(
+  browser: Browser,
+  context: BrowserContext,
+  page: Page,
+  isMobile: boolean,
+  grants: { path: string; permission: Permission }[],
+) {
+  const email = `member-${randomUUID()}@nimbus.test`;
+  const created = await context.request.post("/api/auth/admin/create-user", {
+    headers: { Origin: origin },
+    data: { name: "Folder Member", email, password, role: "user" },
+  });
+  expect(created.ok()).toBe(true);
+  const body: unknown = await created.json();
+  const id =
+    typeof body === "object" &&
+    body !== null &&
+    "user" in body &&
+    typeof body.user === "object" &&
+    body.user !== null &&
+    "id" in body.user &&
+    typeof body.user.id === "string"
+      ? body.user.id
+      : null;
+  if (!id) throw new Error("Creating the member returned no user id.");
+  const rpc = await client(context);
+  for (const { path, permission } of grants)
+    await rpc.access.grant.mutate({
+      path,
+      subject: { type: "user", id },
+      permission,
+    });
+  const memberContext = await browser.newContext({
+    storageState: { cookies: [], origins: [] },
+    viewport: page.viewportSize(),
+    isMobile,
+    hasTouch: isMobile,
+  });
+  const member = await memberContext.newPage();
+  await login(member, email);
+  const { home } = await (await client(memberContext)).access.me.query();
+  if (home === null) throw new Error(`${email} got no home folder.`);
+  return { member, memberContext, email, home };
 }

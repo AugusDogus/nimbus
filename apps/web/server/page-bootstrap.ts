@@ -1,6 +1,8 @@
 import { createContext } from "@nimbus/api/context";
 import { auth } from "@/lib/auth";
+import { fileHref } from "@/app/drive/files/types";
 import { fileListRequest } from "@/lib/file-list-request";
+import { Landing } from "@/lib/landing";
 import { parseSignedIn } from "@/lib/session-query";
 import type { Bootstrap } from "@/client/bootstrap";
 import { preferencesStore } from "./preferences";
@@ -71,11 +73,26 @@ export const PageBootstrap = {
     }
     if (kind !== "files")
       return { kind: "page", data: { session }, requests: [], folder: false };
-    const prefs = await caller.prefs.get();
-    const folder = folderOf(new URL(request.url).pathname);
+    const [prefs, me] = await Promise.all([
+      caller.prefs.get(),
+      caller.access.me(),
+    ]);
+    const { pathname, search } = new URL(request.url);
+    // Where an account starts is answered here, so the page never shows the wrong folder first.
+    if (pathname === Landing.PATH)
+      return {
+        kind: "redirect",
+        location: fileHref(Landing.afterSignIn(me)),
+      };
+    if (pathname === "/home")
+      return { kind: "redirect", location: fileHref(me.home ?? "") };
+    const home = pathname === "/" ? Landing.rootRedirect(me) : null;
+    if (home !== null)
+      return { kind: "redirect", location: fileHref(home) + search };
+    const folder = folderOf(pathname);
     return {
       kind: "page",
-      data: { session, prefs },
+      data: { session, prefs, me },
       folder: folder !== null,
       requests:
         folder === null

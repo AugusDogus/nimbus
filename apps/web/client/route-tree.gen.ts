@@ -24,6 +24,7 @@ import { Route as AuthedFilesSearchRouteImport } from './../routes/_authed/_file
 import { Route as AuthedFilesSharedRouteImport } from './../routes/_authed/_files/shared'
 import { Route as AuthedFilesSharesRouteImport } from './../routes/_authed/_files/shares'
 import { Route as AuthedFilesStarredRouteImport } from './../routes/_authed/_files/starred'
+import { Route as AuthedFilesStartRouteImport } from './../routes/_authed/_files/start'
 import { Route as AuthedFilesTrashRouteImport } from './../routes/_authed/_files/trash'
 import { Route as AuthedSettingsIndexRouteImport } from './../routes/_authed/settings/index'
 import { Route as AuthedSettingsAccountRouteImport } from './../routes/_authed/settings/account'
@@ -107,6 +108,11 @@ const AuthedFilesStarredRoute = AuthedFilesStarredRouteImport.update({
   path: '/starred',
   getParentRoute: () => AuthedFilesRoute,
 } as any)
+const AuthedFilesStartRoute = AuthedFilesStartRouteImport.update({
+  id: '/start',
+  path: '/start',
+  getParentRoute: () => AuthedFilesRoute,
+} as any)
 const AuthedFilesTrashRoute = AuthedFilesTrashRouteImport.update({
   id: '/trash',
   path: '/trash',
@@ -170,6 +176,7 @@ export interface FileRoutesByFullPath {
   '/shared': typeof AuthedFilesSharedRoute
   '/shares': typeof AuthedFilesSharesRoute
   '/starred': typeof AuthedFilesStarredRoute
+  '/start': typeof AuthedFilesStartRoute
   '/trash': typeof AuthedFilesTrashRoute
   '/settings/account': typeof AuthedSettingsAccountRoute
   '/settings/appearance': typeof AuthedSettingsAppearanceRoute
@@ -193,6 +200,7 @@ export interface FileRoutesByTo {
   '/shared': typeof AuthedFilesSharedRoute
   '/shares': typeof AuthedFilesSharesRoute
   '/starred': typeof AuthedFilesStarredRoute
+  '/start': typeof AuthedFilesStartRoute
   '/trash': typeof AuthedFilesTrashRoute
   '/settings/account': typeof AuthedSettingsAccountRoute
   '/settings/appearance': typeof AuthedSettingsAppearanceRoute
@@ -219,6 +227,7 @@ export interface FileRoutesById {
   '/_authed/_files/shared': typeof AuthedFilesSharedRoute
   '/_authed/_files/shares': typeof AuthedFilesSharesRoute
   '/_authed/_files/starred': typeof AuthedFilesStarredRoute
+  '/_authed/_files/start': typeof AuthedFilesStartRoute
   '/_authed/_files/trash': typeof AuthedFilesTrashRoute
   '/_authed/settings/account': typeof AuthedSettingsAccountRoute
   '/_authed/settings/appearance': typeof AuthedSettingsAppearanceRoute
@@ -246,6 +255,7 @@ export interface FileRouteTypes {
     | '/shared'
     | '/shares'
     | '/starred'
+    | '/start'
     | '/trash'
     | '/settings/account'
     | '/settings/appearance'
@@ -269,6 +279,7 @@ export interface FileRouteTypes {
     | '/shared'
     | '/shares'
     | '/starred'
+    | '/start'
     | '/trash'
     | '/settings/account'
     | '/settings/appearance'
@@ -294,6 +305,7 @@ export interface FileRouteTypes {
     | '/_authed/_files/shared'
     | '/_authed/_files/shares'
     | '/_authed/_files/starred'
+    | '/_authed/_files/start'
     | '/_authed/_files/trash'
     | '/_authed/settings/account'
     | '/_authed/settings/appearance'
@@ -421,6 +433,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedFilesStarredRouteImport
       parentRoute: typeof AuthedFilesRoute
     }
+    '/_authed/_files/start': {
+      id: '/_authed/_files/start'
+      path: '/start'
+      fullPath: '/start'
+      preLoaderRoute: typeof AuthedFilesStartRouteImport
+      parentRoute: typeof AuthedFilesRoute
+    }
     '/_authed/_files/trash': {
       id: '/_authed/_files/trash'
       path: '/trash'
@@ -495,6 +514,7 @@ interface AuthedFilesRouteChildren {
   AuthedFilesSharedRoute: typeof AuthedFilesSharedRoute
   AuthedFilesSharesRoute: typeof AuthedFilesSharesRoute
   AuthedFilesStarredRoute: typeof AuthedFilesStarredRoute
+  AuthedFilesStartRoute: typeof AuthedFilesStartRoute
   AuthedFilesTrashRoute: typeof AuthedFilesTrashRoute
   AuthedFilesIndexRoute: typeof AuthedFilesIndexRoute
   AuthedFilesBrowseSplatRoute: typeof AuthedFilesBrowseSplatRoute
@@ -508,6 +528,7 @@ const AuthedFilesRouteChildren: AuthedFilesRouteChildren = {
   AuthedFilesSharedRoute: AuthedFilesSharedRoute,
   AuthedFilesSharesRoute: AuthedFilesSharesRoute,
   AuthedFilesStarredRoute: AuthedFilesStarredRoute,
+  AuthedFilesStartRoute: AuthedFilesStartRoute,
   AuthedFilesTrashRoute: AuthedFilesTrashRoute,
   AuthedFilesIndexRoute: AuthedFilesIndexRoute,
   AuthedFilesBrowseSplatRoute: AuthedFilesBrowseSplatRoute,

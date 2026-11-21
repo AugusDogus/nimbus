@@ -172,7 +172,8 @@ test("sessions can be reviewed and signed out, and administrators can reset sign
       .click();
     await expect(sessions).toHaveCount(1);
     await second.page.reload();
-    await expect(second.page).toHaveURL(/\/login$/);
+    // The sign-in page, returning to where the member was once signed in again.
+    await expect(second.page).toHaveURL(/\/login(\?callbackURL=[^&]+)?$/);
 
     await first.page.goto("/settings/webdav");
     await first.page
@@ -370,7 +371,7 @@ test("someone already signed in is sent on from sign-in to a destination on the 
   expect(inside.headers().location).toBe(`${origin}/settings/account`);
   const outside = await answer("https://elsewhere.example/");
   expect(outside.status()).toBe(307);
-  expect(outside.headers().location).toBe(`${origin}/`);
+  expect(outside.headers().location).toBe(`${origin}/start`);
 });
 
 test("passkeys sign in without a password", async ({
@@ -510,13 +511,13 @@ test("a passkey button pressed while autofill is still starting signs in once", 
       if (request.url().includes("/passkey/verify-authentication"))
         verifications.push(request.url());
     });
-    // Page loads after signing in: a second would abort the first.
+    // Page loads after signing in, at the landing page: a second would abort the first.
     const pageLoads: string[] = [];
     member.page.on("request", (request) => {
       if (
         request.isNavigationRequest() &&
         request.frame() === member.page.mainFrame() &&
-        new URL(request.url()).pathname === "/"
+        new URL(request.url()).pathname === "/start"
       )
         pageLoads.push(request.url());
     });

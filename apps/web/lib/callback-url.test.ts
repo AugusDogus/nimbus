@@ -7,7 +7,7 @@ describe("CallbackUrl", () => {
       "/oauth/consent?client_id=a&state=b",
     );
   });
-  it("falls back to the drive for anything that could leave Nimbus", () => {
+  it("falls back to the landing page for anything that could leave Nimbus", () => {
     for (const value of [
       "https://evil.example",
       "//evil.example",
@@ -18,6 +18,6 @@ describe("CallbackUrl", () => {
       undefined,
       ["/a"],
     ])
-      expect(CallbackUrl.parse(value)).toBe("/");
+      expect(CallbackUrl.parse(value)).toBe("/start");
   });
 });

@@ -24,10 +24,10 @@ test("sign-in carries single sign-on errors and a destination that stays on the 
     options,
     new URLSearchParams({ callbackURL: "//evil.example" }),
   );
-  expect(offSite).toMatchObject({ error: null, redirectTo: "/" });
+  expect(offSite).toMatchObject({ error: null, redirectTo: "/start" });
   expect(
     AuthPageData.parse({ ...page, redirectTo: "https://evil.example" }),
-  ).toMatchObject({ redirectTo: "/" });
+  ).toMatchObject({ redirectTo: "/start" });
 });
 
 test("password reset reads the emailed token and a stale-token error", () => {

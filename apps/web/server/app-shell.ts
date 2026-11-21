@@ -56,6 +56,17 @@ export type AppShell = {
 
 const dist = fileURLToPath(new URL("../dist/", import.meta.url));
 
+/**
+ * The app's route files, relative to the routes folder. Every build ships them beside the
+ * server, and they name routes the build has no chunk for, such as ones that only redirect.
+ */
+async function routeFiles() {
+  const routesDirectory = fileURLToPath(new URL("../routes/", import.meta.url));
+  return (await readdir(routesDirectory, { recursive: true })).filter(
+    (file) => file.endsWith(".tsx") && !file.endsWith("__root.tsx"),
+  );
+}
+
 const fill = (template: string, nonce: string) =>
   template.replaceAll(htmlNonce, nonce);
 
@@ -113,7 +124,7 @@ async function production(): Promise<AppShell> {
     ),
   );
   const manifest: unknown = await Bun.file(`${dist}.vite/manifest.json`).json();
-  const preloads = RoutePreloads.fromManifest(manifest);
+  const preloads = RoutePreloads.fromManifest(manifest, await routeFiles());
   const files = await StaticFiles.load(dist, [
     "index.html",
     ...publicPages.map((name) => `${name}.html`),
@@ -147,12 +158,7 @@ async function production(): Promise<AppShell> {
 }
 
 async function development(vite: string): Promise<AppShell> {
-  const routesDirectory = fileURLToPath(new URL("../routes/", import.meta.url));
-  const routes = RoutePreloads.fromRouteFiles(
-    (await readdir(routesDirectory, { recursive: true })).filter(
-      (file) => file.endsWith(".tsx") && !file.endsWith("__root.tsx"),
-    ),
-  );
+  const routes = RoutePreloads.fromRouteFiles(await routeFiles());
   const page = async (file = "") => {
     const response = await fetch(`${vite}/${file}`, {
       headers: { Accept: "text/html" },

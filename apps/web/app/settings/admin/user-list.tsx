@@ -20,6 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Landing } from "@/lib/landing";
 import type { AdminConfirmation } from "./admin-confirmation-dialog";
 
 type ManagedUser = {
@@ -119,7 +120,8 @@ export function UserList({
                               result.error.message ??
                                 "Nimbus could not sign you in as this person. You are still signed in as yourself.",
                             );
-                          window.location.assign("/");
+                          // Starts where the person would after signing in.
+                          window.location.assign(Landing.PATH);
                         },
                       })
                     }

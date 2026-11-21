@@ -1,8 +1,9 @@
 /**
  * Preload hints for the page at an address. The router loads a page's code-split route chunks
  * and its first data only after the app entry has run; listing them in the HTML lets the
- * browser fetch them while the entry downloads. Routes come from the Vite build manifest, so
- * this follows the route files without a second route list.
+ * browser fetch them while the entry downloads. Routes come from the route files and their
+ * chunks from the Vite build manifest, so this follows the routes without a second list. A
+ * route that only redirects, such as `/home`, has no chunk of its own but is still a page.
  */
 type Manifest = Record<string, unknown>;
 
@@ -83,15 +84,14 @@ function matches(segments: Segment[], parts: string[]) {
 export const RoutePreloads = {
   /** Routes from the route files themselves, without chunks; development has no build. */
   fromRouteFiles(files: string[]): RoutePreloads {
-    return RoutePreloads.fromManifest(
-      Object.fromEntries(
-        files.map((file) => [`${routePrefix}${file}${splitSuffix}`, {}]),
-      ),
-    );
+    return RoutePreloads.fromManifest({}, files);
   },
 
-  /** Reads route chunks from `manifest`, leaving out files the page already loads. */
-  fromManifest(value: unknown): RoutePreloads {
+  /**
+   * The routes in `files`, relative to the routes folder, with their chunks from `manifest`,
+   * leaving out files the page already loads.
+   */
+  fromManifest(value: unknown, files: readonly string[]): RoutePreloads {
     if (!isRecord(value))
       throw new Error(
         "The client build manifest is not an object. Run `bun run build` again, then restart Nimbus.",
@@ -115,10 +115,16 @@ export const RoutePreloads = {
     };
     const entry = new Set<string>();
     collect("index.html", entry);
-    const routeFiles = Object.keys(manifest)
-      .filter((key) => key.startsWith(routePrefix) && key.endsWith(splitSuffix))
-      .map((key) => key.slice(0, -splitSuffix.length));
-    const split = new Set(routeFiles);
+    const split = new Set(
+      Object.keys(manifest)
+        .filter(
+          (key) => key.startsWith(routePrefix) && key.endsWith(splitSuffix),
+        )
+        .map((key) => key.slice(0, -splitSuffix.length)),
+    );
+    const routeFiles = [
+      ...new Set([...split, ...files.map((file) => `${routePrefix}${file}`)]),
+    ];
     const routes: RoutePreload[] = routeFiles
       .filter(
         (file) =>

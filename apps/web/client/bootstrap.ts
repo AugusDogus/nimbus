@@ -1,16 +1,23 @@
 import type { QueryClient } from "@tanstack/react-query";
+import type { inferRouterOutputs } from "@trpc/server";
 import type { UserPreferences } from "@nimbus/api/context";
+import type { WebRouter } from "@/server/web-router";
+import { trpc } from "@/lib/trpc";
 import { sessionQuery, type SignedIn } from "@/lib/session-query";
 import { prefsQueryOptions } from "@/app/drive/files/use-file-preferences";
 import { inlineJson, readInlineJson } from "@/lib/inline-json";
 
+type Me = inferRouterOutputs<WebRouter>["access"]["me"];
+
 /**
- * Data the server already knows when it sends a signed-in page: the session and browsing
- * preferences. The page carries it as JSON, so the app starts without asking for it again.
+ * Data the server already knows when it sends a signed-in page: the session, browsing
+ * preferences and, on file pages, the account with its top folder. The page carries it as JSON,
+ * so the app starts without asking for it again, and roots the breadcrumb right the first time.
  */
 export type Bootstrap = {
   session?: SignedIn;
   prefs?: UserPreferences;
+  me?: Me;
 };
 
 export const bootstrapElementId = "nimbus-bootstrap";
@@ -31,6 +38,22 @@ function parseSession(value: unknown): SignedIn | undefined {
     typeof email === "string" &&
     (impersonatedBy === null || typeof impersonatedBy === "string")
     ? { user: { id, name, email }, impersonatedBy }
+    : undefined;
+}
+
+/** The inlined `access.me` answer, in the shape the server wrote. */
+function parseMe(value: unknown): Me | undefined {
+  if (!isRecord(value)) return undefined;
+  const { id, name, email, role, banned, isAdmin, home, top } = value;
+  return typeof id === "string" &&
+    typeof name === "string" &&
+    typeof email === "string" &&
+    typeof role === "string" &&
+    typeof banned === "boolean" &&
+    typeof isAdmin === "boolean" &&
+    (home === null || typeof home === "string") &&
+    typeof top === "string"
+    ? { id, name, email, role, banned, isAdmin, home, top }
     : undefined;
 }
 
@@ -61,5 +84,7 @@ export const Bootstrap = {
     if (session) queryClient.setQueryData(sessionQuery.queryKey, session);
     const prefs = parsePrefs(value.prefs);
     if (prefs) queryClient.setQueryData(prefsQueryOptions.queryKey, prefs);
+    const me = parseMe(value.me);
+    if (me) queryClient.setQueryData(trpc.access.me.queryKey(), me);
   },
 } as const;

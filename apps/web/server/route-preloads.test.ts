@@ -5,18 +5,33 @@ const split = (file: string, chunk: string, imports: string[] = []) => ({
   [`routes/${file}?tsr-split=component`]: { file: chunk, imports },
 });
 
-const preloads = RoutePreloads.fromManifest({
-  "index.html": { file: "assets/index.js", imports: ["_react.js"] },
-  "_react.js": { file: "assets/react.js" },
-  "_ui.js": { file: "assets/ui.js", imports: ["_react.js"] },
-  ...split("_authed.tsx", "assets/authed.js"),
-  ...split("_authed/_files.tsx", "assets/files-layout.js", ["_ui.js"]),
-  ...split("_authed/_files/index.tsx", "assets/root.js"),
-  ...split("_authed/_files/browse/$.tsx", "assets/browse.js"),
-  ...split("_authed/_files/search.tsx", "assets/search.js"),
-  ...split("login.tsx", "assets/login.js", ["_ui.js"]),
-  ...split("r/$token.tsx", "assets/request.js"),
-});
+const routeFiles = [
+  "_authed.tsx",
+  "_authed/_files.tsx",
+  "_authed/_files/index.tsx",
+  "_authed/_files/browse/$.tsx",
+  "_authed/_files/search.tsx",
+  "_authed/_files/home.tsx",
+  "_authed/_files/start.tsx",
+  "login.tsx",
+  "r/$token.tsx",
+];
+
+const preloads = RoutePreloads.fromManifest(
+  {
+    "index.html": { file: "assets/index.js", imports: ["_react.js"] },
+    "_react.js": { file: "assets/react.js" },
+    "_ui.js": { file: "assets/ui.js", imports: ["_react.js"] },
+    ...split("_authed.tsx", "assets/authed.js"),
+    ...split("_authed/_files.tsx", "assets/files-layout.js", ["_ui.js"]),
+    ...split("_authed/_files/index.tsx", "assets/root.js"),
+    ...split("_authed/_files/browse/$.tsx", "assets/browse.js"),
+    ...split("_authed/_files/search.tsx", "assets/search.js"),
+    ...split("login.tsx", "assets/login.js", ["_ui.js"]),
+    ...split("r/$token.tsx", "assets/request.js"),
+  },
+  routeFiles,
+);
 
 const hrefs = (pathname: string, requests: string[] = []) =>
   [...preloads.links(pathname, requests).matchAll(/href="([^"]+)"/g)].map(
@@ -47,6 +62,11 @@ describe("RoutePreloads", () => {
   test("prefers a literal route over a splat and matches parameters", () => {
     expect(hrefs("/search")).toContain("/assets/search.js");
     expect(hrefs("/r/abc%2D_x")).toEqual(["/assets/request.js"]);
+  });
+
+  test("knows routes that only redirect, which have no code of their own in the build", () => {
+    expect(preloads.match("/home")?.kind).toBe("files");
+    expect(preloads.match("/start")?.kind).toBe("files");
   });
 
   test("names nothing for addresses outside the app", () => {
