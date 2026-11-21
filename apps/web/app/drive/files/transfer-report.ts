@@ -1,9 +1,8 @@
 import { toast, type ToastAction } from "@/lib/toast";
 import { queryClient, trpc } from "@/lib/trpc";
-import { BreadcrumbTrail } from "./breadcrumb-trail";
+import { folderName } from "./destination-picker/folder-name";
 import { sessionQuery } from "@/lib/session-query";
 import { RecentDestinations } from "./destination-picker/recent-destinations";
-import { DriveRoot } from "@nimbus/api/drive-root";
 import type { TransferResult } from "./transfer-result";
 import { TransferUndo } from "./transfer-undo";
 import type { FileEntry } from "./types";
@@ -52,11 +51,7 @@ const verbs = {
  */
 function describe(result: TransferResult, top = "") {
   const verb = verbs[result.operation];
-  const place = BreadcrumbTrail.nameOf(
-    result.destination,
-    top,
-    DriveRoot.label,
-  );
+  const place = folderName(result.destination, top);
   const total =
     result.transferred.length + result.clashes.length + result.failed.length;
   const done = result.transferred.length;

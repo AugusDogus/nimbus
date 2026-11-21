@@ -10,7 +10,8 @@ import { cn } from "@/lib/utils";
 import { typeaheadMatch } from "../entry-keys";
 import { EntryLayout } from "../entry-layout";
 import { useVirtualRows } from "../use-virtual-rows";
-import { DropTarget, type DropVerdict } from "../drop-target";
+import type { DropVerdict } from "../drop-target";
+import { Refusal } from "./refusal";
 
 /** One folder offered in the picker. */
 export type FolderRow = {
@@ -23,8 +24,7 @@ export type FolderRow = {
 };
 
 const navigable = (row: FolderRow) =>
-  row.eligibility.kind !== "refused" ||
-  DropTarget.leadsOn(row.eligibility.reason);
+  row.eligibility.kind !== "refused" || Refusal.leadsOn(row.eligibility.reason);
 
 /**
  * Folders as a list with one Tab stop: arrows, Home, End, Page Up and Down move between them,
@@ -236,7 +236,7 @@ export function FolderList({
             </span>
             {blocked && (
               <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                {DropTarget.labels[blocked]}
+                {Refusal.labels[blocked]}
               </span>
             )}
             {open && (

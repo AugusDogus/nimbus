@@ -135,10 +135,6 @@ describe("moving or copying items into a folder", () => {
   });
 
   it("keeps a refused folder open when it can lead to one that takes the items", () => {
-    expect(DropTarget.leadsOn("read-only")).toBe(true);
-    expect(DropTarget.leadsOn("already-there")).toBe(true);
-    expect(DropTarget.leadsOn("itself")).toBe(false);
-    expect(DropTarget.leadsOn("inside-itself")).toBe(false);
     expect(
       DropTarget.hint(
         { kind: "refused", reason: "read-only" },

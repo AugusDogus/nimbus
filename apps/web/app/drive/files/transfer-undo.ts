@@ -1,6 +1,5 @@
 import { trpcClient } from "@/lib/trpc";
-import { DriveRoot } from "@nimbus/api/drive-root";
-import { BreadcrumbTrail } from "./breadcrumb-trail";
+import { folderName } from "./destination-picker/folder-name";
 import type { TransferResult } from "./transfer-result";
 
 type Outcome = Awaited<
@@ -87,7 +86,7 @@ function describe(
     const [origin] = origins;
     const where =
       origins.size === 1 && origin !== undefined
-        ? ` to ${BreadcrumbTrail.nameOf(origin, top, DriveRoot.label)}`
+        ? ` to ${folderName(origin, top)}`
         : " where they were";
     return {
       ok: true,

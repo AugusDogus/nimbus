@@ -59,6 +59,7 @@ import { fileListQueryOptions } from "../use-file-list";
 import { needsStats, prefsQueryOptions } from "../use-file-preferences";
 import { FolderList, type FolderRow } from "./folder-list";
 import { RecentDestinations } from "./recent-destinations";
+import { folderName } from "./folder-name";
 import { TransferSession } from "./transfer-session";
 import { ClashPanel, FailurePanel, type ClashChoice } from "./transfer-panels";
 
@@ -205,8 +206,7 @@ export function DestinationPicker({
     setView(previous);
   };
   const browsed = view.kind === "folder" ? view.path : null;
-  const nameOf = (path: string) =>
-    BreadcrumbTrail.nameOf(path, top, DriveRoot.label);
+  const nameOf = (path: string) => folderName(path, top);
   const rootOf = (path: string) =>
     BreadcrumbTrail.of(path, top, DriveRoot.label).root.path;
   const atRoot =
