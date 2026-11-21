@@ -1,5 +1,4 @@
 import type { TransferReceipt } from "@nimbus/api/transfer-receipt";
-import { TRPCClientError } from "@trpc/client";
 import { trpcErrorCode } from "@/lib/trpc-error";
 import { BulkResult } from "./bulk-result";
 import type { FileEntry } from "./types";
@@ -26,7 +25,10 @@ export type TransferClash = {
   suggestion: string;
 };
 
-/** What the server answers for one item: transferred, or its name was taken. */
+/**
+ * What the server answers for one item: transferred, its name was taken, or it changed on disk
+ * but something after that failed, so what carried over is not known.
+ */
 export type TransferOutcome =
   | {
       kind: "transferred";
@@ -34,7 +36,8 @@ export type TransferOutcome =
       path: string;
       receipt: TransferReceipt;
     }
-  | { kind: "clash"; name: string; suggestion: string };
+  | { kind: "clash"; name: string; suggestion: string }
+  | { kind: "unknown"; message: string };
 
 /** What a move or copy of several items did to each one. */
 export type TransferResult = {
@@ -54,16 +57,30 @@ export type TransferResult = {
   unconfirmed: FileEntry[];
 };
 
-/**
- * The server's answer was lost, not a refusal: the request may have been carried out, so
- * nothing about the item's outcome can be claimed.
- */
-export const answerLost = (error: unknown) =>
-  error instanceof TRPCClientError && trpcErrorCode(error) === undefined;
+/** Errors that do not say the request was refused: it may still have been carried out. */
+const unsure = new Set([
+  "INTERNAL_SERVER_ERROR",
+  "TIMEOUT",
+  "CLIENT_CLOSED_REQUEST",
+  "BAD_GATEWAY",
+  "SERVICE_UNAVAILABLE",
+  "GATEWAY_TIMEOUT",
+]);
 
 /**
- * Transfer every item, a bounded number at a time (see `BulkResult.each`). An item whose answer
- * is lost is not counted as failed, since the server may have carried it out: it is
+ * Whether `error` leaves a request's outcome unknown. Only an explicit refusal from the server
+ * says nothing happened; a lost answer or an unexpected failure may follow a change that was
+ * carried out, so nothing about it can be claimed.
+ */
+export const outcomeUnknown = (error: unknown) => {
+  const code = trpcErrorCode(error);
+  return code === undefined || unsure.has(code);
+};
+
+/**
+ * Transfer every item, a bounded number at a time (see `BulkResult.each`). An item the server
+ * did not explicitly refuse, but did not answer for either, such as one whose answer was lost
+ * or that failed partway, is not counted as failed, since it may have been carried out: it is
  * `unconfirmed`, and never sent again. Nothing could report the transfer, or offer its Undo,
  * once the page is gone, so leaving, reloading or signing out asks first while it runs (see
  * `LeaveGuard`).
@@ -99,7 +116,8 @@ async function run(
       async (source) => {
         try {
           const outcome = await transfer(source);
-          if (outcome.kind === "clash")
+          if (outcome.kind === "unknown") result.unconfirmed.push(source);
+          else if (outcome.kind === "clash")
             result.clashes.push({
               source,
               name: outcome.name,
@@ -113,7 +131,7 @@ async function run(
               receipt: outcome.receipt,
             });
         } catch (error) {
-          if (answerLost(error)) result.unconfirmed.push(source);
+          if (outcomeUnknown(error)) result.unconfirmed.push(source);
           else
             result.failed.push({ source, reason: BulkResult.reasonOf(error) });
         }

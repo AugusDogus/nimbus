@@ -571,6 +571,12 @@ const move = defineTool({
         code: "CONFLICT",
         message: `The destination folder already has an item named “${outcome.name}”. Nothing was moved. Rename or remove that item, or choose another folder.`,
       });
+    // It changed on disk, but what carried over is not known: never claim either way.
+    if (outcome.kind === "unknown")
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: outcome.message,
+      });
     return { path: outcome.path };
   },
 });
@@ -595,6 +601,12 @@ const copy = defineTool({
       throw new TRPCError({
         code: "CONFLICT",
         message: `The destination folder already has an item named “${outcome.name}”. Nothing was copied. Choose another folder.`,
+      });
+    // It changed on disk, but what carried over is not known: never claim either way.
+    if (outcome.kind === "unknown")
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: outcome.message,
       });
     return { path: outcome.path };
   },

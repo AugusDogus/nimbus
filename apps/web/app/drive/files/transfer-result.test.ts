@@ -26,6 +26,13 @@ const receipt = (from: string, to: string): TransferReceipt => ({
   seal: "0".repeat(64),
 });
 
+/** An error the server answered with `code`, as the tRPC client raises it. */
+const answered = (message: string, code = "BAD_REQUEST") =>
+  new TRPCClientError(message, {
+    result: { error: { message, code: -32600, data: { code } } },
+  });
+const refused = (message: string) => answered(message);
+
 describe("TransferResult", () => {
   it("keeps a receipt for each transferred item and a reason for each failure", async () => {
     const items = ["a.txt", "b.txt", "c.txt"].map((name) => entry(name));
@@ -34,7 +41,7 @@ describe("TransferResult", () => {
       "archive",
       items,
       async (item) => {
-        if (item.name === "b.txt") throw new Error("It is locked.");
+        if (item.name === "b.txt") throw refused("It is locked.");
         const to = `archive/${item.name}`;
         return {
           kind: "transferred",
@@ -97,7 +104,7 @@ describe("TransferResult", () => {
       "archive",
       [entry("a.txt"), entry("b.txt")],
       async () => {
-        throw new Error("You need write permission for this item.");
+        throw refused("You need write permission for this item.");
       },
     );
     expect(TransferReport.describe(result)).toEqual({
@@ -293,14 +300,39 @@ describe("a report of several destinations", () => {
   });
 });
 
+describe("a transfer whose outcome is not known", () => {
+  it("counts only an explicit refusal as not transferred", async () => {
+    const items = ["a.txt", "b.txt", "c.txt", "d.txt"].map((name) =>
+      entry(name),
+    );
+    const result = await TransferResult.run(
+      "copy",
+      "archive",
+      items,
+      async (item) => {
+        if (item.name === "a.txt") throw refused("Nothing was copied.");
+        if (item.name === "b.txt")
+          throw answered("Internal error", "INTERNAL_SERVER_ERROR");
+        if (item.name === "c.txt") throw new Error("Unexpected");
+        return {
+          kind: "unknown",
+          message: "Something went wrong after “d.txt” was copied.",
+        };
+      },
+    );
+    expect(result.failed.map((failure) => failure.source.name)).toEqual([
+      "a.txt",
+    ]);
+    expect(result.unconfirmed.map((item) => item.name).sort()).toEqual([
+      "b.txt",
+      "c.txt",
+      "d.txt",
+    ]);
+  });
+});
+
 describe("a transfer whose answers are lost", () => {
   const lost = () => new TRPCClientError("Failed to fetch");
-  const refused = (message: string) =>
-    new TRPCClientError(message, {
-      result: {
-        error: { message, code: -32600, data: { code: "BAD_REQUEST" } },
-      },
-    });
 
   it("never claims an outcome for an item whose answer was lost", async () => {
     const items = [entry("a.txt"), entry("b.txt"), entry("c.txt")];

@@ -325,4 +325,43 @@ describe("undoing moves and copies", () => {
       },
     ]);
   });
+
+  it("never reports a copy as not made when something fails after it is on disk", async () => {
+    memory.store.copyDavProperties = async () => {
+      throw new Error(`EIO: i/o error, open '${root}/.nimbus/dav'`);
+    };
+    const outcome = await caller().files.copy({
+      sourcePath: "docs/report.txt",
+      destinationPath: "archive",
+    });
+    expect(outcome.kind).toBe("unknown");
+    if (outcome.kind !== "unknown") return;
+    expect(outcome.message).toBe(
+      "Something went wrong after “report.txt” was copied to “archive”, so part of it may not have carried over. Check “archive”.",
+    );
+    expect(outcome.message).not.toContain(root);
+    expect(await exists("archive/report.txt")).toBe(true);
+  });
+
+  it("keeps what an Undo already did when a later item fails unexpectedly", async () => {
+    await writeFile(path.join(root, "docs/other.txt"), "other");
+    const first = await move("docs/report.txt", "archive");
+    const second = await move("docs/other.txt", "archive");
+    const movePath = memory.store.movePath.bind(memory.store);
+    memory.store.movePath = async (from, to, settles) => {
+      if (from === "archive/report.txt")
+        throw new Error(`SQLITE_IOERR: disk I/O error at ${root}`);
+      return movePath(from, to, settles);
+    };
+    const outcomes = await undo([first.receipt, second.receipt]);
+    expect(outcomes.map((outcome) => outcome.kind)).toEqual([
+      "unknown",
+      "undone",
+    ]);
+    const [failed] = outcomes;
+    expect(failed?.kind === "unknown" && failed.message).toBe(
+      "Something went wrong partway through undoing “report.txt”, so Nimbus cannot say how it ended. Check “docs” and “archive”.",
+    );
+    expect(await exists("docs/other.txt")).toBe(true);
+  });
 });

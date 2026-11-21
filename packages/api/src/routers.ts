@@ -21,6 +21,7 @@ import {
   moveItem,
   lexicalPath,
   NameTakenError,
+  PartwayError,
   requireExisting,
   safePath,
   trashItem,
@@ -129,7 +130,9 @@ export type TransferOutcome =
       receipt: TransferReceipt;
     }
   /** `suggestion`: the first numbered name free in the destination when it was checked. */
-  | { kind: "clash"; name: string; suggestion: string };
+  | { kind: "clash"; name: string; suggestion: string }
+  /** It changed on disk, but something after that failed: what carried over is not known. */
+  | { kind: "unknown"; message: string };
 
 const joinPath = (folder: string, name: string) =>
   folder ? `${folder}/${name}` : name;
@@ -204,6 +207,20 @@ async function transferInto(options: {
         }),
       };
     } catch (error) {
+      if (error instanceof PartwayError) {
+        console.error(
+          `The ${options.operation} of ${options.source} to ${target} failed partway.`,
+          error.cause,
+        );
+        const place =
+          options.destination === ""
+            ? "the top folder"
+            : `“${path.posix.basename(options.destination)}”`;
+        return {
+          kind: "unknown",
+          message: `Something went wrong after “${path.posix.basename(options.source)}” was ${options.operation === "move" ? "moved" : "copied"} to ${place}, so part of it may not have carried over. Check ${place}.`,
+        };
+      }
       if (!(error instanceof NameTakenError)) throw error;
       if (options.clash === "refuse")
         return {

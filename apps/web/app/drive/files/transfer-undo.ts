@@ -1,6 +1,6 @@
 import { trpcClient } from "@/lib/trpc";
 import { folderName } from "./destination-picker/folder-name";
-import { answerLost, type TransferResult } from "./transfer-result";
+import { outcomeUnknown, type TransferResult } from "./transfer-result";
 
 type Outcome = Awaited<
   ReturnType<typeof trpcClient.files.undo.mutate>
@@ -23,8 +23,8 @@ type Receipt = TransferResult["transferred"][number]["receipt"];
 /**
  * Ask the server to undo every transferred item of `result`. The server checks each receipt
  * again and reports per item. A request the server refused reports its items as left alone;
- * one whose answer was lost reports them as not known, since it may have been carried out,
- * and is never sent again.
+ * any other failure, such as a lost answer, reports them as not known, since it may have been
+ * carried out, and is never sent again.
  */
 async function run(
   result: TransferResult,
@@ -42,14 +42,16 @@ async function run(
         items.push(
           outcome.kind === "undone"
             ? { kind: "undone", name }
-            : { kind: "kept", name, message: outcome.message },
+            : outcome.kind === "kept"
+              ? { kind: "kept", name, message: outcome.message }
+              : { kind: "unconfirmed", name, message: outcome.message },
         );
       });
     } catch (error) {
       for (const item of slice) {
         const name = item.source.name;
         items.push(
-          answerLost(error)
+          outcomeUnknown(error)
             ? {
                 kind: "unconfirmed",
                 name,

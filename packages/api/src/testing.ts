@@ -467,7 +467,9 @@ export function crawlingSearchService(root: string): SearchService {
 export function transferredOf(outcome: TransferOutcome) {
   if (outcome.kind !== "transferred")
     throw new Error(
-      `Expected the item to be transferred, but its name “${outcome.name}” was taken.`,
+      outcome.kind === "clash"
+        ? `Expected the item to be transferred, but its name “${outcome.name}” was taken.`
+        : `Expected the item to be transferred, but its outcome is not known: ${outcome.message}`,
     );
   return outcome;
 }

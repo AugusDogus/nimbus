@@ -139,6 +139,28 @@ type Replacement =
   | { kind: "content" }
   | { kind: "trashed"; trashId: string };
 
+/**
+ * A step after an item's change on disk failed: the change stands, but what follows it, such as
+ * its records, its properties or the facts its Undo needs, may not have happened. Callers report
+ * the item's outcome as unknown, never as unchanged. `cause` keeps the original error, with its
+ * host paths, for the server log only.
+ */
+export class PartwayError extends Error {
+  constructor(cause: unknown) {
+    super("A step after a change on disk failed.", { cause });
+    this.name = "PartwayError";
+  }
+}
+
+/** Run what follows a change on disk; its failure is a `PartwayError`. */
+async function afterCommit<T>(step: () => Promise<T>): Promise<T> {
+  try {
+    return await step();
+  } catch (error) {
+    throw new PartwayError(error);
+  }
+}
+
 async function statOrNull(absolute: string) {
   try {
     return await lstat(absolute);
@@ -277,7 +299,10 @@ async function moveUnlocked(
         await store.movePath(source.relative, target.relative, pending);
       } catch (error) {
         // Checked like the move itself, so a folder swapped meanwhile cannot redirect it.
-        await DriveFile.renameChecked(target.absolute, source.absolute);
+        // When it cannot go back, it stays moved without its records: partway.
+        await afterCommit(() =>
+          DriveFile.renameChecked(target.absolute, source.absolute),
+        );
         await store.removePendingChange(pending);
         throw error;
       }
@@ -286,20 +311,26 @@ async function moveUnlocked(
     await undoReplacement(store, access, replacement);
     throw error;
   }
-  forgetFileLocks(source.relative);
-  publishFileEvent({ path: source.absolute, event: "delete", ts: Date.now() });
-  publishFileEvent({
-    path: target.absolute,
-    event: replacement.kind === "content" ? "change" : "rename",
-    ts: Date.now(),
+  return afterCommit(async () => {
+    forgetFileLocks(source.relative);
+    publishFileEvent({
+      path: source.absolute,
+      event: "delete",
+      ts: Date.now(),
+    });
+    publishFileEvent({
+      path: target.absolute,
+      event: replacement.kind === "content" ? "change" : "rename",
+      ts: Date.now(),
+    });
+    return {
+      name: path.basename(target.absolute),
+      path: target.relative,
+      replaced: replacement.kind !== "vacant",
+      // Read inside the mutation scope, before anything else can change the item.
+      identity: await ItemIdentity.identityAt(target.absolute),
+    };
   });
-  return {
-    name: path.basename(target.absolute),
-    path: target.relative,
-    replaced: replacement.kind !== "vacant",
-    // Read inside the mutation scope, before anything else can change the item.
-    identity: await ItemIdentity.identityAt(target.absolute),
-  };
 }
 
 /** Copy a file or folder tree into a staging path, skipping descendants the user cannot read. */
@@ -440,23 +471,28 @@ export async function copyItem(
           await undoReplacement(store, current, replacement);
           throw error;
         }
-        // Dead properties describe the content, so the copy keeps them (RFC 4918, section 9.8.2).
-        await store.copyDavProperties(source.relative, target.relative);
-        publishFileEvent({
-          path: target.absolute,
-          event: replacement.kind === "content" ? "change" : "rename",
-          ts: Date.now(),
+        return afterCommit(async () => {
+          // Dead properties describe the content, so the copy keeps them (RFC 4918, 9.8.2).
+          await store.copyDavProperties(source.relative, target.relative);
+          publishFileEvent({
+            path: target.absolute,
+            event: replacement.kind === "content" ? "change" : "rename",
+            ts: Date.now(),
+          });
+          return {
+            path: target.relative,
+            replaced: replacement.kind !== "vacant",
+            identity: await ItemIdentity.identityAt(target.absolute),
+          };
         });
-        return {
-          path: target.relative,
-          replaced: replacement.kind !== "vacant",
-          identity: await ItemIdentity.identityAt(target.absolute),
-        };
       },
       { trash: [trashId] },
     );
   } finally {
-    await rm(staging, { recursive: true, force: true });
+    // Whatever the copy did stands; leftover staging is cleaned by maintenance.
+    await rm(staging, { recursive: true, force: true }).catch((error) =>
+      console.error("Could not remove a copy's staging folder.", error),
+    );
     release();
   }
 }
@@ -499,16 +535,22 @@ async function trashUnlocked(
     await store.removePendingChange(pending);
     throw error;
   }
-  await store.removePendingChange(pending);
-  forgetFileLocks(target.relative);
-  publishFileEvent({ path: target.absolute, event: "delete", ts: Date.now() });
-  recordAudit({
-    action: "trash.moved",
-    actor: auditUser(access.user),
-    target: { type: "path", id: target.relative },
-    details: { trashId: id },
+  return afterCommit(async () => {
+    await store.removePendingChange(pending);
+    forgetFileLocks(target.relative);
+    publishFileEvent({
+      path: target.absolute,
+      event: "delete",
+      ts: Date.now(),
+    });
+    recordAudit({
+      action: "trash.moved",
+      actor: auditUser(access.user),
+      target: { type: "path", id: target.relative },
+      details: { trashId: id },
+    });
+    return { path: target.relative, trashId: id };
   });
-  return { path: target.relative, trashId: id };
 }
 
 export async function getOwnedTrash(
@@ -666,7 +708,9 @@ export type UndoOutcome =
       receipt: TransferReceipt;
       reason: UndoRefusal;
       message: string;
-    };
+    }
+  /** Something unexpected failed partway: the item may or may not be back. */
+  | { kind: "unknown"; receipt: TransferReceipt; message: string };
 
 const quoted = (relative: string) => `“${path.posix.basename(relative)}”`;
 const folderOf = (relative: string) => {
@@ -729,7 +773,8 @@ const kept = (
  * was issued to this account and is recent, the same item is still where the transfer left it,
  * and the account may still make the reverse change. A move goes back only to its vacant
  * original path; a copy goes to trash, where it stays recoverable. Anything that no longer
- * matches is left alone, with the reason. Never throws for an expected refusal.
+ * matches is left alone, with the reason. Never throws: an unexpected failure is reported as
+ * an unknown outcome for this item, so the items undone before it keep theirs.
  */
 export async function undoTransfer(
   store: DriveStore,
@@ -789,7 +834,18 @@ export async function undoTransfer(
       { trash: [trashId] },
     );
   } catch (error) {
-    if (!(error instanceof TRPCError)) throw error;
+    // Expected refusals say why; anything else may have happened partway, and says only that.
+    if (!(error instanceof TRPCError)) {
+      console.error(
+        `Undoing the ${receipt.operation} of ${receipt.from} to ${receipt.to} failed partway.`,
+        error,
+      );
+      return {
+        kind: "unknown",
+        receipt,
+        message: `Something went wrong partway through undoing ${quoted(receipt.from)}, so Nimbus cannot say how it ended. Check ${folderOf(receipt.from)} and ${folderOf(receipt.to)}.`,
+      };
+    }
     if (error.code === "FORBIDDEN")
       return kept(receipt, "forbidden", error.message);
     if (error.code === "NOT_FOUND") return kept(receipt, "missing");

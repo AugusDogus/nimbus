@@ -71,9 +71,17 @@ describe("TransferUndo", () => {
     expect(items[1_200]).toEqual({ kind: "undone", name: "1200.txt" });
   });
 
-  it("reports items a failed request could not undo", async () => {
+  it("reports items a refused request could not undo", async () => {
     const items = await TransferUndo.run(moved, async () => {
-      throw new Error("The server is offline.");
+      throw new TRPCClientError("The server is offline.", {
+        result: {
+          error: {
+            message: "The server is offline.",
+            code: -32600,
+            data: { code: "PRECONDITION_FAILED" },
+          },
+        },
+      });
     });
     expect(items[0]).toEqual({
       kind: "kept",
@@ -125,6 +133,29 @@ describe("TransferUndo", () => {
     expect(
       TransferUndo.describe(copied, [{ kind: "undone", name: "a.txt" }]),
     ).toEqual({ ok: true, message: "Moved the copy “a (1).txt” to trash." });
+  });
+
+  it("says it cannot confirm items the server could not account for", async () => {
+    const items = await TransferUndo.run(moved, async (receipts) => ({
+      outcomes: receipts.map((receipt, index) =>
+        index === 1
+          ? {
+              kind: "unknown" as const,
+              receipt,
+              message:
+                "Something went wrong partway through undoing “b.txt”, so Nimbus cannot say how it ended. Check “docs” and “archive”.",
+            }
+          : { kind: "undone" as const, receipt },
+      ),
+    }));
+    expect(items.map((item) => item.kind)).toEqual([
+      "undone",
+      "unconfirmed",
+      "undone",
+    ]);
+    expect(TransferUndo.describe(moved, items).message).toBe(
+      "Moved 2 of 3 items back. Something went wrong partway through undoing “b.txt”, so Nimbus cannot say how it ended. Check “docs” and “archive”.",
+    );
   });
 
   it("says it cannot confirm an Undo whose answer was lost, and never guesses", async () => {
