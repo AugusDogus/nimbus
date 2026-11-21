@@ -1,5 +1,5 @@
 import { trpcClient } from "@/lib/trpc";
-import { folderLabel } from "./drive-root";
+import { DriveRoot } from "@nimbus/api/drive-root";
 import type { TransferResult } from "./transfer-result";
 
 type Outcome = Awaited<
@@ -81,7 +81,7 @@ function describe(result: TransferResult, items: readonly UndoItem[]) {
     const [origin] = origins;
     const where =
       origins.size === 1 && origin !== undefined
-        ? ` to ${folderLabel(origin)}`
+        ? ` to ${DriveRoot.nameOf(origin)}`
         : " where they were";
     return {
       ok: true,

@@ -2,7 +2,7 @@ import { toast, type ToastAction } from "@/lib/toast";
 import { queryClient } from "@/lib/trpc";
 import { sessionQuery } from "@/lib/session-query";
 import { RecentDestinations } from "./destination-picker/recent-destinations";
-import { folderLabel } from "./drive-root";
+import { DriveRoot } from "@nimbus/api/drive-root";
 import type { TransferResult } from "./transfer-result";
 import { TransferUndo } from "./transfer-undo";
 import type { FileEntry } from "./types";
@@ -51,7 +51,7 @@ const verbs = {
  */
 function describe(result: TransferResult) {
   const verb = verbs[result.operation];
-  const place = folderLabel(result.destination);
+  const place = DriveRoot.nameOf(result.destination);
   const total =
     result.transferred.length + result.clashes.length + result.failed.length;
   const done = result.transferred.length;

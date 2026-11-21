@@ -46,7 +46,7 @@ import { queryClient, trpcClient } from "@/lib/trpc";
 import { sessionQuery } from "@/lib/session-query";
 import { trpcErrorCode } from "@/lib/trpc-error";
 import { cn } from "@/lib/utils";
-import { FILES_ROOT_LABEL, folderLabel } from "../drive-root";
+import { DriveRoot } from "@nimbus/api/drive-root";
 import { sortEntries } from "../entry-sort";
 import { TransferReport } from "../transfer-report";
 import type { TransferOperation, TransferResult } from "../transfer-result";
@@ -89,7 +89,7 @@ const segmentsOf = (path: string) => (path ? path.split("/") : []);
 
 /** A folder's location as shown in the footer and search results: "Files / Projects". */
 const spelled = (path: string) =>
-  [FILES_ROOT_LABEL, ...segmentsOf(path)].join(" / ");
+  [DriveRoot.label, ...segmentsOf(path)].join(" / ");
 
 const subjectOf = (entries: readonly FileEntry[]) => {
   const [only] = entries;
@@ -483,7 +483,7 @@ export function DestinationPicker({
     })),
     {
       key: "files",
-      label: FILES_ROOT_LABEL,
+      label: DriveRoot.label,
       icon: HardDrive,
       active: browsed === "",
       open: () => go({ kind: "folder", path: "" }),
@@ -588,7 +588,7 @@ export function DestinationPicker({
       const paths = account ? RecentDestinations.list(account) : [];
       const rows = paths.map((path) => ({
         path,
-        name: folderLabel(path),
+        name: DriveRoot.nameOf(path),
         detail: path ? spelled(parentOf(path)) : undefined,
         // Checked when opened: the folder may have moved or changed since.
         eligibility: { kind: "eligible" } as const,
@@ -615,7 +615,7 @@ export function DestinationPicker({
             className="h-auto p-0"
             onClick={() => go({ kind: "folder", path: "" })}
           >
-            Go to {FILES_ROOT_LABEL}
+            Go to {DriveRoot.label}
           </Button>
         </Notice>
       );
@@ -623,7 +623,7 @@ export function DestinationPicker({
     return folderRows.length ? (
       <FolderList
         rows={folderRows}
-        label={`Folders in ${folderLabel(view.path)}`}
+        label={`Folders in ${DriveRoot.nameOf(view.path)}`}
         restoreKey={`picker:${view.path}`}
         onOpen={openRow}
         focusRequest={listing.isPlaceholderData ? undefined : focusRequest}
@@ -809,7 +809,7 @@ export function DestinationPicker({
             aria-label={
               busy || browsed === null
                 ? undefined
-                : `${verb.title} to “${folderLabel(browsed)}”`
+                : `${verb.title} to “${DriveRoot.nameOf(browsed)}”`
             }
             className="min-w-0 max-w-full sm:max-w-96"
           >
@@ -821,7 +821,9 @@ export function DestinationPicker({
               // The folder's name shortens; the verb and the quotes stay.
               <span className="flex min-w-0">
                 {verb.title} to “
-                <span className="min-w-0 truncate">{folderLabel(browsed)}</span>
+                <span className="min-w-0 truncate">
+                  {DriveRoot.nameOf(browsed)}
+                </span>
                 ”
               </span>
             )}
@@ -901,7 +903,7 @@ function PathCrumbs({
     );
   const segments = segmentsOf(view.path);
   const crumbs = [
-    { path: "", label: FILES_ROOT_LABEL },
+    { path: "", label: DriveRoot.label },
     ...segments.map((label, index) => ({
       path: segments.slice(0, index + 1).join("/"),
       label,
