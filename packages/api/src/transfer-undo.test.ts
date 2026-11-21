@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -363,5 +364,21 @@ describe("undoing moves and copies", () => {
       "Something went wrong partway through undoing “report.txt”, so Nimbus cannot say how it ended. Check “docs” and “archive”.",
     );
     expect(await exists("docs/other.txt")).toBe(true);
+  });
+
+  it("says why an Undo was refused before anything changed on disk", async () => {
+    const copied = await copy("docs/report.txt", "archive");
+    // The service account may no longer change the folder: removing the copy fails at once.
+    await chmod(path.join(root, "archive"), 0o555);
+    try {
+      const [outcome] = await undo([copied.receipt]);
+      expect(outcome?.kind === "kept" && outcome.reason).toBe("forbidden");
+      expect(outcome?.kind === "kept" && outcome.message).toContain(
+        "The server's own permissions on its disk do not allow this",
+      );
+    } finally {
+      await chmod(path.join(root, "archive"), 0o755);
+    }
+    expect(await exists("archive/report.txt")).toBe(true);
   });
 });

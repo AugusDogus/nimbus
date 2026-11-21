@@ -25,6 +25,7 @@ import {
   PathError,
   resolveSafePath,
 } from "./safe-path";
+import { FilesystemFailure } from "./filesystem-failure";
 import { PendingChanges } from "./pending-changes";
 import { Staging } from "./staging";
 import {
@@ -833,7 +834,13 @@ export async function undoTransfer(
       },
       { trash: [trashId] },
     );
-  } catch (error) {
+  } catch (caught) {
+    // A filesystem refusal before anything changed on disk, such as the service account
+    // lacking permission, is as precise as any other; after a change, only `PartwayError`.
+    const error =
+      caught instanceof PartwayError
+        ? caught
+        : (FilesystemFailure.toApiError(caught) ?? caught);
     // Expected refusals say why; anything else may have happened partway, and says only that.
     if (!(error instanceof TRPCError)) {
       console.error(
