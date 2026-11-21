@@ -452,3 +452,60 @@ test("starts no move when the code that reports it cannot load", async ({
   ).toBeVisible();
   expect(await drive.names("docs")).toEqual(["a.txt"]);
 });
+
+test.describe("transfers still running", () => {
+  test.skip(
+    ({ isMobile }) => isMobile,
+    "Item menus open as sheets on phones; the desktop menus cover the same paths.",
+  );
+
+  test("shows several slow transfers in one entry, which gives way to their reports", async ({
+    page,
+  }) => {
+    const drive = await tree({ "docs/a.txt": "a", "docs/b.txt": "b" });
+    await page.goto(href(`${drive.top}/docs`));
+    const late = await holdAnswers(page, "**/api/trpc/files.move*", 2);
+    await action(page, "a.txt", "Move up one level", false);
+    await action(page, "b.txt", "Move up one level", false);
+    await late.requested;
+    const running = toasts(page).filter({ hasText: "…" });
+    await expect(running).toHaveText(/2 items/);
+    await expect(toasts(page)).toHaveCount(1);
+    late.release();
+    await expect(running).toHaveCount(0);
+    for (const name of ["a.txt", "b.txt"])
+      await expect(
+        toasts(page).filter({ hasText: `Moved “${name}” to` }),
+      ).toBeVisible();
+  });
+
+  test("shows a move that is still running once its picker is closed, and an Undo still running", async ({
+    page,
+  }) => {
+    const drive = await tree({ "docs/a.txt": "a", "archive/.keep": "" });
+    await page.goto(href(`${drive.top}/docs`));
+    await action(page, "a.txt", "Move to…", false);
+    const late = await holdAnswers(page, "**/api/trpc/files.move*");
+    await moveToSibling(picker(page), drive.top, "archive");
+    await late.requested;
+    await page.keyboard.press("Escape");
+    await expect(picker(page)).toBeHidden();
+    const moving = toasts(page).filter({
+      hasText: "Moving “a.txt” to archive…",
+    });
+    await expect(moving).toBeVisible();
+    late.release();
+    await expect(moving).toHaveCount(0);
+    const report = toasts(page).filter({
+      hasText: "Moved “a.txt” to archive.",
+    });
+    const undoing = await holdAnswers(page, "**/api/trpc/files.undo*");
+    await report.getByRole("button", { name: "Undo" }).click();
+    await undoing.requested;
+    await expect(
+      toasts(page).filter({ hasText: "Undoing “a.txt”…" }),
+    ).toBeVisible();
+    undoing.release();
+    await expect(page.getByText("Moved “a.txt” back to docs.")).toBeVisible();
+  });
+});

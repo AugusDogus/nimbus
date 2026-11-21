@@ -1,6 +1,7 @@
 import type { TransferReceipt } from "@nimbus/api/transfer-receipt";
 import { trpcErrorCode } from "@/lib/trpc-error";
 import { BulkResult } from "./bulk-result";
+import { RunningTransfers } from "./running-transfers";
 import type { FileEntry } from "./types";
 
 export type TransferOperation = "move" | "copy";
@@ -92,10 +93,13 @@ async function run(
   transfer: (item: FileEntry) => Promise<TransferOutcome>,
   {
     hold = () => () => undefined,
+    watched = () => false,
     concurrency = 16,
   }: {
     /** Holds the page while the transfer runs; returns what releases it (see `LeaveGuard`). */
     hold?: () => () => void;
+    /** Whether something on screen shows the transfer running (see `RunningTransfers`). */
+    watched?: () => boolean;
     concurrency?: number;
   } = {},
 ): Promise<TransferResult> {
@@ -110,6 +114,12 @@ async function run(
     unconfirmed: [],
   };
   const release = hold();
+  const finish = RunningTransfers.start({
+    verb: operation === "move" ? "Moving" : "Copying",
+    items,
+    destination,
+    watched,
+  });
   try {
     await BulkResult.each(
       items,
@@ -139,6 +149,7 @@ async function run(
       concurrency,
     );
   } finally {
+    finish();
     release();
   }
   return result;

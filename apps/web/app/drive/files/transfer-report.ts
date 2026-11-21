@@ -166,8 +166,13 @@ const topFolder = () =>
  * every item that stayed and why when there are several. Returns that summary with the items
  * that were undone.
  */
-async function undo(result: TransferResult, refresh: () => void) {
-  const items = await TransferUndo.run(result);
+async function undo(
+  result: TransferResult,
+  refresh: () => void,
+  /** Whether something on screen shows the Undo running, such as the picker's own panel. */
+  watched?: () => boolean,
+) {
+  const items = await TransferUndo.run(result, undefined, watched);
   refresh();
   const summary = TransferUndo.describe(result, items, topFolder());
   const kept = items.flatMap((item) => (item.kind === "undone" ? [] : [item]));

@@ -12,20 +12,32 @@ export type ToastAction =
 /** A toast as callers ask for it; the toast UI decides how it looks. */
 export type ToastRequest = {
   title: ReactNode;
-  type?: "success" | "error";
+  /** `loading`: something still under way, shown until replaced or dismissed. */
+  type?: "success" | "error" | "loading";
   actions?: readonly ToastAction[];
+  /** Replaces the toast shown under the same id, such as a progress entry, instead of adding one. */
+  id?: string;
 };
 
 type ToastOptions = Pick<ToastRequest, "actions">;
 
 type Show = (request: ToastRequest) => void;
+type Dismiss = (id: string) => void;
 
-let show: Show | null = null;
+let ui: { show: Show; dismiss: Dismiss } | null = null;
 const pending: ToastRequest[] = [];
 
 function add(request: ToastRequest) {
-  if (show) show(request);
+  if (ui) ui.show(request);
   else pending.push(request);
+}
+
+/** Close the toast shown under `id`, or keep it from showing at all. */
+export function dismissToast(id: string) {
+  if (ui) ui.dismiss(id);
+  else
+    for (let index = pending.length - 1; index >= 0; index--)
+      if (pending[index]?.id === id) pending.splice(index, 1);
 }
 
 /**
@@ -40,6 +52,9 @@ export const toast = Object.assign(
       add({ title, type: "success", ...options }),
     error: (title: ReactNode, options?: ToastOptions) =>
       add({ title, type: "error", ...options }),
+    /** Something still under way, under `id`, until another toast with it or `dismissToast`. */
+    loading: (title: ReactNode, id: string) =>
+      add({ title, type: "loading", id }),
   },
 );
 
@@ -47,10 +62,14 @@ export const toast = Object.assign(
  * Connects the mounted toast UI: shows the toasts that waited for it, in order, then each new
  * one as it is asked for. Returns the function that disconnects it again.
  */
-export function connectToasts(next: Show): () => void {
-  show = next;
+export function connectToasts(
+  next: Show,
+  dismiss: Dismiss = () => undefined,
+): () => void {
+  const connected = { show: next, dismiss };
+  ui = connected;
   for (const request of pending.splice(0)) next(request);
   return () => {
-    if (show === next) show = null;
+    if (ui === connected) ui = null;
   };
 }

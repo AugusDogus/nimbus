@@ -190,6 +190,8 @@ export function useFileActions({
       options: {
         clash?: "refuse" | "keep-both";
         names?: ReadonlyMap<string, string>;
+        /** Whether something on screen shows it running, such as the picker that sent it. */
+        watched?: () => boolean;
       } = {},
     ) => {
       const items = FileEntry.outermost(entries);
@@ -227,7 +229,7 @@ export function useFileActions({
             name: options.names?.get(entry.path),
             clash: options.clash,
           }),
-        { hold: LeaveGuard.hold },
+        { hold: LeaveGuard.hold, watched: options.watched },
       );
       return { ...result, alreadyThere: staying };
     },

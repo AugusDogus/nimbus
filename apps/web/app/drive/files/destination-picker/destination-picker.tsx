@@ -377,7 +377,14 @@ export function DestinationPicker({
     items: readonly FileEntry[],
     to: string,
     options: Parameters<typeof actions.transferEntries>[3],
-  ) => held.run(() => actions.transferEntries(operation, items, to, options));
+  ) =>
+    held.run(() =>
+      actions.transferEntries(operation, items, to, {
+        ...options,
+        // Shown running in the picker while it is open; listed elsewhere once it closes.
+        watched: () => mounted.current,
+      }),
+    );
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
@@ -411,6 +418,7 @@ export function DestinationPicker({
         for (const key of ["files.list", "catalog", "trash"])
           void queryClient.invalidateQueries({ queryKey: [key] });
       },
+      () => mounted.current,
     );
     held.update((session) => TransferSession.undone(session, undo.undone));
     return undo;

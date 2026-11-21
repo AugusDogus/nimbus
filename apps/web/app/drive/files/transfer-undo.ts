@@ -1,4 +1,5 @@
 import { trpcClient } from "@/lib/trpc";
+import { RunningTransfers } from "./running-transfers";
 import { folderName } from "./destination-picker/folder-name";
 import { outcomeUnknown, type TransferResult } from "./transfer-result";
 
@@ -31,6 +32,25 @@ async function run(
   undo: (receipts: Receipt[]) => Promise<{ outcomes: readonly Outcome[] }> = (
     receipts,
   ) => trpcClient.files.undo.mutate({ receipts }),
+  /** Whether something on screen shows the Undo running (see `RunningTransfers`). */
+  watched: () => boolean = () => false,
+): Promise<UndoItem[]> {
+  const finish = RunningTransfers.start({
+    verb: "Undoing",
+    items: result.transferred.map((item) => item.source),
+    destination: null,
+    watched,
+  });
+  try {
+    return await undoAll(result, undo);
+  } finally {
+    finish();
+  }
+}
+
+async function undoAll(
+  result: TransferResult,
+  undo: (receipts: Receipt[]) => Promise<{ outcomes: readonly Outcome[] }>,
 ): Promise<UndoItem[]> {
   const items: UndoItem[] = [];
   for (let start = 0; start < result.transferred.length; start += batch) {
