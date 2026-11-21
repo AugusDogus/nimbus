@@ -121,7 +121,23 @@ export async function createFolder(page: Page, name: string, mobile: boolean) {
   await expect(page.getByRole("link", { name, exact: true })).toBeVisible();
 }
 
+/**
+ * Waits until the page offers New, as a person must before picking files: until it knows the
+ * folder takes uploads, the file input ignores what it is given.
+ */
+export async function whenCanCreate(page: Page) {
+  await expect(
+    page
+      .locator(
+        'button[aria-label="New"]:not([disabled]), button[aria-label="New file or folder"]',
+      )
+      .filter({ visible: true })
+      .first(),
+  ).toBeVisible();
+}
+
 export async function upload(page: Page, name: string, body: string) {
+  await whenCanCreate(page);
   await page
     .locator('input[type="file"]')
     .setInputFiles({ name, mimeType: "text/plain", buffer: Buffer.from(body) });

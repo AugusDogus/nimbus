@@ -5,7 +5,7 @@ import path from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { unzipSync, strFromU8 } from "fflate";
 import { z } from "zod";
-import { client, test } from "./helpers";
+import { client, test, whenCanCreate } from "./helpers";
 import { FileListing } from "@nimbus/api/file-listing";
 
 const mod = process.platform === "darwin" ? "Meta" : "Control";
@@ -203,6 +203,7 @@ test("asks about name clashes when uploading, replacing or keeping both", async 
 }) => {
   const { folder } = await folderWithFiles(["notes.txt"]);
   await page.goto(`/browse/${folder}`);
+  await whenCanCreate(page);
   const input = page.locator('input[type="file"]');
   await input.setInputFiles({
     name: "notes.txt",
@@ -677,6 +678,7 @@ test("the apply-to-all checkbox in the name clash dialog is named by its label a
   const { folder } = await folderWithFiles(["a.txt", "b.txt"]);
   await page.goto(`/browse/${folder}`);
   await expect(entry(page, "a.txt").filter({ visible: true })).toBeVisible();
+  await whenCanCreate(page);
   await page
     .locator('input[type="file"]')
     .first()
