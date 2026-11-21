@@ -266,6 +266,34 @@ describe("sharing the home folders container", () => {
     expect(row?.updated_at).toBeGreaterThan(0);
   });
 
+  test("an upload link on the container still lets new accounts get a home, and its warning says so", async () => {
+    await allow(true);
+    const refusal = async (attempt: typeof grant | typeof uploadLink) => {
+      const error = await attempt("users").then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+      expect(error).toBeInstanceOf(HomesExposureError);
+      return error instanceof Error ? error.message : "";
+    };
+    // Grants and public links reach into every home, so provisioning stops while one exists.
+    expect(await refusal(grant)).toContain("new accounts get no home folder");
+    // An upload link only adds files beside the homes; it can neither open nor write into them.
+    const upload = await refusal(uploadLink);
+    expect(upload).toContain("add files to the folder that holds");
+    expect(upload).not.toContain("no home folder");
+    await uploadLink("users", true);
+    drive.sqlite.run(
+      "INSERT INTO user (id, name, email, role) VALUES ('dave', 'dave', 'dave@example.test', 'user')",
+    );
+    expect(
+      await Homes.provision(drive.store, {
+        id: "dave",
+        email: "dave@example.test",
+      }),
+    ).toEqual({ kind: "created", path: "users/dave" });
+  });
+
   test("turning it off again keeps existing sharing, lists it for review, and blocks new homes until it is removed", async () => {
     await allow(true);
     await grant("users", true);

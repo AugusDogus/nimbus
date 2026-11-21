@@ -154,6 +154,7 @@ test.describe("sharing the home folders container", () => {
       "This gives access to every home folder",
     );
     await expect(linkWarning).toContainText(/all \d+ home folders?/);
+    await expect(linkWarning).toContainText("New accounts get no home folder");
     const create = dialog.getByRole("button", {
       name: "Create link",
       exact: true,
@@ -183,9 +184,21 @@ test.describe("sharing the home folders container", () => {
     await expect(request.locator("#file-request-homes")).toContainText(
       "add files to the folder that holds all",
     );
+    // An upload link never reaches into a home, so new accounts still get one, and it opens none.
+    await expect(request.locator("#file-request-homes")).not.toContainText(
+      "no home folder",
+    );
+    await expect(request.locator("#file-request-homes")).toContainText(
+      "This lets anyone with the link add files beside every home folder",
+    );
+    await expect(request.locator("#file-request-homes")).not.toContainText(
+      "access to every home folder",
+    );
     await expect(upload).toBeDisabled();
     await request
-      .getByRole("checkbox", { name: /I understand this exposes/ })
+      .getByRole("checkbox", {
+        name: /I understand anyone with the link can add files/,
+      })
       .click();
     await upload.click();
     await expect(

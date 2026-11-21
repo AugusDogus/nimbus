@@ -69,6 +69,17 @@ const reach: Record<SharingKind, (homes: string) => string> = {
     `would let anyone with the link add files to the folder that holds every user's home folder (${homes})`,
 };
 
+/**
+ * Whether new accounts get no home folder while this kind of sharing covers the container.
+ * Provisioning stops for grants and public links, which would open the new home too. An upload
+ * link adds single files to its own folder only, beside the homes, so it never reaches one.
+ */
+const blocksNewHomes: Record<SharingKind, boolean> = {
+  grant: true,
+  link: true,
+  uploadLink: false,
+};
+
 const noun: Record<SharingKind, string> = {
   grant: "this access",
   link: "this public link",
@@ -94,7 +105,10 @@ function message(
   const homes = plural(exposure.homes, "home folder", "home folders");
   if (exposure.kind === "refused")
     return `Nimbus did not create ${noun[sharing]}: ${where(path, exposure)}, so it ${reach[sharing](homes)}. Nothing was changed. Share individual folders instead, or a server administrator can turn on "Allow sharing the home folders container" in Settings, Administration.`;
-  return `${where(path, exposure)}, so ${noun[sharing]} ${reach[sharing](homes)}, and new accounts get no home folder while it exists. Nothing was changed. Share individual folders instead, or confirm with the user and repeat the request with acknowledgeAllHomeFolders set to true.`;
+  const homesStop = blocksNewHomes[sharing]
+    ? ", and new accounts get no home folder while it exists"
+    : "";
+  return `${where(path, exposure)}, so ${noun[sharing]} ${reach[sharing](homes)}${homesStop}. Nothing was changed. Share individual folders instead, or confirm with the user and repeat the request with acknowledgeAllHomeFolders set to true.`;
 }
 
 /** What sharing `path` would expose, given the administrators' setting. */

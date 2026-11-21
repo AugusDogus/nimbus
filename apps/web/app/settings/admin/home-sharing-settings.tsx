@@ -148,7 +148,7 @@ export function HomeSharingSettings({
             }
             onConfirm({
               title: "Allow sharing the home folders container?",
-              description: `Anyone who manages sharing on ${container} or a folder above it, such as My Drive, will be able to share it. One grant or link there gives access to all ${count}, including files their owners never shared, and new accounts get no home folder while it exists. Each share asks for an extra confirmation first. Nothing is shared now.`,
+              description: `Anyone who manages sharing on ${container} or a folder above it, such as My Drive, will be able to share it. One grant or public link there gives access to all ${count}, including files their owners never shared, and new accounts get no home folder while it exists. An upload link there lets anyone with it add files beside them, without opening them. Each share asks for an extra confirmation first. Nothing is shared now.`,
               confirmLabel: "Allow sharing",
               action: async () => {
                 setError(null);
@@ -177,7 +177,7 @@ export function HomeSharingSettings({
             <p className="max-w-prose text-pretty text-sm text-muted-foreground">
               {allowed
                 ? "Each of these gives access to every home folder."
-                : "Created while sharing was allowed. It still works until you remove it, and new accounts get no home folder while any of it exists."}
+                : "Created while sharing was allowed. It still works until you remove it, and new accounts get no home folder while any grant or public link here exists."}
             </p>
           </div>
           <ul

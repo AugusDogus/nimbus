@@ -102,11 +102,17 @@ export function HomeFoldersNotice({
           aria-hidden="true"
         />
         <div className="space-y-1">
-          <p className="font-medium">This gives access to every home folder</p>
+          <p className="font-medium">
+            {sharing === "uploadLink"
+              ? "This lets anyone with the link add files beside every home folder"
+              : "This gives access to every home folder"}
+          </p>
           <p className="text-pretty text-muted-foreground">
-            {where(name, exposure)} {consequence[sharing](count)} New accounts
-            get no home folder while this sharing exists. Nothing is shared
-            until you confirm.
+            {where(name, exposure)} {consequence[sharing](count)}{" "}
+            {/* An upload link adds files beside the homes only, so new accounts still get one. */}
+            {sharing !== "uploadLink" &&
+              "New accounts get no home folder while this sharing exists. "}
+            Nothing is shared until you confirm.
           </p>
         </div>
       </div>
@@ -118,7 +124,9 @@ export function HomeFoldersNotice({
           onCheckedChange={(checked) => onAcknowledgedChange(checked)}
         />
         <Label htmlFor={`${id}-confirm`} className="text-pretty font-normal">
-          I understand this exposes all {count}
+          {sharing === "uploadLink"
+            ? `I understand anyone with the link can add files beside all ${count}`
+            : `I understand this exposes all ${count}`}
         </Label>
       </div>
     </div>
