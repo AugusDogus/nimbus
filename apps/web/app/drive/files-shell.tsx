@@ -35,7 +35,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { capabilitiesQueryOptions } from "./files/capabilities";
-import { useFolderPath } from "./files/folder-path";
+import { FolderPath, useFolderPath } from "./files/folder-path";
 import { fileListQueryOptions } from "./files/use-file-list";
 import { usePathname } from "@/hooks/use-pathname";
 import { trpcErrorCode } from "@/lib/trpc-error";
@@ -75,20 +75,21 @@ export function FilesShell({ children }: FilesShellProps) {
     enabled: isAuthed,
   });
   const canWrite = capabilities.data?.canWrite === true;
-  // Trash and a folder that does not exist have nowhere to create in. Reads the folder's
-  // listing as the page loaded it, without fetching it again.
+  // Only a folder page has a place to create in. Trash, Recent, Starred, Shared and search are
+  // not one, and New there would quietly create in the drive root; a folder that does not exist,
+  // or that the account may not open, has none either. Reads the folder's listing as the page
+  // loaded it, without fetching it again.
   const pathname = usePathname();
   const listing = useQuery({
     ...fileListQueryOptions(currentPath, includeStats),
     enabled: false,
   });
+  const listingCode =
+    listing.isError && !listing.data ? trpcErrorCode(listing.error) : null;
   const offersNew =
-    pathname !== "/trash" &&
-    !(
-      listing.isError &&
-      !listing.data &&
-      trpcErrorCode(listing.error) === "NOT_FOUND"
-    );
+    FolderPath.isShownAt(pathname) &&
+    listingCode !== "NOT_FOUND" &&
+    listingCode !== "FORBIDDEN";
   const storage = useFileStorage(capabilities.data?.isAdmin === true);
   const actions = useFileActions({ currentPath, includeStats });
   const upload = useUploads();

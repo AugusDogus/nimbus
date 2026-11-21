@@ -539,6 +539,20 @@ test("New is offered only where something can be created", async ({
   await page.goto("/trash");
   await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
   await expect(offered).toBeHidden();
+  // Pages that are not a folder have nowhere to create in, rather than the drive root.
+  for (const [address, heading] of [
+    ["/trash/", "Trash"],
+    ["/recent", "Recent"],
+    ["/starred", "Starred"],
+    ["/shared", "Shared"],
+    ["/search?q=alpha", "Search: alpha"],
+  ]) {
+    await page.goto(address);
+    await expect(
+      page.getByRole("heading", { name: heading, exact: true }),
+    ).toBeVisible();
+    await expect(offered).toBeHidden();
+  }
   await page.goto(`/browse/missing-${randomUUID()}`);
   await expect(
     page.getByRole("heading", { name: "Folder not found", exact: true }),

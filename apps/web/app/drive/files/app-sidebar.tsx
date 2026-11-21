@@ -48,7 +48,10 @@ const navItems = [
 type AppSidebarProps = {
   storage: StorageSummary;
   canWrite: boolean;
-  /** Whether this page has a place to create in; Trash and a missing folder have none. */
+  /**
+   * Whether this page is a folder to create in. Trash, Recent, Starred, Shared, search, and a
+   * missing or refused folder are not.
+   */
   offersNew: boolean;
   isAdmin: boolean;
   newContent: NewContentState;

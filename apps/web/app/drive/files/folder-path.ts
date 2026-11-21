@@ -6,6 +6,14 @@ export const FolderPath = {
   fromSplat(splat: string | undefined): string {
     return (splat ?? "").split("/").filter(Boolean).join("/");
   },
+  /** Whether the address shows a folder: `/`, or `/browse` and anything below it. */
+  isShownAt(pathname: string): boolean {
+    return (
+      pathname === "/" ||
+      pathname === "/browse" ||
+      pathname.startsWith("/browse/")
+    );
+  },
 } as const;
 
 /** The folder the address names: the root on `/`, otherwise the `/browse/*` path. */

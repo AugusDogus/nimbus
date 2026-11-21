@@ -114,6 +114,12 @@ test("a folder the account may not open says so, the same whether or not it exis
       ).toBeVisible();
       await expect(member.getByText("Could not open this folder")).toBeHidden();
       await expect(
+        member.getByRole("button", {
+          name: isMobile ? "New file or folder" : "New",
+          exact: true,
+        }),
+      ).toBeHidden();
+      await expect(
         member
           .getByRole("region", { name: /Notifications/ })
           .getByText("not shared with you"),

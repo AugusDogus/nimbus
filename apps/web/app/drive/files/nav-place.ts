@@ -1,3 +1,5 @@
+import { FolderPath } from "./folder-path";
+
 /**
  * The sidebar item a page belongs to: "files" for every folder view, wherever it is in the
  * drive, or one of the library pages.
@@ -30,9 +32,6 @@ const pages = new Map<string, NavPlace>([
   ["/settings", "settings"],
 ]);
 
-const isFolderPage = (pathname: string) =>
-  pathname === "/" || pathname === "/browse" || pathname.startsWith("/browse/");
-
 export const NavPlace = {
   labels,
 
@@ -40,7 +39,7 @@ export const NavPlace = {
   of(pathname: string): NavPlace | null {
     // The router serves `/shared/` as `/shared` and marks links to it current, so match it too.
     const page = pathname.replace(/(?<=.)\/+$/, "");
-    if (isFolderPage(page)) return "files";
+    if (FolderPath.isShownAt(page)) return "files";
     return pages.get(page) ?? null;
   },
 } as const;
