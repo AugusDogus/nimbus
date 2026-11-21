@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { queryClient } from "@/lib/trpc";
+import { queryClient, trpc } from "@/lib/trpc";
 import { UploadProgress } from "@/components/upload-progress";
 
 import { NimbusLogo } from "@/components/nimbus-logo";
@@ -101,7 +101,11 @@ export function FilesShell({ children }: FilesShellProps) {
     FolderPath.isShownAt(pathname) &&
     listingCode !== "NOT_FOUND" &&
     listingCode !== "FORBIDDEN";
-  const storage = useFileStorage(capabilities.data?.isAdmin === true);
+  // From the account, not the folder: the folder's answer is pending for a moment after every
+  // move, and the storage panel would vanish and return.
+  const isAdmin =
+    useQuery(trpc.access.me.queryOptions()).data?.isAdmin === true;
+  const storage = useFileStorage(isAdmin);
   const actions = useFileActions({ currentPath, includeStats });
   const upload = useUploads();
   const uploadFiles = useCallback(
@@ -158,7 +162,7 @@ export function FilesShell({ children }: FilesShellProps) {
         storage={storage}
         canWrite={canWrite}
         offersNew={offersNew}
-        isAdmin={capabilities.data?.isAdmin === true}
+        isAdmin={isAdmin}
         newContent={newContent}
       />
       <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pb-(--impersonation-offset)">
@@ -215,7 +219,7 @@ export function FilesShell({ children }: FilesShellProps) {
                         </p>
                       </div>
                     </DropdownMenuLabel>
-                    {capabilities.data?.isAdmin === true && (
+                    {isAdmin && (
                       <DropdownMenuItem render={<Link to="/admin" />}>
                         <Shield />
                         Administration
