@@ -6,6 +6,7 @@ import { trpcErrorCode } from "@/lib/trpc-error";
 import { fileListQueryOptions } from "./use-file-list";
 
 import { BulkResult } from "./bulk-result";
+import { TransferResult } from "./transfer-result";
 import { FileEntry } from "./types";
 
 function invalidateFileQueries() {
@@ -170,30 +171,44 @@ export function useFileActions({
     return result;
   };
 
+  const reportTransfer = (result: TransferResult) => {
+    invalidateFileQueries();
+    const summary = TransferResult.describe(result);
+    if (summary.ok) toast.success(summary.message);
+    else toast.error(summary.message);
+    return result;
+  };
+
   const moveEntries = useCallback(
     async (entries: readonly FileEntry[], destinationPath: string) =>
-      reportBulk(
-        await BulkResult.run(FileEntry.outermost(entries), (entry) =>
-          trpcClient.files.move.mutate({
-            sourcePath: entry.path,
-            destinationPath,
-          }),
+      reportTransfer(
+        await TransferResult.run(
+          "move",
+          destinationPath,
+          FileEntry.outermost(entries),
+          (entry) =>
+            trpcClient.files.move.mutate({
+              sourcePath: entry.path,
+              destinationPath,
+            }),
         ),
-        "Moved",
       ),
     [],
   );
 
   const copyEntries = useCallback(
     async (entries: readonly FileEntry[], destinationPath: string) =>
-      reportBulk(
-        await BulkResult.run(FileEntry.outermost(entries), (entry) =>
-          trpcClient.files.copy.mutate({
-            sourcePath: entry.path,
-            destinationPath,
-          }),
+      reportTransfer(
+        await TransferResult.run(
+          "copy",
+          destinationPath,
+          FileEntry.outermost(entries),
+          (entry) =>
+            trpcClient.files.copy.mutate({
+              sourcePath: entry.path,
+              destinationPath,
+            }),
         ),
-        "Copied",
       ),
     [],
   );

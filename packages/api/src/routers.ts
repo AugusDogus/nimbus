@@ -35,6 +35,7 @@ import { versionsRouter } from "./versions-router";
 import { catalogRouter } from "./catalog-router";
 import { FilesystemCapacity } from "./filesystem-capacity";
 import { driveUsage } from "./search-service";
+import { TransferReceipt } from "./transfer-receipt";
 import { VacantPath } from "./vacant-path";
 
 import {
@@ -282,7 +283,7 @@ export const appRouter = router({
             code: "BAD_REQUEST",
             message: "Choose a folder as the destination.",
           });
-        return moveItem(
+        const moved = await moveItem(
           ctx.drive,
           ctx.access,
           source.relative,
@@ -290,6 +291,17 @@ export const appRouter = router({
             .filter(Boolean)
             .join("/"),
         );
+        return {
+          name: moved.name,
+          path: moved.path,
+          receipt: TransferReceipt.issue({
+            operation: "move",
+            actor: ctx.access.user.id,
+            from: source.relative,
+            to: moved.path,
+            identity: moved.identity,
+          }),
+        };
       }),
     copy: protectedProcedure
       .input(z.object({ sourcePath: z.string(), destinationPath: z.string() }))
@@ -324,7 +336,17 @@ export const appRouter = router({
               source.relative,
               candidate,
             );
-            return { name: path.basename(result.path), path: result.path };
+            return {
+              name: path.basename(result.path),
+              path: result.path,
+              receipt: TransferReceipt.issue({
+                operation: "copy",
+                actor: ctx.access.user.id,
+                from: source.relative,
+                to: result.path,
+                identity: result.identity,
+              }),
+            };
           } catch (error) {
             const nameTaken =
               isApiError(error, "CONFLICT") &&

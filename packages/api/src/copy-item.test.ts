@@ -65,7 +65,7 @@ describe("copying files and folders", () => {
   });
 
   it("copies a folder tree and leaves no staging files behind", async () => {
-    expect(await copy("docs", "archive/docs")).toEqual({
+    expect(await copy("docs", "archive/docs")).toMatchObject({
       path: "archive/docs",
       replaced: false,
     });
@@ -171,22 +171,22 @@ describe("copying files and folders", () => {
         sourcePath: "docs/first.txt",
         destinationPath: "archive",
       }),
-    ).toEqual({ name: "first.txt", path: "archive/first.txt" });
+    ).toMatchObject({ name: "first.txt", path: "archive/first.txt" });
     expect(
       await caller().files.copy({
         sourcePath: "docs/first.txt",
         destinationPath: "archive",
       }),
-    ).toEqual({ name: "first (1).txt", path: "archive/first (1).txt" });
+    ).toMatchObject({ name: "first (1).txt", path: "archive/first (1).txt" });
     expect(
       await caller().files.copy({
         sourcePath: "docs/first.txt",
         destinationPath: "docs",
       }),
-    ).toEqual({ name: "first (1).txt", path: "docs/first (1).txt" });
+    ).toMatchObject({ name: "first (1).txt", path: "docs/first (1).txt" });
     expect(
       await caller().files.copy({ sourcePath: "docs", destinationPath: "" }),
-    ).toEqual({ name: "docs (1)", path: "docs (1)" });
+    ).toMatchObject({ name: "docs (1)", path: "docs (1)" });
     expect(
       await readFile(path.join(root, "docs (1)/nested/deep.txt"), "utf8"),
     ).toBe("deep");
@@ -216,7 +216,7 @@ describe("copying files and folders", () => {
         sourcePath: "docs",
         destinationPath: "archive",
       }),
-    ).toEqual({ name: "docs", path: "archive/docs" });
+    ).toMatchObject({ name: "docs", path: "archive/docs" });
     expect(
       await readFile(path.join(root, "archive/docs/nested/deep.txt"), "utf8"),
     ).toBe("deep");
@@ -249,7 +249,7 @@ describe("copying files and folders", () => {
         sourcePath: "docs",
         destinationPath: "archive",
       }),
-    ).toEqual({ name: "docs", path: "archive/docs" });
+    ).toMatchObject({ name: "docs", path: "archive/docs" });
     expect((await readdir(path.join(root, "archive/docs"))).sort()).toEqual([
       "first.txt",
       "nested",

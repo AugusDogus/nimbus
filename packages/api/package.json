@@ -45,7 +45,8 @@
     "./mcp-scope": "./src/mcp-scope.ts",
     "./mcp-tool": "./src/mcp-tool.ts",
     "./mcp-tools": "./src/mcp-tools.ts",
-    "./upload-destination": "./src/upload-destination.ts"
+    "./upload-destination": "./src/upload-destination.ts",
+    "./transfer-receipt": "./src/transfer-receipt.ts"
   },
   "types": "./src/index.ts",
   "dependencies": {

@@ -27,6 +27,7 @@ import {
 } from "./safe-path";
 import { PendingChanges } from "./pending-changes";
 import { Staging } from "./staging";
+import { ItemIdentity } from "./transfer-receipt";
 import { VacantPath } from "./vacant-path";
 
 export async function safePath(requested: string) {
@@ -266,6 +267,8 @@ async function moveUnlocked(
     name: path.basename(target.absolute),
     path: target.relative,
     replaced: replacement.kind !== "vacant",
+    // Read inside the mutation scope, before anything else can change the item.
+    identity: await ItemIdentity.identityAt(target.absolute),
   };
 }
 
@@ -417,6 +420,7 @@ export async function copyItem(
         return {
           path: target.relative,
           replaced: replacement.kind !== "vacant",
+          identity: await ItemIdentity.identityAt(target.absolute),
         };
       },
       { trash: [trashId] },
