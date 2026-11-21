@@ -5,7 +5,7 @@ import { useCallback, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "@/lib/toast";
-import { queryClient, trpcClient } from "@/lib/trpc";
+import { queryClient } from "@/lib/trpc";
 import { UploadProgress } from "@/components/upload-progress";
 
 import { NimbusLogo } from "@/components/nimbus-logo";
@@ -34,6 +34,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { capabilitiesQueryOptions } from "./files/capabilities";
 import { useFolderPath } from "./files/folder-path";
 import { fileListQueryOptions } from "./files/use-file-list";
 import { usePathname } from "@/hooks/use-pathname";
@@ -70,8 +71,7 @@ export function FilesShell({ children }: FilesShellProps) {
     prefs.sortField === "modified" || prefs.sortField === "size";
 
   const capabilities = useQuery({
-    queryKey: ["capabilities", currentPath],
-    queryFn: () => trpcClient.access.capabilities.query({ path: currentPath }),
+    ...capabilitiesQueryOptions(currentPath),
     enabled: isAuthed,
   });
   const canWrite = capabilities.data?.canWrite === true;

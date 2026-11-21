@@ -1,10 +1,12 @@
 import { Folder, HardDrive } from "lucide-react";
 import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { trpcErrorCode } from "@/lib/trpc-error";
 
 import { FileBreadcrumbs } from "./breadcrumbs";
+import { capabilitiesQueryOptions } from "./capabilities";
 import { EntriesView } from "./entries-view";
 import { FolderError } from "./folder-error";
 import { FiltersRow } from "./filters-row";
@@ -35,6 +37,10 @@ export function FilesPageClient() {
   const { entries, listQuery } = useFileList({
     currentPath,
     includeStats,
+    enabled: isAuthed,
+  });
+  const capabilities = useQuery({
+    ...capabilitiesQueryOptions(currentPath),
     enabled: isAuthed,
   });
   const actions = useFileActions({ currentPath, includeStats });
@@ -182,15 +188,22 @@ export function FilesPageClient() {
               <h3 className="text-balance text-lg font-medium">
                 This folder is empty
               </h3>
-              {/* Files can be dropped in only with a mouse or trackpad; touch alone cannot drag them. */}
-              <p className="text-pretty mt-1 text-sm text-muted-foreground">
-                <span className="hidden any-pointer-fine:inline">
-                  Drop files here or use the New button to add content
-                </span>
-                <span className="any-pointer-fine:hidden">
-                  Tap New to upload files or create a folder
-                </span>
-              </p>
+              {/* Suggests adding only once the folder is known to take it. Files can be dropped
+                  in only with a mouse or trackpad; touch alone cannot drag them. */}
+              {capabilities.data?.canWrite === true ? (
+                <p className="text-pretty mt-1 text-sm text-muted-foreground">
+                  <span className="hidden any-pointer-fine:inline">
+                    Drop files here or use the New button to add content
+                  </span>
+                  <span className="any-pointer-fine:hidden">
+                    Tap New to upload files or create a folder
+                  </span>
+                </p>
+              ) : capabilities.data?.canWrite === false ? (
+                <p className="text-pretty mt-1 text-sm text-muted-foreground">
+                  You can view this folder but not add to it.
+                </p>
+              ) : null}
             </div>
           )}
         </div>
