@@ -26,7 +26,9 @@ const isFolderPage = (pathname: string) =>
 export const NavPlace = {
   /** The item for the page at `pathname`, or null when it belongs to none, such as search. */
   of(pathname: string): NavPlace | null {
-    if (isFolderPage(pathname)) return "files";
-    return pages.get(pathname) ?? null;
+    // The router serves `/shared/` as `/shared` and marks links to it current, so match it too.
+    const page = pathname.replace(/(?<=.)\/+$/, "");
+    if (isFolderPage(page)) return "files";
+    return pages.get(page) ?? null;
   },
 } as const;
