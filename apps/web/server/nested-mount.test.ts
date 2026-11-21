@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
 import { commitStagedFile, stageFile } from "@nimbus/api/file-content";
-import { copyItem } from "@nimbus/api/file-operations";
+import { copyItem, moveItem } from "@nimbus/api/file-operations";
 import { FileVersions } from "@nimbus/api/file-versions";
 import { createTestDriveStore } from "@nimbus/api/testing";
 import { cleanExpiredData } from "@/server/maintenance";
@@ -234,6 +234,29 @@ else
         expect(await readFile(path.join(root, relative), "utf8")).toBe(
           "original",
         );
+      });
+
+      test(`${folder}: moving into the mount says why it cannot, and changes nothing`, async () => {
+        await writeFile(path.join(root, "outside.txt"), "outside");
+        const error = await moveItem(
+          memory.store,
+          await getAccess(memory.store, "user-1"),
+          "outside.txt",
+          `${folder}/outside.txt`,
+        ).then(
+          () => null,
+          (caught: unknown) => caught,
+        );
+        expect(error).toMatchObject({
+          code: "BAD_REQUEST",
+          message: `“outside.txt” is on a different disk or share from “${folder}”, so Nimbus cannot move it there in one step. Nothing was changed. Copy it there instead, then move the original to trash once you have checked the copy.`,
+        });
+        expect(await readFile(path.join(root, "outside.txt"), "utf8")).toBe(
+          "outside",
+        );
+        expect(existsSync(path.join(root, folder, "outside.txt"))).toBe(false);
+        expect(await memory.store.listPendingChanges()).toEqual([]);
+        await rm(path.join(root, "outside.txt"));
       });
 
       test(`${folder}: COPY into the mount works`, async () => {

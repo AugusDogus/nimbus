@@ -100,6 +100,22 @@ export async function requireUnused(absolute: string) {
   throw new NameTakenError();
 }
 
+/**
+ * A rename across filesystems fails with EXDEV: the destination is in a folder mounted inside
+ * the drive (another disk or share, a bind mount, a btrfs subvolume). Moving there would mean
+ * copying and then deleting, which is not one step: a crash could leave both or half a copy,
+ * crash recovery could no longer recognise the item, and its links, grants and history would
+ * have to follow content that is not the same item. So Nimbus refuses, says why, and leaves
+ * the choice to copy to the person.
+ */
+const crossDevice = (source: string, target: string) => {
+  const parent = path.posix.dirname(target);
+  return new TRPCError({
+    code: "BAD_REQUEST",
+    message: `“${path.posix.basename(source)}” is on a different disk or share from ${parent === "." ? "the top folder" : `“${path.posix.basename(parent)}”`}, so Nimbus cannot move it there in one step. Nothing was changed. Copy it there instead, then move the original to trash once you have checked the copy.`,
+  });
+};
+
 export function requireMutable(relative: string) {
   if (!relative)
     throw new TRPCError({
@@ -253,6 +269,8 @@ async function moveUnlocked(
         await DriveFile.renameChecked(source.absolute, target.absolute);
       } catch (error) {
         await store.removePendingChange(pending);
+        if (isFsError(error, "EXDEV"))
+          throw crossDevice(source.relative, target.relative);
         throw error;
       }
       try {
