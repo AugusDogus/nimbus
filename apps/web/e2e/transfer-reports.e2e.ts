@@ -728,3 +728,43 @@ test("holds a report while the phone sidebar covers the page", async ({
   await report.getByRole("button", { name: "Undo" }).click();
   await expect.poll(() => drive.names("docs")).toEqual(["a.txt"]);
 });
+
+test("keeps a running transfer in view when errors pile up", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Item menus open as sheets on phones.");
+  const drive = await tree({
+    "docs/a.txt": "a",
+    "docs/b.txt": "b",
+    "docs/c.txt": "c",
+    "archive/.keep": "",
+  });
+  await page.goto(href(`${drive.top}/docs`));
+  await action(page, "c.txt", "Move to…", false);
+  const late = await holdAnswers(page, "**/api/trpc/files.move*");
+  await moveToSibling(picker(page), drive.top, "archive");
+  await late.requested;
+  await page.keyboard.press("Escape");
+  await expect(picker(page)).toBeHidden();
+  const moving = toasts(page).filter({ hasText: "Moving “c.txt” to archive…" });
+  await expect(moving).toBeVisible();
+  // Three errors that stay until closed: renames to a name already taken.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await action(page, "b.txt", "Rename", false);
+    const rename = page.getByRole("dialog", { name: "Rename" });
+    await rename.getByLabel("Name").fill("a.txt");
+    await rename.getByRole("button", { name: "Rename", exact: true }).click();
+    await expect(rename.getByRole("alert")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(rename).toBeHidden();
+  }
+  await expect(toasts(page)).toHaveCount(4);
+  // The running entry is not pushed out of sight by them.
+  await expect(moving).not.toHaveAttribute("data-limited");
+  await expect
+    .poll(() => moving.evaluate((element) => getComputedStyle(element).opacity))
+    .toBe("1");
+  late.release();
+  await expect(moving).toHaveCount(0);
+});

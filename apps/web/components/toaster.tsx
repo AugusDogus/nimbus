@@ -51,6 +51,29 @@ function HoldWhileCovered() {
   return null;
 }
 
+/**
+ * What is still under way, such as the entry listing running transfers, stays in view: when
+ * newer toasts, such as errors that stay until closed, push it past the limit of toasts shown,
+ * it comes back in front of them. Those it displaces return once it is gone.
+ */
+function KeepWorkInView() {
+  const { toasts, add, close } = useToastManager();
+  useEffect(() => {
+    for (const shown of toasts)
+      if (
+        shown.type === "loading" &&
+        shown.limited &&
+        shown.transitionStatus !== "ending"
+      ) {
+        close(shown.id);
+        // Added again under the same id, it replaces the closing one, newest first. Work
+        // under way offers no actions, so it carries no data.
+        add({ id: shown.id, title: shown.title, type: shown.type });
+      }
+  }, [toasts, add, close]);
+  return null;
+}
+
 /** Connects `toast()` to the UI once its provider listens, which Base UI requires. */
 function ConnectToasts() {
   useEffect(
@@ -88,6 +111,7 @@ export function Toaster() {
     <>
       <ToastUI>
         <HoldWhileCovered />
+        <KeepWorkInView />
       </ToastUI>
       {/* After the toaster, so its effect runs once the toaster's provider has subscribed. */}
       <ConnectToasts />
