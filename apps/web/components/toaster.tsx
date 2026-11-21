@@ -9,7 +9,7 @@ import { connectToasts } from "@/lib/toast";
 function ConnectToasts() {
   useEffect(
     () =>
-      connectToasts(({ actions, ...request }) =>
+      connectToasts(({ actions, persistent, ...request }) =>
         toastManager.add({
           ...request,
           data: { actions },
@@ -18,9 +18,11 @@ function ConnectToasts() {
           // long enough to reach it.
           ...(request.type === "error"
             ? { timeout: 0, priority: "high" }
-            : actions
-              ? { timeout: 10_000 }
-              : {}),
+            : persistent
+              ? { timeout: 0 }
+              : actions
+                ? { timeout: 10_000 }
+                : {}),
         }),
       ),
     [],

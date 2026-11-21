@@ -913,11 +913,12 @@ test("moves only what did not arrive when the rest go elsewhere, keeping the ear
   await expect(dialog).toBeHidden();
   expect(await names("elsewhere")).toEqual(["a.txt"]);
   expect(await names("archive")).toEqual(["a.txt", "b.txt"]);
-  // b.txt is still reported where it went, and its Undo still works.
-  const report = toasts(page).filter({ hasText: "b.txt" });
-  await expect(report).toContainText("archive");
-  await report.getByRole("button", { name: "Undo" }).first().click();
-  await expect.poll(() => names("docs")).toContain("b.txt");
+  // b.txt is still reported, and one Undo puts both back.
+  const report = toasts(page).filter({
+    hasText: "Moved 2 items to 2 folders.",
+  });
+  await report.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(() => names("docs")).toEqual(["a.txt", "b.txt"]);
 });
 
 test("reports a move that finishes after the page changed", async ({
@@ -998,4 +999,68 @@ test("asks before the page is left while a move is running", async ({
   expect(prompt.type()).toBe("beforeunload");
   await prompt.accept();
   moves.release();
+});
+
+test("reports a picker that sent items to four folders as one, with one Undo for all of it", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Touch multi-selection is covered elsewhere.");
+  // Each folder already has the names of the items still to move after the one it takes.
+  const { top, names, at } = await tree({
+    "docs/a.txt": "a",
+    "docs/b.txt": "b",
+    "docs/c.txt": "c",
+    "docs/d.txt": "d",
+    "one/b.txt": "taken",
+    "one/c.txt": "taken",
+    "one/d.txt": "taken",
+    "two/c.txt": "taken",
+    "two/d.txt": "taken",
+    "three/d.txt": "taken",
+    "four/.keep": "",
+  });
+  await page.goto(href(`${top}/docs`));
+  const dialog = await moveSelection(page, [
+    "a.txt",
+    "b.txt",
+    "c.txt",
+    "d.txt",
+  ]);
+  for (const folder of ["one", "two", "three"]) {
+    await moveToSibling(dialog, top, folder);
+    await expect(dialog.getByRole("alertdialog")).toBeVisible();
+  }
+  await moveToSibling(dialog, top, "four");
+  await expect(dialog).toBeHidden();
+  await expect(toasts(page)).toHaveCount(1);
+  const report = toasts(page).filter({
+    hasText: "Moved 4 items to 4 folders.",
+  });
+  await expect(report).toBeVisible();
+  await report.getByRole("button", { name: "Details" }).click();
+  const details = page.getByRole("dialog", { name: "What was moved" });
+  for (const line of [
+    "Moved “a.txt” to one.",
+    "Moved “b.txt” to two.",
+    "Moved “c.txt” to three.",
+    "Moved “d.txt” to four.",
+  ])
+    await expect(details).toContainText(line);
+  await details
+    .getByRole("button", { name: "Close", exact: true })
+    .first()
+    .click();
+  await expect(details).toBeHidden();
+  // Changed since, so Undo leaves it and says so.
+  await writeFile(at("four/d.txt"), "changed since");
+  await toasts(page)
+    .filter({ hasText: "Moved 4 items to 4 folders." })
+    .getByRole("button", { name: "Undo" })
+    .click();
+  await expect(
+    toasts(page).filter({ hasText: "Moved 3 of 4 items back." }),
+  ).toContainText("d.txt");
+  expect(await names("docs")).toEqual(["a.txt", "b.txt", "c.txt"]);
+  expect(await names("four")).toEqual([".keep", "d.txt"]);
 });

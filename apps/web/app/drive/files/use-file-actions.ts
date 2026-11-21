@@ -208,21 +208,31 @@ export function useFileActions({
     [],
   );
 
-  /** Report what a transfer did, with Undo; the report's code loads on first use. */
+  /**
+   * Report what a transfer did, with Undo, in one toast with transfers to other destinations
+   * made along with it (`also`), such as by one picker. The report's code loads on first use.
+   */
   const reportTransfer = useCallback(
-    function report(result: TransferResult): TransferResult {
+    function report(
+      result: TransferResult,
+      also: readonly TransferResult[] = [],
+    ): TransferResult {
       invalidateFileQueries();
       void import("./transfer-report").then(({ TransferReport }) =>
-        TransferReport.show(result, {
+        TransferReport.show([result, ...also], {
           refresh: invalidateFileQueries,
           open: (folder) => void navigate({ href: fileHref(folder) }),
           keepBoth: (earlier) =>
-            void transferEntries(
-              earlier.operation,
-              earlier.clashes.map((clash) => clash.source),
-              earlier.destination,
-              { clash: "keep-both" },
-            ).then(report),
+            void Promise.all(
+              earlier.map((result) =>
+                transferEntries(
+                  result.operation,
+                  result.clashes.map((clash) => clash.source),
+                  result.destination,
+                  { clash: "keep-both" },
+                ),
+              ),
+            ).then(([first, ...others]) => first && report(first, others)),
         }),
       );
       return result;

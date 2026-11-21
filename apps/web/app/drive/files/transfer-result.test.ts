@@ -192,3 +192,65 @@ describe("TransferResult", () => {
     });
   });
 });
+
+describe("a report of several destinations", () => {
+  const arrived = (name: string, destination: string) => ({
+    source: entry(name),
+    name,
+    path: `${destination}/${name}`,
+    receipt: receipt(`docs/${name}`, `${destination}/${name}`),
+  });
+  const result = (
+    destination: string,
+    parts: Partial<Omit<TransferResult, "operation" | "destination">>,
+  ): TransferResult => ({
+    operation: "move",
+    destination,
+    transferred: [],
+    clashes: [],
+    skipped: [],
+    failed: [],
+    alreadyThere: [],
+    ...parts,
+  });
+
+  it("counts what arrived and in how many folders", () => {
+    expect(
+      TransferReport.describeAll([
+        result("one", { transferred: [arrived("a.txt", "one")] }),
+        result("two", {
+          transferred: [arrived("b.txt", "two"), arrived("c.txt", "two")],
+        }),
+      ]),
+    ).toEqual({ ok: true, message: "Moved 3 items to 2 folders." });
+  });
+
+  it("says what did not arrive", () => {
+    expect(
+      TransferReport.describeAll([
+        result("one", {
+          transferred: [arrived("a.txt", "one")],
+          failed: [{ source: entry("b.txt"), reason: "It is locked." }],
+        }),
+        result("two", {
+          transferred: [arrived("c.txt", "two")],
+          clashes: [
+            { source: entry("d.txt"), name: "d.txt", suggestion: "d (1).txt" },
+          ],
+        }),
+      ]),
+    ).toEqual({
+      ok: false,
+      message:
+        "Moved 2 of 4 items to 2 folders. 1 item could not be moved; see Details for why. 1 item had a name already taken.",
+    });
+  });
+
+  it("reports one destination as before", () => {
+    expect(
+      TransferReport.describeAll([
+        result("one", { transferred: [arrived("a.txt", "one")] }),
+      ]),
+    ).toEqual({ ok: true, message: "Moved “a.txt” to one." });
+  });
+});

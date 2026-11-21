@@ -13,7 +13,9 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 /** Buttons a toast offers besides closing, such as Undo. */
-type ToastData = { actions?: readonly { label: string; run: () => void }[] };
+type ToastData = {
+  actions?: readonly { label: string; run: () => void; keepsToast?: true }[];
+};
 
 /** The app's toasts. Base UI drops toasts added before a `Toaster` mounts and subscribes. */
 const toast = ToastPrimitive.createToastManager<ToastData>();
@@ -207,7 +209,7 @@ function ToastList() {
                   size="sm"
                   className="touch-hit"
                   onClick={() => {
-                    close(toastItem.id);
+                    if (!action.keepsToast) close(toastItem.id);
                     action.run();
                   }}
                 >

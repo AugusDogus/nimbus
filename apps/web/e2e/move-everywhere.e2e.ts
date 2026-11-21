@@ -331,7 +331,7 @@ test.describe("every way of moving", () => {
     );
   });
 
-  test("reports every destination a clash picker sent items to, each with its own Undo", async ({
+  test("reports every destination a clash picker sent items to in one report, with one Undo", async ({
     page,
   }) => {
     const drive = await nested({
@@ -352,11 +352,10 @@ test.describe("every way of moving", () => {
       .click();
     await dialog.getByRole("button", { name: "Move to “elsewhere”" }).click();
     await expect(dialog).toBeHidden();
-    await undo(page, "Moved “b.txt” to one.", "Moved “b.txt” back to two.");
     await undo(
       page,
-      "Moved “a.txt” to elsewhere.",
-      "Moved “a.txt” back to two.",
+      "Moved 2 items to 2 folders.",
+      "Moved 2 items back to two.",
     );
     expect(await drive.names("one/two")).toEqual(
       expect.arrayContaining(["a.txt", "b.txt"]),

@@ -4,6 +4,7 @@ import { folderName } from "./destination-picker/folder-name";
 import { sessionQuery } from "@/lib/session-query";
 import { RecentDestinations } from "./destination-picker/recent-destinations";
 import type { TransferResult } from "./transfer-result";
+import { TransferDetails, type DetailSection } from "./transfer-details";
 import { TransferUndo } from "./transfer-undo";
 import type { FileEntry } from "./types";
 
@@ -121,8 +122,8 @@ export type ReportHandlers = {
   /** Refresh what the page shows after files changed. */
   refresh: () => void;
   open: (folder: string) => void;
-  /** Transfer items again, keeping both where names are taken. */
-  keepBoth: (result: TransferResult) => void;
+  /** Transfer the clashing items of each result again, keeping both, and report it once. */
+  keepBoth: (results: readonly TransferResult[]) => void;
 };
 
 /** The account's top folder, as the page loaded it, which messages call by the root's label. */
@@ -130,15 +131,37 @@ const topFolder = () =>
   queryClient.getQueryData(trpc.access.me.queryKey())?.top ?? "";
 
 /**
- * Undo every transferred item of `result` and say what happened to each. Returns that summary
- * with the items that were undone.
+ * Undo every transferred item of `result` and say what happened to each, with Details listing
+ * every item that stayed and why when there are several. Returns that summary with the items
+ * that were undone.
  */
 async function undo(result: TransferResult, refresh: () => void) {
   const items = await TransferUndo.run(result);
   refresh();
   const summary = TransferUndo.describe(result, items, topFolder());
+  const kept = items.flatMap((item) => (item.kind === "kept" ? [item] : []));
   if (summary.ok) toast.success(summary.message);
-  else toast.error(summary.message);
+  else
+    toast.error(
+      summary.message,
+      kept.length > 1
+        ? {
+            actions: [
+              {
+                label: "Details",
+                keepsToast: true,
+                run: () =>
+                  TransferDetails.open("What stayed", [
+                    {
+                      summary: summary.message,
+                      items: kept.map((item) => item.message),
+                    },
+                  ]),
+              },
+            ],
+          }
+        : undefined,
+    );
   // `run` answers once per item, in order.
   const undone = result.transferred.filter(
     (_, index) => items[index]?.kind === "undone",
@@ -147,25 +170,151 @@ async function undo(result: TransferResult, refresh: () => void) {
 }
 
 /**
- * Toast what a transfer did. Whatever reached the destination can be undone, also after a
- * partial failure; items whose names were taken can be kept beside what is there.
+ * A summary of transfers to several destinations, such as one picker's: "Moved 5 items to 3
+ * folders.", or with what did not arrive "Moved 4 of 6 items to 3 folders. 1 item could not
+ * be moved. 1 item had a name already taken."
  */
-function show(result: TransferResult, handlers: ReportHandlers) {
-  const account = queryClient.getQueryData(sessionQuery.queryKey)?.user.id;
-  if (result.transferred.length && account)
-    RecentDestinations.record(account, result.destination);
-  const summary = describe(result, topFolder());
-  const actions: ToastAction[] = [];
-  if (result.transferred.length)
-    actions.push(
-      { label: "Undo", run: () => void undo(result, handlers.refresh) },
-      { label: "Open folder", run: () => handlers.open(result.destination) },
+function describeAll(results: readonly TransferResult[], top = "") {
+  const [first, ...others] = results;
+  if (!first || others.length === 0)
+    return first
+      ? describe(first, top)
+      : ({ ok: true, message: "Nothing was changed." } as const);
+  const verb = verbs[first.operation];
+  const sum = (pick: (result: TransferResult) => readonly unknown[]) =>
+    results.reduce((total, result) => total + pick(result).length, 0);
+  const done = sum((result) => result.transferred);
+  const failed = sum((result) => result.failed);
+  const clashes = sum((result) => result.clashes);
+  const skipped = sum((result) => result.skipped);
+  const already = sum((result) => result.alreadyThere);
+  const total = done + failed + clashes;
+  const reached = results.filter((result) => result.transferred.length);
+  const [onlyReached] = reached;
+  const where =
+    reached.length === 1 && onlyReached
+      ? folderName(onlyReached.destination, top)
+      : `${reached.length.toLocaleString()} folders`;
+  const parts = [
+    !done
+      ? `Nothing was ${verb.none}.`
+      : done === total
+        ? `${verb.done} ${count(done)} to ${where}.`
+        : `${verb.done} ${done.toLocaleString()} of ${count(total)} to ${where}.`,
+  ];
+  if (failed)
+    parts.push(
+      `${count(failed)} could not be ${verb.none}; see Details for why.`,
     );
-  if (result.clashes.length)
-    actions.push({ label: "Keep both", run: () => handlers.keepBoth(result) });
-  const options = actions.length ? { actions } : undefined;
+  if (clashes)
+    parts.push(
+      clashes === 1
+        ? "1 item had a name already taken."
+        : `${count(clashes)} had names already taken.`,
+    );
+  if (skipped)
+    parts.push(
+      `Skipped ${count(skipped)} whose ${skipped === 1 ? "name was" : "names were"} taken.`,
+    );
+  if (already)
+    parts.push(
+      `${count(already)} ${already === 1 ? "was" : "were"} already there.`,
+    );
+  return { ok: !failed && !clashes, message: parts.join(" ") } as const;
+}
+
+/** Each destination's part of a report, with every item that did not arrive and why. */
+function sections(
+  results: readonly TransferResult[],
+  top = "",
+): DetailSection[] {
+  return results.map((result) => {
+    const verb = verbs[result.operation];
+    const place = folderName(result.destination, top);
+    const summary = describe(result, top);
+    const done = result.transferred.length;
+    const total = done + result.failed.length + result.clashes.length;
+    return {
+      summary: summary.ok
+        ? summary.message
+        : done
+          ? `${verb.done} ${done.toLocaleString()} of ${count(total)} to ${place}.`
+          : `Nothing was ${verb.none} to ${place}.`,
+      items: [
+        ...result.failed.map(
+          (failure) => `“${failure.source.name}”: ${failure.reason}`,
+        ),
+        ...result.clashes.map(
+          (clash) => `“${clash.name}” is already in ${place}.`,
+        ),
+      ],
+    };
+  });
+}
+
+/**
+ * Toast what transfers did, one toast for all of `results`, which are one result per
+ * destination, such as everything one picker did. Whatever arrived can be undone in one go,
+ * also after a partial failure; items whose names were taken can be kept beside what is there.
+ * Several destinations are summarised, with Details for each one's part; that toast stays
+ * until closed, so its Undo stays within reach.
+ */
+function show(results: readonly TransferResult[], handlers: ReportHandlers) {
+  const [first, ...others] = results;
+  if (!first) return;
+  const account = queryClient.getQueryData(sessionQuery.queryKey)?.user.id;
+  const reached = results.filter((result) => result.transferred.length);
+  if (account)
+    for (const result of reached)
+      RecentDestinations.record(account, result.destination);
+  const top = topFolder();
+  const summary = describeAll(results, top);
+  const [onlyReached, ...alsoReached] = reached;
+  const actions: ToastAction[] = [];
+  if (onlyReached) {
+    const everything: TransferResult = {
+      ...first,
+      transferred: reached.flatMap((result) => result.transferred),
+    };
+    actions.push({
+      label: "Undo",
+      run: () => void undo(everything, handlers.refresh),
+    });
+    if (alsoReached.length === 0)
+      actions.push({
+        label: "Open folder",
+        run: () => handlers.open(onlyReached.destination),
+      });
+  }
+  const clashing = results.filter((result) => result.clashes.length);
+  if (clashing.length)
+    actions.push({
+      label: "Keep both",
+      run: () => handlers.keepBoth(clashing),
+    });
+  if (others.length)
+    actions.push({
+      label: "Details",
+      keepsToast: true,
+      run: () =>
+        TransferDetails.open(
+          first.operation === "move" ? "What was moved" : "What was copied",
+          sections(results, top),
+        ),
+    });
+  const options = {
+    ...(actions.length ? { actions } : {}),
+    ...(others.length ? { persistent: true as const } : {}),
+  };
   if (summary.ok) toast.success(summary.message, options);
   else toast.error(summary.message, options);
 }
 
-export const TransferReport = { describe, merge, skip, show, undo } as const;
+export const TransferReport = {
+  describe,
+  describeAll,
+  merge,
+  skip,
+  show,
+  undo,
+} as const;

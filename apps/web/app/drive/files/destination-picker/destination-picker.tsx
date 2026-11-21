@@ -341,12 +341,12 @@ export function DestinationPicker({
   });
   /**
    * Everything the picker has done, reported once it has closed, however it closes or is left,
-   * and once nothing it started is still running: one report per destination, with Undo for
-   * what reached it, Keep both for names still taken, and what failed and why. A toast added
-   * while the modal picker is open, or closing, stays hidden from assistive technology and out
-   * of reach, so reports wait for it to unmount. The session is held outside the picker, so a
-   * transfer that finishes after the picker or its page is gone still reports, on whatever page
-   * is open by then.
+   * and once nothing it started is still running: one report for every destination, with one
+   * Undo for all that arrived, Keep both for names still taken, and what failed and why. A
+   * toast added while the modal picker is open, or closing, stays hidden from assistive
+   * technology and out of reach, so reports wait for it to unmount. The session is held
+   * outside the picker, so a transfer that finishes after the picker or its page is gone still
+   * reports, on whatever page is open by then.
    */
   const [held] = useState(() =>
     TransferSession.held(
@@ -373,8 +373,8 @@ export function DestinationPicker({
       setTimeout(() => {
         if (mounted.current) return;
         held.close((session) => {
-          for (const result of TransferSession.results(session))
-            reportTransfer.current(result);
+          const [first, ...others] = TransferSession.results(session);
+          if (first) reportTransfer.current(first, others);
         });
       });
     };
