@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { LeaveGuard } from "./leave-guard";
 
 /**
  * Keeps a file dropped outside an upload area, or where uploading is not allowed, from opening
@@ -27,10 +28,5 @@ export function useFileDropGuard() {
 
 /** Asks before the page is left while `active`, such as while uploads are running. */
 export function useLeaveWarning(active: boolean) {
-  useEffect(() => {
-    if (!active) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    addEventListener("beforeunload", warn);
-    return () => removeEventListener("beforeunload", warn);
-  }, [active]);
+  useEffect(() => (active ? LeaveGuard.hold() : undefined), [active]);
 }

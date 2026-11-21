@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { z } from "zod";
-import { action, client, test } from "./helpers";
+import { action, asMember, client, test } from "./helpers";
 
 /**
  * Every transfer the server may have carried out ends in a report the person can reach,
@@ -338,4 +338,58 @@ test("keeps a multi-destination report while Details is open, then lets it go", 
   await expect(details).toBeHidden();
   await page.mouse.move(5, 5);
   await expect(report).toHaveCount(0, { timeout: 14_000 });
+});
+
+test("asks before signing out while a move runs, and signs out only when confirmed", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  const account = await asMember(browser, context, page, isMobile, []);
+  try {
+    const member = account.member;
+    const drive = await tree(
+      { "docs/a.txt": "a", "archive/.keep": "" },
+      account.home,
+    );
+    let prompted = false;
+    member.on("dialog", (prompt) => {
+      prompted = true;
+      void prompt.dismiss();
+    });
+    await member.goto(href(`${drive.top}/docs`));
+    await action(member, "a.txt", "Move to…", isMobile);
+    const late = await holdAnswers(member, "**/api/trpc/files.move*");
+    await moveToSibling(picker(member), drive.top, "archive");
+    await late.requested;
+    await member.keyboard.press("Escape");
+    await expect(picker(member)).toBeHidden();
+    const signOut = async () => {
+      await member.getByRole("button", { name: "Account menu" }).click();
+      await member
+        .getByRole("menuitem", { name: "Sign out", exact: true })
+        .click();
+    };
+    await signOut();
+    const ask = member.getByRole("alertdialog", {
+      name: "Sign out while something is still running?",
+    });
+    await expect(ask).toBeVisible();
+    await ask.getByRole("button", { name: "Stay signed in" }).click();
+    await expect(ask).toBeHidden();
+    late.release();
+    await toasts(member)
+      .filter({ hasText: "Moved “a.txt” to archive." })
+      .getByRole("button", { name: "Undo" })
+      .click();
+    await expect.poll(() => drive.names("docs")).toEqual(["a.txt"]);
+
+    // With nothing running, signing out asks nothing.
+    await signOut();
+    await expect(member).toHaveURL(/\/login/);
+    expect(prompted).toBe(false);
+  } finally {
+    await account.memberContext.close();
+  }
 });

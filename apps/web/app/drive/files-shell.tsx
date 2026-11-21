@@ -4,7 +4,18 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
+import { LeaveGuard } from "@/lib/leave-guard";
 import { toast } from "@/lib/toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { queryClient } from "@/lib/trpc";
 import { UploadProgress } from "@/components/upload-progress";
 
@@ -104,6 +115,23 @@ export function FilesShell({ children }: FilesShellProps) {
     [upload, currentPath, session],
   );
 
+  // Signing out ends the session at once, so a transfer or upload still running could not
+  // report or be undone afterwards: while one runs, the person is asked first, and the session
+  // ends only once they confirm.
+  const [signOutAsked, setSignOutAsked] = useState(false);
+  const signOut = async () => {
+    // The auth client loads only for this, not with every page.
+    const { signOut: endSession } = await import("@/lib/auth-client");
+    const result = await endSession();
+    if (result.error) {
+      toast.error(result.error.message ?? "Could not sign out. Try again.");
+      return;
+    }
+    queryClient.clear();
+    // Asked already, when anything was running.
+    LeaveGuard.leave("/login");
+  };
+
   useFileSubscription({
     currentPath,
     includeStats,
@@ -196,22 +224,10 @@ export function FilesShell({ children }: FilesShellProps) {
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() =>
-                      void (async () => {
-                        // The auth client loads only for this, not with every page.
-                        const { signOut } = await import("@/lib/auth-client");
-                        const result = await signOut();
-                        if (result.error) {
-                          toast.error(
-                            result.error.message ??
-                              "Could not sign out. Try again.",
-                          );
-                          return;
-                        }
-                        queryClient.clear();
-                        window.location.assign("/login");
-                      })()
-                    }
+                    onClick={() => {
+                      if (LeaveGuard.busy()) setSignOutAsked(true);
+                      else void signOut();
+                    }}
                     variant="destructive"
                   >
                     Sign out
@@ -227,6 +243,31 @@ export function FilesShell({ children }: FilesShellProps) {
         </header>
 
         <UploadProgress />
+        <AlertDialog open={signOutAsked} onOpenChange={setSignOutAsked}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-balance">
+                Sign out while something is still running?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                A move, copy or upload is still running. Signing out now ends it
+                without a report or Undo.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Stay signed in</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={() => {
+                  setSignOutAsked(false);
+                  void signOut();
+                }}
+              >
+                Sign out
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <div
           className="flex-1 overflow-x-clip px-4 pb-24 pt-6 md:px-6 md:pb-6 lg:px-8 lg:pt-8"
           onDragOver={(event) => {

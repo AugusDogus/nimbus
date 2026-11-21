@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef } from "react";
+import { LeaveGuard } from "@/lib/leave-guard";
 import { toast } from "@/lib/toast";
 
 import { queryClient, trpcClient } from "@/lib/trpc";
@@ -209,6 +210,7 @@ export function useFileActions({
             name: options.names?.get(entry.path),
             clash: options.clash,
           }),
+        { hold: LeaveGuard.hold },
       );
       return { ...result, alreadyThere: staying };
     },

@@ -65,14 +65,22 @@ export const answerLost = (error: unknown) =>
  * Transfer every item, a bounded number at a time (see `BulkResult.each`). An item whose answer
  * is lost is not counted as failed, since the server may have carried it out: it is
  * `unconfirmed`, and never sent again. Nothing could report the transfer, or offer its Undo,
- * once the page is gone, so leaving or reloading the page asks first while it runs.
+ * once the page is gone, so leaving, reloading or signing out asks first while it runs (see
+ * `LeaveGuard`).
  */
 async function run(
   operation: TransferOperation,
   destination: string,
   items: readonly FileEntry[],
   transfer: (item: FileEntry) => Promise<TransferOutcome>,
-  concurrency = 16,
+  {
+    hold = () => () => undefined,
+    concurrency = 16,
+  }: {
+    /** Holds the page while the transfer runs; returns what releases it (see `LeaveGuard`). */
+    hold?: () => () => void;
+    concurrency?: number;
+  } = {},
 ): Promise<TransferResult> {
   const result: TransferResult = {
     operation,
@@ -84,9 +92,7 @@ async function run(
     alreadyThere: [],
     unconfirmed: [],
   };
-  // One listener per run: another run that finishes first must not remove this one's.
-  const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-  addEventListener("beforeunload", warn);
+  const release = hold();
   try {
     await BulkResult.each(
       items,
@@ -115,7 +121,7 @@ async function run(
       concurrency,
     );
   } finally {
-    removeEventListener("beforeunload", warn);
+    release();
   }
   return result;
 }
