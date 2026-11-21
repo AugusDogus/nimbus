@@ -335,26 +335,29 @@ export function DestinationPicker({
     ? DropTarget.forItems(operation, pending, destination)
     : null;
 
+  /**
+   * Everything the picker has done, reported once it has closed, however it closes or is left:
+   * one report per destination, with Undo for what reached it, Keep both for names still taken,
+   * and what failed and why. A toast added while the modal picker is open, or closing, stays
+   * hidden from assistive technology and out of reach, so reports wait for it to unmount.
+   */
+  const session = useRef(
+    resume
+      ? TransferSession.record(
+          TransferSession.start(operation, entries),
+          resume,
+        )
+      : TransferSession.start(operation, entries),
+  );
+  /** Transfer `items`, which are open in the session, and record what the server answered. */
   const transfer = async (
     items: readonly FileEntry[],
     to: string,
     options: Parameters<typeof actions.transferEntries>[3],
-  ) => actions.transferEntries(operation, items, to, options);
-
-  /**
-   * Everything the picker has done, item by item, reported once it has closed, however it
-   * closes or is left: one report per destination, with Undo for what reached it, Keep both for
-   * names still taken, and what failed and why. A toast added while the modal picker is open,
-   * or closing, stays hidden from assistive technology and out of reach, so reports wait for it
-   * to unmount.
-   */
-  const session = useRef(
-    resume
-      ? TransferSession.record(TransferSession.start(operation), resume)
-      : TransferSession.start(operation),
-  );
-  const report = (result: TransferResult) => {
+  ) => {
+    const result = await actions.transferEntries(operation, items, to, options);
     session.current = TransferSession.record(session.current, result);
+    return result;
   };
   const reportTransfer = useRef(actions.reportTransfer);
   useEffect(() => {
@@ -369,23 +372,37 @@ export function DestinationPicker({
       setTimeout(() => {
         if (mounted.current) return;
         const results = TransferSession.results(session.current);
-        session.current = TransferSession.start(session.current.operation);
+        session.current = TransferSession.start(session.current.operation, []);
         for (const result of results) reportTransfer.current(result);
       });
     };
   }, []);
-  /** Undo what `result` transferred, from the picker, and stop reporting it. */
-  const undoFromPicker = (result: TransferResult) => {
-    session.current = TransferSession.undone(session.current, result);
-    return TransferReport.undo(result, () => {
-      for (const key of ["files.list", "catalog", "trash"])
-        void queryClient.invalidateQueries({ queryKey: [key] });
-    });
+  /** Undo, from the picker, what `result` transferred and is still in place; stop reporting it. */
+  const undoFromPicker = async (result: TransferResult) => {
+    const current = new Set(
+      TransferSession.transferred(session.current).map(
+        (item) => item.receipt.id,
+      ),
+    );
+    const undo = await TransferReport.undo(
+      {
+        ...result,
+        transferred: result.transferred.filter((item) =>
+          current.has(item.receipt.id),
+        ),
+      },
+      () => {
+        for (const key of ["files.list", "catalog", "trash"])
+          void queryClient.invalidateQueries({ queryKey: [key] });
+      },
+    );
+    session.current = TransferSession.undone(session.current, undo.undone);
+    return undo;
   };
 
-  /** Report what a finished transfer did, and close or keep what is left to try again. */
+  /** Show what a finished transfer did, and close, or keep what is left to try again. */
   const settle = (result: TransferResult) => {
-    report(result);
+    setPending(TransferSession.pending(session.current));
     if (result.clashes.length) {
       setPhase({ kind: "clashes", result });
       return;
@@ -394,7 +411,6 @@ export function DestinationPicker({
       onClose();
       return;
     }
-    setPending(result.failed.map((failure) => failure.source));
     setPhase({ kind: "failed", result });
   };
 
@@ -419,17 +435,14 @@ export function DestinationPicker({
         // whose names are taken stay where they are, and are reported so, with Keep both,
         // unless they go elsewhere first.
         const rest = TransferReport.skip(result);
-        if (rest.failed.length) {
-          setPending(rest.failed.map((failure) => failure.source));
-          setPhase({ kind: "failed", result: rest });
-        } else if (rest.transferred.length) onClose();
-        else {
-          setPending(clashing);
-          setPhase({ kind: "choosing" });
-        }
+        setPending(TransferSession.pending(session.current));
+        if (rest.failed.length) setPhase({ kind: "failed", result: rest });
+        else if (rest.transferred.length) onClose();
+        else setPhase({ kind: "choosing" });
         return;
       }
       case "skip":
+        session.current = TransferSession.skip(session.current, result.clashes);
         settle(TransferReport.skip(result));
         return;
       case "keep-both":

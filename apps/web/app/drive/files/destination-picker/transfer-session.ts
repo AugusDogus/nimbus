@@ -7,69 +7,148 @@ import type {
 } from "../transfer-result";
 import type { FileEntry } from "../types";
 
-/** What happened to one item last, and where. */
-type Outcome =
-  | { kind: "transferred"; item: Transferred }
-  | { kind: "clash"; clash: TransferClash }
-  | { kind: "skipped"; clash: TransferClash }
-  | { kind: "failed"; failure: TransferFailure }
-  | { kind: "already-there"; source: FileEntry };
+/** An item still to transfer, and what happened to it last. */
+type Open =
+  | { kind: "untried"; source: FileEntry }
+  | { kind: "clash"; destination: string; clash: TransferClash }
+  | { kind: "failed"; destination: string; failure: TransferFailure };
+
+/** An item left where it is on purpose: its name was taken and skipped, or it was there. */
+type Settled =
+  | { kind: "skipped"; destination: string; clash: TransferClash }
+  | { kind: "already-there"; destination: string; source: FileEntry };
 
 /**
- * Everything one picker did, item by item, across every destination it was pointed at: an item
- * moved after its name clashed elsewhere counts where it went, and one retried after a failure
- * counts as the retry went. Reported when the picker closes, one report per destination, each
- * with Undo for what reached it.
+ * Everything one picker did, across every destination it was pointed at. Items that reached a
+ * destination are kept apart from the items still to transfer: only these are tried again,
+ * and nothing that happens later removes a completed transfer, or its receipt, except Undo.
  */
 export type TransferSession = {
   operation: TransferOperation;
-  /** By the item's path before the transfer, in the order items were first transferred. */
-  items: ReadonlyMap<string, { destination: string; outcome: Outcome }>;
+  /** Each item that reached a destination, with its receipt, in the order they arrived. */
+  completed: readonly { destination: string; item: Transferred }[];
+  /** Items still to transfer, by path before the transfer. */
+  open: ReadonlyMap<string, Open>;
+  settled: readonly Settled[];
+  /** Destinations in the order they were first used. */
+  destinations: readonly string[];
 };
 
-const start = (operation: TransferOperation): TransferSession => ({
+/** A session about to transfer `entries`. */
+const start = (
+  operation: TransferOperation,
+  entries: readonly FileEntry[],
+): TransferSession => ({
   operation,
-  items: new Map(),
+  completed: [],
+  open: new Map(
+    entries.map((source) => [source.path, { kind: "untried", source }]),
+  ),
+  settled: [],
+  destinations: [],
 });
 
-/** `session` with what `result` did to its items, replacing what was known of them. */
+/**
+ * `session` once the server answered `result`, a transfer of some of its open items. Items that
+ * arrived leave the open items for the completed ones; the others stay open with their outcome.
+ */
 function record(
   session: TransferSession,
   result: TransferResult,
 ): TransferSession {
-  const items = new Map(session.items);
-  const set = (source: FileEntry, outcome: Outcome) =>
-    items.set(source.path, { destination: result.destination, outcome });
-  for (const item of result.transferred)
-    set(item.source, { kind: "transferred", item });
+  const { destination } = result;
+  const open = new Map(session.open);
+  for (const item of result.transferred) open.delete(item.source.path);
   for (const clash of result.clashes)
-    set(clash.source, { kind: "clash", clash });
-  for (const clash of result.skipped)
-    set(clash.source, { kind: "skipped", clash });
+    open.set(clash.source.path, { kind: "clash", destination, clash });
   for (const failure of result.failed)
-    set(failure.source, { kind: "failed", failure });
-  for (const source of result.alreadyThere)
-    set(source, { kind: "already-there", source });
-  return { ...session, items };
+    open.set(failure.source.path, { kind: "failed", destination, failure });
+  const settled: Settled[] = [
+    ...result.skipped.map((clash): Settled => ({
+      kind: "skipped",
+      destination,
+      clash,
+    })),
+    ...result.alreadyThere.map((source): Settled => ({
+      kind: "already-there",
+      destination,
+      source,
+    })),
+  ];
+  for (const item of settled)
+    open.delete(
+      item.kind === "skipped" ? item.clash.source.path : item.source.path,
+    );
+  return {
+    ...session,
+    completed: [
+      ...session.completed,
+      ...result.transferred.map((item) => ({ destination, item })),
+    ],
+    open,
+    settled: [...session.settled, ...settled],
+    destinations: session.destinations.includes(destination)
+      ? session.destinations
+      : [...session.destinations, destination],
+  };
 }
 
-/** `session` without the transfers in `result`, undone from the picker meanwhile. */
+/** `session` with the open clashes in `clashes` left where they are, as the person chose. */
+function skip(
+  session: TransferSession,
+  clashes: readonly TransferClash[],
+): TransferSession {
+  const open = new Map(session.open);
+  const settled: Settled[] = [];
+  for (const clash of clashes) {
+    const current = open.get(clash.source.path);
+    if (current?.kind !== "clash") continue;
+    open.delete(clash.source.path);
+    settled.push({ kind: "skipped", destination: current.destination, clash });
+  }
+  return { ...session, open, settled: [...session.settled, ...settled] };
+}
+
+/**
+ * `session` once Undo put `items` back where they were, as the person asked: the session
+ * neither reports nor transfers them again.
+ */
 function undone(
   session: TransferSession,
-  result: TransferResult,
+  items: readonly Transferred[],
 ): TransferSession {
-  const items = new Map(session.items);
-  for (const item of result.transferred) items.delete(item.source.path);
-  return { ...session, items };
+  const ids = new Set(items.map((item) => item.receipt.id));
+  return {
+    ...session,
+    completed: session.completed.filter(
+      ({ item }) => !ids.has(item.receipt.id),
+    ),
+  };
 }
 
-/** One result per destination, in the order destinations were first used. */
+/** The items still to transfer. */
+const pending = (session: TransferSession): FileEntry[] =>
+  [...session.open.values()].map((item) =>
+    item.kind === "untried"
+      ? item.source
+      : item.kind === "clash"
+        ? item.clash.source
+        : item.failure.source,
+  );
+
+/** Everything that reached a destination and has not been undone. */
+const transferred = (session: TransferSession): Transferred[] =>
+  session.completed.map(({ item }) => item);
+
+/**
+ * One result per destination, in the order destinations were first used: what reached it, and
+ * the outcome there of each item that did not. Items never tried are in none.
+ */
 function results(session: TransferSession): TransferResult[] {
-  const byDestination = new Map<string, TransferResult>();
-  for (const { destination, outcome } of session.items.values()) {
-    let result = byDestination.get(destination);
-    if (!result) {
-      result = {
+  const byDestination = new Map<string, TransferResult>(
+    session.destinations.map((destination) => [
+      destination,
+      {
         operation: session.operation,
         destination,
         transferred: [],
@@ -77,27 +156,39 @@ function results(session: TransferSession): TransferResult[] {
         skipped: [],
         failed: [],
         alreadyThere: [],
-      };
-      byDestination.set(destination, result);
-    }
-    switch (outcome.kind) {
-      case "transferred":
-        result.transferred.push(outcome.item);
-        break;
-      case "clash":
-        result.clashes.push(outcome.clash);
-        break;
-      case "skipped":
-        result.skipped.push(outcome.clash);
-        break;
-      case "failed":
-        result.failed.push(outcome.failure);
-        break;
-      case "already-there":
-        result.alreadyThere.push(outcome.source);
-    }
+      },
+    ]),
+  );
+  for (const { destination, item } of session.completed)
+    byDestination.get(destination)?.transferred.push(item);
+  for (const item of session.open.values()) {
+    if (item.kind === "untried") continue;
+    const result = byDestination.get(item.destination);
+    if (item.kind === "clash") result?.clashes.push(item.clash);
+    else result?.failed.push(item.failure);
   }
-  return [...byDestination.values()];
+  for (const item of session.settled) {
+    const result = byDestination.get(item.destination);
+    if (item.kind === "skipped") result?.skipped.push(item.clash);
+    else result?.alreadyThere.push(item.source);
+  }
+  return [...byDestination.values()].filter(
+    (result) =>
+      result.transferred.length +
+        result.clashes.length +
+        result.skipped.length +
+        result.failed.length +
+        result.alreadyThere.length >
+      0,
+  );
 }
 
-export const TransferSession = { start, record, undone, results } as const;
+export const TransferSession = {
+  start,
+  record,
+  skip,
+  undone,
+  pending,
+  transferred,
+  results,
+} as const;

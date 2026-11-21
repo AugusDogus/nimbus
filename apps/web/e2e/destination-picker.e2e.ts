@@ -849,3 +849,55 @@ test("offers no recent or starred folder outside the account's top folder, and n
     await account.memberContext.close();
   }
 });
+
+/** Selects `names` in the open folder and opens the picker from the selection bar. */
+async function moveSelection(page: Page, names: readonly string[]) {
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  for (const name of names)
+    await page
+      .getByRole("button", { name, exact: true })
+      .click({ modifiers: [mod] });
+  await expect(page.getByText(`${names.length} selected`)).toBeVisible();
+  await page
+    .getByRole("toolbar", { name: "Selected items" })
+    .getByRole("button", { name: "Move", exact: true })
+    .click();
+  return picker(page);
+}
+
+/** Opens `folder`, a sibling of the folder the picker shows, and moves there. */
+async function moveToSibling(dialog: Locator, top: string, folder: string) {
+  await dialog.getByRole("button", { name: "Up one folder" }).click();
+  await folderRow(dialog, `${top}/${folder}`).click();
+  await dialog.getByRole("button", { name: `Move to “${folder}”` }).click();
+}
+
+const toasts = (page: Page) => page.locator('[data-slot="toast"]');
+
+test("moves only what did not arrive when the rest go elsewhere, keeping the earlier move's Undo", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Touch multi-selection is covered elsewhere.");
+  const { top, names } = await tree(
+    { "docs/a.txt": "mine", "docs/b.txt": "b", "archive/a.txt": "theirs" },
+    ["elsewhere"],
+  );
+  await page.goto(href(`${top}/docs`));
+  const dialog = await moveSelection(page, ["a.txt", "b.txt"]);
+  await moveToSibling(dialog, top, "archive");
+  await expect(dialog.getByText("“a.txt” is already in archive")).toBeVisible();
+  // Only the item whose name was taken is left to move.
+  await expect(
+    dialog.getByRole("heading", { name: "Move “a.txt”" }),
+  ).toBeVisible();
+  await moveToSibling(dialog, top, "elsewhere");
+  await expect(dialog).toBeHidden();
+  expect(await names("elsewhere")).toEqual(["a.txt"]);
+  expect(await names("archive")).toEqual(["a.txt", "b.txt"]);
+  // b.txt is still reported where it went, and its Undo still works.
+  const report = toasts(page).filter({ hasText: "b.txt" });
+  await expect(report).toContainText("archive");
+  await report.getByRole("button", { name: "Undo" }).first().click();
+  await expect.poll(() => names("docs")).toContain("b.txt");
+});

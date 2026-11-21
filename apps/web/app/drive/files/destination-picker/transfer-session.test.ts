@@ -47,42 +47,152 @@ const moved = (source: FileEntry, destination: string) => {
   };
 };
 
+const paths = (items: readonly { source: FileEntry }[] = []) =>
+  items.map((item) => item.source.path);
+const clash = (source: FileEntry) => ({
+  source,
+  name: source.name,
+  suggestion: `${source.name} (1)`,
+});
+
 describe("a picker session", () => {
   const a = entry("docs/a.txt");
   const b = entry("docs/b.txt");
+  const c = entry("docs/c.txt");
 
-  it("keeps an earlier destination's moves when the rest go elsewhere", () => {
-    let session = TransferSession.start("move");
+  it("tries only what did not arrive again, and keeps what did", () => {
+    let session = TransferSession.start("move", [a, b]);
     session = TransferSession.record(
       session,
-      result("top", {
-        transferred: [moved(b, "top")],
-        clashes: [{ source: a, name: "a.txt", suggestion: "a (1).txt" }],
+      result("archive", {
+        transferred: [moved(b, "archive")],
+        clashes: [clash(a)],
       }),
     );
+    expect(TransferSession.pending(session)).toEqual([a]);
     session = TransferSession.record(
       session,
       result("elsewhere", { transferred: [moved(a, "elsewhere")] }),
     );
+    expect(TransferSession.pending(session)).toEqual([]);
     const reports = TransferSession.results(session);
     expect(reports.map((report) => report.destination)).toEqual([
-      "top",
+      "archive",
       "elsewhere",
     ]);
-    expect(reports[0]?.transferred.map((item) => item.source.path)).toEqual([
+    expect(paths(reports[0]?.transferred)).toEqual(["docs/b.txt"]);
+    expect(reports[0]?.clashes).toEqual([]);
+    expect(paths(reports[1]?.transferred)).toEqual(["docs/a.txt"]);
+  });
+
+  it("never lets a later outcome for an item erase its receipt", () => {
+    let session = TransferSession.start("move", [a, b]);
+    session = TransferSession.record(
+      session,
+      result("archive", {
+        transferred: [moved(b, "archive")],
+        clashes: [clash(a)],
+      }),
+    );
+    // Even an answer about an item that already arrived leaves its receipt in place.
+    session = TransferSession.record(
+      session,
+      result("elsewhere", {
+        transferred: [moved(a, "elsewhere")],
+        failed: [{ source: b, reason: "This file no longer exists." }],
+      }),
+    );
+    expect(
+      TransferSession.transferred(session).map((item) => item.receipt.id),
+    ).toEqual(["docs/b.txt>archive/b.txt", "docs/a.txt>elsewhere/a.txt"]);
+    expect(paths(TransferSession.results(session)[0]?.transferred)).toEqual([
       "docs/b.txt",
     ]);
-    expect(reports[0]?.clashes).toEqual([]);
-    expect(reports[1]?.transferred.map((item) => item.source.path)).toEqual([
-      "docs/a.txt",
+  });
+
+  it("reports a success, then a clash and a success elsewhere, where each happened", () => {
+    let session = TransferSession.start("move", [a, b]);
+    session = TransferSession.record(
+      session,
+      result("one", {
+        transferred: [moved(a, "one")],
+        failed: [{ source: b, reason: "Locked." }],
+      }),
+    );
+    session = TransferSession.record(
+      session,
+      result("two", { clashes: [clash(b)] }),
+    );
+    expect(TransferSession.pending(session)).toEqual([b]);
+    session = TransferSession.record(
+      session,
+      result("three", { transferred: [moved(b, "three")] }),
+    );
+    const reports = TransferSession.results(session);
+    // Nothing is left at "two": the clash there was resolved by moving elsewhere.
+    expect(reports.map((report) => report.destination)).toEqual([
+      "one",
+      "three",
     ]);
+    expect(reports[0]?.failed).toEqual([]);
+    expect(paths(reports[0]?.transferred)).toEqual(["docs/a.txt"]);
+    expect(paths(reports[1]?.transferred)).toEqual(["docs/b.txt"]);
+  });
+
+  it("forgets what was undone from the picker, and moves only the rest after", () => {
+    let session = TransferSession.start("move", [a, b]);
+    const first = moved(a, "archive");
+    session = TransferSession.record(
+      session,
+      result("archive", {
+        transferred: [first],
+        failed: [{ source: b, reason: "Locked." }],
+      }),
+    );
+    session = TransferSession.undone(session, [first]);
+    expect(TransferSession.pending(session)).toEqual([b]);
+    session = TransferSession.record(
+      session,
+      result("elsewhere", { transferred: [moved(b, "elsewhere")] }),
+    );
+    const reports = TransferSession.results(session);
+    expect(reports.map((report) => report.destination)).toEqual(["elsewhere"]);
+    expect(paths(reports[0]?.transferred)).toEqual(["docs/b.txt"]);
+  });
+
+  it("keeps three destinations apart", () => {
+    let session = TransferSession.start("move", [a, b, c]);
+    session = TransferSession.record(
+      session,
+      result("one", {
+        transferred: [moved(a, "one")],
+        clashes: [clash(b), clash(c)],
+      }),
+    );
+    session = TransferSession.record(
+      session,
+      result("two", { transferred: [moved(b, "two")], clashes: [clash(c)] }),
+    );
+    session = TransferSession.record(
+      session,
+      result("three", { transferred: [moved(c, "three")] }),
+    );
+    const reports = TransferSession.results(session);
+    expect(
+      reports.map((report) => [report.destination, paths(report.transferred)]),
+    ).toEqual([
+      ["one", ["docs/a.txt"]],
+      ["two", ["docs/b.txt"]],
+      ["three", ["docs/c.txt"]],
+    ]);
+    expect(reports.flatMap((report) => report.clashes)).toEqual([]);
   });
 
   it("reports failures and clashes even when nothing moved", () => {
     const session = TransferSession.record(
-      TransferSession.start("move"),
+      TransferSession.start("move", [a, b]),
       result("top", {
-        clashes: [{ source: a, name: "a.txt", suggestion: "a (1).txt" }],
+        clashes: [clash(a)],
         failed: [{ source: b, reason: "This file no longer exists." }],
       }),
     );
@@ -95,7 +205,7 @@ describe("a picker session", () => {
 
   it("counts a retry that succeeded instead of the failure before it", () => {
     let session = TransferSession.record(
-      TransferSession.start("move"),
+      TransferSession.start("move", [a, b]),
       result("top", {
         transferred: [moved(a, "top")],
         failed: [{ source: b, reason: "Locked." }],
@@ -110,17 +220,20 @@ describe("a picker session", () => {
     expect(report?.transferred).toHaveLength(2);
   });
 
-  it("keeps items already in the destination, and drops moves undone from the picker", () => {
-    const first = result("top", {
-      transferred: [moved(a, "top")],
-      alreadyThere: [entry("top/b.txt")],
-    });
-    let session = TransferSession.record(TransferSession.start("move"), first);
-    session = TransferSession.undone(session, first);
+  it("settles skipped clashes and items already there, which are not tried again", () => {
+    const there = entry("top/b.txt");
+    let session = TransferSession.record(
+      TransferSession.start("move", [a, there, c]),
+      result("top", {
+        clashes: [clash(a)],
+        failed: [{ source: c, reason: "Locked." }],
+        alreadyThere: [there],
+      }),
+    );
+    session = TransferSession.skip(session, [clash(a)]);
+    expect(TransferSession.pending(session)).toEqual([c]);
     const [report] = TransferSession.results(session);
-    expect(report?.transferred).toEqual([]);
-    expect(report?.alreadyThere.map((item) => item.path)).toEqual([
-      "top/b.txt",
-    ]);
+    expect(paths(report?.skipped)).toEqual(["docs/a.txt"]);
+    expect(report?.alreadyThere).toEqual([there]);
   });
 });

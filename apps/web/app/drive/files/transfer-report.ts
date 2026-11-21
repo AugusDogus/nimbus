@@ -129,14 +129,21 @@ export type ReportHandlers = {
 const topFolder = () =>
   queryClient.getQueryData(trpc.access.me.queryKey())?.top ?? "";
 
-/** Undo every transferred item of `result`, say what happened to each, and return that. */
+/**
+ * Undo every transferred item of `result` and say what happened to each. Returns that summary
+ * with the items that were undone.
+ */
 async function undo(result: TransferResult, refresh: () => void) {
   const items = await TransferUndo.run(result);
   refresh();
   const summary = TransferUndo.describe(result, items, topFolder());
   if (summary.ok) toast.success(summary.message);
   else toast.error(summary.message);
-  return summary;
+  // `run` answers once per item, in order.
+  const undone = result.transferred.filter(
+    (_, index) => items[index]?.kind === "undone",
+  );
+  return { ...summary, undone };
 }
 
 /**
