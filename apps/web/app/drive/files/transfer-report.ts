@@ -1,5 +1,6 @@
 import { toast, type ToastAction } from "@/lib/toast";
-import { queryClient } from "@/lib/trpc";
+import { queryClient, trpc } from "@/lib/trpc";
+import { BreadcrumbTrail } from "./breadcrumb-trail";
 import { sessionQuery } from "@/lib/session-query";
 import { RecentDestinations } from "./destination-picker/recent-destinations";
 import { DriveRoot } from "@nimbus/api/drive-root";
@@ -49,9 +50,13 @@ const verbs = {
  * “a (1).txt”.", or with failures "Moved 2 of 3 items to Archive. “b.txt”: reason". The
  * server's reason says what happened to the item and what to do, so nothing more is claimed.
  */
-function describe(result: TransferResult) {
+function describe(result: TransferResult, top = "") {
   const verb = verbs[result.operation];
-  const place = DriveRoot.nameOf(result.destination);
+  const place = BreadcrumbTrail.nameOf(
+    result.destination,
+    top,
+    DriveRoot.label,
+  );
   const total =
     result.transferred.length + result.clashes.length + result.failed.length;
   const done = result.transferred.length;
@@ -115,11 +120,15 @@ export type ReportHandlers = {
   keepBoth: (result: TransferResult) => void;
 };
 
+/** The account's top folder, as the page loaded it, which messages call by the root's label. */
+const topFolder = () =>
+  queryClient.getQueryData(trpc.access.me.queryKey())?.top ?? "";
+
 /** Undo every transferred item of `result`, say what happened to each, and return that. */
 async function undo(result: TransferResult, refresh: () => void) {
   const items = await TransferUndo.run(result);
   refresh();
-  const summary = TransferUndo.describe(result, items);
+  const summary = TransferUndo.describe(result, items, topFolder());
   if (summary.ok) toast.success(summary.message);
   else toast.error(summary.message);
   return summary;
@@ -133,7 +142,7 @@ function show(result: TransferResult, handlers: ReportHandlers) {
   const account = queryClient.getQueryData(sessionQuery.queryKey)?.user.id;
   if (result.transferred.length && account)
     RecentDestinations.record(account, result.destination);
-  const summary = describe(result);
+  const summary = describe(result, topFolder());
   const actions: ToastAction[] = [];
   if (result.transferred.length)
     actions.push(

@@ -52,3 +52,14 @@ describe("the breadcrumb trail", () => {
     ]);
   });
 });
+
+it("calls the account's top folder and the drive root by the root's label", () => {
+  expect(BreadcrumbTrail.nameOf("homes/alice", "homes/alice", "Files")).toBe(
+    "Files",
+  );
+  expect(BreadcrumbTrail.nameOf("", "homes/alice", "Files")).toBe("Files");
+  expect(
+    BreadcrumbTrail.nameOf("homes/alice/inbox", "homes/alice", "Files"),
+  ).toBe("inbox");
+  expect(BreadcrumbTrail.nameOf("projects", "", "Files")).toBe("projects");
+});

@@ -4,7 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { z } from "zod";
-import { action, client, login, origin, password, test } from "./helpers";
+import {
+  action,
+  asMember,
+  client,
+  login,
+  origin,
+  password,
+  test,
+} from "./helpers";
 
 async function dataRoot() {
   const manifest: unknown = JSON.parse(
@@ -636,4 +644,100 @@ test("keeps the current folder in view in a deep breadcrumb on a phone", async (
   await expect(current).toHaveText("Current");
   const box = await current.boundingBox();
   expect(box?.width ?? 0).toBeGreaterThan(40);
+});
+
+/** Opens Files from the picker's places, beside the breadcrumb's own Files. */
+const openFiles = (dialog: Locator) =>
+  dialog
+    .getByRole("navigation", { name: "Places" })
+    .filter({ visible: true })
+    .getByRole("button", { name: "Files", exact: true })
+    .click();
+
+/** The picker's breadcrumb, Up button and footer, read as the person sees them. */
+async function pickerRoot(dialog: Locator) {
+  return {
+    crumbs: await dialog
+      .getByRole("navigation", { name: "breadcrumb" })
+      .locator('[data-slot="breadcrumb-item"]:visible')
+      .allInnerTexts(),
+    upDisabled: await dialog
+      .getByRole("button", { name: "Up one folder" })
+      .isDisabled(),
+  };
+}
+
+test("roots the picker at Files as each kind of account sees it", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  const { top } = await tree({ "team/plan.txt": "plan" }, ["team/drafts"]);
+
+  // An administrator's Files is the drive root.
+  await page.goto(href(`${top}/team`));
+  await action(page, "plan.txt", "Move to…", isMobile);
+  let dialog = picker(page);
+  await openFiles(dialog);
+  await expect(
+    dialog.getByText("Destination: Files", { exact: true }),
+  ).toBeVisible();
+  expect(await pickerRoot(dialog)).toEqual({
+    crumbs: ["Files"],
+    upDisabled: true,
+  });
+  await expect(folderRow(dialog, top)).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // A member with a grant outside their home: Files is the drive root, showing the way there.
+  const nested = await asMember(browser, context, page, isMobile, [
+    { path: `${top}/team`, permission: "write" },
+  ]);
+  try {
+    await nested.member.goto(href(`${top}/team`));
+    await action(nested.member, "plan.txt", "Move to…", isMobile);
+    dialog = picker(nested.member);
+    await expect(
+      dialog.getByText(`Destination: Files / ${top} / team`, { exact: true }),
+    ).toBeVisible();
+    expect((await pickerRoot(dialog)).upDisabled).toBe(false);
+    await openFiles(dialog);
+    await expect(folderRow(dialog, top)).toBeVisible();
+    await expect(dialog.getByRole("status")).toHaveText(
+      "You can only view “Files”, so nothing can go there.",
+    );
+  } finally {
+    await nested.memberContext.close();
+  }
+
+  // A member limited to their home: Files is the home, and the picker goes no higher.
+  const homeOnly = await asMember(browser, context, page, isMobile, []);
+  try {
+    const home = path.join(await dataRoot(), homeOnly.home);
+    await mkdir(path.join(home, "inbox"), { recursive: true });
+    await writeFile(path.join(home, "inbox/note.txt"), "note");
+    await homeOnly.member.goto(href(`${homeOnly.home}/inbox`));
+    await action(homeOnly.member, "note.txt", "Move to…", isMobile);
+    dialog = picker(homeOnly.member);
+    await expect(
+      dialog.getByText("Destination: Files / inbox", { exact: true }),
+    ).toBeVisible();
+    await openFiles(dialog);
+    await expect(
+      dialog.getByText("Destination: Files", { exact: true }),
+    ).toBeVisible();
+    expect(await pickerRoot(dialog)).toEqual({
+      crumbs: ["Files"],
+      upDisabled: true,
+    });
+    await expect(folderRow(dialog, `${homeOnly.home}/inbox`)).toBeVisible();
+    await dialog.getByRole("button", { name: "Move to “Files”" }).click();
+    await expect(dialog).toBeHidden();
+    await expect
+      .poll(() => readdir(home).then((names) => names.sort()))
+      .toContain("note.txt");
+  } finally {
+    await homeOnly.memberContext.close();
+  }
 });

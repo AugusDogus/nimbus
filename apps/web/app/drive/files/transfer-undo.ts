@@ -1,5 +1,6 @@
 import { trpcClient } from "@/lib/trpc";
 import { DriveRoot } from "@nimbus/api/drive-root";
+import { BreadcrumbTrail } from "./breadcrumb-trail";
 import type { TransferResult } from "./transfer-result";
 
 type Outcome = Awaited<
@@ -59,7 +60,12 @@ const parentOf = (path: string) =>
  * A summary for a toast: "Moved 3 items back to Projects.", "Moved the copy “a (1).txt” to
  * trash.", or "Moved 2 of 3 items back. “b.txt” was changed since and stayed in “Archive”."
  */
-function describe(result: TransferResult, items: readonly UndoItem[]) {
+function describe(
+  result: TransferResult,
+  items: readonly UndoItem[],
+  /** The account's top folder, which the message calls by the root's label. */
+  top = "",
+) {
   const undone = items.filter((item) => item.kind === "undone").length;
   const kept = items.flatMap((item) => (item.kind === "kept" ? [item] : []));
   const total = items.length;
@@ -81,7 +87,7 @@ function describe(result: TransferResult, items: readonly UndoItem[]) {
     const [origin] = origins;
     const where =
       origins.size === 1 && origin !== undefined
-        ? ` to ${DriveRoot.nameOf(origin)}`
+        ? ` to ${BreadcrumbTrail.nameOf(origin, top, DriveRoot.label)}`
         : " where they were";
     return {
       ok: true,

@@ -12,6 +12,14 @@ const within = (top: string, folder: string) =>
   top === "" || folder === top || folder.startsWith(`${top}/`);
 
 export const BreadcrumbTrail = {
+  /**
+   * A folder's name as people see it: the root's label for the account's top folder, which
+   * the breadcrumb and the sidebar call by that label, and its own name for any other.
+   */
+  nameOf: (folder: string, top: string, rootLabel: string) =>
+    folder === top || folder === ""
+      ? rootLabel
+      : (folder.split("/").pop() ?? folder),
   of(folder: string, top: string, rootLabel: string): BreadcrumbTrail {
     const base = within(top, folder) ? top : "";
     const below =

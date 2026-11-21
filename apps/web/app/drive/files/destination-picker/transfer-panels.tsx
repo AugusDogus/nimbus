@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DriveRoot } from "@nimbus/api/drive-root";
 import type { TransferClash, TransferResult } from "../transfer-result";
 
 /** Items listed by name before the rest are counted. */
@@ -41,12 +40,13 @@ export type ClashChoice =
  */
 export function ClashPanel({
   clashes,
-  destination,
+  place,
   busy,
   onChoose,
 }: {
   clashes: readonly TransferClash[];
-  destination: string;
+  /** The destination's name as the person sees it. */
+  place: string;
   busy: boolean;
   onChoose: (choice: ClashChoice) => void;
 }) {
@@ -54,7 +54,6 @@ export function ClashPanel({
   const single = clashes.length === 1 && only ? only : null;
   const [name, setName] = useState(single?.suggestion ?? "");
   const inputId = useId();
-  const place = DriveRoot.nameOf(destination);
   const trimmed = name.trim();
   // The choice is what the person is asked for, so it takes focus.
   const nameInput = useRef<HTMLInputElement>(null);
@@ -150,11 +149,14 @@ export type UndoSummary = { ok: boolean; message: string };
  */
 export function FailurePanel({
   result,
+  place,
   busy,
   onRetry,
   onUndo,
 }: {
   result: TransferResult;
+  /** The destination's name as the person sees it. */
+  place: string;
   busy: boolean;
   onRetry: () => void;
   onUndo: () => Promise<UndoSummary>;
@@ -165,7 +167,7 @@ export function FailurePanel({
   const reasons = [...new Set(result.failed.map((failure) => failure.reason))];
   const [first] = result.failed;
   const heading = done
-    ? `${result.operation === "move" ? "Moved" : "Copied"} ${done.toLocaleString()} of ${(done + failed).toLocaleString()} items to ${DriveRoot.nameOf(result.destination)}. ${failed.toLocaleString()} could not be ${verb}:`
+    ? `${result.operation === "move" ? "Moved" : "Copied"} ${done.toLocaleString()} of ${(done + failed).toLocaleString()} items to ${place}. ${failed.toLocaleString()} could not be ${verb}:`
     : failed === 1 && first
       ? `“${first.source.name}” was not ${verb}:`
       : `None of the ${failed.toLocaleString()} items were ${verb}:`;

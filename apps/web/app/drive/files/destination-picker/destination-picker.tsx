@@ -42,11 +42,12 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { queryClient, trpcClient } from "@/lib/trpc";
+import { queryClient, trpc, trpcClient } from "@/lib/trpc";
 import { sessionQuery } from "@/lib/session-query";
 import { trpcErrorCode } from "@/lib/trpc-error";
 import { cn } from "@/lib/utils";
 import { DriveRoot } from "@nimbus/api/drive-root";
+import { BreadcrumbTrail } from "../breadcrumb-trail";
 import { DropTarget } from "../drop-target";
 import { sortEntries } from "../entry-sort";
 import { TransferReport } from "../transfer-report";
@@ -82,11 +83,11 @@ type Phase =
 const parentOf = (path: string) =>
   path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 
-const segmentsOf = (path: string) => (path ? path.split("/") : []);
-
 /** A folder's location as shown in the footer and search results: "Files / Projects". */
-const spelled = (path: string) =>
-  [DriveRoot.label, ...segmentsOf(path)].join(" / ");
+const spelled = (path: string, top: string) => {
+  const trail = BreadcrumbTrail.of(path, top, DriveRoot.label);
+  return [trail.root, ...trail.crumbs].map((crumb) => crumb.label).join(" / ");
+};
 
 const subjectOf = (entries: readonly FileEntry[]) => {
   const [only] = entries;
@@ -182,8 +183,17 @@ export function DestinationPicker({
     setView(previous);
   };
   const browsed = view.kind === "folder" ? view.path : null;
+  // Files opens the account's top folder, as the sidebar does: the drive root, or the home of an
+  // account limited to it. The breadcrumb is rooted there by the same rules as the page's.
+  const top = useQuery({ ...trpc.access.me.queryOptions() }).data?.top ?? "";
+  const nameOf = (path: string) =>
+    BreadcrumbTrail.nameOf(path, top, DriveRoot.label);
+  const rootOf = (path: string) =>
+    BreadcrumbTrail.of(path, top, DriveRoot.label).root.path;
+  const atRoot = browsed === null || browsed === rootOf(browsed);
   const up = () => {
-    if (browsed) go({ kind: "folder", path: parentOf(browsed) });
+    if (browsed !== null && !atRoot)
+      go({ kind: "folder", path: parentOf(browsed) });
   };
 
   const prefs = useQuery(prefsQueryOptions).data;
@@ -431,7 +441,12 @@ export function DestinationPicker({
   };
 
   const onPickerKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.altKey && event.key === "ArrowUp" && browsed) {
+    if (
+      event.altKey &&
+      event.key === "ArrowUp" &&
+      browsed !== null &&
+      !atRoot
+    ) {
       event.preventDefault();
       // The folder just left is focused in its parent, as in a desktop file manager.
       if (
@@ -487,8 +502,8 @@ export function DestinationPicker({
       key: "files",
       label: DriveRoot.label,
       icon: HardDrive,
-      active: browsed === "",
-      open: () => go({ kind: "folder", path: "" }),
+      active: browsed === top,
+      open: () => go({ kind: "folder", path: top }),
     },
     {
       key: "starred",
@@ -516,7 +531,7 @@ export function DestinationPicker({
       return (
         <ClashPanel
           clashes={phase.result.clashes}
-          destination={phase.result.destination}
+          place={nameOf(phase.result.destination)}
           busy={false}
           onChoose={(choice) => void resolve(phase.result, choice)}
         />
@@ -530,7 +545,7 @@ export function DestinationPicker({
           path: entry.path,
           name: entry.name,
           permission: entry.permission,
-          detail: spelled(parentOf(entry.path)),
+          detail: spelled(parentOf(entry.path), top),
         }),
       );
       return (
@@ -570,7 +585,7 @@ export function DestinationPicker({
             path: entry.path,
             name: entry.name,
             permission: entry.permission,
-            detail: spelled(parentOf(entry.path)),
+            detail: spelled(parentOf(entry.path), top),
           }),
         );
       return rows.length ? (
@@ -590,8 +605,8 @@ export function DestinationPicker({
       const paths = account ? RecentDestinations.list(account) : [];
       const rows = paths.map((path) => ({
         path,
-        name: DriveRoot.nameOf(path),
-        detail: path ? spelled(parentOf(path)) : undefined,
+        name: nameOf(path),
+        detail: path === top ? undefined : spelled(parentOf(path), top),
         // Checked when opened: the folder may have moved or changed since.
         eligibility: { kind: operation },
       }));
@@ -615,7 +630,7 @@ export function DestinationPicker({
           <Button
             variant="link"
             className="h-auto p-0"
-            onClick={() => go({ kind: "folder", path: "" })}
+            onClick={() => go({ kind: "folder", path: top })}
           >
             Go to {DriveRoot.label}
           </Button>
@@ -625,7 +640,7 @@ export function DestinationPicker({
     return folderRows.length ? (
       <FolderList
         rows={folderRows}
-        label={`Folders in ${DriveRoot.nameOf(view.path)}`}
+        label={`Folders in ${nameOf(view.path)}`}
         restoreKey={`picker:${view.path}`}
         onOpen={openRow}
         focusRequest={listing.isPlaceholderData ? undefined : focusRequest}
@@ -736,7 +751,7 @@ export function DestinationPicker({
               ref={upRef}
               aria-label="Up one folder"
               aria-keyshortcuts="Alt+ArrowUp"
-              disabled={!browsed || busy}
+              disabled={atRoot || busy}
               onClick={up}
               className="touch-hit"
             >
@@ -745,6 +760,7 @@ export function DestinationPicker({
             <div className="min-w-0 flex-1 px-1">
               <PathCrumbs
                 view={view}
+                top={top}
                 onOpen={(path) => go({ kind: "folder", path })}
               />
             </div>
@@ -773,6 +789,7 @@ export function DestinationPicker({
             {phase.kind === "failed" && (
               <FailurePanel
                 result={phase.result}
+                place={nameOf(phase.result.destination)}
                 busy={busy}
                 onRetry={() => {
                   if (!busy) void submitTo(phase.result.destination);
@@ -787,10 +804,10 @@ export function DestinationPicker({
       <div className="space-y-2 border-t px-4 py-3 sm:px-5">
         <p
           className="truncate text-sm"
-          title={browsed === null ? undefined : spelled(browsed)}
+          title={browsed === null ? undefined : spelled(browsed, top)}
         >
           <span className="text-muted-foreground">Destination: </span>
-          {browsed === null ? "None chosen" : spelled(browsed)}
+          {browsed === null ? "None chosen" : spelled(browsed, top)}
         </p>
         {status && (
           <p
@@ -811,7 +828,7 @@ export function DestinationPicker({
             aria-label={
               busy || browsed === null
                 ? undefined
-                : `${verb.title} to “${DriveRoot.nameOf(browsed)}”`
+                : `${verb.title} to “${nameOf(browsed)}”`
             }
             className="min-w-0 max-w-full sm:max-w-96"
           >
@@ -823,10 +840,7 @@ export function DestinationPicker({
               // The folder's name shortens; the verb and the quotes stay.
               <span className="flex min-w-0">
                 {verb.title} to “
-                <span className="min-w-0 truncate">
-                  {DriveRoot.nameOf(browsed)}
-                </span>
-                ”
+                <span className="min-w-0 truncate">{nameOf(browsed)}</span>”
               </span>
             )}
           </Button>
@@ -892,9 +906,12 @@ function Notice({
 /** Where the picker is, each folder above it a button that opens it. Middle folders collapse. */
 function PathCrumbs({
   view,
+  top,
   onOpen,
 }: {
   view: View;
+  /** The account's top folder, where the trail starts when the folder is inside it. */
+  top: string;
   onOpen: (path: string) => void;
 }) {
   if (view.kind !== "folder")
@@ -903,14 +920,8 @@ function PathCrumbs({
         {view.kind === "starred" ? "Starred" : "Recent"}
       </p>
     );
-  const segments = segmentsOf(view.path);
-  const crumbs = [
-    { path: "", label: DriveRoot.label },
-    ...segments.map((label, index) => ({
-      path: segments.slice(0, index + 1).join("/"),
-      label,
-    })),
-  ];
+  const trail = BreadcrumbTrail.of(view.path, top, DriveRoot.label);
+  const crumbs = [trail.root, ...trail.crumbs];
   // Wide screens keep the root, the parent and the current folder, folding what lies between.
   // Phones keep the root and the current folder: a long parent would push the current out.
   type Item =
