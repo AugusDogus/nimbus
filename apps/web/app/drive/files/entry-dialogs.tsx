@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { lazyComponent } from "@/components/lazy-component";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,10 +21,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { fileListQueryOptions } from "./use-file-list";
-import { FileEntry } from "./types";
+import type { FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
-import { DriveRoot } from "@nimbus/api/drive-root";
+
+// The picker loads when it is first opened, not with the page.
+const DestinationPicker = lazyComponent(
+  () => import("./destination-picker/destination-picker"),
+);
 
 /** Dialogs opened from entry menus, the selection bar, and keyboard shortcuts. */
 export type EntryDialog =
@@ -63,8 +66,8 @@ export function EditEntryDialog({
       />
     );
   return (
-    <DestinationDialog
-      action={dialog.action}
+    <DestinationPicker
+      operation={dialog.action}
       entries={dialog.entries}
       actions={actions}
       onClose={onClose}
@@ -224,141 +227,6 @@ function RenameDialog({
             </Button>
             <Button type="submit" disabled={busy || !name.trim()}>
               Rename
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function DestinationDialog({
-  action,
-  entries,
-  actions,
-  onClose,
-}: {
-  action: "move" | "copy";
-  entries: readonly FileEntry[];
-  actions: ReturnType<typeof useFileActions>;
-  onClose: () => void;
-}) {
-  const [destination, setDestination] = useState("");
-  const { busy, error, submit } = useSubmit(onClose);
-  const sources = new Set(entries.map((entry) => entry.path));
-  const folders = useQuery(fileListQueryOptions(destination, false));
-  const choices = (folders.data ?? []).filter(
-    (folder) => folder.type === "dir" && !sources.has(folder.path),
-  );
-  const destinationEntry: FileEntry = {
-    name: DriveRoot.nameOf(destination),
-    path: destination,
-    type: "dir",
-    // The server checks write access when the change is submitted.
-    permission: "write",
-    // Moving into a home folder is allowed; only moving one is not.
-    fixed: false,
-    mtime: null,
-    size: null,
-  };
-  const blocked =
-    action === "move" &&
-    entries.some((entry) => !FileEntry.canMoveInto(entry, destinationEntry));
-  const verb = action === "move" ? "Move" : "Copy";
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !busy) onClose();
-      }}
-    >
-      <DialogContent>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit(async () => {
-              // The summary toast reports partial failures, with Undo for what moved.
-              const result =
-                action === "move"
-                  ? await actions.moveEntries(entries, destination)
-                  : await actions.copyEntries(entries, destination);
-              return result.transferred.length > 0;
-            });
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle className="text-balance">
-              {entries.length === 1 ? verb : `${verb} ${subject(entries)}`}
-            </DialogTitle>
-            <DialogDescription>
-              {entries.length === 1 && entries[0] ? `${entries[0].name}. ` : ""}
-              {action === "move"
-                ? `Share links, direct permissions, and stars move with ${entries.length === 1 ? "it" : "them"}. Access inherited from the current folder is replaced by the destination folder's.`
-                : "Copies use the destination folder's permissions, without share links or direct permissions. Name clashes get a number."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-4">
-            <p className="break-all text-sm">
-              Destination: {destination || DriveRoot.label}
-            </p>
-            {destination && (
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() =>
-                  setDestination(destination.split("/").slice(0, -1).join("/"))
-                }
-              >
-                Parent folder
-              </Button>
-            )}
-            <div className="max-h-56 overflow-auto rounded-md border p-2">
-              {folders.isPending ? (
-                <p className="p-2 text-sm">Loading folders…</p>
-              ) : folders.isError ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {folders.error.message}
-                </p>
-              ) : choices.length === 0 ? (
-                <p className="p-2 text-sm text-muted-foreground">
-                  No subfolders
-                </p>
-              ) : (
-                choices.map((folder) => (
-                  <Button
-                    key={folder.path}
-                    variant="ghost"
-                    type="button"
-                    className="w-full justify-start"
-                    onClick={() => setDestination(folder.path)}
-                  >
-                    {folder.name}
-                  </Button>
-                ))
-              )}
-            </div>
-            {blocked && (
-              <p className="text-pretty text-sm text-muted-foreground">
-                Choose a folder other than the current location of these items.
-              </p>
-            )}
-            {error && (
-              <p role="alert" className="text-pretty text-sm text-destructive">
-                {error}
-              </p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              type="button"
-              disabled={busy}
-              onClick={onClose}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={busy || blocked}>
-              {verb} here
             </Button>
           </DialogFooter>
         </form>

@@ -164,10 +164,13 @@ test("copies a file into another folder and beside itself", async ({
       exact: true,
     })
     .click();
-  const dialog = page.getByRole("dialog", { name: "Copy" });
-  await dialog.getByRole("button", { name: folder, exact: true }).click();
-  await dialog.getByRole("button", { name: "Copy here" }).click();
+  // The picker opens in the item's own folder, where a copy gets a numbered name.
+  const dialog = page.getByRole("dialog", { name: "Copy “report.txt”" });
+  await dialog.getByRole("button", { name: `Copy to “${folder}”` }).click();
   await expect(dialog).toBeHidden();
+  await expect(
+    page.getByText(`Copied “report.txt” to ${folder} as “report (1).txt”.`),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "Actions for report.txt", exact: true })
     .click();
@@ -177,9 +180,8 @@ test("copies a file into another folder and beside itself", async ({
       exact: true,
     })
     .click();
-  await dialog.getByRole("button", { name: folder, exact: true }).click();
-  await dialog.getByRole("button", { name: "archive", exact: true }).click();
-  await dialog.getByRole("button", { name: "Copy here" }).click();
+  await dialog.locator(`[data-folder-path="${folder}/archive"]`).click();
+  await dialog.getByRole("button", { name: "Copy to “archive”" }).click();
   const rpc = await client(context);
   await expect
     .poll(async () =>

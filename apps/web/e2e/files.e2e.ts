@@ -154,10 +154,10 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   await page.goto(`/browse/${folder}`);
   await createFolder(page, "archive", isMobile);
   await action(page, renamed, "Move to…", isMobile);
-  const move = page.getByRole("dialog", { name: "Move", exact: true });
-  await move.getByRole("button", { name: folder, exact: true }).click();
-  await move.getByRole("button", { name: "archive", exact: true }).click();
-  await move.getByRole("button", { name: "Move here" }).click();
+  // The picker opens in the item's own folder.
+  const move = page.getByRole("dialog", { name: `Move “${renamed}”` });
+  await move.locator(`[data-folder-path="${folder}/archive"]`).click();
+  await move.getByRole("button", { name: "Move to “archive”" }).click();
   await expect(move).toBeHidden();
   await page.getByRole("link", { name: "archive", exact: true }).click();
   await expect(
