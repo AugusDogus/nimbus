@@ -907,44 +907,66 @@ function PathCrumbs({
       label,
     })),
   ];
-  // The root, the parent and the current folder stay; deeper paths fold the middle.
-  const folded = crumbs.length > 3;
-  const visible = folded ? [crumbs[0], null, ...crumbs.slice(-2)] : crumbs;
+  // Wide screens keep the root, the parent and the current folder, folding what lies between.
+  // Phones keep the root and the current folder: a long parent would push the current out.
+  type Item =
+    | {
+        kind: "crumb";
+        crumb: (typeof crumbs)[number];
+        last: boolean;
+        hide: string;
+      }
+    | { kind: "folded"; hide: string };
+  const items: Item[] = crumbs.flatMap((crumb, index): Item[] => {
+    const last = index === crumbs.length - 1;
+    if (index === 0 || last) return [{ kind: "crumb", crumb, last, hide: "" }];
+    const parent = index === crumbs.length - 2;
+    const folded: Item[] =
+      index === 1
+        ? [{ kind: "folded", hide: crumbs.length > 3 ? "" : "sm:hidden" }]
+        : [];
+    return parent
+      ? [...folded, { kind: "crumb", crumb, last, hide: "max-sm:hidden" }]
+      : folded;
+  });
   return (
     <Breadcrumb className="min-w-0">
       <BreadcrumbList className="min-w-0 flex-nowrap gap-1 overflow-hidden text-sm sm:gap-1.5">
-        {visible.map((crumb, index) => {
-          const last = index === visible.length - 1;
-          const key = crumb ? crumb.path || "/" : "folded";
-          return (
-            <Fragment key={key}>
-              {index > 0 && <BreadcrumbSeparator />}
-              <BreadcrumbItem className={last ? "min-w-0" : "shrink-0"}>
-                {crumb === null || crumb === undefined ? (
-                  <span aria-hidden="true" className="px-0.5">
-                    …
-                  </span>
-                ) : last ? (
-                  <BreadcrumbPage
-                    className="truncate font-medium"
-                    title={crumb.label}
-                  >
-                    {crumb.label}
-                  </BreadcrumbPage>
-                ) : (
-                  <BreadcrumbLink
-                    render={<button type="button" />}
-                    title={crumb.label}
-                    onClick={() => onOpen(crumb.path)}
-                    className="max-w-40 truncate"
-                  >
-                    {crumb.label}
-                  </BreadcrumbLink>
-                )}
-              </BreadcrumbItem>
-            </Fragment>
-          );
-        })}
+        {items.map((item, index) => (
+          <Fragment
+            key={item.kind === "crumb" ? item.crumb.path || "/" : "folded"}
+          >
+            {index > 0 && <BreadcrumbSeparator className={item.hide} />}
+            <BreadcrumbItem
+              className={cn(
+                item.kind === "crumb" && item.last ? "min-w-0" : "shrink-0",
+                item.hide,
+              )}
+            >
+              {item.kind === "folded" ? (
+                <span aria-hidden="true" className="px-0.5">
+                  …
+                </span>
+              ) : item.last ? (
+                <BreadcrumbPage
+                  className="truncate font-medium"
+                  title={item.crumb.label}
+                >
+                  {item.crumb.label}
+                </BreadcrumbPage>
+              ) : (
+                <BreadcrumbLink
+                  render={<button type="button" />}
+                  title={item.crumb.label}
+                  onClick={() => onOpen(item.crumb.path)}
+                  className="max-w-40 truncate"
+                >
+                  {item.crumb.label}
+                </BreadcrumbLink>
+              )}
+            </BreadcrumbItem>
+          </Fragment>
+        ))}
       </BreadcrumbList>
     </Breadcrumb>
   );

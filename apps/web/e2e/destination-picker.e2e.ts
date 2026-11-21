@@ -615,3 +615,27 @@ test("never acts on the previous folder's rows while the next one loads", async 
     dialog.getByRole("button", { name: "Move to “many”" }),
   ).toBeEnabled();
 });
+
+test("keeps the current folder in view in a deep breadcrumb on a phone", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "Wide screens show the parent folder too.");
+  const long = "A rather long ancestor folder name";
+  const { top } = await tree({ "notes.txt": "notes" }, [
+    `${long} one/${long} two/Current`,
+  ]);
+  await page.goto(href(top));
+  await action(page, "notes.txt", "Move to…", isMobile);
+  const dialog = picker(page);
+  for (const folder of [
+    `${long} one`,
+    `${long} one/${long} two`,
+    `${long} one/${long} two/Current`,
+  ])
+    await folderRow(dialog, `${top}/${folder}`).click();
+  const current = dialog.locator('[data-slot="breadcrumb-page"]');
+  await expect(current).toHaveText("Current");
+  const box = await current.boundingBox();
+  expect(box?.width ?? 0).toBeGreaterThan(40);
+});
