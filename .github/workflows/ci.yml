@@ -9,25 +9,39 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run for its previous commit. Runs for main and tags
+# each get a group of their own, so they are never cancelled or queued.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The checks run as parallel jobs, each on a fresh VM. Playwright 1.58 installs browser
+# dependencies only for distributions it supports; ubuntu-latest moves to Ubuntu 26.04 in
+# November 2026, so every job pins ubuntu-24.04.
 jobs:
-  verify:
-    # Playwright 1.58 installs browser dependencies only for distributions it supports;
-    # ubuntu-latest moves to Ubuntu 26.04 in November 2026.
+  static:
+    name: format, lint, typecheck
     runs-on: ubuntu-24.04
-    # The production Playwright suite alone takes 6 to 14 minutes on a fast machine, plus about
-    # 10 minutes of installs, builds, unit tests and Litmus; runners have fewer cores.
-    timeout-minutes: 45
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      # Bun runs the Playwright CLI with the first node on PATH. Playwright 1.58 hangs while
-      # extracting browsers under Node 26, so pin an LTS release.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - run: bun install --frozen-lockfile
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun run typecheck
+
+  unit:
+    name: unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          node-version: 24
-          package-manager-cache: false
+          bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       # The thumbnail tests decode PDFs and videos with the tools the Docker image ships; without
       # them those tests are skipped.
@@ -44,15 +58,36 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
           unshare --user --map-root-user --mount true
-      - run: bun run format:check
-      - run: bun run lint
-      - run: bun run typecheck
       - run: bun test
         timeout-minutes: 5
+
+  build:
+    name: build and budgets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
       - run: bun run build
       # Public pages must load no module of the signed-in app.
       - run: bun scripts/page-modules.ts
       - run: bun scripts/first-load-js.ts --budget scripts/first-load-js-budget.json
+
+  litmus:
+    name: WebDAV conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      # With CI=true the conformance server runs the production build.
+      - run: bun run build
       - name: Build Litmus 0.18
         run: |
           pkg-config --exists expat || { sudo apt-get update && sudo apt-get install -y --no-install-recommends libexpat1-dev; }
@@ -68,15 +103,88 @@ jobs:
         run: bun scripts/webdav-conformance.ts
         env:
           LITMUS_DIR: ${{ runner.temp }}/litmus/litmus-0.18
+
+  # Tests share one server's administrator preferences, sharing settings and trash, so each shard
+  # runs one worker against its own server, data and sign-in. Shards run whole spec files,
+  # balanced by the durations in scripts/e2e-timings.json; scripts/e2e-shards.ts plans them and
+  # fails the shard unless every spec file Playwright discovers is in exactly one shard.
+  e2e:
+    name: e2e (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # The shard count is the length of this list.
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      # Bun runs the Playwright CLI with the first node on PATH. Playwright 1.58 hangs while
+      # extracting browsers under Node 26, so pin an LTS release.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: bun install --frozen-lockfile
+      # With CI=true the test server runs the production build.
+      - run: bun run build
       - run: bun playwright install --with-deps chromium
-      - run: bun run test:e2e
-        timeout-minutes: 30
+      # PDF page previews and thumbnails use the decoders the Docker image ships. The step above
+      # has just refreshed the package lists.
+      - name: Install thumbnail decoders
+        run: sudo apt-get install -y --no-install-recommends poppler-utils ffmpeg
+      - name: Select this shard's spec files
+        run: bun scripts/e2e-shards.ts select ${{ matrix.shard }}/${{ strategy.job-total }} "$RUNNER_TEMP/e2e-shard.txt"
+      - run: bun run test:e2e --test-list "$RUNNER_TEMP/e2e-shard.txt" --reporter=dot,json
+        timeout-minutes: 20
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/e2e-report.json
+          NIMBUS_E2E_SERVER_LOG: ${{ github.workspace }}/e2e-server.log
+      # Refresh scripts/e2e-timings.json by hand from these: download the e2e-timings-* artifacts
+      # of a run and pass their files to `bun scripts/e2e-shards.ts merge`.
+      - name: Summarize spec file durations
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -f "$RUNNER_TEMP/e2e-report.json" ]; then
+            bun scripts/e2e-shards.ts summarize "$RUNNER_TEMP/e2e-report.json" "$RUNNER_TEMP/e2e-timings-${{ matrix.shard }}.json"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !cancelled() }}
+        with:
+          name: e2e-timings-${{ matrix.shard }}
+          path: ${{ runner.temp }}/e2e-timings-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          retention-days: 30
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
-          name: playwright-results
-          path: test-results/
+          name: playwright-results-${{ matrix.shard }}
+          path: |
+            test-results/
+            e2e-server.log
           retention-days: 7
+
+  # The one check the image job waits for: it passes only when every job above passed, so a
+  # failed, cancelled or skipped check keeps images from being built.
+  verify:
+    if: ${{ !cancelled() }}
+    needs: [static, unit, build, litmus, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every check to pass
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          failed=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$failed" ]; then
+            echo "These checks did not pass, so no image is built:"
+            echo "$failed"
+            exit 1
+          fi
 
   # Images are built and published only after every check above passes for the same commit.
   image:
