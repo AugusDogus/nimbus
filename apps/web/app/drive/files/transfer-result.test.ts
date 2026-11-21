@@ -34,7 +34,12 @@ describe("TransferResult", () => {
       async (item) => {
         if (item.name === "b.txt") throw new Error("It is locked.");
         const to = `archive/${item.name}`;
-        return { name: item.name, path: to, receipt: receipt(item.path, to) };
+        return {
+          kind: "transferred",
+          name: item.name,
+          path: to,
+          receipt: receipt(item.path, to),
+        };
       },
     );
     expect(result.transferred.map((item) => item.receipt.to).sort()).toEqual([
@@ -56,6 +61,7 @@ describe("TransferResult", () => {
       "",
       [entry("a.txt")],
       async () => ({
+        kind: "transferred",
         name: "a (1).txt",
         path: "a (1).txt",
         receipt: receipt("docs/a.txt", "a (1).txt"),
@@ -70,6 +76,7 @@ describe("TransferResult", () => {
       "projects/archive",
       [entry("a.txt"), entry("b.txt")],
       async (item) => ({
+        kind: "transferred",
         name: item.name === "a.txt" ? "a (1).txt" : item.name,
         path: "x",
         receipt: receipt(item.path, "x"),
@@ -95,6 +102,52 @@ describe("TransferResult", () => {
       ok: false,
       message:
         "Nothing was moved to archive. “a.txt”: You need write permission for this item. 1 more item also failed.",
+    });
+  });
+
+  it("keeps items whose names are taken apart, to ask about them", async () => {
+    const items = [entry("a.txt"), entry("b.txt"), entry("c.txt")];
+    const first = await TransferResult.run(
+      "move",
+      "archive",
+      items,
+      async (item) =>
+        item.name === "a.txt"
+          ? {
+              kind: "transferred",
+              name: item.name,
+              path: `archive/${item.name}`,
+              receipt: receipt(item.path, `archive/${item.name}`),
+            }
+          : { kind: "clash", name: item.name },
+    );
+    expect(first.clashes.map((clash) => clash.name)).toEqual([
+      "b.txt",
+      "c.txt",
+    ]);
+    expect(TransferResult.describe(first)).toEqual({
+      ok: false,
+      message:
+        "Moved 1 of 3 items to archive. 2 items have names already used there.",
+    });
+    const retry = await TransferResult.run(
+      "move",
+      "archive",
+      TransferResult.unfinished(first),
+      async (item) => ({
+        kind: "transferred",
+        name: item.name.replace(".txt", " (1).txt"),
+        path: "x",
+        receipt: receipt(item.path, "x"),
+      }),
+    );
+    const merged = TransferResult.merge(first, retry);
+    expect(merged.clashes).toEqual([]);
+    expect(merged.transferred).toHaveLength(3);
+    expect(TransferResult.describe(merged)).toEqual({
+      ok: true,
+      message:
+        "Moved 3 items to archive. 2 got new names because the name was taken.",
     });
   });
 });

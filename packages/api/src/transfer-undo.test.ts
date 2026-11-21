@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { forgetFileMutationsForTest } from "./file-mutations";
 import { appRouter } from "./routers";
-import { createTestDriveStore } from "./testing";
+import { createTestDriveStore, transferredOf } from "./testing";
 import { TransferReceipt } from "./transfer-receipt";
 
 describe("undoing moves and copies", () => {
@@ -41,8 +41,18 @@ describe("undoing moves and copies", () => {
       path: grantPath,
       permission,
     });
-  const move = (sourcePath: string, destinationPath: string, id = "user-1") =>
-    caller(id).files.move({ sourcePath, destinationPath });
+  const move = async (
+    sourcePath: string,
+    destinationPath: string,
+    id = "user-1",
+  ) =>
+    transferredOf(await caller(id).files.move({ sourcePath, destinationPath }));
+  const copy = async (
+    sourcePath: string,
+    destinationPath: string,
+    id = "user-1",
+  ) =>
+    transferredOf(await caller(id).files.copy({ sourcePath, destinationPath }));
   const undo = async (receipts: TransferReceipt[], id = "user-1") =>
     (await caller(id).files.undo({ receipts })).outcomes;
 
@@ -87,10 +97,7 @@ describe("undoing moves and copies", () => {
   });
 
   it("sends a copy to trash and leaves the original", async () => {
-    const copied = await caller().files.copy({
-      sourcePath: "docs/report.txt",
-      destinationPath: "archive",
-    });
+    const copied = await copy("docs/report.txt", "archive");
     expect(await undo([copied.receipt])).toMatchObject([{ kind: "undone" }]);
     expect(await exists("archive/report.txt")).toBe(false);
     expect(await exists("docs/report.txt")).toBe(true);
@@ -116,10 +123,7 @@ describe("undoing moves and copies", () => {
 
   it("leaves other content that replaced the item, and never trashes a replaced copy", async () => {
     const moved = await move("docs/sub", "archive");
-    const copied = await caller().files.copy({
-      sourcePath: "docs/report.txt",
-      destinationPath: "archive",
-    });
+    const copied = await copy("docs/report.txt", "archive");
     await rm(path.join(root, "archive/sub"), { recursive: true });
     await rm(path.join(root, "archive/report.txt"));
     await Bun.sleep(5);
@@ -169,10 +173,7 @@ describe("undoing moves and copies", () => {
       { kind: "kept", reason: "forbidden" },
     ]);
     expect(await exists("archive/report.txt")).toBe(true);
-    const copied = await caller("reader").files.copy({
-      sourcePath: "docs/sub",
-      destinationPath: "archive",
-    });
+    const copied = await copy("docs/sub", "archive", "reader");
     memory.grants.delete("archive");
     grant("archive-read", "archive", "read");
     expect(await undo([copied.receipt], "reader")).toMatchObject([

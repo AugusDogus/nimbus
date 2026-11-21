@@ -1,13 +1,13 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { toast } from "@/lib/toast";
+import { toast, type ToastAction } from "@/lib/toast";
 
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { trpcErrorCode } from "@/lib/trpc-error";
 import { fileListQueryOptions } from "./use-file-list";
 
 import { BulkResult } from "./bulk-result";
-import { TransferResult } from "./transfer-result";
+import { TransferResult, type TransferOperation } from "./transfer-result";
 import { fileHref, FileEntry } from "./types";
 
 function invalidateFileQueries() {
@@ -168,62 +168,82 @@ export function useFileActions({
   };
 
   const navigate = useNavigate();
+
+  /**
+   * Move or copy `entries` into `destinationPath` without reporting. `clash` says what happens
+   * to a taken name (see `files.move`); `names` gives single items a name of their own.
+   */
+  const transferEntries = useCallback(
+    (
+      operation: TransferOperation,
+      entries: readonly FileEntry[],
+      destinationPath: string,
+      options: {
+        clash?: "refuse" | "keep-both";
+        names?: ReadonlyMap<string, string>;
+      } = {},
+    ) =>
+      TransferResult.run(
+        operation,
+        destinationPath,
+        FileEntry.outermost(entries),
+        (entry) =>
+          trpcClient.files[operation].mutate({
+            sourcePath: entry.path,
+            destinationPath,
+            name: options.names?.get(entry.path),
+            clash: options.clash,
+          }),
+      ),
+    [],
+  );
+
+  /**
+   * Toast what a transfer did. Whatever reached the destination can be undone, also after a
+   * partial failure; items whose names were taken can be kept beside what is there.
+   */
   const reportTransfer = useCallback(
-    (result: TransferResult) => {
+    function report(result: TransferResult): TransferResult {
       invalidateFileQueries();
       const summary = TransferResult.describe(result);
-      // Whatever reached the destination can be undone, also after a partial failure.
-      const options = result.transferred.length
-        ? {
-            actions: [
-              { label: "Undo", run: () => void undoTransfer(result) },
-              {
-                label: "Open folder",
-                run: () =>
-                  void navigate({ href: fileHref(result.destination) }),
-              },
-            ],
-          }
-        : undefined;
+      const actions: ToastAction[] = [];
+      if (result.transferred.length)
+        actions.push(
+          { label: "Undo", run: () => void undoTransfer(result) },
+          {
+            label: "Open folder",
+            run: () => void navigate({ href: fileHref(result.destination) }),
+          },
+        );
+      if (result.clashes.length)
+        actions.push({
+          label: "Keep both",
+          run: () =>
+            void transferEntries(
+              result.operation,
+              result.clashes.map((clash) => clash.source),
+              result.destination,
+              { clash: "keep-both" },
+            ).then(report),
+        });
+      const options = actions.length ? { actions } : undefined;
       if (summary.ok) toast.success(summary.message, options);
       else toast.error(summary.message, options);
       return result;
     },
-    [navigate],
+    [navigate, transferEntries],
   );
 
   const moveEntries = useCallback(
     async (entries: readonly FileEntry[], destinationPath: string) =>
-      reportTransfer(
-        await TransferResult.run(
-          "move",
-          destinationPath,
-          FileEntry.outermost(entries),
-          (entry) =>
-            trpcClient.files.move.mutate({
-              sourcePath: entry.path,
-              destinationPath,
-            }),
-        ),
-      ),
-    [reportTransfer],
+      reportTransfer(await transferEntries("move", entries, destinationPath)),
+    [reportTransfer, transferEntries],
   );
 
   const copyEntries = useCallback(
     async (entries: readonly FileEntry[], destinationPath: string) =>
-      reportTransfer(
-        await TransferResult.run(
-          "copy",
-          destinationPath,
-          FileEntry.outermost(entries),
-          (entry) =>
-            trpcClient.files.copy.mutate({
-              sourcePath: entry.path,
-              destinationPath,
-            }),
-        ),
-      ),
-    [reportTransfer],
+      reportTransfer(await transferEntries("copy", entries, destinationPath)),
+    [reportTransfer, transferEntries],
   );
 
   const trashEntries = useCallback(
@@ -321,6 +341,8 @@ export function useFileActions({
   return {
     createFolder,
     renameEntry,
+    transferEntries,
+    reportTransfer,
     moveEntries,
     copyEntries,
     trashEntries,

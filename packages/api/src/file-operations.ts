@@ -79,6 +79,17 @@ export async function requireExisting(requested: string) {
   return { ...target, stats };
 }
 
+/** Something already has the name an item was to get. Callers that offer a choice catch it. */
+export class NameTakenError extends TRPCError {
+  constructor() {
+    super({
+      code: "CONFLICT",
+      message: "An item with that name already exists. Choose another name.",
+    });
+    this.name = "NameTakenError";
+  }
+}
+
 export async function requireUnused(absolute: string) {
   try {
     await lstat(absolute);
@@ -86,10 +97,7 @@ export async function requireUnused(absolute: string) {
     if (isFsError(error, "ENOENT")) return;
     throw error;
   }
-  throw new TRPCError({
-    code: "CONFLICT",
-    message: "An item with that name already exists. Choose another name.",
-  });
+  throw new NameTakenError();
 }
 
 export function requireMutable(relative: string) {

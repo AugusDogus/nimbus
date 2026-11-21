@@ -8,18 +8,19 @@ import { z } from "zod";
 import { UserPreferences } from "./context";
 import { getDataRoot } from "./data-root";
 import { statPath } from "./fs-utils";
-import { isApiError, isFsError } from "./safe-path";
+import { isFsError } from "./safe-path";
 import { getAccess } from "./access";
 import type { DriveStore, Permission } from "./drive-store";
 import { FolderAccess } from "./folder-access";
 import { Homes } from "./homes";
 import { numberedName } from "./numbered-name";
 import { fileNameSchema } from "./file-name";
-import { mutateFiles, FileLockedError } from "./file-mutations";
+import { mutateFiles } from "./file-mutations";
 import {
   copyItem,
   moveItem,
   lexicalPath,
+  NameTakenError,
   requireExisting,
   safePath,
   trashItem,
@@ -106,6 +107,81 @@ const defaultPreferences: UserPreferences = {
   sortDirection: "asc",
   groupByType: true,
 };
+
+const transferInput = z.object({
+  sourcePath: z.string(),
+  destinationPath: z.string(),
+  /** The name in the destination; the item's own name by default. */
+  name: fileNameSchema.optional(),
+  /**
+   * When the name is taken: `refuse` reports the clash and changes nothing, `keep-both` gives
+   * the item the first free numbered name, as "report (1).txt". Nothing is ever replaced.
+   */
+  clash: z.enum(["refuse", "keep-both"]).optional(),
+});
+
+/** What a move or copy of one item did: transferred it, or found its name taken. */
+export type TransferOutcome =
+  | {
+      kind: "transferred";
+      name: string;
+      path: string;
+      receipt: TransferReceipt;
+    }
+  | { kind: "clash"; name: string };
+
+const joinPath = (folder: string, name: string) =>
+  folder ? `${folder}/${name}` : name;
+
+async function requireFolder(relative: string) {
+  const folder = await requireExisting(relative);
+  if (!folder.stats.isDirectory())
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Choose a folder as the destination.",
+    });
+}
+
+/**
+ * Transfer one item into `destination` under `name`, or under the first free numbered name
+ * when `clash` is `keep-both`. The move or copy itself checks the name again in its mutation
+ * scope, whatever the client saw, so a name taken meanwhile is a clash, never a replacement.
+ */
+async function transferInto(options: {
+  operation: TransferReceipt["operation"];
+  actor: string;
+  source: string;
+  destination: string;
+  name: string;
+  isFile: boolean;
+  clash: "refuse" | "keep-both";
+  attempt: (target: string) => Promise<{ path: string; identity: string }>;
+}): Promise<TransferOutcome> {
+  for (let index = 0; ; index++) {
+    const name = numberedName(options.name, index, options.isFile);
+    const target = joinPath(options.destination, name);
+    try {
+      // A copy never lands on its own source: that name is taken by the source itself.
+      if (target === options.source) throw new NameTakenError();
+      const done = await options.attempt(target);
+      return {
+        kind: "transferred",
+        name: path.posix.basename(done.path),
+        path: done.path,
+        receipt: TransferReceipt.issue({
+          operation: options.operation,
+          actor: options.actor,
+          from: options.source,
+          to: done.path,
+          identity: done.identity,
+        }),
+      };
+    } catch (error) {
+      if (!(error instanceof NameTakenError)) throw error;
+      if (options.clash === "refuse") return { kind: "clash", name };
+    }
+  }
+}
 
 /** Receipts one undo request may carry; clients send more in several requests. */
 export const UNDO_BATCH = 500;
@@ -277,39 +353,36 @@ export const appRouter = router({
         );
       }),
     move: protectedProcedure
-      .input(z.object({ sourcePath: z.string(), destinationPath: z.string() }))
+      .input(transferInput)
       .mutation(async ({ ctx, input }) => {
         const source = await safePath(input.sourcePath);
         const destination = await safePath(input.destinationPath);
+        // Before either is looked up, so neither reveals whether it exists.
+        ctx.access.require(source.relative, "write");
         ctx.access.require(destination.relative, "write");
-        const dest = await requireExisting(destination.relative);
-        if (!dest.stats.isDirectory())
+        const existing = await requireExisting(source.relative);
+        await requireFolder(destination.relative);
+        const name = input.name ?? path.posix.basename(source.relative);
+        if (joinPath(destination.relative, name) === source.relative)
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Choose a folder as the destination.",
+            message:
+              "This item is already in that folder under that name, so nothing was moved. Choose another folder or name.",
           });
-        const moved = await moveItem(
-          ctx.drive,
-          ctx.access,
-          source.relative,
-          [destination.relative, path.basename(source.relative)]
-            .filter(Boolean)
-            .join("/"),
-        );
-        return {
-          name: moved.name,
-          path: moved.path,
-          receipt: TransferReceipt.issue({
-            operation: "move",
-            actor: ctx.access.user.id,
-            from: source.relative,
-            to: moved.path,
-            identity: moved.identity,
-          }),
-        };
+        return transferInto({
+          operation: "move",
+          actor: ctx.access.user.id,
+          source: source.relative,
+          destination: destination.relative,
+          name,
+          isFile: existing.stats.isFile(),
+          clash: input.clash ?? "refuse",
+          attempt: (target) =>
+            moveItem(ctx.drive, ctx.access, source.relative, target),
+        });
       }),
     copy: protectedProcedure
-      .input(z.object({ sourcePath: z.string(), destinationPath: z.string() }))
+      .input(transferInput)
       .mutation(async ({ ctx, input }) => {
         // Read on the source and Write on the destination, as WebDAV COPY requires, checked
         // before either is looked up so neither reveals whether it exists.
@@ -318,47 +391,20 @@ export const appRouter = router({
         const into = lexicalPath(input.destinationPath);
         ctx.access.require(into.relative, "write");
         const source = await requireExisting(requested.relative);
-        const destination = await requireExisting(into.relative);
-        if (!destination.stats.isDirectory())
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Choose a folder as the destination.",
-          });
-        const name = path.basename(source.relative);
-        // Keep both on a name clash, as uploads do. Copying into the item's own folder duplicates it.
-        for (let index = 0; ; index++) {
-          const candidate = [
-            destination.relative,
-            numberedName(name, index, source.stats.isFile()),
-          ]
-            .filter(Boolean)
-            .join("/");
-          if (candidate === source.relative) continue;
-          try {
-            const result = await copyItem(
-              ctx.drive,
-              ctx.access,
-              source.relative,
-              candidate,
-            );
-            return {
-              name: path.basename(result.path),
-              path: result.path,
-              receipt: TransferReceipt.issue({
-                operation: "copy",
-                actor: ctx.access.user.id,
-                from: source.relative,
-                to: result.path,
-                identity: result.identity,
-              }),
-            };
-          } catch (error) {
-            const nameTaken =
-              isApiError(error, "CONFLICT") &&
-              !(error instanceof FileLockedError);
-            if (!nameTaken) throw error;
-          }
-        }
+        await requireFolder(into.relative);
+        // Keep both on a name clash by default, as uploads do. Copying into the item's own
+        // folder duplicates it.
+        return transferInto({
+          operation: "copy",
+          actor: ctx.access.user.id,
+          source: source.relative,
+          destination: into.relative,
+          name: input.name ?? path.posix.basename(source.relative),
+          isFile: source.stats.isFile(),
+          clash: input.clash ?? "keep-both",
+          attempt: (target) =>
+            copyItem(ctx.drive, ctx.access, source.relative, target),
+        });
       }),
     /**
      * Undo moves and copies from their receipts, one after another, each checked again as of

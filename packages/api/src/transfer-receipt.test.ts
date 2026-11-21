@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { appRouter } from "./routers";
 import { forgetFileMutationsForTest } from "./file-mutations";
-import { createTestDriveStore } from "./testing";
+import { createTestDriveStore, transferredOf } from "./testing";
 import {
   ItemIdentity,
   RECEIPT_LIFETIME_MS,
@@ -294,10 +294,12 @@ describe("files.move and files.copy receipts", () => {
     });
 
   it("describe each moved item and where it went", async () => {
-    const moved = await caller().files.move({
-      sourcePath: "docs/sub",
-      destinationPath: "archive",
-    });
+    const moved = transferredOf(
+      await caller().files.move({
+        sourcePath: "docs/sub",
+        destinationPath: "archive",
+      }),
+    );
     expect(moved.receipt).toMatchObject({
       operation: "move",
       actor: "user-1",
@@ -317,10 +319,12 @@ describe("files.move and files.copy receipts", () => {
 
   it("describe each copy by the name it got", async () => {
     await writeFile(path.join(root, "archive/report.txt"), "taken");
-    const copied = await caller().files.copy({
-      sourcePath: "docs/report.txt",
-      destinationPath: "archive",
-    });
+    const copied = transferredOf(
+      await caller().files.copy({
+        sourcePath: "docs/report.txt",
+        destinationPath: "archive",
+      }),
+    );
     expect(copied.receipt).toMatchObject({
       operation: "copy",
       from: "docs/report.txt",

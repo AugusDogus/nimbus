@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import path from "node:path";
 import { z } from "zod";
 import { permissionFor } from "./access";
@@ -561,14 +562,16 @@ const move = defineTool({
   input: z.object({ path: pathInput, destinationFolder: pathInput }),
   output: z.object({ path: z.string() }),
   async run({ caller }, input) {
-    return {
-      path: (
-        await caller.files.move({
-          sourcePath: input.path,
-          destinationPath: input.destinationFolder,
-        })
-      ).path,
-    };
+    const outcome = await caller.files.move({
+      sourcePath: input.path,
+      destinationPath: input.destinationFolder,
+    });
+    if (outcome.kind === "clash")
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: `The destination folder already has an item named “${outcome.name}”. Nothing was moved. Rename or remove that item, or choose another folder.`,
+      });
+    return { path: outcome.path };
   },
 });
 
@@ -582,14 +585,18 @@ const copy = defineTool({
   input: z.object({ path: pathInput, destinationFolder: pathInput }),
   output: z.object({ path: z.string() }),
   async run({ caller }, input) {
-    return {
-      path: (
-        await caller.files.copy({
-          sourcePath: input.path,
-          destinationPath: input.destinationFolder,
-        })
-      ).path,
-    };
+    // Copies keep both on a clash, so the name is always free.
+    const outcome = await caller.files.copy({
+      sourcePath: input.path,
+      destinationPath: input.destinationFolder,
+      clash: "keep-both",
+    });
+    if (outcome.kind === "clash")
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: `The destination folder already has an item named “${outcome.name}”. Nothing was copied. Choose another folder.`,
+      });
+    return { path: outcome.path };
   },
 });
 

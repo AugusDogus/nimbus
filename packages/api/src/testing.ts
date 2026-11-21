@@ -18,6 +18,7 @@ import { FileVersions } from "./file-versions";
 import { crawl, reconcile } from "./search-crawler";
 import { createSearchIndex, type SearchIndex } from "./search-index";
 import type { SearchService } from "./search-service";
+import type { TransferOutcome } from "./routers";
 
 export function createTestDriveStore() {
   const users = new Map<string, DriveUser>([
@@ -460,4 +461,13 @@ export function crawlingSearchService(root: string): SearchService {
       return (await current()).bytesAt("") ?? 0;
     },
   };
+}
+
+/** The outcome of a move or copy that tests expect to have transferred its item. */
+export function transferredOf(outcome: TransferOutcome) {
+  if (outcome.kind !== "transferred")
+    throw new Error(
+      `Expected the item to be transferred, but its name “${outcome.name}” was taken.`,
+    );
+  return outcome;
 }
