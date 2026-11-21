@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
@@ -105,6 +105,8 @@ async function select(page: Page, names: readonly string[]) {
 
 /** Undoes the report that says `message`, and waits for the report of the undo. */
 async function undo(page: Page, message: string, after: string) {
+  // Reports stack, the newest in front: hovering them spreads them out.
+  await page.locator('[data-slot="toast"]').first().hover();
   await page
     .locator('[data-slot="toast"]')
     .filter({ hasText: message })
@@ -327,5 +329,71 @@ test.describe("every way of moving", () => {
     expect(await drive.names("one/two")).toEqual(
       expect.arrayContaining(["x.txt", "y.txt"]),
     );
+  });
+
+  test("reports every destination a clash picker sent items to, each with its own Undo", async ({
+    page,
+  }) => {
+    const drive = await nested({
+      "one/two/a.txt": "mine a",
+      "one/two/b.txt": "b",
+      "one/a.txt": "theirs a",
+    });
+    await mkdir(path.join(await dataRoot(), drive.top, "one/elsewhere"));
+    await page.goto(href(drive.current));
+    await moveUp.bar(page, ["a.txt", "b.txt"]);
+    const dialog = picker(page);
+    await expect(dialog.getByText("“a.txt” is already in one")).toBeVisible();
+    // Choosing another folder for the clashing item, instead of deciding here.
+    await dialog.getByRole("button", { name: "Up one folder" }).click();
+    await dialog.locator(`[data-folder-path="${drive.top}/one"]`).click();
+    await dialog
+      .locator(`[data-folder-path="${drive.top}/one/elsewhere"]`)
+      .click();
+    await dialog.getByRole("button", { name: "Move to “elsewhere”" }).click();
+    await expect(dialog).toBeHidden();
+    await undo(page, "Moved “b.txt” to one.", "Moved “b.txt” back to two.");
+    await undo(
+      page,
+      "Moved “a.txt” to elsewhere.",
+      "Moved “a.txt” back to two.",
+    );
+    expect(await drive.names("one/two")).toEqual(
+      expect.arrayContaining(["a.txt", "b.txt"]),
+    );
+  });
+
+  test("reports a failure and a clash left open when the clash picker is closed", async ({
+    page,
+  }) => {
+    const drive = await nested({
+      "one/two/a.txt": "mine a",
+      "one/two/b.txt": "gone",
+      "one/a.txt": "theirs a",
+    });
+    await page.goto(href(drive.current));
+    await select(page, ["a.txt", "b.txt"]);
+    // Removed outside Nimbus as the move starts: moving it fails.
+    const gone = path.join(await dataRoot(), drive.top, "one/two/b.txt");
+    await page.route("**/api/trpc/files.move*", async (route) => {
+      await rm(gone, { force: true });
+      await route.fallback();
+    });
+    await page
+      .getByRole("toolbar", { name: "Selected items" })
+      .getByRole("button", { name: "Move up one level" })
+      .click();
+    const dialog = picker(page);
+    await expect(dialog.getByText("“a.txt” is already in one")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    const report = page
+      .locator('[data-slot="toast"]')
+      .filter({ hasText: "Nothing was moved to one." });
+    await expect(report).toContainText("“a.txt” is already there.");
+    await expect(report).toContainText("“b.txt”:");
+    await expect(
+      report.locator("button", { hasText: "Keep both" }),
+    ).toBeVisible();
   });
 });

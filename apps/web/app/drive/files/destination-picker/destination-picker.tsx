@@ -59,6 +59,7 @@ import { fileListQueryOptions } from "../use-file-list";
 import { needsStats, prefsQueryOptions } from "../use-file-preferences";
 import { FolderList, type FolderRow } from "./folder-list";
 import { RecentDestinations } from "./recent-destinations";
+import { TransferSession } from "./transfer-session";
 import { ClashPanel, FailurePanel, type ClashChoice } from "./transfer-panels";
 
 /**
@@ -317,42 +318,41 @@ export function DestinationPicker({
   ) => actions.transferEntries(operation, items, to, options);
 
   /**
-   * What the picker has done, reported once it has closed, however it closes or is left. A
-   * toast added while the modal picker is open, or closing, stays hidden from assistive
-   * technology and out of reach, so reports wait for it to unmount. `awaiting` holds a result
-   * whose clashes are still being decided: closed then, its moved items are reported with
-   * Undo, and its clashes with Keep both.
+   * Everything the picker has done, item by item, reported once it has closed, however it
+   * closes or is left: one report per destination, with Undo for what reached it, Keep both for
+   * names still taken, and what failed and why. A toast added while the modal picker is open,
+   * or closing, stays hidden from assistive technology and out of reach, so reports wait for it
+   * to unmount.
    */
-  const reports = useRef<{
-    done: TransferResult[];
-    awaiting: TransferResult | null;
-  }>({
-    done: [],
-    awaiting: resume?.transferred.length ? resume : null,
-  });
+  const session = useRef(
+    resume
+      ? TransferSession.record(TransferSession.start(operation), resume)
+      : TransferSession.start(operation),
+  );
   const report = (result: TransferResult) => {
-    reports.current.awaiting = null;
-    if (result.transferred.length || result.skipped.length)
-      reports.current.done.push(result);
+    session.current = TransferSession.record(session.current, result);
   };
   const reportTransfer = useRef(actions.reportTransfer);
   useEffect(() => {
     reportTransfer.current = actions.reportTransfer;
   });
-  useEffect(
-    () => () => {
-      const { done, awaiting } = reports.current;
-      reports.current = { done: [], awaiting: null };
-      for (const result of done) reportTransfer.current(result);
-      if (awaiting) reportTransfer.current(awaiting);
-    },
-    [],
-  );
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      // A tick later, so a remount in development (React's StrictMode) reports nothing.
+      setTimeout(() => {
+        if (mounted.current) return;
+        const results = TransferSession.results(session.current);
+        session.current = TransferSession.start(session.current.operation);
+        for (const result of results) reportTransfer.current(result);
+      });
+    };
+  }, []);
   /** Undo what `result` transferred, from the picker, and stop reporting it. */
   const undoFromPicker = (result: TransferResult) => {
-    reports.current.done = reports.current.done.filter(
-      (item) => item !== result,
-    );
+    session.current = TransferSession.undone(session.current, result);
     return TransferReport.undo(result, () => {
       for (const key of ["files.list", "catalog", "trash"])
         void queryClient.invalidateQueries({ queryKey: [key] });
@@ -361,12 +361,11 @@ export function DestinationPicker({
 
   /** Report what a finished transfer did, and close or keep what is left to try again. */
   const settle = (result: TransferResult) => {
+    report(result);
     if (result.clashes.length) {
-      reports.current.awaiting = result.transferred.length ? result : null;
       setPhase({ kind: "clashes", result });
       return;
     }
-    report(result);
     if (!result.failed.length) {
       onClose();
       return;
@@ -392,11 +391,10 @@ export function DestinationPicker({
     const clashing = result.clashes.map((clash) => clash.source);
     switch (choice.kind) {
       case "cancel": {
-        // What already reached the destination stays there, with Undo in its report.
+        // What already reached the destination stays there, with Undo in its report. The items
+        // whose names are taken stay where they are, and are reported so, with Keep both,
+        // unless they go elsewhere first.
         const rest = TransferReport.skip(result);
-        // Nothing arrived: the picker stays to choose another folder, with nothing to report.
-        if (rest.transferred.length) report(rest);
-        else reports.current.awaiting = null;
         if (rest.failed.length) {
           setPending(rest.failed.map((failure) => failure.source));
           setPhase({ kind: "failed", result: rest });
