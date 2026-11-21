@@ -8,30 +8,44 @@ const reasonOf = (error: unknown) =>
   error instanceof Error ? error.message : "The server did not say why.";
 
 /**
- * Run `operation` for every item, a bounded number at a time. The server serializes filesystem
+ * Call `visit` for every item, a bounded number at a time. The server serializes filesystem
  * commits, so a small window keeps requests batched without queueing thousands of promises.
  */
+async function each<T>(
+  items: readonly T[],
+  visit: (item: T) => Promise<void>,
+  concurrency = 16,
+) {
+  let next = 0;
+  const worker = async () => {
+    for (let index = next++; index < items.length; index = next++) {
+      const item = items[index];
+      if (item !== undefined) await visit(item);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, worker),
+  );
+}
+
+/** Run `operation` for every item (see `each`), counting successes and keeping failures. */
 async function run<T extends { name: string }>(
   items: readonly T[],
   operation: (item: T) => Promise<unknown>,
   concurrency = 16,
 ): Promise<BulkResult> {
   const result: BulkResult = { succeeded: 0, failed: [] };
-  let next = 0;
-  const worker = async () => {
-    for (let index = next++; index < items.length; index = next++) {
-      const item = items[index];
-      if (!item) continue;
+  await each(
+    items,
+    async (item) => {
       try {
         await operation(item);
         result.succeeded++;
       } catch (error) {
         result.failed.push({ name: item.name, reason: reasonOf(error) });
       }
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, worker),
+    },
+    concurrency,
   );
   return result;
 }
@@ -61,4 +75,4 @@ function describe(result: BulkResult, verb: string, place = "") {
   } as const;
 }
 
-export const BulkResult = { run, describe } as const;
+export const BulkResult = { each, run, reasonOf, describe } as const;

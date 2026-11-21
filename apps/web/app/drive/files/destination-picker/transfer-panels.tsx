@@ -1,6 +1,5 @@
 import { AlertCircle, CopyPlus } from "lucide-react";
 import { useId, useState } from "react";
-import { numberedName } from "@nimbus/api/numbered-name";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,9 +51,7 @@ export function ClashPanel({
 }) {
   const [only] = clashes;
   const single = clashes.length === 1 && only ? only : null;
-  const [name, setName] = useState(() =>
-    single ? numberedName(single.name, 1, single.source.type !== "dir") : "",
-  );
+  const [name, setName] = useState(single?.suggestion ?? "");
   const inputId = useId();
   const place = folderLabel(destination);
   const trimmed = name.trim();

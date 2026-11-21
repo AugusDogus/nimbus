@@ -1,5 +1,5 @@
 import { TRPCError, tracked } from "@trpc/server";
-import { mkdir, readdir } from "node:fs/promises";
+import { lstat, mkdir, readdir } from "node:fs/promises";
 import { readDirectory } from "./file-browser";
 import { FileListing } from "./file-listing";
 import path from "node:path";
@@ -128,7 +128,8 @@ export type TransferOutcome =
       path: string;
       receipt: TransferReceipt;
     }
-  | { kind: "clash"; name: string };
+  /** `suggestion`: the first numbered name free in the destination when it was checked. */
+  | { kind: "clash"; name: string; suggestion: string };
 
 const joinPath = (folder: string, name: string) =>
   folder ? `${folder}/${name}` : name;
@@ -140,6 +141,32 @@ async function requireFolder(relative: string) {
       code: "BAD_REQUEST",
       message: "Choose a folder as the destination.",
     });
+}
+
+/** The first of `name (1)`, `name (2)`, ... that nothing in `folder` has, as a suggestion. */
+async function freeName(
+  folder: string,
+  name: string,
+  isFile: boolean,
+  source: string,
+) {
+  // "report (1).txt" is numbered on from "report.txt", not as "report (1) (1).txt".
+  const dot = isFile ? name.lastIndexOf(".") : -1;
+  const [stem, extension] =
+    dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  const base = `${stem.replace(/ \(\d+\)$/, "") || stem}${extension}`;
+  for (let index = 1; index < 1000; index++) {
+    const candidate = numberedName(base, index, isFile);
+    const target = joinPath(folder, candidate);
+    if (target === source) continue;
+    try {
+      await lstat((await safePath(target)).absolute);
+    } catch (error) {
+      if (isFsError(error, "ENOENT")) return candidate;
+      throw error;
+    }
+  }
+  return numberedName(base, 1000, isFile);
 }
 
 /**
@@ -178,7 +205,17 @@ async function transferInto(options: {
       };
     } catch (error) {
       if (!(error instanceof NameTakenError)) throw error;
-      if (options.clash === "refuse") return { kind: "clash", name };
+      if (options.clash === "refuse")
+        return {
+          kind: "clash",
+          name,
+          suggestion: await freeName(
+            options.destination,
+            name,
+            options.isFile,
+            options.source,
+          ),
+        };
     }
   }
 }

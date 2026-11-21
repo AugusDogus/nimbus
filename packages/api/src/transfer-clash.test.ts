@@ -47,7 +47,11 @@ describe("name clashes when moving and copying", () => {
         sourcePath: "docs/report.txt",
         destinationPath: "archive",
       }),
-    ).toEqual({ kind: "clash", name: "report.txt" });
+    ).toEqual({
+      kind: "clash",
+      name: "report.txt",
+      suggestion: "report (1).txt",
+    });
     expect(await read("docs/report.txt")).toBe("mine");
     expect(await read("archive/report.txt")).toBe("theirs");
   });
@@ -80,7 +84,11 @@ describe("name clashes when moving and copying", () => {
         destinationPath: "archive",
         name: "report (1).txt",
       }),
-    ).toEqual({ kind: "clash", name: "report (1).txt" });
+    ).toEqual({
+      kind: "clash",
+      name: "report (1).txt",
+      suggestion: "report (2).txt",
+    });
     await expect(
       caller().files.move({
         sourcePath: "docs/report.txt",
@@ -103,14 +111,23 @@ describe("name clashes when moving and copying", () => {
         destinationPath: "archive",
         clash: "refuse",
       }),
-    ).toEqual({ kind: "clash", name: "report.txt" });
+    ).toEqual({
+      kind: "clash",
+      name: "report.txt",
+      // "report (1).txt" is the copy made just before.
+      suggestion: "report (2).txt",
+    });
     expect(
       await caller().files.copy({
         sourcePath: "docs/report.txt",
         destinationPath: "docs",
         clash: "refuse",
       }),
-    ).toEqual({ kind: "clash", name: "report.txt" });
+    ).toEqual({
+      kind: "clash",
+      name: "report.txt",
+      suggestion: "report (1).txt",
+    });
     expect(await read("archive/report.txt")).toBe("theirs");
   });
 

@@ -1,14 +1,13 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { toast, type ToastAction } from "@/lib/toast";
+import { toast } from "@/lib/toast";
 
 import { queryClient, trpcClient } from "@/lib/trpc";
-import { sessionQuery } from "@/lib/session-query";
 import { trpcErrorCode } from "@/lib/trpc-error";
 import { fileListQueryOptions } from "./use-file-list";
 
 import { BulkResult } from "./bulk-result";
-import { TransferResult, type TransferOperation } from "./transfer-result";
+import type { TransferOperation, TransferResult } from "./transfer-result";
 import { fileHref, FileEntry } from "./types";
 
 function invalidateFileQueries() {
@@ -17,17 +16,6 @@ function invalidateFileQueries() {
   void queryClient.invalidateQueries({ queryKey: ["trash"] });
   void queryClient.invalidateQueries({ queryKey: ["shares"] });
   void queryClient.invalidateQueries({ queryKey: ["files.storage"] });
-}
-
-/** Undo every transferred item of `result`, and say what happened to each. */
-async function undoTransfer(result: TransferResult) {
-  // Loaded on demand: most transfers are never undone.
-  const { TransferUndo } = await import("./transfer-undo");
-  const items = await TransferUndo.run(result);
-  invalidateFileQueries();
-  const summary = TransferUndo.describe(result, items);
-  if (summary.ok) toast.success(summary.message);
-  else toast.error(summary.message);
 }
 
 function buildRenamedPath(entryPath: string, newName: string) {
@@ -175,7 +163,7 @@ export function useFileActions({
    * to a taken name (see `files.move`); `names` gives single items a name of their own.
    */
   const transferEntries = useCallback(
-    (
+    async (
       operation: TransferOperation,
       entries: readonly FileEntry[],
       destinationPath: string,
@@ -183,8 +171,10 @@ export function useFileActions({
         clash?: "refuse" | "keep-both";
         names?: ReadonlyMap<string, string>;
       } = {},
-    ) =>
-      TransferResult.run(
+    ) => {
+      // Loaded with the first transfer, like the picker and the report.
+      const { TransferResult } = await import("./transfer-result");
+      return TransferResult.run(
         operation,
         destinationPath,
         FileEntry.outermost(entries),
@@ -195,48 +185,28 @@ export function useFileActions({
             name: options.names?.get(entry.path),
             clash: options.clash,
           }),
-      ),
+      );
+    },
     [],
   );
 
-  /**
-   * Toast what a transfer did. Whatever reached the destination can be undone, also after a
-   * partial failure; items whose names were taken can be kept beside what is there.
-   */
+  /** Report what a transfer did, with Undo; the report's code loads on first use. */
   const reportTransfer = useCallback(
     function report(result: TransferResult): TransferResult {
       invalidateFileQueries();
-      const account = queryClient.getQueryData(sessionQuery.queryKey)?.user.id;
-      if (result.transferred.length && account)
-        // Loaded on demand, like the picker that lists them.
-        void import("./destination-picker/recent-destinations").then(
-          ({ RecentDestinations }) =>
-            RecentDestinations.record(account, result.destination),
-        );
-      const summary = TransferResult.describe(result);
-      const actions: ToastAction[] = [];
-      if (result.transferred.length)
-        actions.push(
-          { label: "Undo", run: () => void undoTransfer(result) },
-          {
-            label: "Open folder",
-            run: () => void navigate({ href: fileHref(result.destination) }),
-          },
-        );
-      if (result.clashes.length)
-        actions.push({
-          label: "Keep both",
-          run: () =>
+      void import("./transfer-report").then(({ TransferReport }) =>
+        TransferReport.show(result, {
+          refresh: invalidateFileQueries,
+          open: (folder) => void navigate({ href: fileHref(folder) }),
+          keepBoth: (earlier) =>
             void transferEntries(
-              result.operation,
-              result.clashes.map((clash) => clash.source),
-              result.destination,
+              earlier.operation,
+              earlier.clashes.map((clash) => clash.source),
+              earlier.destination,
               { clash: "keep-both" },
             ).then(report),
-        });
-      const options = actions.length ? { actions } : undefined;
-      if (summary.ok) toast.success(summary.message, options);
-      else toast.error(summary.message, options);
+        }),
+      );
       return result;
     },
     [navigate, transferEntries],

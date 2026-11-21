@@ -46,7 +46,8 @@ import { trpcErrorCode } from "@/lib/trpc-error";
 import { cn } from "@/lib/utils";
 import { FILES_ROOT_LABEL, folderLabel } from "../drive-root";
 import { sortEntries } from "../entry-sort";
-import { TransferResult, type TransferOperation } from "../transfer-result";
+import { TransferReport } from "../transfer-report";
+import type { TransferOperation, TransferResult } from "../transfer-result";
 import type { FileEntry } from "../types";
 import type { useFileActions } from "../use-file-actions";
 import { fileListQueryOptions } from "../use-file-list";
@@ -287,7 +288,7 @@ export function DestinationPicker({
     switch (choice.kind) {
       case "cancel": {
         // What already reached the destination stays there, with Undo in its report.
-        const rest = TransferResult.skip(result);
+        const rest = TransferReport.skip(result);
         if (rest.transferred.length) actions.reportTransfer(rest);
         if (rest.failed.length) {
           setPending(rest.failed.map((failure) => failure.source));
@@ -300,7 +301,7 @@ export function DestinationPicker({
         return;
       }
       case "skip":
-        settle(TransferResult.skip(result));
+        settle(TransferReport.skip(result));
         return;
       case "keep-both":
       case "rename": {
@@ -316,7 +317,7 @@ export function DestinationPicker({
                 names: new Map(only ? [[only.path, choice.name]] : []),
               },
         );
-        settle(TransferResult.merge(result, retried));
+        settle(TransferReport.merge(result, retried));
       }
     }
   };

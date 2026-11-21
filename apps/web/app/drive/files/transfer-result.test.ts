@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { TransferReceipt } from "@nimbus/api/transfer-receipt";
+import { TransferReport } from "./transfer-report";
 import { TransferResult } from "./transfer-result";
 import type { FileEntry } from "./types";
 
@@ -49,7 +50,7 @@ describe("TransferResult", () => {
     expect(result.failed).toEqual([
       { source: items[1] ?? entry("missing"), reason: "It is locked." },
     ]);
-    expect(TransferResult.describe(result)).toEqual({
+    expect(TransferReport.describe(result)).toEqual({
       ok: false,
       message: "Moved 2 of 3 items to archive. “b.txt”: It is locked.",
     });
@@ -67,7 +68,7 @@ describe("TransferResult", () => {
         receipt: receipt("docs/a.txt", "a (1).txt"),
       }),
     );
-    expect(TransferResult.describe(one)).toEqual({
+    expect(TransferReport.describe(one)).toEqual({
       ok: true,
       message: "Copied “a.txt” to Files as “a (1).txt”.",
     });
@@ -82,7 +83,7 @@ describe("TransferResult", () => {
         receipt: receipt(item.path, "x"),
       }),
     );
-    expect(TransferResult.describe(many)).toEqual({
+    expect(TransferReport.describe(many)).toEqual({
       ok: true,
       message:
         "Copied 2 items to archive. 1 got a new name because the name was taken.",
@@ -98,7 +99,7 @@ describe("TransferResult", () => {
         throw new Error("You need write permission for this item.");
       },
     );
-    expect(TransferResult.describe(result)).toEqual({
+    expect(TransferReport.describe(result)).toEqual({
       ok: false,
       message:
         "Nothing was moved to archive. “a.txt”: You need write permission for this item. 1 more item also failed.",
@@ -119,13 +120,13 @@ describe("TransferResult", () => {
               path: `archive/${item.name}`,
               receipt: receipt(item.path, `archive/${item.name}`),
             }
-          : { kind: "clash", name: item.name },
+          : { kind: "clash", name: item.name, suggestion: "unused" },
     );
     expect(first.clashes.map((clash) => clash.name)).toEqual([
       "b.txt",
       "c.txt",
     ]);
-    expect(TransferResult.describe(first)).toEqual({
+    expect(TransferReport.describe(first)).toEqual({
       ok: false,
       message:
         "Moved 1 of 3 items to archive. 2 items have names already used there.",
@@ -133,7 +134,7 @@ describe("TransferResult", () => {
     const retry = await TransferResult.run(
       "move",
       "archive",
-      TransferResult.unfinished(first),
+      first.clashes.map((clash) => clash.source),
       async (item) => ({
         kind: "transferred",
         name: item.name.replace(".txt", " (1).txt"),
@@ -141,17 +142,17 @@ describe("TransferResult", () => {
         receipt: receipt(item.path, "x"),
       }),
     );
-    const merged = TransferResult.merge(first, retry);
+    const merged = TransferReport.merge(first, retry);
     expect(merged.clashes).toEqual([]);
     expect(merged.transferred).toHaveLength(3);
     expect(
-      TransferResult.describe(TransferResult.skip({ ...first, failed: [] })),
+      TransferReport.describe(TransferReport.skip({ ...first, failed: [] })),
     ).toEqual({
       ok: true,
       message:
         "Moved 1 item to archive. Skipped 2 items whose names were taken.",
     });
-    expect(TransferResult.describe(merged)).toEqual({
+    expect(TransferReport.describe(merged)).toEqual({
       ok: true,
       message:
         "Moved 3 items to archive. 2 got new names because the name was taken.",
