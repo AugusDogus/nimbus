@@ -783,3 +783,69 @@ test("says which items are already in the destination, and reports them as stayi
   ).toBeVisible();
   expect(await names("archive")).toEqual(["already.txt", "incoming.txt"]);
 });
+
+test("offers no recent or starred folder outside the account's top folder, and never goes above it", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  const { top } = await tree({}, ["outside/Target"]);
+  const rpc = await client(context);
+  const account = await asMember(browser, context, page, isMobile, [
+    { path: `${top}/outside`, permission: "write" },
+  ]);
+  try {
+    const member = await client(account.memberContext);
+    const me = await member.access.me.query();
+    await member.files.createFolder.mutate({
+      path: account.home,
+      name: "Source",
+    });
+    await member.catalog.bookmark.mutate({
+      path: `${top}/outside/Target`,
+      starred: true,
+    });
+    await account.member.goto(href(account.home));
+    await account.member.evaluate(
+      ({ id, path: target }) =>
+        localStorage.setItem(
+          `nimbus:recent-destinations:${id}`,
+          JSON.stringify([target]),
+        ),
+      { id: me.id, path: `${top}/outside/Target` },
+    );
+    // The grant outside the home goes: Files is the home again.
+    for (const grant of await rpc.access.permissions.query({
+      path: `${top}/outside`,
+    }))
+      if (grant.subject.type === "user" && grant.subject.id === me.id)
+        await rpc.access.revoke.mutate({
+          path: `${top}/outside`,
+          id: grant.id,
+        });
+    expect((await member.access.me.query()).top).toBe(account.home);
+    await account.member.reload();
+    await action(account.member, "Source", "Move to…", isMobile);
+    const dialog = picker(account.member);
+    await expect(
+      dialog.getByRole("button", { name: "Up one folder" }),
+    ).toBeDisabled();
+    const places = dialog
+      .getByRole("navigation", { name: "Places" })
+      .filter({ visible: true });
+    await places.getByRole("button", { name: "Recent", exact: true }).click();
+    await expect(
+      dialog.getByText("Folders you move or copy items into show up here."),
+    ).toBeVisible();
+    await places.getByRole("button", { name: "Starred", exact: true }).click();
+    await expect(
+      dialog.getByText(
+        "No starred folders you can add to. Star a folder to find it here.",
+      ),
+    ).toBeVisible();
+    await expect(folderRow(dialog, `${top}/outside/Target`)).toHaveCount(0);
+  } finally {
+    await account.memberContext.close();
+  }
+});

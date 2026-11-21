@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowUp,
@@ -148,10 +148,19 @@ export function DestinationPicker({
 }) {
   const mobile = useIsMobile();
   const [first] = entries;
-  const [view, setView] = useState<View>({
+  // Files opens the account's top folder, as the sidebar does: the drive root, or the home of an
+  // account limited to it. The picker never leaves it: its breadcrumb is rooted there, and a
+  // folder outside it, such as one shared before a grant was revoked, is never opened.
+  const top = useQuery({ ...trpc.access.me.queryOptions() }).data?.top ?? "";
+  const withinTop = (path: string) =>
+    top === "" || path === top || path.startsWith(`${top}/`);
+  const inside = (path: string) => (withinTop(path) ? path : top);
+  const [view, setView] = useState<View>(() => ({
     kind: "folder",
-    path: resume ? resume.destination : first ? parentOf(first.path) : "",
-  });
+    path: inside(
+      resume ? resume.destination : first ? parentOf(first.path) : top,
+    ),
+  }));
   const [history, setHistory] = useState<View[]>([]);
   const [query, setQuery] = useState("");
   const searched = useDeferredValue(query.trim());
@@ -180,7 +189,11 @@ export function DestinationPicker({
 
   const go = (next: View) => {
     setHistory((past) => [...past, view]);
-    setView(next);
+    setView(
+      next.kind === "folder"
+        ? { kind: "folder", path: inside(next.path) }
+        : next,
+    );
     setQuery("");
     setCreating({ kind: "closed" });
     if (phase.kind === "clashes") setPhase({ kind: "choosing" });
@@ -192,14 +205,12 @@ export function DestinationPicker({
     setView(previous);
   };
   const browsed = view.kind === "folder" ? view.path : null;
-  // Files opens the account's top folder, as the sidebar does: the drive root, or the home of an
-  // account limited to it. The breadcrumb is rooted there by the same rules as the page's.
-  const top = useQuery({ ...trpc.access.me.queryOptions() }).data?.top ?? "";
   const nameOf = (path: string) =>
     BreadcrumbTrail.nameOf(path, top, DriveRoot.label);
   const rootOf = (path: string) =>
     BreadcrumbTrail.of(path, top, DriveRoot.label).root.path;
-  const atRoot = browsed === null || browsed === rootOf(browsed);
+  const atRoot =
+    browsed === null || browsed === rootOf(browsed) || browsed === top;
   const up = () => {
     if (browsed !== null && !atRoot)
       go({ kind: "folder", path: parentOf(browsed) });
@@ -221,6 +232,19 @@ export function DestinationPicker({
       trpcErrorCode(error) !== "FORBIDDEN" &&
       failures < 2,
     staleTime: 10_000,
+  });
+  // Recent folders inside the top folder, each checked like the folder the picker shows.
+  const recentPaths =
+    view.kind === "recent" && account
+      ? RecentDestinations.list(account).filter(withinTop)
+      : [];
+  const recentChecks = useQueries({
+    queries: recentPaths.map((path) => ({
+      queryKey: ["files.destination", path],
+      queryFn: () => trpcClient.files.destination.query({ path }),
+      retry: false,
+      staleTime: 10_000,
+    })),
   });
   const starred = useQuery({
     queryKey: ["catalog", "bookmarks"],
@@ -553,14 +577,16 @@ export function DestinationPicker({
       if (results.isError)
         return <Notice tone="error">{results.error.message}</Notice>;
       if (!results.data) return <Notice>Searching…</Notice>;
-      const rows = results.data.entries.map((entry) =>
-        rowFor({
-          path: entry.path,
-          name: entry.name,
-          permission: entry.permission,
-          detail: spelled(parentOf(entry.path), top),
-        }),
-      );
+      const rows = results.data.entries
+        .filter((entry) => withinTop(entry.path))
+        .map((entry) =>
+          rowFor({
+            path: entry.path,
+            name: entry.name,
+            permission: entry.permission,
+            detail: spelled(parentOf(entry.path), top),
+          }),
+        );
       return (
         <>
           {!results.data.complete && (
@@ -591,7 +617,8 @@ export function DestinationPicker({
           (entry) =>
             entry.starred &&
             entry.type === "dir" &&
-            entry.permission !== "read",
+            entry.permission !== "read" &&
+            withinTop(entry.path),
         )
         .map((entry) =>
           rowFor({
@@ -615,14 +642,25 @@ export function DestinationPicker({
       );
     }
     if (view.kind === "recent") {
-      const paths = account ? RecentDestinations.list(account) : [];
-      const rows = paths.map((path) => ({
-        path,
-        name: nameOf(path),
-        detail: path === top ? undefined : spelled(parentOf(path), top),
-        // Checked when opened: the folder may have moved or changed since.
-        eligibility: { kind: operation },
-      }));
+      // Offered only once the server says the folder still takes items from this account.
+      const rows = recentPaths.flatMap((path, index): FolderRow[] =>
+        recentChecks[index]?.data?.permission === "write" ||
+        recentChecks[index]?.data?.permission === "admin"
+          ? [
+              {
+                path,
+                name: nameOf(path),
+                detail: path === top ? undefined : spelled(parentOf(path), top),
+                eligibility: DropTarget.forItems(operation, pending, {
+                  path,
+                  writable: true,
+                }),
+              },
+            ]
+          : [],
+      );
+      if (!rows.length && recentChecks.some((check) => check.isPending))
+        return <Notice>Checking recent folders…</Notice>;
       return rows.length ? (
         <FolderList
           rows={rows}
