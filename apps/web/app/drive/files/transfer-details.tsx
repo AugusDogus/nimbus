@@ -58,21 +58,24 @@ function Details({
 /**
  * Show the whole of a report that a toast can only summarise, in a dialog of its own. It is
  * opened from a toast, outside any page, so it renders apart from the app and is removed again
- * once closed; focus returns to the toast.
+ * once closed, which the returned promise waits for; focus returns to the toast.
  */
 function open(title: string, sections: readonly DetailSection[]) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  root.render(
-    <Details
-      title={title}
-      sections={sections}
-      onClosed={() => {
-        root.unmount();
-        host.remove();
-      }}
-    />,
+  return new Promise<void>((resolve) =>
+    root.render(
+      <Details
+        title={title}
+        sections={sections}
+        onClosed={() => {
+          root.unmount();
+          host.remove();
+          resolve();
+        }}
+      />,
+    ),
   );
 }
 

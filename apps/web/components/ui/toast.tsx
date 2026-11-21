@@ -14,7 +14,10 @@ import { Button } from "@/components/ui/button";
 
 /** Buttons a toast offers besides closing, such as Undo. */
 type ToastData = {
-  actions?: readonly { label: string; run: () => void; keepsToast?: true }[];
+  actions?: readonly (
+    | { label: string; run: () => void; keepsToast?: never }
+    | { label: string; run: () => Promise<unknown>; keepsToast: true }
+  )[];
 };
 
 /** The app's toasts. Base UI drops toasts added before a `Toaster` mounts and subscribes. */
@@ -189,7 +192,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
 }
 
 function ToastList() {
-  const { toasts, close } = ToastPrimitive.useToastManager<ToastData>();
+  const { toasts, close, update } = ToastPrimitive.useToastManager<ToastData>();
 
   // Toasts that time out need no close button: they also swipe away, or close with Escape after
   // F6 moves focus to them. One that stays until dismissed (timeout 0) has one.
@@ -209,8 +212,17 @@ function ToastList() {
                   size="sm"
                   className="touch-hit"
                   onClick={() => {
-                    if (!action.keepsToast) close(toastItem.id);
-                    action.run();
+                    if (!action.keepsToast) {
+                      close(toastItem.id);
+                      action.run();
+                      return;
+                    }
+                    // Held while what the action opened is open, then given its full time again.
+                    const { timeout } = toastItem;
+                    update(toastItem.id, { timeout: 0 });
+                    void action
+                      .run()
+                      .finally(() => update(toastItem.id, { timeout }));
                   }}
                 >
                   {action.label}

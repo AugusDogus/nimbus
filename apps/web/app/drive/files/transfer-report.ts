@@ -310,8 +310,10 @@ function sections(
  * Toast what transfers did, one toast for all of `results`, which are one result per
  * destination, such as everything one picker did. Whatever arrived can be undone in one go,
  * also after a partial failure; items whose names were taken can be kept beside what is there.
- * Several destinations are summarised, with Details for each one's part; that toast stays
- * until closed, so its Undo stays within reach.
+ * Several destinations are summarised, with Details for each one's part. A report lasts as
+ * every toast with actions does (see `Toaster`): one with failures stays until closed, and
+ * the time of others is held while Details is open. Once a report is gone it cannot be opened
+ * again, though its receipts allow Undo for an hour.
  */
 function show(results: readonly TransferResult[], handlers: ReportHandlers) {
   const [first, ...others] = results;
@@ -379,10 +381,7 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
           sections(results, top),
         ),
     });
-  const options = {
-    ...(actions.length ? { actions } : {}),
-    ...(others.length ? { persistent: true as const } : {}),
-  };
+  const options = actions.length ? { actions } : undefined;
   if (summary.ok) toast.success(summary.message, options);
   else toast.error(summary.message, options);
 }

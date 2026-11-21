@@ -294,3 +294,48 @@ test("says it could not confirm an Undo whose answer was lost", async ({
   ).toBeVisible();
   await expect(page.getByText("Nothing was undone")).toHaveCount(0);
 });
+
+test("keeps a multi-destination report while Details is open, then lets it go", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Touch multi-selection is covered elsewhere.");
+  const drive = await tree({
+    "docs/a.txt": "a",
+    "docs/b.txt": "b",
+    "one/b.txt": "taken",
+    "two/.keep": "",
+  });
+  await (
+    await client(page.context())
+  ).prefs.set.mutate({
+    view: "list",
+    sortField: "name",
+    sortDirection: "asc",
+    groupByType: true,
+  });
+  await page.goto(href(`${drive.top}/docs`));
+  await select(page, ["a.txt", "b.txt"]);
+  await page
+    .getByRole("toolbar", { name: "Selected items" })
+    .getByRole("button", { name: "Move", exact: true })
+    .click();
+  const dialog = picker(page);
+  await moveToSibling(dialog, drive.top, "one");
+  await expect(dialog.getByRole("alertdialog")).toBeVisible();
+  await moveToSibling(dialog, drive.top, "two");
+  await expect(dialog).toBeHidden();
+  const report = toasts(page).filter({
+    hasText: "Moved 2 items to 2 folders.",
+  });
+  await report.getByRole("button", { name: "Details" }).click();
+  const details = page.getByRole("dialog", { name: "What was moved" });
+  await expect(details).toBeVisible();
+  // Longer than the report's own lifetime.
+  await page.waitForTimeout(11_000);
+  await expect(report).toHaveCount(1);
+  await details.getByRole("button", { name: "Close" }).first().click();
+  await expect(details).toBeHidden();
+  await page.mouse.move(5, 5);
+  await expect(report).toHaveCount(0, { timeout: 14_000 });
+});

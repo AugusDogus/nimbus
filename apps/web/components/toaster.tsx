@@ -9,20 +9,20 @@ import { connectToasts } from "@/lib/toast";
 function ConnectToasts() {
   useEffect(
     () =>
-      connectToasts(({ actions, persistent, ...request }) =>
+      connectToasts(({ actions, ...request }) =>
         toastManager.add({
           ...request,
           data: { actions },
           // An error may be the only place that says what failed: it stays until closed, and
           // screen readers announce it at once. A toast offering an action such as Undo stays
-          // long enough to reach it.
+          // long enough to reach it: ten seconds, paused while the toasts are hovered or
+          // focused or the window is in the background, and held while a dialog it opened,
+          // such as Details, is open (see `ToastAction`).
           ...(request.type === "error"
             ? { timeout: 0, priority: "high" }
-            : persistent
-              ? { timeout: 0 }
-              : actions
-                ? { timeout: 10_000 }
-                : {}),
+            : actions
+              ? { timeout: 10_000 }
+              : {}),
         }),
       ),
     [],
