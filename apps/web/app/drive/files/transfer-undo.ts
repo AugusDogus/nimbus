@@ -32,9 +32,17 @@ async function run(
   undo: (receipts: Receipt[]) => Promise<{ outcomes: readonly Outcome[] }> = (
     receipts,
   ) => trpcClient.files.undo.mutate({ receipts }),
-  /** Whether something on screen shows the Undo running (see `RunningTransfers`). */
-  watched: () => boolean = () => false,
+  {
+    watched = () => false,
+    hold = () => () => undefined,
+  }: {
+    /** Whether something on screen shows the Undo running (see `RunningTransfers`). */
+    watched?: () => boolean;
+    /** Holds the page while the Undo runs; returns what releases it (see `LeaveGuard`). */
+    hold?: () => () => void;
+  } = {},
 ): Promise<UndoItem[]> {
+  const release = hold();
   const finish = RunningTransfers.start({
     verb: "Undoing",
     items: result.transferred.map((item) => item.source),
@@ -45,6 +53,7 @@ async function run(
     return await undoAll(result, undo);
   } finally {
     finish();
+    release();
   }
 }
 

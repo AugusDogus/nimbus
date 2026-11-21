@@ -1,7 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { UserRoundCog } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { LeaveGuard } from "@/lib/leave-guard";
 
 /** The element index.html provides for the banner. */
 const hostId = "impersonation-banner";
@@ -31,6 +42,10 @@ export default function ImpersonationBanner({ email }: { email: string }) {
   }, [host]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Returning changes the session at once, so a transfer, Undo or upload still running as this
+  // person could not report or be undone afterwards: while one runs, the administrator is asked
+  // first, and the session changes only once they confirm.
+  const [asked, setAsked] = useState(false);
   const banner = useRef<HTMLElement>(null);
   // Bottom-anchored controls and scroll areas keep clear of the banner through this offset.
   useEffect(() => {
@@ -63,7 +78,8 @@ export default function ImpersonationBanner({ email }: { email: string }) {
         setBusy(false);
         return;
       }
-      window.location.assign(returnTo);
+      // Asked already, when anything was running.
+      LeaveGuard.leave(returnTo);
     } catch {
       setError(
         "The server could not be reached. You are still signed in as this person. Try again.",
@@ -87,7 +103,10 @@ export default function ImpersonationBanner({ email }: { email: string }) {
         size="sm"
         className="w-full bg-amber-950 text-amber-50 hover:bg-amber-950/90 sm:w-auto"
         disabled={busy}
-        onClick={() => void stop()}
+        onClick={() => {
+          if (LeaveGuard.busy()) setAsked(true);
+          else void stop();
+        }}
       >
         {busy ? "Returning…" : "Stop impersonating"}
       </Button>
@@ -96,6 +115,31 @@ export default function ImpersonationBanner({ email }: { email: string }) {
           {error}
         </p>
       )}
+      <AlertDialog open={asked} onOpenChange={setAsked}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-balance">
+              Stop impersonating while something is still running?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              A move, copy, Undo or upload is still running as this person.
+              Stopping now ends it without a report or Undo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep impersonating</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                setAsked(false);
+                void stop();
+              }}
+            >
+              Stop impersonating
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>,
     host.element,
   );

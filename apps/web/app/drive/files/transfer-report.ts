@@ -151,6 +151,8 @@ function describe(result: TransferResult, top = "") {
 export type ReportHandlers = {
   /** Refresh what the page shows after files changed. */
   refresh: () => void;
+  /** Hold the page while an Undo runs (see `LeaveGuard`). */
+  hold: () => () => void;
   open: (folder: string) => void;
   /**
    * Open the picker at `result`'s clashes, to rename or keep both; says whether it opened.
@@ -172,11 +174,16 @@ const topFolder = () =>
  */
 async function undo(
   result: TransferResult,
-  refresh: () => void,
-  /** Whether something on screen shows the Undo running, such as the picker's own panel. */
-  watched?: () => boolean,
+  {
+    refresh,
+    hold,
+    watched,
+  }: Pick<ReportHandlers, "refresh" | "hold"> & {
+    /** Whether something on screen shows the Undo running, such as the picker's own panel. */
+    watched?: () => boolean;
+  },
 ) {
-  const items = await TransferUndo.run(result, undefined, watched);
+  const items = await TransferUndo.run(result, undefined, { hold, watched });
   refresh();
   const summary = TransferUndo.describe(result, items, topFolder());
   const kept = items.flatMap((item) => (item.kind === "undone" ? [] : [item]));
@@ -342,7 +349,7 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
     };
     actions.push({
       label: "Undo",
-      run: () => void undo(everything, handlers.refresh),
+      run: () => void undo(everything, handlers),
     });
   }
   // One folder to look in: where items went, or may have gone.

@@ -251,6 +251,7 @@ export function useFileActions({
         ([, { TransferReport }]) =>
           TransferReport.show([result, ...also], {
             refresh: invalidateFileQueries,
+            hold: LeaveGuard.hold,
             open: (folder) => void navigate({ href: fileHref(folder) }),
             // Opens the picker at the clashes, when the page is shown with no dialog open.
             choose: clashes.current
@@ -397,6 +398,8 @@ export function useFileActions({
   );
 
   return {
+    /** Holds the page while work runs that leaving would lose (see `LeaveGuard`). */
+    holdPage: LeaveGuard.hold,
     createFolder,
     renameEntry,
     transferEntries,

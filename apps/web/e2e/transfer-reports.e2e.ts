@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { z } from "zod";
-import { action, asMember, client, test } from "./helpers";
+import { action, asMember, client, origin, password, test } from "./helpers";
 
 /**
  * Every transfer the server may have carried out ends in a report the person can reach,
@@ -565,4 +565,116 @@ test("holds every report while a dialog covers the page, then gives it its time"
   await page.keyboard.press("Escape");
   await expect(picker(page)).toBeHidden();
   await expect(undone).toBeVisible();
+});
+
+test("asks before signing out while an Undo runs", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  const account = await asMember(browser, context, page, isMobile, []);
+  try {
+    const member = account.member;
+    const drive = await tree(
+      { "docs/a.txt": "a", "archive/.keep": "" },
+      account.home,
+    );
+    await member.goto(href(`${drive.top}/docs`));
+    await action(member, "a.txt", "Move to…", isMobile);
+    await moveToSibling(picker(member), drive.top, "archive");
+    await expect(picker(member)).toBeHidden();
+    const undoing = await holdAnswers(member, "**/api/trpc/files.undo*");
+    await toasts(member)
+      .filter({ hasText: "Moved “a.txt” to archive." })
+      .getByRole("button", { name: "Undo" })
+      .click();
+    await undoing.requested;
+    await member.getByRole("button", { name: "Account menu" }).click();
+    await member
+      .getByRole("menuitem", { name: "Sign out", exact: true })
+      .click();
+    const ask = member.getByRole("alertdialog", {
+      name: "Sign out while something is still running?",
+    });
+    await ask.getByRole("button", { name: "Stay signed in" }).click();
+    undoing.release();
+    await expect(member.getByText("Moved “a.txt” back to docs.")).toBeVisible();
+  } finally {
+    await account.memberContext.close();
+  }
+});
+
+test("asks before stopping impersonation while a move runs", async ({
+  browser,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Covered on desktop; the banner is the same on phones.");
+  // Its own administrator session, so ending impersonation touches no other test.
+  const admin = await browser.newContext({
+    storageState: "test-results/.auth/admin.json",
+  });
+  try {
+    const adminPage = await admin.newPage();
+    await adminPage.setViewportSize({ width: 1440, height: 900 });
+    const created = await adminPage.request.post(
+      "/api/auth/admin/create-user",
+      {
+        headers: { Origin: origin },
+        data: {
+          name: "Held Member",
+          email: `held-${randomUUID().slice(0, 8)}@nimbus.test`,
+          password,
+          role: "user",
+        },
+      },
+    );
+    expect(created.ok()).toBe(true);
+    const body: unknown = await created.json();
+    const email = z
+      .object({ user: z.object({ email: z.string() }) })
+      .parse(body).user.email;
+    await adminPage.goto("/settings/admin");
+    await adminPage
+      .getByRole("button", { name: `Actions for ${email}`, exact: true })
+      .click();
+    await adminPage
+      .getByRole("menuitem", { name: "Sign in as user", exact: true })
+      .click();
+    await adminPage
+      .getByRole("alertdialog", { name: `Sign in as ${email}?` })
+      .getByRole("button", { name: "Sign in as user", exact: true })
+      .click();
+    const banner = adminPage.getByRole("region", { name: "Impersonation" });
+    await expect(banner).toBeVisible();
+    const { home } = await (await client(admin)).access.me.query();
+    if (home === null) throw new Error("The member has no home folder.");
+    const drive = await tree({ "docs/a.txt": "a", "archive/.keep": "" }, home);
+    await adminPage.goto(href(`${drive.top}/docs`));
+    await action(adminPage, "a.txt", "Move to…", false);
+    const late = await holdAnswers(adminPage, "**/api/trpc/files.move*");
+    await moveToSibling(picker(adminPage), drive.top, "archive");
+    await late.requested;
+    await adminPage.keyboard.press("Escape");
+    await banner
+      .getByRole("button", { name: "Stop impersonating", exact: true })
+      .click();
+    const ask = adminPage.getByRole("alertdialog", {
+      name: "Stop impersonating while something is still running?",
+    });
+    await ask.getByRole("button", { name: "Keep impersonating" }).click();
+    late.release();
+    // Still the member: their Undo works.
+    await toasts(adminPage)
+      .filter({ hasText: "Moved “a.txt” to archive." })
+      .getByRole("button", { name: "Undo" })
+      .click();
+    await expect.poll(() => drive.names("docs")).toEqual(["a.txt"]);
+    await banner
+      .getByRole("button", { name: "Stop impersonating", exact: true })
+      .click();
+    await expect(banner).toBeHidden();
+  } finally {
+    await admin.close();
+  }
 });

@@ -414,11 +414,14 @@ export function DestinationPicker({
           current.has(item.receipt.id),
         ),
       },
-      () => {
-        for (const key of ["files.list", "catalog", "trash"])
-          void queryClient.invalidateQueries({ queryKey: [key] });
+      {
+        refresh: () => {
+          for (const key of ["files.list", "catalog", "trash"])
+            void queryClient.invalidateQueries({ queryKey: [key] });
+        },
+        hold: actions.holdPage,
+        watched: () => mounted.current,
       },
-      () => mounted.current,
     );
     held.update((session) => TransferSession.undone(session, undo.undone));
     return undo;
