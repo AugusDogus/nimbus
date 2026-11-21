@@ -388,6 +388,10 @@ test("a drag says when part of the selection cannot be moved, and moves the rest
   // The folder holding the home folders never moves.
   await row(top).click({ modifiers: [mod] });
   await row("users").click({ modifiers: [mod] });
+  // A drag takes the selection as it is when it starts: only once both are selected.
+  await expect(
+    page.getByRole("toolbar", { name: "Selected items" }),
+  ).toContainText("2 selected");
   await row(top).hover();
   await page.mouse.down();
   await row("docs").hover();
