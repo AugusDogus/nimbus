@@ -288,6 +288,27 @@ describe("drive workflows", () => {
     );
     expect(await caller().trash.list()).toEqual([]);
   });
+  it("leaves the account's own home folder out of what is shared with it", async () => {
+    await mkdir(path.join(root, "users/reader/notes"), { recursive: true });
+    await memory.store.createHome(
+      { userId: "reader", path: "users/reader" },
+      {
+        id: "reader-home",
+        path: "users/reader",
+        subject: { type: "user", id: "reader" },
+        permission: "admin",
+      },
+    );
+    expect(await caller("reader").catalog.shared()).toEqual([]);
+    await caller().access.grant({
+      path: "docs",
+      subject: { type: "user", id: "reader" },
+      permission: "read",
+    });
+    expect(
+      (await caller("reader").catalog.shared()).map((entry) => entry.path),
+    ).toEqual(["docs"]);
+  });
   it("keeps links, direct grants, and stars on renamed items", async () => {
     const moved = await caller().shares.create({
       path: "docs/report.txt",

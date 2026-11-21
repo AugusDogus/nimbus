@@ -9,7 +9,7 @@ import { MAX_SEALED_CURSOR } from "./search-cursor";
 import { searchEntries } from "./search-service";
 import { safePath } from "./file-operations";
 import { Homes } from "./homes";
-import { isApiError } from "./safe-path";
+import { isApiError, isWithinPath } from "./safe-path";
 import { protectedProcedure, router } from "./index";
 
 /** Opens that count toward ranking: the most recent ones, and every starred one. */
@@ -32,10 +32,13 @@ function searchHistory(bookmarks: readonly Bookmark[]): HistoryEntry[] {
 }
 
 export const catalogRouter = router({
+  /** What others shared with the caller: every grant except the caller's own home folder. */
   shared: protectedProcedure.query(async ({ ctx }) => {
     const isFixed = await Homes.protection(ctx.drive);
+    const home = await ctx.drive.homeOf(ctx.access.user.id);
     const entries = [];
     for (const path of new Set(ctx.access.grants.map((grant) => grant.path))) {
+      if (home !== null && isWithinPath(home, path)) continue;
       try {
         entries.push({
           ...(await entryAt(path)),
