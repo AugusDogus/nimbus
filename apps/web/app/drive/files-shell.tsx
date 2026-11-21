@@ -3,7 +3,7 @@ import { Link, useRouteContext } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { LeaveGuard } from "@/lib/leave-guard";
 import { toast } from "@/lib/toast";
 import {
@@ -81,9 +81,12 @@ export function FilesShell({ children }: FilesShellProps) {
   const includeStats =
     prefs.sortField === "modified" || prefs.sortField === "size";
 
+  // The previous folder's answer stands until the next folder's arrives, as its listing does, so
+  // New does not turn off and back on with every move.
   const capabilities = useQuery({
     ...capabilitiesQueryOptions(currentPath),
     enabled: isAuthed,
+    placeholderData: keepPreviousData,
   });
   const canWrite = capabilities.data?.canWrite === true;
   // Only a folder page has a place to create in. Trash, Recent, Starred, Shared and search are

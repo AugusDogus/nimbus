@@ -38,7 +38,7 @@ test("opening a folder leaves the sidebar exactly as it was", async ({
   const storage = page.getByRole("region", { name: "Storage usage" });
   await expect(storage.getByText("Nimbus files")).toBeVisible();
   const before = await itemBoxes(page);
-  // Records, until the folder shows, whether the storage panel left the page.
+  // Records, until the folder shows, whether the storage panel left the page or New changed.
   await page.evaluate(() => {
     const changes: string[] = [];
     Object.assign(window, { sidebarChanges: changes });
@@ -54,6 +54,12 @@ test("opening a folder leaves the sidebar exactly as it was", async ({
           )
         )
           changes.push("storage removed");
+        if (
+          record.attributeName === "disabled" &&
+          record.target instanceof Element &&
+          record.target.getAttribute("aria-label") === "New"
+        )
+          changes.push("New disabled changed");
       }
     }).observe(sidebar, { subtree: true, childList: true, attributes: true });
   });
