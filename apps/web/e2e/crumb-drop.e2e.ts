@@ -20,6 +20,15 @@ async function dragOnto(
   await page.mouse.up();
 }
 
+/** Folders a test made at the drive root, put in trash once it ends, so runs do not pile up. */
+const leftAtRoot: string[] = [];
+test.afterEach(async ({ context }) => {
+  const rpc = await client(context);
+  for (const path of leftAtRoot.splice(0))
+    // Already moved or removed by the test itself: nothing left to clear.
+    await rpc.files.delete.mutate({ path }).catch(() => undefined);
+});
+
 test.describe("dropping on the breadcrumb", () => {
   test.skip(({ isMobile }) => isMobile, "Touch moves items with Move to….");
 
@@ -34,6 +43,7 @@ test.describe("dropping on the breadcrumb", () => {
         (entry) => entry.name,
       );
     await rpc.files.createFolder.mutate({ name: top });
+    leftAtRoot.push(top);
     let path = top;
     for (const level of ["one", "two", "three"]) {
       await rpc.files.createFolder.mutate({ path, name: level });
@@ -95,6 +105,7 @@ test.describe("dropping on the breadcrumb", () => {
     const top = `crumb-rights-${randomUUID()}`;
     const rpc = await client(context);
     await rpc.files.createFolder.mutate({ name: top });
+    leftAtRoot.push(top);
     await rpc.files.createFolder.mutate({ path: top, name: "mine" });
     await rpc.files.createFolder.mutate({ path: `${top}/mine`, name: "inner" });
     await rpc.files.createFolder.mutate({
@@ -174,6 +185,7 @@ test.describe("moving up one level without dragging", () => {
         (entry) => entry.name,
       );
     await rpc.files.createFolder.mutate({ name: top });
+    leftAtRoot.push(top);
     await rpc.files.createFolder.mutate({ path: top, name: "inner" });
     for (const name of ["By keyboard", "Selected one", "Selected two"])
       await rpc.files.createFolder.mutate({ path: `${top}/inner`, name });
@@ -218,6 +230,7 @@ test.describe("moving up one level without dragging", () => {
     const top = `no-up-${randomUUID()}`;
     const rpc = await client(context);
     await rpc.files.createFolder.mutate({ name: top });
+    leftAtRoot.push(top);
     await rpc.files.createFolder.mutate({ path: top, name: "mine" });
     await rpc.files.createFolder.mutate({ path: `${top}/mine`, name: "inner" });
     await rpc.files.createFolder.mutate({
@@ -270,6 +283,7 @@ test("shows the same items from the moment a menu opens, while the folder above 
   const top = `steady-${randomUUID()}`;
   const rpc = await client(context);
   await rpc.files.createFolder.mutate({ name: top });
+  leftAtRoot.push(top);
   await rpc.files.createFolder.mutate({ path: top, name: "mine" });
   await rpc.files.createFolder.mutate({ path: `${top}/mine`, name: "inner" });
   await rpc.files.createFolder.mutate({
@@ -337,6 +351,7 @@ for (const [width, view] of [
       groupByType: true,
     });
     await rpc.files.createFolder.mutate({ name: top });
+    leftAtRoot.push(top);
     await rpc.files.createFolder.mutate({ path: top, name: "inner" });
     for (const name of ["First", "Second", "Third"])
       await rpc.files.createFolder.mutate({ path: `${top}/inner`, name });
@@ -399,6 +414,7 @@ test("files dragged in from the computer open … and upload into a hidden folde
   const top = `spring-files-${randomUUID()}`;
   const rpc = await client(context);
   await rpc.files.createFolder.mutate({ name: top });
+  leftAtRoot.push(top);
   let path = top;
   for (const level of ["one", "two", "three"]) {
     await rpc.files.createFolder.mutate({ path, name: level });
@@ -445,6 +461,7 @@ test("a drag starts only from the item that was pressed, even when the list move
     groupByType: true,
   });
   await rpc.files.createFolder.mutate({ name: top });
+  leftAtRoot.push(top);
   for (const name of ["b-other", "c-one", "c-two", "z-target"])
     await rpc.files.createFolder.mutate({ path: top, name });
   const names = async (folder: string) =>
@@ -502,17 +519,32 @@ test("a drag says when part of the selection cannot be moved, and moves the rest
   const into = `${top}-into`;
   const rpc = await client(context);
   await rpc.files.createFolder.mutate({ name: top });
+  leftAtRoot.push(top);
   await rpc.files.createFolder.mutate({ name: into });
+  leftAtRoot.push(into);
   await page.goto("/");
   const row = (name: string) =>
     page.getByRole("link", { name, exact: true }).first();
+  /**
+   * The row of `name`, scrolled to as a person would: a long listing renders only the rows near
+   * what is on screen, so a row further down is not in the page until the list gets there.
+   */
+  const find = async (name: string) => {
+    const listing = page.getByRole("grid").first();
+    await listing.hover();
+    for (let step = 0; step < 60 && (await row(name).count()) === 0; step++)
+      await page.mouse.wheel(0, 400);
+    await row(name).scrollIntoViewIfNeeded();
+    return row(name);
+  };
   const mod = process.platform === "darwin" ? "Meta" : "Control";
   // The folder holding the home folders never moves.
-  await row(top).click({ modifiers: [mod] });
-  await row("users").click({ modifiers: [mod] });
+  await (await find(top)).click({ modifiers: [mod] });
+  await (await find("users")).click({ modifiers: [mod] });
   // As a person drags: onto a folder already on screen, so nothing scrolls while the button is
   // held. A list that moves under the pointer starts no drag (see the test above).
-  await row(into).scrollIntoViewIfNeeded();
+  await page.mouse.wheel(0, -100_000);
+  await (await find(into)).scrollIntoViewIfNeeded();
   await row(top).hover();
   await expect(row(top)).toBeInViewport({ ratio: 1 });
   await expect(row(into)).toBeInViewport({ ratio: 1 });
