@@ -21,6 +21,7 @@ import {
   type ConsentView,
 } from "@/server/mcp/oauth/authorization";
 import { mcpRuntime } from "@/server/mcp/runtime";
+import { SameSiteRedirect } from "@/server/same-site-redirect";
 import { SecurityHeaders, type SecurityMode } from "@/server/security-headers";
 
 type ReadyView = Extract<ConsentView, { kind: "ready" | "invalid" }>;
@@ -162,7 +163,7 @@ export async function GET(
     new URL(request.url).searchParams,
     request.headers,
   );
-  if (view.kind === "sign_in") return Response.redirect(view.url, 307);
+  if (view.kind === "sign_in") return SameSiteRedirect.response(view.url);
   const session =
     view.kind === "ready"
       ? await auth.api.getSession({ headers: request.headers })

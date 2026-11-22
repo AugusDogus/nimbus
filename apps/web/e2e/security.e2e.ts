@@ -280,7 +280,7 @@ test("a signed-out session's cookie sends every signed-in page to sign-in", asyn
           ? "/login"
           : `/login?${new URLSearchParams({ callbackURL: path })}`;
       expect(answer.status(), path).toBe(307);
-      expect(answer.headers().location, path).toBe(`${origin}${signIn}`);
+      expect(answer.headers().location, path).toBe(signIn);
       await member.page.goto(path);
       await expect(member.page).toHaveURL(signIn);
       await expect(
@@ -368,10 +368,10 @@ test("someone already signed in is sent on from sign-in to a destination on the 
     });
   const inside = await answer("/settings/account");
   expect(inside.status()).toBe(307);
-  expect(inside.headers().location).toBe(`${origin}/settings/account`);
+  expect(inside.headers().location).toBe("/settings/account");
   const outside = await answer("https://elsewhere.example/");
   expect(outside.status()).toBe(307);
-  expect(outside.headers().location).toBe(`${origin}/start`);
+  expect(outside.headers().location).toBe("/start");
 });
 
 test("passkeys sign in without a password", async ({

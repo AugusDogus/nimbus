@@ -61,3 +61,28 @@ test("PORT=0 without BETTER_AUTH_URL stops startup with a message naming both", 
     refused("PORT is 0, so Nimbus would listen on a port it cannot know"),
   );
 });
+
+test("a signed-out page request to the server's internal http address is redirected with a relative Location", async () => {
+  // As behind a proxy that terminates TLS: the request reaches Nimbus as plain http on its own
+  // host and port, which must not leak into the address the browser is sent to.
+  await ServerChild.run(
+    {
+      cwd: workspace,
+      env: {
+        ...valid(),
+        BETTER_AUTH_URL: "https://files.example.test",
+        // Development pages come from Vite, which a redirect never asks for.
+        NODE_ENV: "development",
+        NIMBUS_VITE_ORIGIN: "http://127.0.0.1:9",
+      },
+    },
+    async (server) => {
+      const response = await fetch(`${server.url}/start`, {
+        headers: { "Sec-Fetch-Dest": "document" },
+        redirect: "manual",
+      });
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("/login");
+    },
+  );
+});

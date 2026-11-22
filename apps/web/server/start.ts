@@ -25,6 +25,7 @@ import { AuthPages } from "./auth-pages";
 import { PageBootstrap } from "./page-bootstrap";
 import { PageSkeleton } from "./page-skeleton";
 import { PublicPages } from "./public-pages";
+import { SameSiteRedirect } from "./same-site-redirect";
 import { backups, backupsToKeep } from "./backup";
 import { readMcpConfig } from "./mcp/config";
 import { getConfigRoot, requireDataRoot } from "./storage-paths";
@@ -185,7 +186,7 @@ async function route(request: Request): Promise<Response> {
   }
   const authPage = await AuthPages.render(request, url, shell, securityMode);
   if (authPage?.kind === "redirect")
-    return Response.redirect(new URL(authPage.location, request.url), 307);
+    return SameSiteRedirect.response(authPage.location);
   if (authPage)
     return AppShell.htmlResponse(request, authPage.html, authPage.headers);
   const publicPage = await PublicPages.render(
@@ -199,7 +200,7 @@ async function route(request: Request): Promise<Response> {
   const kind = shell.route(pathname)?.kind ?? null;
   const bootstrap = await PageBootstrap.load(request, kind);
   if (bootstrap.kind === "redirect")
-    return Response.redirect(new URL(bootstrap.location, request.url), 307);
+    return SameSiteRedirect.response(bootstrap.location);
   const nonce = SecurityHeaders.nonce();
   return AppShell.htmlResponse(
     request,

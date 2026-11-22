@@ -201,24 +201,22 @@ test("the server answers the start and home addresses with redirects, signed in 
     });
   const signedIn = await load(page.request, "/start");
   expect(signedIn.status()).toBe(307);
-  expect(new URL(signedIn.headers().location ?? "").pathname).toBe("/");
+  expect(signedIn.headers().location).toBe("/");
   const home = await load(page.request, "/home");
   expect(home.status()).toBe(307);
-  expect(new URL(home.headers().location ?? "").pathname).toBe(
-    "/browse/users/admin",
-  );
+  expect(home.headers().location).toBe("/browse/users/admin");
   const visitor = await browser.newContext({
     storageState: { cookies: [], origins: [] },
   });
   try {
     const start = await load(visitor.request, "/start");
     expect(start.status()).toBe(307);
-    expect(new URL(start.headers().location ?? "").pathname).toBe("/login");
+    expect(start.headers().location).toBe("/login");
     const homeOut = await load(visitor.request, "/home");
     expect(homeOut.status()).toBe(307);
-    const signIn = new URL(homeOut.headers().location ?? "");
-    expect(signIn.pathname).toBe("/login");
-    expect(signIn.searchParams.get("callbackURL")).toBe("/home");
+    expect(homeOut.headers().location).toBe(
+      `/login?${new URLSearchParams({ callbackURL: "/home" })}`,
+    );
   } finally {
     await visitor.close();
   }
