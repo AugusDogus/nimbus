@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { openDatabase } from "./db/connection";
 import { migrateDatabase } from "./db/migrate-database";
+import { ServerChild } from "./server-child-testing";
 
 /**
  * A large burst of new files in one folder while the server watches the drive, as rsync or
@@ -115,11 +116,18 @@ test(
         child.exitCode === null
       )
         await Bun.sleep(200);
+      // The server's stderr is in the test output; this names how it ended, if it did.
       expect({
+        server: ServerChild.exitOf(child),
         delivered: delivered >= files * subscribers,
         boundedMemory: peakRss < maxRssBytes,
         boundedStall: stallMax < 250,
-      }).toEqual({ delivered: true, boundedMemory: true, boundedStall: true });
+      }).toEqual({
+        server: "was still running",
+        delivered: true,
+        boundedMemory: true,
+        boundedStall: true,
+      });
     } finally {
       void child.stdin.end();
       child.kill();

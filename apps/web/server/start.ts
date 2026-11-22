@@ -31,8 +31,16 @@ import { getConfigRoot, requireDataRoot } from "./storage-paths";
 import { ensureFileWatcher } from "./file-watcher";
 
 const port = Number(process.env.PORT ?? "3000");
-if (!Number.isInteger(port) || port < 1 || port > 65535) {
-  throw new Error("PORT must be a number between 1 and 65535.");
+if (!Number.isInteger(port) || port < 0 || port > 65535) {
+  throw new Error(
+    "PORT must be a number between 0 and 65535, where 0 listens on any free port.",
+  );
+}
+// Without BETTER_AUTH_URL the public address is localhost on PORT, unknown before listening.
+if (port === 0 && !process.env.BETTER_AUTH_URL) {
+  throw new Error(
+    "PORT is 0, so Nimbus would listen on a port it cannot know in advance. Set BETTER_AUTH_URL to the address Nimbus is reached at. Nimbus did not start.",
+  );
 }
 if (
   !process.env.BETTER_AUTH_SECRET ||
