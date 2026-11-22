@@ -168,8 +168,15 @@ async function route(request: Request): Promise<Response> {
           404,
           `Nothing is served at ${pathname}. Check the address.`,
         );
-    return pathname.startsWith("/oauth/")
-      ? withHeaders(response, unframeable, { replace: false })
+    if (pathname.startsWith("/oauth/"))
+      return withHeaders(response, unframeable, { replace: false });
+    // The app compares it with its own, to say when Nimbus was updated while it was open.
+    return shell.build && pathname.startsWith("/api/trpc/")
+      ? withHeaders(
+          response,
+          { "Nimbus-Build": shell.build },
+          { replace: true },
+        )
       : response;
   }
   if (request.method !== "GET" && request.method !== "HEAD")

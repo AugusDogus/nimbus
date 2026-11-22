@@ -142,6 +142,14 @@ export const CodeLoad = {
     show("unavailable");
   },
 
+  /** Compares the build the server runs, as its responses name it, with this page's. */
+  checkBuild(build: string | null) {
+    const entry = document.querySelector<HTMLScriptElement>(
+      'script[type="module"][src]',
+    )?.src;
+    if (build && entry && new URL(entry).pathname !== build) announceUpdate();
+  },
+
   notice: (): CodeLoadNotice => notice,
   watch(watcher: () => void) {
     watchers.add(watcher);

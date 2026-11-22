@@ -272,6 +272,35 @@ test("says when the picker's code keeps failing to arrive, without claiming an u
   expect(await marked(page)).toBe("this load");
 });
 
+test("says Nimbus was updated as soon as the server answers from a newer build", async ({
+  page,
+}) => {
+  const name = await folder({ "sub/": "" });
+  await page.goto(href(name));
+  await mark(page);
+  await expect(updated(page)).toHaveCount(0);
+  await page.route("**/api/trpc/**", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      headers: {
+        ...response.headers(),
+        "nimbus-build": "/assets/index-newer.js",
+      },
+    });
+  });
+  // Opening a folder asks the server for its listing.
+  await page
+    .locator('[data-entry-name="sub"]')
+    .filter({ visible: true })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`${href(name)}/sub$`));
+  await expect(updated(page)).toBeVisible();
+  expect(await marked(page)).toBe("this load");
+  // Live update streams stay open through the handler until the page closes.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
 test("signs out of a page whose code is gone", async ({
   browser,
   context,

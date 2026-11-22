@@ -52,6 +52,11 @@ export type AppShell = {
   stylesheets(nonce: string): Promise<string>;
   /** A client file such as a script or icon, or null when there is none at that path. */
   file(request: Request, pathname: string): Promise<Response | null>;
+  /**
+   * The build being served, named by the address of the app's entry script, which every
+   * deployment that changes the app replaces. Null in development.
+   */
+  build: string | null;
 };
 
 const dist = fileURLToPath(new URL("../dist/", import.meta.url));
@@ -131,7 +136,10 @@ async function production(): Promise<AppShell> {
     ".vite/manifest.json",
   ]);
   const styles = stylesheetTags(template);
+  const build =
+    /<script type="module"[^>]*\ssrc="([^"]+)"/.exec(template)?.[1] ?? null;
   return {
+    build,
     route: (pathname) => preloads.match(pathname),
     html: async (nonce, pathname, page) =>
       compose(
@@ -178,6 +186,7 @@ async function development(vite: string): Promise<AppShell> {
       )
       .join("");
   return {
+    build: null,
     route: (pathname) => routes.match(pathname),
     html: async (nonce, _pathname, content) =>
       compose(

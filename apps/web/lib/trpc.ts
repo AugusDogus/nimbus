@@ -8,6 +8,7 @@ import {
 } from "@trpc/client";
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 
+import { CodeLoad } from "./code-load";
 import { createQueryClient } from "./query-client";
 
 export const queryClient = createQueryClient();
@@ -26,6 +27,13 @@ const trpcClient = createTRPCClient<WebRouter>({
       }),
       false: httpBatchLink({
         url: "/api/trpc",
+        // Each answer names the build the server runs; a newer one than this page's means
+        // Nimbus was updated while the page was open.
+        fetch: async (url, init) => {
+          const response = await fetch(url, init);
+          CodeLoad.checkBuild(response.headers.get("Nimbus-Build"));
+          return response;
+        },
       }),
     }),
   ],
