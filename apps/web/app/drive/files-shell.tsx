@@ -119,11 +119,19 @@ export function FilesShell({ children }: FilesShellProps) {
   // ends only once they confirm.
   const [signOutAsked, setSignOutAsked] = useState(false);
   const signOut = async () => {
-    // The auth client loads only for this, not with every page.
-    const { signOut: endSession } = await import("@/lib/auth-client");
-    const result = await endSession();
-    if (result.error) {
-      toast.error(result.error.message ?? "Could not sign out. Try again.");
+    // The server's own endpoint, so signing out needs no code loaded on demand, which a page
+    // opened before Nimbus was updated could no longer load.
+    const ended = await fetch("/api/auth/sign-out", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    }).catch(() => null);
+    if (!ended?.ok) {
+      toast.error(
+        ended
+          ? `Nimbus could not sign you out (the server answered ${ended.status}). You are still signed in. Try again.`
+          : "Nimbus could not be reached, so you are still signed in. Check your connection, then try again.",
+      );
       return;
     }
     queryClient.clear();

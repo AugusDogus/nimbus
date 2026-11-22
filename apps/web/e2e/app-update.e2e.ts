@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { z } from "zod";
-import { action, client, port, test } from "./helpers";
+import { action, asMember, client, port, test } from "./helpers";
 
 // A deployment replaces the hashed files of the previous build. A page opened before it still
 // asks for the old names, which the server no longer has. These tests take files of the running
@@ -38,6 +38,19 @@ const picker = "app/drive/files/destination-picker/destination-picker.tsx";
 async function remove(page: Page, files: readonly string[]) {
   await page.route(
     (url) => files.includes(url.pathname),
+    (route) =>
+      route.fulfill({
+        status: 404,
+        headers: { "Cache-Control": "no-store" },
+        body: "Not found",
+      }),
+  );
+}
+
+/** Answers requests for every built file as the server does after a deployment. */
+async function deploy(page: Page) {
+  await page.route(
+    (url) => url.pathname.startsWith("/assets/"),
     (route) =>
       route.fulfill({
         status: 404,
@@ -257,4 +270,99 @@ test("says when the picker's code keeps failing to arrive, without claiming an u
   await expect(page.locator("[data-picker]")).toBeVisible();
   await expect(unavailable(page)).toHaveCount(0);
   expect(await marked(page)).toBe("this load");
+});
+
+test("signs out of a page whose code is gone", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  const account = await asMember(browser, context, page, isMobile, []);
+  try {
+    const member = account.member;
+    const name = await folder({ "a.txt": "a" }, account.home);
+    await member.goto(href(name));
+    await deploy(member);
+    await member.getByRole("button", { name: "Account menu" }).click();
+    await member
+      .getByRole("menuitem", { name: "Sign out", exact: true })
+      .click();
+    await expect(member).toHaveURL(/\/login/);
+    await member.unrouteAll();
+    await member.goto(href(name));
+    await expect(member).toHaveURL(/\/login/);
+  } finally {
+    await account.memberContext.close();
+  }
+});
+
+test("asks before signing out of a page whose code is gone while a move runs, and stays signed in when the server refuses", async ({
+  browser,
+  context,
+  page,
+  isMobile,
+}) => {
+  const account = await asMember(browser, context, page, isMobile, []);
+  try {
+    const member = account.member;
+    const name = await folder({ "a.txt": "a", "b.txt": "b" }, account.home);
+    await member.goto(href(name));
+    // Loads what reports a move before the deployment takes the files away.
+    await openPicker(member, isMobile);
+    await expect(member.locator("[data-picker]")).toBeVisible();
+    await member.keyboard.press("Escape");
+    await deploy(member);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await member.route("**/api/trpc/files.move*", async (route) => {
+      const response = await route.fetch();
+      await held;
+      // The page signed out, and left, before the answer arrived.
+      await route.fulfill({ response }).catch(() => undefined);
+    });
+    const moving = member.waitForRequest("**/api/trpc/files.move*");
+    await action(member, "a.txt", "Move up one level", isMobile);
+    await moving;
+
+    const signOut = async () => {
+      await member.getByRole("button", { name: "Account menu" }).click();
+      await member
+        .getByRole("menuitem", { name: "Sign out", exact: true })
+        .click();
+    };
+    const ask = member.getByRole("alertdialog", {
+      name: "Sign out while something is still running?",
+    });
+    await signOut();
+    await expect(ask).toBeVisible();
+    await ask.getByRole("button", { name: "Stay signed in" }).click();
+    await expect(ask).toBeHidden();
+
+    // A refusal leaves the session and the page as they are, and says so.
+    await member.route("**/api/auth/sign-out", (route) =>
+      route.fulfill({ status: 500, body: "{}" }),
+    );
+    await signOut();
+    await ask.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(
+      member
+        .locator('[data-slot="toast"]')
+        .filter({ hasText: "You are still signed in." }),
+    ).toBeVisible();
+    expect(new URL(member.url()).pathname).toBe(href(name));
+    await member.unroute("**/api/auth/sign-out");
+
+    await signOut();
+    await ask.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(member).toHaveURL(/\/login/);
+    release();
+    await member.unrouteAll();
+    await member.goto(href(name));
+    await expect(member).toHaveURL(/\/login/);
+  } finally {
+    await account.memberContext.close();
+  }
 });
