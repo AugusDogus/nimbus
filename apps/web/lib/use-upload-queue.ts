@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { TRPCClientError } from "@trpc/client";
+import { CodeLoad } from "@/lib/code-load";
 import { toast } from "@/lib/toast";
 import { coalesce } from "@/lib/coalesce";
 import { useLeaveWarning } from "@/lib/use-file-drop-guard";
@@ -49,7 +50,7 @@ function failureMessage(
 const tusTransport: UploadTransport = (request, events) => {
   let aborted = false;
   let abortUpload: () => Promise<void> = async () => {};
-  void import("tus-js-client")
+  void CodeLoad.load(() => import("tus-js-client"))
     .then(({ Upload, DetailedError }) => {
       if (aborted) return;
       const detailed = (error: Error) =>
@@ -249,7 +250,7 @@ export function useUploadQueue() {
       try {
         // Planning code loads with the first upload, keeping it out of every page's initial bundle.
         const [{ UploadPlan }, existing] = await Promise.all([
-          import("./upload-plan"),
+          CodeLoad.load(() => import("./upload-plan")),
           existingNames(target.path),
         ]);
         const clashes = UploadPlan.clashes(upload, existing);

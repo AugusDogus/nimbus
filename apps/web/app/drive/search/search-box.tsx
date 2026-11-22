@@ -1,11 +1,12 @@
 import { Search } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
-import { lazy, Suspense, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { lazyComponent } from "@/components/lazy-component";
 import { Input } from "@/components/ui/input";
 
 // The header ships a plain search form. Suggestions load on first focus and
 // attach to this same input, so nothing remounts and focus is never lost.
-const Suggestions = lazy(() => import("./search-suggestions"));
+const Suggestions = lazyComponent(() => import("./search-suggestions"));
 
 export function SearchBox() {
   const navigate = useNavigate();
@@ -42,13 +43,11 @@ export function SearchBox() {
         className="h-9 rounded-lg border-transparent bg-muted/70 pl-10 shadow-none focus-visible:border-ring pointer-coarse:h-11 md:h-10 md:pointer-coarse:h-11 dark:bg-sidebar/70"
       />
       {focused && (
-        <Suspense fallback={null}>
-          <Suggestions
-            id={listbox}
-            input={input}
-            navigate={(href) => void navigate({ href })}
-          />
-        </Suspense>
+        <Suggestions
+          id={listbox}
+          input={input}
+          navigate={(href) => void navigate({ href })}
+        />
       )}
     </form>
   );

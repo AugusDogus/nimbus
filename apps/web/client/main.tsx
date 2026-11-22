@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { CodeLoadNotice } from "@/components/code-load-notice";
 import { lazyComponent } from "@/components/lazy-component";
 import { ThemeProvider } from "@/components/theme-provider";
 import { sessionQuery } from "@/lib/session-query";
@@ -50,6 +51,7 @@ void router.load().then(() =>
           <RouterProvider router={router} />
         </ThemeProvider>
         <AfterStart />
+        <CodeLoadNotice />
       </QueryClientProvider>
     </StrictMode>,
   ),

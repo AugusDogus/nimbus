@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { authClient, signIn } from "@/lib/auth-client";
+import { CodeLoad } from "@/lib/code-load";
 import { CallbackUrl } from "@/lib/callback-url";
 import { RetryAfter } from "@/lib/retry-after";
 import { useHydrated } from "@/lib/use-hydrated";
@@ -145,7 +146,9 @@ export function LoginForm({
       const available =
         await window.PublicKeyCredential?.isConditionalMediationAvailable?.();
       if (!available || !active) return false;
-      const { passkeyAuthClient } = await import("@/lib/passkey-client");
+      const { passkeyAuthClient } = await CodeLoad.load(
+        () => import("@/lib/passkey-client"),
+      );
       if (!active) return false;
       const result = await passkeyAuthClient.signIn
         .passkey({ autoFill: true })
@@ -216,7 +219,9 @@ export function LoginForm({
     if (step.kind !== "second-factor") return;
     const method = step.method;
     void run(async () => {
-      const { securityClient } = await import("@/lib/security-client");
+      const { securityClient } = await CodeLoad.load(
+        () => import("@/lib/security-client"),
+      );
       const result =
         method === "totp"
           ? await securityClient.twoFactor.verifyTotp({
@@ -244,8 +249,9 @@ export function LoginForm({
 
   const signInWithPasskey = () =>
     run(async () => {
-      const { passkeyAuthClient, WebAuthnAbortService } =
-        await import("@/lib/passkey-client");
+      const { passkeyAuthClient, WebAuthnAbortService } = await CodeLoad.load(
+        () => import("@/lib/passkey-client"),
+      );
       const signedIn = await endAutofill(
         autofill.current,
         WebAuthnAbortService,

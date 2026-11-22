@@ -1,3 +1,5 @@
+import { CodeLoad } from "@/lib/code-load";
+
 /**
  * The code that carries out a move or copy and the code that reports it, which load on demand.
  * Both are loaded before a transfer sends anything, so a transfer that starts can always be
@@ -5,7 +7,9 @@
  * selected, so the transfer itself waits less.
  */
 const load = () =>
-  Promise.all([import("./transfer-result"), import("./transfer-report")]);
+  CodeLoad.load(() =>
+    Promise.all([import("./transfer-result"), import("./transfer-report")]),
+  );
 
 export const TransferCode = {
   load,

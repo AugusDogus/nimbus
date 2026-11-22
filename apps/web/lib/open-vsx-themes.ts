@@ -1,4 +1,5 @@
 import * as z from "zod/mini";
+import { CodeLoad } from "./code-load";
 import type { ThemeResult, VsCodeTheme } from "./vscode-theme";
 
 const extensionSchema = z.object({
@@ -115,8 +116,9 @@ async function install(
         "This extension has an invalid download address. Search again and retry.",
     };
   try {
-    const { ThemeExtension, maxExtensionBytes } =
-      await import("./theme-extension");
+    const { ThemeExtension, maxExtensionBytes } = await CodeLoad.load(
+      () => import("./theme-extension"),
+    );
     const response = await request(
       validated.data.files.download,
       maxExtensionBytes,

@@ -1,23 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  lazy,
-  Suspense,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { lazyComponent } from "@/components/lazy-component";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileKind } from "@/lib/file-kind";
 import type { EditBase } from "./text-editor";
 import { TEXT_LIMIT, TextContent } from "./text-content";
-
-const MarkdownView = lazy(() => import("./markdown-view"));
-const CodeView = lazy(() => import("./code-view"));
-const TableView = lazy(() => import("./table-view"));
-const TextEditor = lazy(() => import("./text-editor"));
-const PdfPagesView = lazy(() => import("./pdf-pages-view"));
 
 export type FilePreviewProps = {
   name: string;
@@ -43,6 +31,19 @@ const loading = (
     aria-label="Loading preview"
     className="h-[min(65dvh,32rem)] w-full"
   />
+);
+
+const pdfLoading = (
+  <Skeleton aria-label="Loading preview" className="h-[65dvh] w-full" />
+);
+
+const MarkdownView = lazyComponent(() => import("./markdown-view"), loading);
+const CodeView = lazyComponent(() => import("./code-view"), loading);
+const TableView = lazyComponent(() => import("./table-view"), loading);
+const TextEditor = lazyComponent(() => import("./text-editor"), loading);
+const PdfPagesView = lazyComponent(
+  () => import("./pdf-pages-view"),
+  pdfLoading,
 );
 
 export default function FilePreview({
@@ -120,10 +121,6 @@ export default function FilePreview({
   }
 }
 
-const pdfLoading = (
-  <Skeleton aria-label="Loading preview" className="h-[65dvh] w-full" />
-);
-
 const subscribe = () => () => {};
 
 /**
@@ -149,9 +146,7 @@ function PdfPreview({ name, url }: { name: string; url: string }) {
           className="h-[65dvh] w-full rounded-md border bg-muted"
         />
       ) : viewer === "pages" ? (
-        <Suspense fallback={pdfLoading}>
-          <PdfPagesView name={name} url={url} />
-        </Suspense>
+        <PdfPagesView name={name} url={url} />
       ) : (
         pdfLoading
       )}
@@ -208,29 +203,27 @@ function TextPreview({
   // the editor and lose the draft.
   if (mode.type === "edit" && editPath !== undefined)
     return (
-      <Suspense fallback={loading}>
-        <TextEditor
-          path={editPath}
-          base={mode.base}
-          language={kind.type === "code" ? kind.language : undefined}
-          onDirtyChange={onDirtyChange}
-          onSaved={({ text, etag, size }) =>
-            queryClient.setQueryData<TextContent>(queryKey, {
-              type: "text",
-              text,
-              size,
-              truncated: false,
-              encoding: "utf-8",
-              etag,
-            })
-          }
-          onClose={leaveEditor}
-          onDiscard={() => {
-            void queryClient.invalidateQueries({ queryKey, exact: true });
-            leaveEditor();
-          }}
-        />
-      </Suspense>
+      <TextEditor
+        path={editPath}
+        base={mode.base}
+        language={kind.type === "code" ? kind.language : undefined}
+        onDirtyChange={onDirtyChange}
+        onSaved={({ text, etag, size }) =>
+          queryClient.setQueryData<TextContent>(queryKey, {
+            type: "text",
+            text,
+            size,
+            truncated: false,
+            encoding: "utf-8",
+            etag,
+          })
+        }
+        onClose={leaveEditor}
+        onDiscard={() => {
+          void queryClient.invalidateQueries({ queryKey, exact: true });
+          leaveEditor();
+        }}
+      />
     );
   if (content.isPending) return loading;
   if (content.isError)
@@ -270,7 +263,7 @@ function TextPreview({
   return (
     <div className="space-y-2">
       <div className={frame} data-preview-scroll>
-        <Suspense fallback={loading}>{view}</Suspense>
+        {view}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
         {data.truncated && (

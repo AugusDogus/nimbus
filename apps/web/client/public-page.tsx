@@ -1,6 +1,7 @@
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { StrictMode, type ReactNode } from "react";
 import { hydrateRoot } from "react-dom/client";
+import { CodeLoadNotice } from "@/components/code-load-notice";
 import { ThemeProvider } from "@/components/theme-provider";
 import { readInlineJson } from "@/lib/inline-json";
 
@@ -21,6 +22,7 @@ export function PublicRoot({
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>{children}</ThemeProvider>
+      <CodeLoadNotice />
     </QueryClientProvider>
   );
 }

@@ -1,14 +1,75 @@
-import { createElement, lazy, Suspense, type ComponentType } from "react";
+import {
+  createElement,
+  Suspense,
+  use,
+  useEffect,
+  useReducer,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
+import { CodeLoad } from "@/lib/code-load";
+
+type Loading<P> =
+  | { kind: "idle" }
+  | { kind: "loading"; done: Promise<void> }
+  | { kind: "loaded"; Component: ComponentType<P> }
+  | { kind: "failed" };
 
 /**
- * A component whose code loads on first render, showing nothing until it arrives. For dialogs
- * and other UI that most visits never open.
+ * A component whose code loads on first render, showing `fallback` until it arrives. For
+ * dialogs, previews and other UI that most visits never open.
+ *
+ * Loads through `CodeLoad.load`. A load that fails, also after its retries, shows the code load
+ * notice and renders nothing, so the page stays as it is. It starts over when the component
+ * mounts again, such as when its dialog opens again, or when the person asks to try again; never
+ * on its own, so a file that stays missing is not asked for again and again.
  */
 export function lazyComponent<P extends object>(
   load: () => Promise<{ default: ComponentType<P> }>,
+  fallback: ReactNode = null,
 ) {
-  const Lazy = lazy(load);
+  let state: Loading<P> = { kind: "idle" };
+  const start = () => {
+    const done = CodeLoad.load(load).then(
+      (module) => {
+        state = { kind: "loaded", Component: module.default };
+      },
+      (error: unknown) => {
+        state = { kind: "failed" };
+        CodeLoad.failed(error);
+      },
+    );
+    state = { kind: "loading", done };
+  };
+  const again = () => {
+    if (state.kind !== "failed") return false;
+    state = { kind: "idle" };
+    return true;
+  };
+
+  // Suspends on the load this boundary shares across renders: a render that suspends keeps no
+  // state of its own, so it must never start a load of its own.
+  function Loaded(props: P) {
+    if (state.kind === "idle") start();
+    if (state.kind === "loading") use(state.done);
+    return state.kind === "loaded"
+      ? createElement(state.Component, props)
+      : null;
+  }
+
   return function LazyComponent(props: P) {
-    return <Suspense fallback={null}>{createElement(Lazy, props)}</Suspense>;
+    const [, rerender] = useReducer((count: number) => count + 1, 0);
+    useState(again);
+    useEffect(
+      () =>
+        CodeLoad.onRetry(() => {
+          if (again()) rerender();
+        }),
+      [],
+    );
+    return (
+      <Suspense fallback={fallback}>{createElement(Loaded, props)}</Suspense>
+    );
   };
 }

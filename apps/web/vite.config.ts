@@ -7,7 +7,9 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 import { clientZodMini } from "./vite/client-zod-mini";
+import { freshChunkImportsPlugin } from "./vite/fresh-chunk-imports";
 import { preloadPruning } from "./vite/preload-pruning";
+import { routeChunkRecovery } from "./vite/route-chunk-recovery";
 import { startupChunkGroups } from "./vite/startup-chunk-groups";
 import { htmlNonce } from "./client/html-nonce";
 import { builtFilesList } from "./server/static-files";
@@ -199,6 +201,10 @@ export default defineConfig(({ command }) => {
         routesDirectory: "routes",
         generatedRouteTree: "client/route-tree.gen.ts",
       }),
+      routeChunkRecovery(
+        path.join(root, "routes/"),
+        path.join(root, "client/lazy-route.ts"),
+      ),
       react(),
       tailwindcss(),
       themeBootScript(),
@@ -206,6 +212,7 @@ export default defineConfig(({ command }) => {
       precompress(),
       startup?.plugin,
       preloads.plugin,
+      freshChunkImportsPlugin(),
       clientZodMini(),
     ],
   };

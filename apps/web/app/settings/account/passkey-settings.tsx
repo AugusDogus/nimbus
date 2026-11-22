@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { refreshAccount } from "@/lib/account-refresh";
+import { CodeLoad, CodeLoadError } from "@/lib/code-load";
 import { Fingerprint, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,7 +33,9 @@ export type PasskeySummary = {
 };
 
 const loadClient = () =>
-  import("@/lib/passkey-client").then((module) => module.passkeyAuthClient);
+  CodeLoad.load(() => import("@/lib/passkey-client")).then(
+    (module) => module.passkeyAuthClient,
+  );
 const cancelled = (error: unknown) =>
   error instanceof DOMException &&
   (error.name === "AbortError" || error.name === "NotAllowedError");
@@ -51,7 +54,9 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeySummary[] }) {
       setError(
         cancelled(cause)
           ? "The passkey request was cancelled or timed out. Nothing was changed."
-          : "The server could not be reached. Nothing was changed. Try again.",
+          : cause instanceof CodeLoadError
+            ? `${cause.message} Nothing was changed.`
+            : "The server could not be reached. Nothing was changed. Try again.",
       );
     } finally {
       setBusy(false);

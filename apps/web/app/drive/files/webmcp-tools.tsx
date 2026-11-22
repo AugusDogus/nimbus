@@ -1,5 +1,6 @@
 import type {} from "webmcp-types";
 import { useEffect, useRef } from "react";
+import { CodeLoad } from "@/lib/code-load";
 import type { FileToolsPage } from "./webmcp-file-tools";
 
 /**
@@ -17,7 +18,7 @@ export function WebMcpFileTools(page: FileToolsPage) {
     if (!window.isSecureContext || typeof context?.registerTool !== "function")
       return;
     const lifetime = new AbortController();
-    void import("./webmcp-file-tools")
+    void CodeLoad.load(() => import("./webmcp-file-tools"))
       .then(({ registerFileTools }) => {
         if (!lifetime.signal.aborted)
           return registerFileTools(
