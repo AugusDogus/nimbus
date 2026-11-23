@@ -457,6 +457,18 @@ describe.skipIf(missing.length > 0)(
       ).toBe("poster_not_available");
     });
 
+    test("an item without a poster whose file is gone answers as an unknown id", async () => {
+      const token = await pair();
+      const id = await idOf(token, "Bike repair notes.md");
+      // Still cataloged: the file went away after the listing.
+      await rm(t.drive.absolute("library/kitchen/Bike repair notes.md"));
+      const gone = await refusal(await call(`items/${id}/poster`, token));
+      const unknown = await refusal(
+        await call("items/itm_doesnotexist000000/poster", token),
+      );
+      expect(gone).toEqual(unknown);
+    });
+
     test("an undecodable file fails once and is not drawn again", async () => {
       const token = await pair();
       const id = await idOf(token, "Broken.mp4");

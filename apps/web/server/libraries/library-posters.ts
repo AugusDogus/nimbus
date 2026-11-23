@@ -359,14 +359,13 @@ async function respond(
   itemId: string,
   width: PosterWidth,
 ): Promise<Response> {
-  const resolved = LibraryAccess.resolve(ctx, scope, itemId);
-  if (!resolved.ok) return LibraryApiError.response(resolved.error);
-  const source = drawable(path.posix.basename(resolved.value.path));
-  if (source === null) return LibraryApiError.response(notAvailable);
+  // Opened first, so an item whose file is gone or became a link answers as an unknown id does.
   const opened = await LibraryAccess.open(ctx, scope, itemId);
   if (!opened.ok) return LibraryApiError.response(opened.error);
   const { item, opened: file } = opened.value;
   try {
+    const source = drawable(path.posix.basename(item.path));
+    if (source === null) return LibraryApiError.response(notAvailable);
     const version = LibraryCatalog.versionOf(file.stats);
     const etag = `"poster-${FORMAT}-${version}-${width}"`;
     const cacheHeaders = {
