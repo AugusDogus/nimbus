@@ -24,6 +24,7 @@ import {
   type LibraryTest,
 } from "./library-testing";
 import { PairedDevices } from "./paired-devices";
+import { PosterRender } from "../poster-render";
 
 /**
  * Posters through the library API's handler, with small files generated here and the real
@@ -542,6 +543,37 @@ describe.skipIf(missing.length > 0)(
       expect(
         errorShape.parse(await conforming(revoked, "Error")).error.code,
       ).toBe("token_revoked");
+    });
+
+    test("access removed while a poster is drawn ends the answer like an unknown id", async () => {
+      const grant = await t.drive.grant("library/garage", "alice", "admin");
+      const garage = await Libraries.create(
+        t.ctx,
+        await t.drive.access("alice"),
+        false,
+        { title: "Garage", folders: ["library/garage"] },
+      );
+      if (!garage.ok) throw new Error(garage.error.message);
+      const token = await pair(garage.value.id, "alice");
+      const id = await idOf(token, "Wheel truing.pdf");
+      const draw = PosterRender.master;
+      const drawing = spyOn(PosterRender, "master").mockImplementation(
+        async (...args) => {
+          await t.drive.store.removeGrant(grant.id);
+          return draw(...args);
+        },
+      );
+      try {
+        const removed = await refusal(await call(`items/${id}/poster`, token));
+        expect(drawing).toHaveBeenCalled();
+        const unknown = await refusal(
+          await call("items/itm_doesnotexist000000/poster", token),
+        );
+        expect(removed).toEqual(unknown);
+        expect(removed.status).toBe(404);
+      } finally {
+        drawing.mockRestore();
+      }
     });
 
     test("a changed file gets a new poster, never the old one", async () => {

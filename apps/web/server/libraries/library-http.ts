@@ -370,8 +370,27 @@ const itemEndpoints: Record<string, Endpoint> = {
       return asDevice(
         ctx,
         request,
-        (device, scope) =>
-          LibraryPosters.respond(ctx, request, device, scope, itemId, width),
+        async (device, scope) => {
+          // Drawing can take a while: access removed meanwhile ends the answer as it ends a
+          // transfer, checked once the poster is ready and before it is released.
+          const watch = await deviceWatch(ctx, device, scope, itemId);
+          try {
+            const response = await LibraryPosters.respond(
+              ctx,
+              request,
+              device,
+              scope,
+              itemId,
+              width,
+            );
+            if (response.status >= 400 || (await watch.allowed()) === null)
+              return response;
+            await response.body?.cancel();
+            return itemNotFound();
+          } finally {
+            watch.done();
+          }
+        },
         { rule: "posterPerDevice" },
       );
     },
