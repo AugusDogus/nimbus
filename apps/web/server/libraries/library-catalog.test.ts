@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import {
   mkdir,
   rename,
@@ -347,6 +347,31 @@ for (const [where, swapped] of [
     expect(replaced).toBe(true);
     expect(at("library/garage/Twin.md", id)?.id).not.toBe(original?.id ?? "");
   });
+
+test("files renamed together are moved in a few statements, not one each", async () => {
+  for (let index = 0; index < 300; index++)
+    await file(`library/kitchen/Batch/${index}.md`, "x".repeat(index + 1));
+  await create();
+  const before = new Map(rows().map((row) => [row.path, row.id]));
+  await rename(
+    t.drive.absolute("library/kitchen/Batch"),
+    t.drive.absolute("library/kitchen/Renamed"),
+  );
+  const prepare = spyOn(t.drive.db.$client, "prepare");
+  try {
+    await reconcile();
+    const updates = prepare.mock.calls.filter(([query]) =>
+      /^update "nimbus_library_item"/i.test(query),
+    );
+    expect(updates.length).toBeLessThanOrEqual(3);
+  } finally {
+    prepare.mockRestore();
+  }
+  expect(at("library/kitchen/Renamed/7.md")?.id).toBe(
+    before.get("library/kitchen/Batch/7.md") ?? "",
+  );
+  expect(rows().filter((row) => row.missingSince === null)).toHaveLength(300);
+});
 
 test("a file moved after its tombstone expired is a new item", async () => {
   await file("library/kitchen/Notes.md", "proofing times");

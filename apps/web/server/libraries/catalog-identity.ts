@@ -31,10 +31,14 @@ export type ScannedFile = {
   firstScan: boolean;
 };
 
+/** A row that passes to the file at another path, live again. */
+export type CatalogMove = { id: string; path: string; version: string };
+
 export type CatalogPlan = {
   inserts: CatalogRow[];
   /** Rows to change, by id. */
   updates: { id: string; set: Partial<CatalogRow> }[];
+  moves: CatalogMove[];
   /** Rows whose file vanished. */
   tombstones: string[];
 };
@@ -69,7 +73,12 @@ function plan(
   movable: (path: string) => boolean,
   now: number,
 ): CatalogPlan {
-  const result: CatalogPlan = { inserts: [], updates: [], tombstones: [] };
+  const result: CatalogPlan = {
+    inserts: [],
+    updates: [],
+    moves: [],
+    tombstones: [],
+  };
   const live = new Map(
     rows
       .filter((row) => row.missingSince === null)
@@ -132,10 +141,7 @@ function plan(
       movable(row.path)
     ) {
       moved.add(row.id);
-      result.updates.push({
-        id: row.id,
-        set: { path: file.path, version: file.version, missingSince: null },
-      });
+      result.moves.push({ id: row.id, path: file.path, version: file.version });
       continue;
     }
     result.inserts.push({

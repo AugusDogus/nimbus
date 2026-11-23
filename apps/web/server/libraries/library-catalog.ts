@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { getDataRoot } from "@nimbus/api/data-root";
 import { DescriptorPath } from "@nimbus/api/descriptor-path";
 import {
@@ -14,7 +14,11 @@ import {
 import { libraries, libraryFolders, libraryItems } from "../db/library-schema";
 import { FileVersion } from "../file-version";
 import { reconcileIntervalMs } from "../search-protocol";
-import { CatalogIdentity, type ScannedFile } from "./catalog-identity";
+import {
+  CatalogIdentity,
+  type CatalogMove,
+  type ScannedFile,
+} from "./catalog-identity";
 import { HardLinks, type StagedNames } from "./hard-links";
 import {
   LibraryAccess,
@@ -379,11 +383,12 @@ async function reconcile(
     now,
   );
   // The count limit covers every tombstone after this pass, the newest kept first.
-  const revived = new Set(
-    plan.updates
+  const revived = new Set([
+    ...plan.updates
       .filter((update) => update.set.missingSince === null)
       .map((update) => update.id),
-  );
+    ...plan.moves.map((move) => move.id),
+  ]);
   const tombstones = [
     ...plan.tombstones,
     ...rows
@@ -398,7 +403,9 @@ async function reconcile(
   const scannedFolders = [...scanned.folders.keys()].filter((folder) =>
     unscanned.has(folder),
   );
-  const changed = plan.inserts.length + plan.updates.length + vanished > 0;
+  const changed =
+    plan.inserts.length + plan.updates.length + plan.moves.length + vanished >
+    0;
   // Synchronous, so the transaction commits exactly these statements.
   const committed = ctx.db.transaction((tx) => {
     // Deleted while it was being scanned: its catalog went with it.
@@ -422,6 +429,28 @@ async function reconcile(
           inArray(libraryItems.id, plan.tombstones.slice(start, start + 500)),
         )
         .run();
+    // Moves in a few statements, each row's new path and version chosen by its id.
+    for (let start = 0; start < plan.moves.length; start += 200) {
+      const chunk = plan.moves.slice(start, start + 200);
+      const byId = (value: (move: CatalogMove) => string): SQL =>
+        sql`CASE ${libraryItems.id} ${sql.join(
+          chunk.map((move) => sql`WHEN ${move.id} THEN ${value(move)}`),
+          sql` `,
+        )} END`;
+      tx.update(libraryItems)
+        .set({
+          path: byId((move) => move.path),
+          version: byId((move) => move.version),
+          missingSince: null,
+        })
+        .where(
+          inArray(
+            libraryItems.id,
+            chunk.map((move) => move.id),
+          ),
+        )
+        .run();
+    }
     for (const update of plan.updates)
       tx.update(libraryItems)
         .set(update.set)
