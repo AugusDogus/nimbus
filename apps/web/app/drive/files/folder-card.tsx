@@ -82,11 +82,14 @@ export function FolderCard({
           "z-10 items-center gap-1 border-b",
           pane
             ? pane.classes.header
-            : "surface-grain sticky top-16 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] border-border/70 bg-background px-4 py-3 md:relative md:top-auto md:m-0 md:flex md:h-14 md:shrink-0 md:border-border/60 md:bg-card md:bg-none md:px-2 md:py-0",
+            : "surface-grain sticky top-16 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] border-border/70 bg-background px-4 py-3 md:relative md:top-auto md:m-0 md:flex md:h-14 md:shrink-0 md:border-border/60 md:bg-card md:bg-none md:px-2 md:pl-4 md:py-0 lg:pl-2",
         )}
       >
+        {/* Alone, a folder shows Back and Up from 1024 px, where a split view can open and its
+            path lines up with the left pane's; narrower, the path needs the room, and the row's
+            wider padding keeps the root crumb's 44 px touch area inside the card. */}
         <div
-          className={cn("flex shrink-0 items-center", !pane && "max-md:hidden")}
+          className={cn("flex shrink-0 items-center", !pane && "max-lg:hidden")}
         >
           <Button
             variant="ghost"

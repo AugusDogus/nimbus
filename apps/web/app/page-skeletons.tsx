@@ -155,8 +155,8 @@ function FolderPlaceholder({ view }: { view: "list" | "grid" }) {
         PageSurface.raisedFromTablet,
       )}
     >
-      <div className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-border/70 bg-background px-4 py-3 md:relative md:top-auto md:m-0 md:flex md:h-14 md:shrink-0 md:border-border/60 md:bg-card md:bg-none md:px-2 md:py-0">
-        <div className="flex shrink-0 items-center gap-2 px-2 max-md:hidden">
+      <div className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-border/70 bg-background px-4 py-3 md:relative md:top-auto md:m-0 md:flex md:h-14 md:shrink-0 md:border-border/60 md:bg-card md:bg-none md:px-2 md:pl-4 md:py-0 lg:pl-2">
+        <div className="flex shrink-0 items-center gap-2 px-2 max-lg:hidden">
           <Skeleton className="size-4 rounded" />
           <Skeleton className="mr-1 size-4 rounded" />
         </div>
