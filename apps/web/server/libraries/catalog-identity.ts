@@ -132,11 +132,11 @@ function plan(
   const moved = new Set<string>();
   for (const file of arrived) {
     const shape = shapeOf(file);
-    const [row, ...rest] = (shape !== null && gone.get(shape)) || [];
+    const candidates = shape === null ? undefined : gone.get(shape);
+    const row = candidates?.length === 1 ? candidates[0] : undefined;
     if (
       shape !== null &&
-      row &&
-      rest.length === 0 &&
+      row !== undefined &&
       newcomers.get(shape)?.length === 1 &&
       movable(row.path)
     ) {
