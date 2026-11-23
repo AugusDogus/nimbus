@@ -307,14 +307,14 @@ export const Libraries = {
         .set({ title: title.value, updatedAt: now })
         .where(eq(libraries.id, library.id))
         .run();
-      // Rewritten in the new order; folders kept keep the date they were added.
-      const addedAt = new Map(
+      // Rewritten in the new order; folders kept keep when they were added and first scanned.
+      const kept = new Map(
         tx
           .select()
           .from(libraryFolders)
           .where(eq(libraryFolders.libraryId, library.id))
           .all()
-          .map((folder) => [folder.path, folder.addedAt]),
+          .map((folder) => [folder.path, folder]),
       );
       tx.delete(libraryFolders)
         .where(eq(libraryFolders.libraryId, library.id))
@@ -325,7 +325,8 @@ export const Libraries = {
             libraryId: library.id,
             path,
             position,
-            addedAt: addedAt.get(path) ?? now,
+            addedAt: kept.get(path)?.addedAt ?? now,
+            scannedAt: kept.get(path)?.scannedAt ?? null,
           })),
         )
         .run();
