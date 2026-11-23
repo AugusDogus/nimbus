@@ -9,11 +9,12 @@
  * NIMBUS_STOP_SECONDS and exit, as a container stop needs.
  */
 import { existsSync } from "node:fs";
-import { chmod, lstat, mkdir, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { ServerRun } from "@nimbus/api/server-run";
 import { InstallationLock } from "../installation-lock";
 import { getConfigRoot } from "../storage-paths";
+import { ControlSocket } from "./control-socket";
 import { PROTOCOL_VERSION, Protocol, WorkerEnv } from "./protocol";
 import { parseSettings } from "./settings";
 import { createSupervisor, type Release, type SpawnWorker } from "./supervisor";
@@ -101,24 +102,6 @@ const supervisor = createSupervisor({
 });
 
 /**
- * Make the socket's directory, refusing one that someone else owns or others may enter: only
- * this user, and root, may reach the control socket.
- */
-async function socketDirectory(): Promise<string | null> {
-  const directory = path.dirname(socketPath);
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const info = await lstat(directory);
-  if (
-    !info.isDirectory() ||
-    info.uid !== process.getuid?.() ||
-    (info.mode & 0o077) !== 0
-  )
-    return `${directory} must be a directory owned by this user and closed to others (mode 700), so only this user and root reach the supervisor's control socket. Remove it or set NIMBUS_SUPERVISOR_SOCKET elsewhere.`;
-  await rm(socketPath, { force: true });
-  return null;
-}
-
-/**
  * Servers it runs share their port with `reusePort`, which the kernel would also allow another
  * Nimbus of this user to join, such as a second container on the host network: two independent
  * servers on one database. So the port must be free before the first server starts: a plain
@@ -150,9 +133,14 @@ if (!installation.ok) {
   process.exit(1);
 }
 
-const refused = portInUse() ?? (await socketDirectory());
+const refused = portInUse();
 if (refused) {
   console.error(`Nimbus did not start: ${refused}`);
+  process.exit(1);
+}
+const socket = await ControlSocket.prepare(socketPath);
+if (!socket.ok) {
+  console.error(`Nimbus did not start: ${socket.error.message}`);
   process.exit(1);
 }
 
