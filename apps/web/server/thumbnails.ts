@@ -20,6 +20,14 @@ export type ThumbnailResult =
   | { type: "ready"; body: Uint8Array }
   | { type: "unavailable" };
 
+/*
+ * Thumbnails and posters hand sharp a descriptor's /proc/<pid>/fd/<n> name, and descriptor
+ * numbers are reused for other files. libvips caches operations by file name, so a later load
+ * could be answered with an earlier file's pixels or size. Every descriptor-backed sharp load
+ * imports this module, so turning the cache off here covers them all before the first one.
+ */
+sharp.cache(false);
+
 /** Produces a WebP thumbnail. Abort means every requester left: stop work. */
 export type ThumbnailRenderer = (
   absolute: string,
