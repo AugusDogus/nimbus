@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SupervisorMessage, WorkerMessage } from "./protocol";
 import {
   createSupervisor,
+  realClock,
   type Release,
   type SpawnWorker,
   type SupervisorSettings,
@@ -33,11 +34,16 @@ const settings: SupervisorSettings = {
   restartMs: { initial: 10, max: 40 },
 };
 
-function harness(overrides: Partial<SupervisorSettings> = {}) {
+function harness(
+  overrides: Partial<SupervisorSettings> = {},
+  spawnFails: () => boolean = () => false,
+) {
   const workers: Fake[] = [];
   const lines: string[] = [];
   let clock = 1_000_000;
   const spawn: SpawnWorker = (request, onMessage) => {
+    if (spawnFails())
+      throw new Error(`ENOENT: no such directory ${request.release.root}`);
     const exited = Promise.withResolvers<number | null>();
     const fake: Fake = {
       release: request.release.name,
@@ -69,7 +75,7 @@ function harness(overrides: Partial<SupervisorSettings> = {}) {
     release: (name) => (name === null ? releases.a : releases[name]) ?? null,
     distOf: (release) => `${release.root}/apps/web/dist`,
     log: (line) => void lines.push(line),
-    now: () => clock,
+    clock: { now: () => clock, after: realClock.after },
   });
   const ready = (fake: Fake | undefined) =>
     fake?.say({ kind: "ready", build: "/assets/index.js", startupMs: 5 });
@@ -507,6 +513,55 @@ describe("the supervisor", () => {
     h.ready(fresh);
     const outcome = await handing;
     expect(outcome.ok && outcome.value.fullRestart).toContain("migrations");
+  });
+
+  test("a first worker that reports ready and exits at once is started again, never left active", async () => {
+    const h = harness();
+    const starting = h.supervisor.start();
+    const first = await h.started(0);
+    first.say({ kind: "ready", build: null, startupMs: 1 });
+    queueMicrotask(() => first.exit(1));
+    expect((await starting).ok).toBe(true);
+    await Bun.sleep(1);
+    expect(h.supervisor.status().phase).toBe("restarting");
+    const again = await h.started(1);
+    h.ready(again);
+    await Bun.sleep(1);
+    expect(h.supervisor.status().active?.pid).toBe(again.pid);
+  });
+
+  test("a candidate that reports ready and exits at once is replaced by a restart", async () => {
+    const h = harness();
+    const first = await h.serving();
+    const handing = h.supervisor.handover("b");
+    const candidate = await h.started(1);
+    candidate.say({ kind: "ready", build: null, startupMs: 1 });
+    queueMicrotask(() => candidate.exit(1));
+    expect((await handing).ok).toBe(true);
+    await Bun.sleep(1);
+    // The old worker already left the port, so a fresh one of the candidate's release starts.
+    expect(first.sent.some((m) => m.kind === "drain")).toBe(true);
+    expect(h.supervisor.status().phase).toBe("restarting");
+    const again = await h.started(2);
+    expect(again.release).toBe("b");
+  });
+
+  test("a release directory that vanished during a full restart's drain is retried, not waited on", async () => {
+    let gone = false;
+    const h = harness({}, () => gone);
+    const first = await h.serving();
+    const handing = h.supervisor.handover("b");
+    const candidate = await h.started(1);
+    candidate.say({ kind: "needs-full-restart", reason: "unsafe" });
+    candidate.exit(75);
+    await Bun.sleep(1);
+    gone = true;
+    first.exit(0);
+    expect((await handing).ok).toBe(false);
+    expect(h.supervisor.status().phase).toBe("restarting");
+    gone = false;
+    const retried = await h.started(2);
+    expect(retried.predecessor).toBe(false);
   });
 
   test("stops by draining every worker within the stop time", async () => {

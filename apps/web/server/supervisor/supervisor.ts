@@ -66,6 +66,23 @@ export type SupervisorSettings = {
   restartMs: { initial: number; max: number };
 };
 
+type Outcome<T, E> = { ok: true; value: T } | { ok: false; error: E };
+
+/** Cancels a timer `Clock.after` set. */
+export type Cancel = () => void;
+/** Time and timers, injected so tests can drive every ordering with a fake clock. */
+export type Clock = {
+  now: () => number;
+  after: (ms: number, run: () => void) => Cancel;
+};
+export const realClock: Clock = {
+  now: Date.now,
+  after(ms, run) {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
+  },
+};
+
 type Drain = {
   /** Why it drains, for the status. */
   reason: string;
@@ -76,13 +93,13 @@ type Drain = {
     | "drain timeout"
     | "drain limit"
     | "container stop"
-    | "full restart";
+    | "full restart"
+    | "never ready";
   /** Responses still being sent, as it last reported. */
   inFlight: number | null;
 };
 
-/** How a new worker's startup ended. */
-type Readiness = "ready" | "exited" | "timed out";
+type Grant = { scopes: HeldScope[]; unlock: Unlock };
 
 type Worker = {
   release: Release;
@@ -90,11 +107,9 @@ type Worker = {
   process: WorkerProcess;
   startedAt: number;
   previousAssets: string[];
-  /** Settles once it reported ready, or exited first. */
-  ready: Promise<"ready" | "exited">;
   exited: boolean;
   /** Path scopes it holds, by its request id. */
-  grants: Map<number, { scopes: HeldScope[]; unlock: Unlock }>;
+  grants: Map<number, Grant>;
   /** Why it asked for a full restart instead of a handover, if it did. */
   fullRestart: string | null;
 };
@@ -106,7 +121,7 @@ type Worker = {
 type Recovery = {
   id: number;
   owner: string;
-  fence: { scopes: HeldScope[]; unlock: Unlock }[];
+  fence: Grant[];
   /** The worker asked to settle it, until it answers or exits. */
   askedOf: Worker | null;
 };
@@ -115,47 +130,8 @@ type Drainer = {
   worker: Worker;
   drain: Drain;
   /** Kills the worker if it is still running `killGraceMs` past its deadline. */
-  killTimer: ReturnType<typeof setTimeout> | null;
+  cancelKill: Cancel;
 };
-
-/**
- * What the supervisor is doing. Every live worker is in exactly one place: the active one, the
- * candidate getting ready, or a drainer; a worker that exited is in none.
- */
-type State =
-  | { kind: "idle" }
-  /**
-   * A worker is getting ready with nobody serving new connections: the first start or a restart.
-   * If it fails, `fallback` starts after a wait: the release that last served.
-   */
-  | {
-      kind: "starting";
-      candidate: Worker;
-      fallback: { release: Release; previousAssets: string[] };
-      draining: Drainer[];
-    }
-  | { kind: "serving"; active: Worker; draining: Drainer[] }
-  /** The active worker serves while the candidate that replaces it gets ready. */
-  | {
-      kind: "handing-over";
-      active: Worker;
-      candidate: Worker;
-      draining: Drainer[];
-    }
-  /** The active worker died; another starts after `timer`. */
-  | {
-      kind: "restarting";
-      release: Release;
-      previousAssets: string[];
-      draining: Drainer[];
-      timer: ReturnType<typeof setTimeout>;
-    }
-  /**
-   * A release that cannot run beside the others is about to start: every worker drains within
-   * the stop time first.
-   */
-  | { kind: "full-restart"; draining: Drainer[] }
-  | { kind: "stopping"; draining: Drainer[] };
 
 export type HandoverError =
   | { kind: "busy"; message: string }
@@ -173,6 +149,70 @@ export type HandoverReport = {
   fullRestart: string | null;
 };
 
+type HandoverOutcome = Outcome<HandoverReport, HandoverError>;
+
+/** A release to start, with the earlier builds whose assets it keeps serving. */
+type Launch = { release: Release; previousAssets: string[] };
+
+type FullRestartPurpose = {
+  kind: "full-restart";
+  from: Release;
+  reason: string;
+  started: number;
+  settle: ((outcome: HandoverOutcome) => void) | null;
+};
+
+/** Why a candidate is starting, and who waits for it. */
+type Purpose =
+  | {
+      kind: "first-start";
+      settle: (outcome: Outcome<void, HandoverError>) => void;
+    }
+  | { kind: "restart" }
+  | {
+      kind: "handover";
+      from: Release;
+      started: number;
+      settle: (outcome: HandoverOutcome) => void;
+    }
+  | FullRestartPurpose;
+
+type Candidate = {
+  worker: Worker;
+  purpose: Purpose;
+  /** What starts, after a wait, if it never gets ready and nobody else serves. */
+  fallback: Launch;
+  cancelReady: Cancel;
+};
+
+/**
+ * What the supervisor is doing. Every live worker is in exactly one place: the active one, the
+ * candidate getting ready, or a drainer; a worker that exited is in none.
+ */
+type State =
+  | { kind: "idle" }
+  /** A worker is getting ready with nobody serving new connections. */
+  | { kind: "starting"; candidate: Candidate; draining: Drainer[] }
+  | { kind: "serving"; active: Worker; draining: Drainer[] }
+  /** The active worker serves while the candidate that replaces it gets ready. */
+  | {
+      kind: "handing-over";
+      active: Worker;
+      candidate: Candidate;
+      draining: Drainer[];
+    }
+  /** Nobody serves; `next` starts when the timer `cancel` belongs to fires. */
+  | { kind: "restarting"; next: Launch; draining: Drainer[]; cancel: Cancel }
+  /** A release that cannot run beside the others starts once every worker has drained. */
+  | {
+      kind: "full-restart";
+      target: Launch;
+      purpose: FullRestartPurpose;
+      draining: Drainer[];
+    }
+  /** Every worker drains; `settle` runs once the last has exited. */
+  | { kind: "stopping"; draining: Drainer[]; settle: () => void };
+
 export type SupervisorStatus = {
   run: ServerRun;
   phase: State["kind"];
@@ -187,15 +227,9 @@ export type SupervisorStatus = {
     deadlineReason: Drain["deadlineReason"];
     inFlight: number | null;
   }[];
+  /** Server processes whose unfinished changes are still to be settled, and what stays fenced. */
+  recovering: { owner: string; fenced: number }[];
 };
-
-type Outcome<T, E> = { ok: true; value: T } | { ok: false; error: E };
-
-/** How waiting for a candidate ended, as the state machine left it. */
-type Promotion =
-  | { kind: "promoted"; replaced: Drainer | null }
-  | { kind: "failed"; reason: string }
-  | { kind: "stopping" };
 
 export function createSupervisor(deps: {
   run: ServerRun;
@@ -206,9 +240,10 @@ export function createSupervisor(deps: {
   /** The built client of `release`, so the next release can serve its hashed assets. */
   distOf: (release: Release) => string;
   log: (line: string) => void;
-  now?: () => number;
+  clock?: Clock;
 }) {
-  const now = deps.now ?? Date.now;
+  const clock = deps.clock ?? realClock;
+  const { now } = clock;
   const { settings, log } = deps;
   const scopes = createPathLocks();
   let state: State = { kind: "idle" };
@@ -219,76 +254,104 @@ export function createSupervisor(deps: {
   const iso = (time: number) => new Date(time).toISOString();
   const named = (worker: Worker) =>
     `${worker.release.name} (pid ${worker.process.pid})`;
+  const busy = (message: string) => ({
+    ok: false as const,
+    error: { kind: "busy" as const, message },
+  });
+  const notReady = (message: string) => ({
+    ok: false as const,
+    error: { kind: "not-ready" as const, message },
+  });
 
   const drainersOf = (current: State): Drainer[] =>
     current.kind === "idle" ? [] : current.draining;
+  const candidateOf = (current: State): Candidate | null =>
+    current.kind === "starting" || current.kind === "handing-over"
+      ? current.candidate
+      : null;
+  const activeOf = (current: State): Worker | null =>
+    current.kind === "serving" || current.kind === "handing-over"
+      ? current.active
+      : null;
   /** Every live worker, wherever the state keeps it. */
-  function live(current: State = state): Worker[] {
-    const drainers = drainersOf(current).map((drainer) => drainer.worker);
-    switch (current.kind) {
-      case "idle":
-      case "restarting":
-      case "full-restart":
-      case "stopping":
-        return drainers;
-      case "starting":
-        return [current.candidate, ...drainers];
-      case "serving":
-        return [current.active, ...drainers];
-      case "handing-over":
-        return [current.active, current.candidate, ...drainers];
-    }
-  }
-  const withDraining = (draining: Drainer[]): State => {
-    switch (state.kind) {
-      case "idle":
-        return state;
-      default:
-        return { ...state, draining };
-    }
-  };
+  const live = (current: State = state): Worker[] =>
+    [
+      activeOf(current),
+      candidateOf(current)?.worker ?? null,
+      ...drainersOf(current).map((one) => one.worker),
+    ].filter((worker): worker is Worker => worker !== null);
 
-  function spawn(release: Release, previousAssets: string[]): Worker {
-    const ready = Promise.withResolvers<"ready" | "exited">();
+  /** Start a worker, or say why it could not be started. */
+  function spawnWorker(
+    launch: Launch,
+  ): { ok: true; worker: Worker } | { ok: false; reason: string } {
+    const processId = `${deps.run.id}-${nextProcess++}`;
     // IPC messages arrive asynchronously, so never before `worker` is set.
     let spawned: Worker | null = null;
-    const processId = `${deps.run.id}-${nextProcess++}`;
-    const child = deps.spawn(
-      { release, processId, predecessor: live().length > 0, previousAssets },
-      (message) => {
-        if (!spawned) return;
-        if (message.kind === "ready") ready.resolve("ready");
-        else onMessage(spawned, message);
-      },
-    );
+    let child: WorkerProcess;
+    try {
+      child = deps.spawn(
+        {
+          release: launch.release,
+          processId,
+          predecessor: live().length > 0,
+          previousAssets: launch.previousAssets,
+        },
+        (message) => {
+          if (spawned) onMessage(spawned, message);
+        },
+      );
+    } catch (error) {
+      return {
+        ok: false,
+        reason: `it could not be started (${error instanceof Error ? error.message : String(error)})`,
+      };
+    }
     const worker: Worker = {
-      release,
+      release: launch.release,
       processId,
       process: child,
       startedAt: now(),
-      previousAssets,
-      ready: ready.promise,
+      previousAssets: launch.previousAssets,
       exited: false,
       grants: new Map(),
       fullRestart: null,
     };
     spawned = worker;
-    log(`started ${release.name} as pid ${child.pid}`);
-    void child.exited.then((code) => {
-      ready.resolve("exited");
-      onExit(worker, code);
-    });
-    return worker;
+    log(`started ${launch.release.name} as pid ${child.pid}`);
+    void child.exited.then((code) => onExit(worker, code));
+    return { ok: true, worker };
   }
 
-  function onMessage(
-    worker: Worker,
-    message: Exclude<WorkerMessage, { kind: "ready" }>,
-  ) {
+  /** Start a candidate for `purpose`; if it cannot even start, that is its failure. */
+  function startCandidate(launch: Launch, purpose: Purpose, fallback: Launch) {
+    const spawned = spawnWorker(launch);
+    const active = activeOf(state);
+    const draining = drainersOf(state);
+    if (!spawned.ok) {
+      log(`${launch.release.name} ${spawned.reason}`);
+      return failed(purpose, fallback, spawned.reason, null, active, draining);
+    }
+    const { worker } = spawned;
+    const candidate: Candidate = {
+      worker,
+      purpose,
+      fallback,
+      cancelReady: clock.after(settings.readyTimeoutMs, () => timedOut(worker)),
+    };
+    state = active
+      ? { kind: "handing-over", active, candidate, draining }
+      : { kind: "starting", candidate, draining };
+  }
+
+  function onMessage(worker: Worker, message: WorkerMessage) {
+    if (worker.exited) return;
     switch (message.kind) {
+      case "ready":
+        return onReady(worker);
       case "in-flight": {
-        const drainer = drainersOf(state).find((d) => d.worker === worker);
-        if (drainer) drainer.drain.inFlight = message.count;
+        const found = drainersOf(state).find((one) => one.worker === worker);
+        if (found) found.drain.inFlight = message.count;
         return;
       }
       case "needs-full-restart":
@@ -301,7 +364,7 @@ export function createSupervisor(deps: {
         return;
       case "acquire-scopes":
         void scopes.acquire(message.scopes).then((unlock) => {
-          // It exited while it waited: nobody holds them.
+          // It exited while it waited: it never held them.
           if (worker.exited) return unlock();
           worker.grants.set(message.id, { scopes: message.scopes, unlock });
           worker.process.send({ kind: "scopes-granted", id: message.id });
@@ -332,7 +395,156 @@ export function createSupervisor(deps: {
     }
   }
 
+  /** A live candidate is listening: it takes over, and the one it replaces drains. */
+  function onReady(worker: Worker) {
+    const candidate = candidateOf(state);
+    if (!candidate || candidate.worker !== worker || worker.exited) return;
+    candidate.cancelReady();
+    let replaced: Drainer | null = null;
+    let draining = drainersOf(state);
+    if (state.kind === "handing-over") {
+      if (draining.length >= settings.maxDraining) {
+        const [oldest] = draining;
+        if (oldest) drain(oldest, now(), "drain limit");
+      }
+      replaced = drainer(
+        state.active,
+        `replaced by ${worker.release.name} at ${iso(now())}`,
+        now() + settings.drainMs,
+        "drain timeout",
+      );
+      draining = [...draining, replaced];
+    }
+    state = { kind: "serving", active: worker, draining };
+    worker.process.send({ kind: "active" });
+    askToRecover();
+    const report = (
+      from: Release,
+      started: number,
+      fullRestart: string | null,
+    ): HandoverOutcome => ({
+      ok: true,
+      value: {
+        from: from.name,
+        to: worker.release.name,
+        readyMs: now() - started,
+        draining: replaced && {
+          pid: replaced.worker.process.pid,
+          deadline: iso(replaced.drain.deadline),
+        },
+        fullRestart,
+      },
+    });
+    const { purpose } = candidate;
+    switch (purpose.kind) {
+      case "first-start":
+        return purpose.settle({ ok: true, value: undefined });
+      case "restart":
+        restartDelay = settings.restartMs.initial;
+        return log(`${named(worker)} is serving again`);
+      case "handover":
+        log(`${named(worker)} took over from ${purpose.from.name}`);
+        return purpose.settle(report(purpose.from, purpose.started, null));
+      case "full-restart":
+        restartDelay = settings.restartMs.initial;
+        log(`${named(worker)} is serving after a full restart`);
+        return purpose.settle?.(
+          report(purpose.from, purpose.started, purpose.reason),
+        );
+    }
+  }
+
+  /** The candidate's ready time ran out: it is stopped as a drainer, and counts as failed. */
+  function timedOut(worker: Worker) {
+    const candidate = candidateOf(state);
+    if (!candidate || candidate.worker !== worker) return;
+    const reason = `it was not ready within ${Math.round(settings.readyTimeoutMs / 1000)} seconds`;
+    log(`${named(worker)}: ${reason}; stopping it`);
+    worker.process.kill("SIGTERM");
+    const stopping = drainer(worker, "never got ready", now(), "never ready");
+    failed(
+      candidate.purpose,
+      candidate.fallback,
+      reason,
+      worker,
+      activeOf(state),
+      [...drainersOf(state), stopping],
+    );
+  }
+
+  /**
+   * A candidate for `purpose` did not take over; it is already out of `draining` unless it is
+   * still being stopped there. With an `active` worker the handover is abandoned, or becomes a
+   * full restart when the candidate asked for one; with none, `fallback` starts after a wait.
+   */
+  function failed(
+    purpose: Purpose,
+    fallback: Launch,
+    reason: string,
+    worker: Worker | null,
+    active: Worker | null,
+    draining: Drainer[],
+  ) {
+    if (active) {
+      state = { kind: "serving", active, draining };
+      if (worker?.fullRestart && purpose.kind === "handover")
+        return beginFullRestart(
+          { release: worker.release, previousAssets: worker.previousAssets },
+          worker.fullRestart,
+          purpose,
+        );
+      askToRecover();
+      if (purpose.kind === "handover") {
+        log(`handover from ${purpose.from.name} abandoned: ${reason}`);
+        purpose.settle(
+          notReady(
+            `The new server did not take over because ${reason}. ${purpose.from.name} kept serving throughout; the new worker's log above names the failing step.`,
+          ),
+        );
+      }
+      return;
+    }
+    switch (purpose.kind) {
+      case "first-start":
+        // Nothing serves and the container stops: what still runs is stopped with it.
+        state = { kind: "stopping", draining, settle: () => undefined };
+        purpose.settle(
+          notReady(
+            reason.startsWith("it was not ready")
+              ? `Nimbus (${fallback.release.name}) was not ready within ${Math.round(settings.readyTimeoutMs / 1000)} seconds, so it was stopped and the container stops. Its log above names the step it waited on; raise NIMBUS_READY_TIMEOUT_SECONDS if the drive needs longer to index.`
+              : `Nimbus (${fallback.release.name}) did not start because ${reason}, so the container stops. Its log above names the failing step.`,
+          ),
+        );
+        return;
+      case "restart":
+        log(
+          `${fallback.release.name} did not start (${reason}); trying again in ${restartDelay} ms`,
+        );
+        return scheduleRestart(fallback, draining);
+      case "handover":
+        scheduleRestart(fallback, draining);
+        return purpose.settle(
+          notReady(
+            `The new server did not take over because ${reason}, and ${purpose.from.name} had stopped meanwhile, so ${fallback.release.name} is started again. The new worker's log above names the failing step.`,
+          ),
+        );
+      case "full-restart":
+        log(
+          `${fallback.release.name} did not start after a full restart (${reason}); trying again in ${restartDelay} ms`,
+        );
+        scheduleRestart(fallback, draining);
+        purpose.settle?.(
+          notReady(
+            `The new release did not start after a full restart (${reason}); ${fallback.release.name} is started again. The new worker's log above names the failing step.`,
+          ),
+        );
+        purpose.settle = null;
+        return;
+    }
+  }
+
   function onExit(worker: Worker, code: number | null) {
+    if (worker.exited) return;
     worker.exited = true;
     if (code === NEEDS_FULL_RESTART_EXIT && worker.fullRestart === null)
       worker.fullRestart =
@@ -348,152 +560,142 @@ export function createSupervisor(deps: {
     worker.grants.clear();
     for (const recovery of recoveries)
       if (recovery.askedOf === worker) recovery.askedOf = null;
+
     const draining = drainersOf(state);
-    const drained = draining.find((drainer) => drainer.worker === worker);
-    if (drained?.killTimer) clearTimeout(drained.killTimer);
+    const drained = draining.find((one) => one.worker === worker);
+    const candidate = candidateOf(state);
     if (drained) {
-      state = withDraining(draining.filter((d) => d.worker !== worker));
+      drained.cancelKill();
+      const rest = draining.filter((one) => one !== drained);
+      if (state.kind !== "idle") state = { ...state, draining: rest };
       log(`${named(worker)} exited after draining, code ${code}`);
+      if (state.kind === "full-restart" && rest.length === 0)
+        startCandidate(state.target, state.purpose, state.target);
+      else if (state.kind === "stopping" && rest.length === 0) state.settle();
+    } else if (candidate?.worker === worker) {
+      candidate.cancelReady();
+      failed(
+        candidate.purpose,
+        candidate.fallback,
+        worker.fullRestart
+          ? "it asked for a full restart"
+          : "it exited before it was ready",
+        worker,
+        state.kind === "handing-over" ? state.active : null,
+        draining,
+      );
     } else if (state.kind === "serving" && state.active === worker) {
       log(
         `${named(worker)} exited with code ${code} while serving; starting it again in ${restartDelay} ms. Requests are refused until it is ready.`,
       );
-      scheduleRestart(worker.release, worker.previousAssets, state.draining);
+      scheduleRestart(
+        { release: worker.release, previousAssets: worker.previousAssets },
+        draining,
+      );
     } else if (state.kind === "handing-over" && state.active === worker) {
       // The candidate already getting ready takes over; nothing else starts unless it fails.
       log(
-        `${named(worker)} exited with code ${code} during a handover; ${named(state.candidate)} takes over once ready. Requests are refused until then.`,
+        `${named(worker)} exited with code ${code} during a handover; ${named(state.candidate.worker)} takes over once ready. Requests are refused until then.`,
       );
       state = {
         kind: "starting",
-        candidate: state.candidate,
-        fallback: {
-          release: worker.release,
-          previousAssets: worker.previousAssets,
+        candidate: {
+          ...state.candidate,
+          fallback: {
+            release: worker.release,
+            previousAssets: worker.previousAssets,
+          },
         },
-        draining: state.draining,
+        draining,
       };
     }
-    // A candidate that exits is handled where its readiness is awaited.
     askToRecover();
   }
 
-  function scheduleRestart(
-    release: Release,
-    previousAssets: string[],
-    draining: Drainer[],
-  ) {
+  function scheduleRestart(next: Launch, draining: Drainer[]) {
     const delay = restartDelay;
     restartDelay = Math.min(restartDelay * 2, settings.restartMs.max);
-    const timer = setTimeout(() => {
-      if (state.kind !== "restarting" || state.timer !== timer) return;
-      const candidate = spawn(release, previousAssets);
-      state = {
-        kind: "starting",
-        candidate,
-        fallback: { release, previousAssets },
-        draining: state.draining,
-      };
-      void promote(candidate).then((outcome) => {
-        if (outcome.kind === "promoted") {
-          restartDelay = settings.restartMs.initial;
-          log(`${named(candidate)} is serving again`);
-        }
-      });
-    }, delay);
-    state = { kind: "restarting", release, previousAssets, draining, timer };
+    const cancel = clock.after(delay, () => {
+      if (state.kind !== "restarting" || state.cancel !== cancel) return;
+      startCandidate(next, { kind: "restart" }, next);
+    });
+    state = { kind: "restarting", next, draining, cancel };
   }
 
-  /**
-   * Wait for `candidate` to get ready, then make it the active worker: the one it replaces, if
-   * that one still lives, drains. If it never gets ready, the active worker keeps serving, or,
-   * when there is none, another starts after a wait.
-   */
-  async function promote(candidate: Worker): Promise<Promotion> {
-    const readiness = await readinessOf(candidate);
-    const current = state;
-    const mine =
-      (current.kind === "handing-over" || current.kind === "starting") &&
-      current.candidate === candidate;
-    if (readiness === "ready" && mine) {
-      let replaced: Drainer | null = null;
-      let draining = current.draining;
-      if (current.kind === "handing-over") {
-        if (draining.length >= settings.maxDraining) {
-          const [oldest] = draining;
-          if (oldest) drain(oldest, now(), "drain limit");
-        }
-        replaced = {
-          worker: current.active,
-          killTimer: null,
-          drain: {
-            reason: `replaced by ${candidate.release.name} at ${iso(now())}`,
-            since: now(),
-            deadline: now() + settings.drainMs,
-            deadlineReason: "drain timeout",
-            inFlight: null,
-          },
-        };
-        current.active.process.send({
-          kind: "drain",
-          deadline: replaced.drain.deadline,
-        });
-        killAfterDeadline(replaced);
-        draining = [...draining, replaced];
-      }
-      state = { kind: "serving", active: candidate, draining };
-      candidate.process.send({ kind: "active" });
-      askToRecover();
-      return { kind: "promoted", replaced };
-    }
-    const reason =
-      readiness === "timed out"
-        ? `it was not ready within ${Math.round(settings.readyTimeoutMs / 1000)} seconds`
-        : "it exited before it was ready";
-    const after = state;
-    if (after.kind === "handing-over" && after.candidate === candidate) {
-      state = {
-        kind: "serving",
-        active: after.active,
-        draining: after.draining,
-      };
-      askToRecover();
-      return { kind: "failed", reason };
-    }
-    if (after.kind === "starting" && after.candidate === candidate) {
-      log(
-        `${named(candidate)} did not start (${reason}); trying again in ${restartDelay} ms`,
-      );
-      scheduleRestart(
-        after.fallback.release,
-        after.fallback.previousAssets,
-        after.draining,
-      );
-      return { kind: "failed", reason };
-    }
-    return after.kind === "stopping"
-      ? { kind: "stopping" }
-      : { kind: "failed", reason };
+  /** Stop every worker within the stop time, then start `target` alone. */
+  function beginFullRestart(
+    target: Launch,
+    reason: string,
+    handover: Extract<Purpose, { kind: "handover" }>,
+  ) {
+    log(
+      `${target.release.name} needs a full restart (${reason}): stopping every server within ${settings.stopMs} ms, then starting it alone`,
+    );
+    const deadline = now() + settings.stopMs;
+    const draining = live().map(
+      (worker) =>
+        drainersOf(state).find((one) => one.worker === worker) ??
+        drainer(
+          worker,
+          `full restart for ${target.release.name}`,
+          deadline,
+          "full restart",
+        ),
+    );
+    for (const one of draining) drain(one, deadline, "full restart");
+    const purpose: FullRestartPurpose = {
+      kind: "full-restart",
+      from: handover.from,
+      reason,
+      started: handover.started,
+      settle: handover.settle,
+    };
+    state = { kind: "full-restart", target, purpose, draining };
+    if (draining.length === 0) startCandidate(target, purpose, target);
   }
 
-  /**
-   * How `candidate`'s startup ended: every worker gets `readyTimeoutMs`, and one that is not
-   * ready by then, such as one whose search index never finished, is stopped.
-   */
-  async function readinessOf(candidate: Worker): Promise<Readiness> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const readiness = await Promise.race([
-      candidate.ready,
-      new Promise<"timed out">((resolve) => {
-        timer = setTimeout(() => resolve("timed out"), settings.readyTimeoutMs);
-      }),
-    ]);
-    clearTimeout(timer);
-    if (readiness !== "ready" && !candidate.exited) {
-      candidate.process.kill("SIGTERM");
-      await reap(candidate, 5_000);
-    }
-    return readiness;
+  /** A drainer for `worker`, told to finish by `deadline`, which the supervisor enforces. */
+  function drainer(
+    worker: Worker,
+    reason: string,
+    deadline: number,
+    deadlineReason: Drain["deadlineReason"],
+  ): Drainer {
+    const made: Drainer = {
+      worker,
+      drain: { reason, since: now(), deadline, deadlineReason, inFlight: null },
+      cancelKill: () => undefined,
+    };
+    worker.process.send({ kind: "drain", deadline });
+    killAfterDeadline(made);
+    return made;
+  }
+
+  /** Bring a drainer's deadline forward to `deadline`, never back. */
+  function drain(
+    target: Drainer,
+    deadline: number,
+    deadlineReason: Drain["deadlineReason"],
+  ) {
+    if (target.drain.deadline <= deadline) return;
+    target.drain = { ...target.drain, deadline, deadlineReason };
+    target.worker.process.send({ kind: "drain", deadline });
+    killAfterDeadline(target);
+  }
+
+  /** The supervisor, not the worker, makes sure a drainer is gone soon after its deadline. */
+  function killAfterDeadline(target: Drainer) {
+    target.cancelKill();
+    target.cancelKill = clock.after(
+      Math.max(0, target.drain.deadline - now()) + settings.killGraceMs,
+      () => {
+        if (target.worker.exited) return;
+        log(
+          `${named(target.worker)} was still running ${settings.killGraceMs} ms past its drain deadline; killing it`,
+        );
+        target.worker.process.kill("SIGKILL");
+      },
+    );
   }
 
   /** Ask the active worker to settle what exited workers left, each recovery once. */
@@ -512,268 +714,122 @@ export function createSupervisor(deps: {
     }
   }
 
-  /** Bring a drainer's deadline forward to `deadline`, never back. */
-  function drain(
-    drainer: Drainer,
-    deadline: number,
-    deadlineReason: Drain["deadlineReason"],
-  ) {
-    if (drainer.drain.deadline <= deadline) return;
-    drainer.drain = { ...drainer.drain, deadline, deadlineReason };
-    drainer.worker.process.send({ kind: "drain", deadline });
-    killAfterDeadline(drainer);
+  /** Tell whoever waits for a candidate or a full restart that the container is stopping. */
+  function abandon(purpose: Purpose) {
+    const stopping = busy("The container is stopping, so nothing new starts.");
+    switch (purpose.kind) {
+      case "first-start":
+        return purpose.settle(stopping);
+      case "restart":
+        return;
+      case "handover":
+        return purpose.settle(stopping);
+      case "full-restart":
+        purpose.settle?.(stopping);
+        purpose.settle = null;
+        return;
+    }
   }
-
-  /** The supervisor, not the worker, makes sure a drainer is gone soon after its deadline. */
-  function killAfterDeadline(drainer: Drainer) {
-    if (drainer.killTimer) clearTimeout(drainer.killTimer);
-    drainer.killTimer = setTimeout(
-      () => {
-        if (drainer.worker.exited) return;
-        log(
-          `${named(drainer.worker)} was still running ${settings.killGraceMs} ms past its drain deadline; killing it`,
-        );
-        drainer.worker.process.kill("SIGKILL");
-      },
-      Math.max(0, drainer.drain.deadline - now()) + settings.killGraceMs,
-    );
-  }
-
-  /** Wait for `worker` to exit, killing it if it outlasts `graceMs`. */
-  async function reap(worker: Worker, graceMs: number) {
-    if (worker.exited) return;
-    const timer = setTimeout(() => worker.process.kill("SIGKILL"), graceMs);
-    await worker.process.exited;
-    clearTimeout(timer);
-  }
-
-  /**
-   * Stop every worker within the stop time, then start `release` alone, as a release whose
-   * migrations cannot run beside older servers needs. Responses still running are cut.
-   */
-  async function fullRestart(
-    release: Release,
-    reason: string,
-    started: number,
-  ): Promise<Outcome<HandoverReport, HandoverError>> {
-    if (state.kind !== "serving")
-      return busy("The supervisor's state changed meanwhile; try again.");
-    const previous = state.active;
-    log(
-      `${release.name} needs a full restart (${reason}): stopping every server within ${settings.stopMs} ms, then starting it alone`,
-    );
-    const deadline = now() + settings.stopMs;
-    const workers = live();
-    const drainers = workers.map(
-      (worker) =>
-        drainersOf(state).find((drainer) => drainer.worker === worker) ?? {
-          worker,
-          killTimer: null,
-          drain: {
-            reason: `full restart for ${release.name}`,
-            since: now(),
-            deadline: Number.POSITIVE_INFINITY,
-            deadlineReason: "full restart" as const,
-            inFlight: null,
-          },
-        },
-    );
-    state = { kind: "full-restart", draining: drainers };
-    for (const drainer of drainers) drain(drainer, deadline, "full restart");
-    await Promise.all(
-      workers.map((worker) =>
-        reap(worker, settings.stopMs + settings.killGraceMs),
-      ),
-    );
-    if (state.kind !== "full-restart")
-      return busy("The container is stopping, so nothing new starts.");
-    const candidate = spawn(release, previous.previousAssets);
-    state = {
-      kind: "starting",
-      candidate,
-      fallback: {
-        release: previous.release,
-        previousAssets: previous.previousAssets,
-      },
-      draining: [],
-    };
-    const outcome = await promote(candidate);
-    if (outcome.kind !== "promoted")
-      return {
-        ok: false,
-        error: {
-          kind: "not-ready",
-          message: `${release.name} did not start after a full restart (${outcome.kind === "failed" ? outcome.reason : "the container is stopping"}). ${previous.release.name} is started again; the new worker's log above names the failing step.`,
-        },
-      };
-    return {
-      ok: true,
-      value: {
-        from: previous.release.name,
-        to: release.name,
-        readyMs: now() - started,
-        draining: null,
-        fullRestart: reason,
-      },
-    };
-  }
-
-  const busy = (message: string) => ({
-    ok: false as const,
-    error: { kind: "busy" as const, message },
-  });
 
   return {
     /** Start the first worker and wait until it serves; an error value if it never does. */
-    async start(): Promise<Outcome<void, HandoverError>> {
+    start(): Promise<Outcome<void, HandoverError>> {
       const release = deps.release(null);
       if (!release)
-        return {
+        return Promise.resolve({
           ok: false,
           error: {
             kind: "unknown-release",
             message: "The supervisor found no release to run.",
           },
-        };
-      if (state.kind !== "idle") return busy("The supervisor already started.");
-      const candidate = spawn(release, []);
-      state = {
-        kind: "starting",
-        candidate,
-        fallback: { release, previousAssets: [] },
-        draining: [],
-      };
-      const ready = await readinessOf(candidate);
-      const current = state;
-      if (
-        ready === "ready" &&
-        current.kind === "starting" &&
-        current.candidate === candidate
-      ) {
-        state = { kind: "serving", active: candidate, draining: [] };
-        candidate.process.send({ kind: "active" });
-        askToRecover();
-        return { ok: true, value: undefined };
-      }
-      state = { kind: "idle" };
-      return {
-        ok: false,
-        error: {
-          kind: "not-ready",
-          message:
-            ready === "timed out"
-              ? `Nimbus (${release.name}) was not ready within ${Math.round(settings.readyTimeoutMs / 1000)} seconds, so it was stopped and the container stops. Its log above names the step it waited on; raise NIMBUS_READY_TIMEOUT_SECONDS if the drive needs longer to index.`
-              : `Nimbus (${release.name}) exited before it was ready, so the container stops. Its log above names the failing step.`,
-        },
-      };
+        });
+      if (state.kind !== "idle")
+        return Promise.resolve(busy("The supervisor already started."));
+      return new Promise((settle) => {
+        const launch: Launch = { release, previousAssets: [] };
+        startCandidate(launch, { kind: "first-start", settle }, launch);
+      });
     },
 
     /**
      * Replace the active worker with one of release `name`, or of the active worker's own
      * release when `name` is null, without closing the port.
      */
-    async handover(
-      name: string | null,
-    ): Promise<Outcome<HandoverReport, HandoverError>> {
+    handover(name: string | null): Promise<HandoverOutcome> {
       const current = state;
       if (current.kind !== "serving")
-        return busy(
-          current.kind === "stopping"
-            ? "The container is stopping, so nothing new starts."
-            : current.kind === "handing-over"
-              ? `A handover to ${current.candidate.release.name} is under way; try again once it finished.`
-              : "Nimbus is not serving yet; try again once it is.",
+        return Promise.resolve(
+          busy(
+            current.kind === "stopping"
+              ? "The container is stopping, so nothing new starts."
+              : current.kind === "handing-over"
+                ? `A handover to ${current.candidate.worker.release.name} is under way; try again once it finished.`
+                : "Nimbus is not serving yet; try again once it is.",
+          ),
         );
       const previous = current.active;
       const release = name === null ? previous.release : deps.release(name);
       if (!release)
-        return {
+        return Promise.resolve({
           ok: false,
           error: {
             kind: "unknown-release",
             message: `There is no release named ${name}. Nothing was changed; ${previous.release.name} keeps serving.`,
           },
-        };
-      const started = now();
-      const candidate = spawn(
-        release,
+        });
+      const previousAssets =
         release.root === previous.release.root
           ? previous.previousAssets
           : [deps.distOf(previous.release), ...previous.previousAssets].slice(
               0,
               2,
-            ),
+            );
+      return new Promise((settle) =>
+        startCandidate(
+          { release, previousAssets },
+          { kind: "handover", from: previous.release, started: now(), settle },
+          {
+            release: previous.release,
+            previousAssets: previous.previousAssets,
+          },
+        ),
       );
-      state = {
-        kind: "handing-over",
-        active: previous,
-        candidate,
-        draining: current.draining,
-      };
-      const outcome = await promote(candidate);
-      switch (outcome.kind) {
-        case "promoted":
-          log(
-            `${named(candidate)} took over from ${named(previous)} in ${now() - started} ms`,
-          );
-          return {
-            ok: true,
-            value: {
-              from: previous.release.name,
-              to: release.name,
-              readyMs: now() - started,
-              draining: outcome.replaced && {
-                pid: outcome.replaced.worker.process.pid,
-                deadline: iso(outcome.replaced.drain.deadline),
-              },
-              fullRestart: null,
-            },
-          };
-        case "failed":
-          if (candidate.fullRestart !== null)
-            return fullRestart(release, candidate.fullRestart, started);
-          log(`handover to ${release.name} abandoned: ${outcome.reason}`);
-          return {
-            ok: false,
-            error: {
-              kind: "not-ready",
-              message: previous.exited
-                ? `${release.name} did not take over because ${outcome.reason}, and ${previous.release.name} had stopped meanwhile, so it is being started again. The new worker's log above names the failing step.`
-                : `${release.name} did not take over because ${outcome.reason}. ${previous.release.name} kept serving throughout; the new worker's log above names the failing step.`,
-            },
-          };
-        case "stopping":
-          return busy("The container is stopping, so nothing new starts.");
-      }
     },
 
     /** Drain every worker within the stop time and wait for them, as a container stop needs. */
-    async stop() {
-      if (state.kind === "stopping") return;
-      if (state.kind === "restarting") clearTimeout(state.timer);
-      const deadline = now() + settings.stopMs;
-      const workers = live();
-      const draining = drainersOf(state);
-      const drainers = workers.map(
-        (worker) =>
-          draining.find((drainer) => drainer.worker === worker) ?? {
-            worker,
-            killTimer: null,
-            drain: {
-              reason: "the container is stopping",
-              since: now(),
-              deadline: Number.POSITIVE_INFINITY,
-              deadlineReason: "container stop" as const,
-              inFlight: null,
-            },
-          },
-      );
-      state = { kind: "stopping", draining: drainers };
-      for (const drainer of drainers)
-        drain(drainer, deadline, "container stop");
-      await Promise.all(
-        workers.map((worker) => reap(worker, settings.stopMs + 5_000)),
-      );
+    stop(): Promise<void> {
+      return new Promise((resolve) => {
+        if (state.kind === "stopping") {
+          const earlier = state.settle;
+          state.settle = () => {
+            earlier();
+            resolve();
+          };
+          if (state.draining.length === 0) state.settle();
+          return;
+        }
+        const candidate = candidateOf(state);
+        candidate?.cancelReady();
+        if (state.kind === "restarting") state.cancel();
+        const waiting =
+          candidate?.purpose ??
+          (state.kind === "full-restart" ? state.purpose : null);
+        const deadline = now() + settings.stopMs;
+        const draining = live().map(
+          (worker) =>
+            drainersOf(state).find((one) => one.worker === worker) ??
+            drainer(
+              worker,
+              "the container is stopping",
+              deadline,
+              "container stop",
+            ),
+        );
+        for (const one of draining) drain(one, deadline, "container stop");
+        state = { kind: "stopping", draining, settle: resolve };
+        if (waiting) abandon(waiting);
+        if (draining.length === 0) resolve();
+      });
     },
 
     status(): SupervisorStatus {
@@ -783,19 +839,12 @@ export function createSupervisor(deps: {
           pid: worker.process.pid,
           since: iso(worker.startedAt),
         };
-      const current = state;
       return {
         run: deps.run,
-        phase: current.kind,
-        active:
-          current.kind === "serving" || current.kind === "handing-over"
-            ? brief(current.active)
-            : null,
-        starting:
-          current.kind === "starting" || current.kind === "handing-over"
-            ? brief(current.candidate)
-            : null,
-        draining: drainersOf(current).map(({ worker, drain }) => ({
+        phase: state.kind,
+        active: brief(activeOf(state)),
+        starting: brief(candidateOf(state)?.worker ?? null),
+        draining: drainersOf(state).map(({ worker, drain }) => ({
           release: worker.release.name,
           pid: worker.process.pid,
           reason: drain.reason,
@@ -803,6 +852,10 @@ export function createSupervisor(deps: {
           deadline: iso(drain.deadline),
           deadlineReason: drain.deadlineReason,
           inFlight: drain.inFlight,
+        })),
+        recovering: recoveries.map((one) => ({
+          owner: one.owner,
+          fenced: one.fence.length,
         })),
       };
     },
