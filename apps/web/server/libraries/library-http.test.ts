@@ -339,7 +339,7 @@ describe("library", () => {
     );
   });
 
-  test("ids and added dates survive restarts and renames, through Nimbus or not", async () => {
+  test("ids and added dates survive restarts and Nimbus's own renames", async () => {
     const { token } = await pair();
     const first = libraryBody.parse(
       await (await call("library", { token })).json(),
@@ -373,8 +373,7 @@ describe("library", () => {
       id: map.id,
       addedAt: map.addedAt,
     });
-    // A rename outside Nimbus keeps them too, once the file's fingerprint is known.
-    await LibraryCatalog.whenIdle();
+    // A rename outside Nimbus is, for now, a new item.
     await rename(
       t.drive.absolute("library/kitchen/Maps/North trail map.pdf"),
       t.drive.absolute("library/kitchen/Maps/South trail map.pdf"),
@@ -383,10 +382,11 @@ describe("library", () => {
     const external = libraryBody.parse(
       await (await call("library", { token })).json(),
     );
-    expect(
-      external.items.find((item) => item.name === "South trail map.pdf"),
-    ).toMatchObject({ id: map.id, addedAt: map.addedAt });
-    expect(external.items).toHaveLength(first.items.length);
+    const south = external.items.find(
+      (item) => item.name === "South trail map.pdf",
+    );
+    expect(south?.id).not.toBe(map.id);
+    expect(external.items.map((item) => item.id)).not.toContain(map.id);
   });
 
   test("a library of missing folders is an empty list, not a failure", async () => {

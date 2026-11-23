@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
-  cp,
   mkdir,
   rename,
   rm,
@@ -55,7 +54,7 @@ async function create(folders = ["library/kitchen"]) {
   return created.value.id;
 }
 
-/** Reconcile the library and wait for its fingerprints, as the server does in the background. */
+/** Reconcile the library, as the server does after a change or on its interval. */
 async function reconcile(id = libraryId) {
   await LibraryCatalog.refreshLibrary(t.ctx, id);
   await LibraryCatalog.whenIdle();
@@ -118,7 +117,7 @@ test("files that arrive later are dated when first seen, even with an old modifi
   );
 });
 
-test("an edit in place keeps the id and added date, with a new version and fingerprint", async () => {
+test("an edit in place keeps the id and added date, with a new version", async () => {
   await file("library/kitchen/Notes.md", "first");
   await create();
   const before = at("library/kitchen/Notes.md");
@@ -129,13 +128,11 @@ test("an edit in place keeps the id and added date, with a new version and finge
   expect(after?.id).toBe(before?.id ?? "");
   expect(after?.addedAt).toBe(before?.addedAt ?? -1);
   expect(after?.version).not.toBe(before?.version ?? "");
-  expect(after?.fingerprint).not.toBeNull();
-  expect(after?.fingerprint).not.toBe(before?.fingerprint ?? "");
 });
 
-test("a rename or move outside Nimbus keeps the id and added date", async () => {
+test("a rename outside Nimbus is a new item, and the old row a tombstone", async () => {
   await file("library/kitchen/Notes.md", "proofing times");
-  await create(["library/kitchen", "library/garage"]);
+  await create();
   const original = at("library/kitchen/Notes.md");
   await rename(
     t.drive.absolute("library/kitchen/Notes.md"),
@@ -143,18 +140,13 @@ test("a rename or move outside Nimbus keeps the id and added date", async () => 
   );
   t.advance(HOUR);
   await reconcile();
-  expect(at("library/kitchen/Guides/Proofing notes.md")).toMatchObject({
-    id: original?.id,
-    addedAt: original?.addedAt,
-  });
-  // Into another folder of the same library.
-  await rename(
-    t.drive.absolute("library/kitchen/Guides/Proofing notes.md"),
-    t.drive.absolute("library/garage/Proofing notes.md"),
+  expect(at("library/kitchen/Guides/Proofing notes.md")?.id).not.toBe(
+    original?.id ?? "",
   );
-  await reconcile();
-  expect(at("library/garage/Proofing notes.md")?.id).toBe(original?.id ?? "");
-  expect(rows()).toHaveLength(1);
+  expect(await listed()).toEqual(["library/kitchen/Guides/Proofing notes.md"]);
+  expect(rows().find((row) => row.id === original?.id)?.missingSince).toBe(
+    t.now(),
+  );
 });
 
 test("a folder that vanishes and returns gets its rows back, and nothing missing is listed", async () => {
@@ -184,26 +176,6 @@ test("a folder that vanishes and returns gets its rows back, and nothing missing
   expect(rows()).toHaveLength(2);
 });
 
-test("identical copies are never matched by guesswork", async () => {
-  await file("library/kitchen/Copy one.md", "same");
-  await file("library/kitchen/Copy two.md", "same");
-  await create();
-  const ids = rows().map((row) => row.id);
-  // Both disappear and two identical files appear: which is which cannot be known.
-  await rename(
-    t.drive.absolute("library/kitchen/Copy one.md"),
-    t.drive.absolute("library/kitchen/A.md"),
-  );
-  await rename(
-    t.drive.absolute("library/kitchen/Copy two.md"),
-    t.drive.absolute("library/kitchen/B.md"),
-  );
-  t.advance(HOUR);
-  await reconcile();
-  for (const path of ["library/kitchen/A.md", "library/kitchen/B.md"])
-    expect(ids).not.toContain(at(path)?.id ?? "");
-});
-
 test("a different file at an old path is a new item", async () => {
   await file("library/kitchen/Notes.md", "first");
   await create();
@@ -215,43 +187,6 @@ test("a different file at an old path is a new item", async () => {
   t.advance(HOUR);
   await reconcile();
   expect(at("library/kitchen/Notes.md")?.id).not.toBe(first?.id ?? "");
-});
-
-test("a copy made before its original is deleted keeps the original's id and date", async () => {
-  await file("library/kitchen/Ridge photo.jpg", "pixels");
-  await create(["library/kitchen", "library/garage"]);
-  const original = at("library/kitchen/Ridge photo.jpg");
-  t.advance(HOUR);
-  await cp(
-    t.drive.absolute("library/kitchen/Ridge photo.jpg"),
-    t.drive.absolute("library/garage/Ridge photo.jpg"),
-    { preserveTimestamps: true },
-  );
-  await reconcile();
-  expect(rows()).toHaveLength(2);
-  t.advance(10 * 60 * 1000);
-  await rm(t.drive.absolute("library/kitchen/Ridge photo.jpg"));
-  await reconcile();
-  expect(rows()).toHaveLength(1);
-  expect(at("library/garage/Ridge photo.jpg")).toMatchObject({
-    id: original?.id,
-    addedAt: original?.addedAt,
-  });
-});
-
-test("matching stays within one library", async () => {
-  await file("library/kitchen/Map.pdf", "map");
-  const kitchen = await create(["library/kitchen"]);
-  const garage = await create(["library/garage"]);
-  const original = at("library/kitchen/Map.pdf", kitchen);
-  await rename(
-    t.drive.absolute("library/kitchen/Map.pdf"),
-    t.drive.absolute("library/garage/Map.pdf"),
-  );
-  await reconcile(kitchen);
-  await reconcile(garage);
-  expect(at("library/garage/Map.pdf", garage)?.id).not.toBe(original?.id ?? "");
-  expect(await listed(kitchen)).toEqual([]);
 });
 
 test("tombstones are pruned after 30 days and beyond a bounded count", async () => {
@@ -272,11 +207,9 @@ test("tombstones are pruned after 30 days and beyond a bounded count", async () 
         libraryId,
         path: `library/kitchen/old-${index}.md`,
         addedAt: 0,
-        firstSeenAt: 0,
         version: "v1_aaaaaaaa",
         sizeBytes: 1,
         modifiedAt: 0,
-        fingerprint: null,
         missingSince: t.now() - index,
       })),
     )

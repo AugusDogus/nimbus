@@ -99,6 +99,13 @@
       "when": 1795396799848,
       "tag": "0013_libraries_and_paired_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1795399043951,
+      "tag": "0014_drop_library_item_fingerprints",
+      "breakpoints": true
     }
   ]
 }

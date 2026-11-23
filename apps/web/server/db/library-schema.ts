@@ -76,8 +76,8 @@ export type LibraryItemKind = (typeof LIBRARY_ITEM_KINDS)[number];
 /**
  * What a library's catalog has seen: one row per file, with an opaque random id and the date it
  * joined the library. A file that disappears becomes a tombstone (`missingSince`), never listed
- * or reachable, so that a file reappearing with the same content, at its old path or moved
- * within the library, keeps its row; see LibraryCatalog. Nimbus's own moves carry rows along.
+ * or reachable, so that the same file coming back to the same path keeps its row; see
+ * CatalogIdentity. Nimbus's own renames and moves carry rows along.
  */
 export const libraryItems = sqliteTable(
   "nimbus_library_item",
@@ -88,14 +88,10 @@ export const libraryItems = sqliteTable(
       .references(() => libraries.id, { onDelete: "cascade" }),
     path: text("path").notNull(),
     addedAt: integer("added_at").notNull(),
-    /** When the catalog created the row. */
-    firstSeenAt: integer("first_seen_at").notNull(),
     version: text("version").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
     /** Whole milliseconds. */
     modifiedAt: integer("modified_at").notNull(),
-    /** A sampled content hash (see ContentFingerprint), null until computed for this version. */
-    fingerprint: text("fingerprint"),
     missingSince: integer("missing_since"),
   },
   (table) => [
