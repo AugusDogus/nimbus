@@ -5,6 +5,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileKind } from "@/lib/file-kind";
 import type { EditBase } from "./text-editor";
+import { PreviewShape, TextPreviewLoading } from "./preview-shape";
 import { TEXT_LIMIT, TextContent } from "./text-content";
 
 export type FilePreviewProps = {
@@ -17,19 +18,18 @@ export type FilePreviewProps = {
   onDirtyChange?: (dirty: boolean) => void;
 };
 
-const frame =
-  "max-h-[65dvh] min-h-40 w-full overflow-auto rounded-md border bg-muted";
-
 function Unavailable({ children }: { children: ReactNode }) {
   return (
     <p className="text-pretty text-sm text-muted-foreground">{children}</p>
   );
 }
 
-const loading = (
+const loading = <TextPreviewLoading />;
+/** A view's code loading inside the text frame, which it fills. */
+const inFrame = (
   <Skeleton
     aria-label="Loading preview"
-    className="h-[min(65dvh,32rem)] w-full"
+    className="size-full rounded-none motion-reduce:animate-none"
   />
 );
 
@@ -37,9 +37,9 @@ const pdfLoading = (
   <Skeleton aria-label="Loading preview" className="h-[65dvh] w-full" />
 );
 
-const MarkdownView = lazyComponent(() => import("./markdown-view"), loading);
-const CodeView = lazyComponent(() => import("./code-view"), loading);
-const TableView = lazyComponent(() => import("./table-view"), loading);
+const MarkdownView = lazyComponent(() => import("./markdown-view"), inFrame);
+const CodeView = lazyComponent(() => import("./code-view"), inFrame);
+const TableView = lazyComponent(() => import("./table-view"), inFrame);
 const TextEditor = lazyComponent(() => import("./text-editor"), loading);
 const PdfPagesView = lazyComponent(
   () => import("./pdf-pages-view"),
@@ -261,11 +261,11 @@ function TextPreview({
     );
   const hasRendered = kind.type === "markdown" || kind.type === "table";
   return (
-    <div className="space-y-2">
-      <div className={frame} data-preview-scroll>
+    <div className={PreviewShape.text}>
+      <div className={PreviewShape.frame} data-preview-scroll>
         {view}
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+      <div className={PreviewShape.actions}>
         {data.truncated && (
           <p className="text-pretty">
             Showing the first {TEXT_LIMIT / 1024 / 1024} MB. Download the file

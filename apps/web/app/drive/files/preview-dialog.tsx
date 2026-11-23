@@ -1,5 +1,5 @@
 import { lazyComponent } from "@/components/lazy-component";
-import { Skeleton } from "@/components/ui/skeleton";
+import { TextPreviewLoading } from "./preview/preview-shape";
 import type { FilePreviewProps } from "./preview/file-preview";
 import type { PreviewDialogProps } from "./preview/preview-dialog-body";
 
@@ -13,8 +13,5 @@ export const PreviewDialog = lazyComponent<PreviewDialogProps>(
 
 export const FilePreview = lazyComponent<FilePreviewProps>(
   () => import("./preview/file-preview"),
-  <Skeleton
-    aria-label="Loading preview"
-    className="h-[min(65dvh,32rem)] w-full"
-  />,
+  <TextPreviewLoading />,
 );
