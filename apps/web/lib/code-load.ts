@@ -16,10 +16,8 @@
 export type CodeLoadFailure = "updated" | "unavailable";
 
 const messages: Record<CodeLoadFailure, string> = {
-  updated:
-    "Nimbus was updated while this page was open. Reload to use the new version.",
-  unavailable:
-    "Part of Nimbus could not load. Check your connection, then reload the page.",
+  updated: "Nimbus has been updated.",
+  unavailable: "Part of Nimbus could not load.",
 };
 
 export class CodeLoadError extends Error {

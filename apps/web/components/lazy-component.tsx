@@ -6,7 +6,6 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
-import { CodeLoadFailed } from "@/components/code-load-notice";
 import { CodeLoad } from "@/lib/code-load";
 
 type Loading<P> =
@@ -22,8 +21,7 @@ type Loading<P> =
  * Loads through `CodeLoad.load`. A load that fails, also after its retries, shows the code load
  * notice, which offers Reload, and renders nothing, so the page stays as it is. It starts over
  * when the component mounts again, such as when its dialog opens again; never on its own, so a
- * file that stays missing is not asked for again and again. Content shown in place, which has a
- * `fallback`, shows `CodeLoadFailed` there instead, since a dialog around it can cover the notice.
+ * file that stays missing is not asked for again and again.
  */
 export function lazyComponent<P extends object>(
   load: () => Promise<{ default: ComponentType<P> }>,
@@ -54,7 +52,7 @@ export function lazyComponent<P extends object>(
     if (state.kind === "idle") start();
     if (state.kind === "loading") use(state.done);
     if (state.kind === "loaded") return createElement(state.Component, props);
-    return fallback === null ? null : <CodeLoadFailed />;
+    return null;
   }
 
   return function LazyComponent(props: P) {
