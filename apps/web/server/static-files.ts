@@ -1,5 +1,6 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { z } from "zod";
 
 /**
  * The built client's files, read into memory at startup with the brotli and gzip variants the
@@ -84,6 +85,30 @@ async function builtFiles(root: string) {
   return new Set(parsed);
 }
 
+const manifestEntry = z.object({
+  file: z.string(),
+  css: z.array(z.string()).optional(),
+  assets: z.array(z.string()).optional(),
+});
+
+/** The served paths of what a Vite manifest names as hashed output under `assets/`. */
+function hashedOutput(manifest: unknown) {
+  const parsed = z.record(z.string(), manifestEntry).safeParse(manifest);
+  if (!parsed.success)
+    throw new Error(
+      "Its .vite/manifest.json is missing or not a Vite manifest.",
+    );
+  const output = new Set<string>();
+  for (const entry of Object.values(parsed.data))
+    for (const file of [
+      entry.file,
+      ...(entry.css ?? []),
+      ...(entry.assets ?? []),
+    ])
+      if (file.startsWith("assets/")) output.add(`/${file}`);
+  return output;
+}
+
 export const StaticFiles = {
   /**
    * Reads the files under `root` that the build listed, except `exclude`. Anything else placed
@@ -120,10 +145,12 @@ export const StaticFiles = {
   },
 
   /**
-   * `files` with the hashed assets of the earlier builds at `earlier` that it lacks, so a page
-   * opened before an update still loads its lazy chunks from the new server. Only `assets/`:
-   * those names are content-addressed, so an earlier file never stands in for a current one.
-   * An earlier build that cannot be read is skipped, with the reason.
+   * `files` with the hashed output of the earlier builds at `earlier` that it lacks, so a page
+   * opened before an update still loads its lazy chunks from the new server. Only what each
+   * build's Vite manifest names as output (entries, chunks, their styles and assets), which is
+   * content-addressed, so an earlier file never stands in for a current one and nothing else in
+   * an earlier build is served forever. A build whose manifest cannot be read is skipped, with
+   * the reason.
    */
   async withEarlierAssets(
     files: StaticFiles,
@@ -136,7 +163,11 @@ export const StaticFiles = {
     const skipped: { root: string; reason: string }[] = [];
     for (const root of earlier) {
       let loaded: StaticFiles;
+      let output: Set<string>;
       try {
+        output = hashedOutput(
+          await Bun.file(path.join(root, ".vite/manifest.json")).json(),
+        );
         loaded = await StaticFiles.load(root, []);
       } catch (error) {
         skipped.push({
@@ -146,8 +177,7 @@ export const StaticFiles = {
         continue;
       }
       for (const [name, file] of loaded)
-        if (name.startsWith("/assets/") && !merged.has(name))
-          merged.set(name, file);
+        if (output.has(name) && !merged.has(name)) merged.set(name, file);
     }
     return { files: merged, skipped };
   },

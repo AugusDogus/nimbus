@@ -67,6 +67,10 @@ describe("StaticFiles.withEarlierAssets", () => {
       "assets/app-old.js": "old app",
       "assets/shared.js": "earlier shared",
       "icon.svg": "<svg>old</svg>",
+      ".vite/manifest.json": JSON.stringify({
+        "index.html": { file: "assets/app-old.js", imports: ["shared"] },
+        shared: { file: "assets/shared.js" },
+      }),
     });
     const { files, skipped } = await StaticFiles.withEarlierAssets(current, [
       earlier,
@@ -82,6 +86,35 @@ describe("StaticFiles.withEarlierAssets", () => {
     expect(text(files.get("/assets/shared.js"))).toBe("current shared");
     expect(text(files.get("/icon.svg"))).toBe("<svg>new</svg>");
     expect(files.get("/assets/app-old.js")?.immutable).toBe(true);
+  });
+
+  test("keeps only what the earlier build's manifest lists as its hashed output", async () => {
+    const current = await StaticFiles.load(
+      await build("current-2", { "assets/app-new.js": "new app" }),
+      [],
+    );
+    const earlier = await build("earlier-2", {
+      "assets/app-old.js": "old app",
+      "assets/app-old.css": "old styles",
+      "assets/font-old.woff2": "old font",
+      // Listed for serving by the build, but no hashed output: a page never asks for it by hash.
+      "assets/notes.txt": "dropped",
+      ".vite/manifest.json": JSON.stringify({
+        "index.html": {
+          file: "assets/app-old.js",
+          css: ["assets/app-old.css"],
+          assets: ["assets/font-old.woff2"],
+          isEntry: true,
+        },
+      }),
+    });
+    const { files } = await StaticFiles.withEarlierAssets(current, [earlier]);
+    expect([...files.keys()].sort()).toEqual([
+      "/assets/app-new.js",
+      "/assets/app-old.css",
+      "/assets/app-old.js",
+      "/assets/font-old.woff2",
+    ]);
   });
 
   test("skips an earlier build that is gone, saying why", async () => {
