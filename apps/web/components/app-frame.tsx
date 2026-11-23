@@ -170,7 +170,14 @@ function Layout({
       width={`${sidebarRem}rem`}
       className="surface-grain h-dvh min-h-0 overflow-hidden"
     >
-      <Sidebar variant="sidebar" bordered={false} rail={false}>
+      <Sidebar
+        variant="sidebar"
+        bordered={false}
+        rail={false}
+        // Their column fades in where it first appears, meant for a window widening past the
+        // drawer's breakpoint; here it would fade in over the page's skeleton on every load.
+        className="md:starting:opacity-100"
+      >
         <SidebarHeader className="h-16 justify-center px-3 py-0">
           {brand}
         </SidebarHeader>
