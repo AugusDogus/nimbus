@@ -16,7 +16,7 @@ export function SearchBox() {
   return (
     <form
       role="search"
-      className="relative min-w-0 max-w-lg flex-1"
+      className="relative min-w-0 flex-1 md:w-full"
       onSubmit={(event) => {
         // Forms inside a preview dialog portal bubble here through React.
         if (event.target !== event.currentTarget) return;
