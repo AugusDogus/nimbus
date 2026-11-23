@@ -48,6 +48,7 @@ import {
   CollapsedPane,
   PaneFailureView,
   PaneTools,
+  paneCard,
   type PaneMoves,
 } from "./pane-section";
 import { SplitAddress } from "./split-address";
@@ -331,6 +332,7 @@ export const SplitController = memo(function SplitController({
       drag,
       prefs: panePrefs[side],
       moves,
+      card: (highlighted) => paneCard(side, active, highlighted),
       tools: (
         <PaneTools
           prefs={panePrefs[side]}

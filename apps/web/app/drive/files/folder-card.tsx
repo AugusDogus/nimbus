@@ -11,25 +11,27 @@ export type FolderMoves = {
   up: (() => void) | null;
 };
 
+/** How a pane draws its card, its header row and its listing; they load with the split view. */
+export type FolderCardClasses = {
+  section: string;
+  header: string;
+  body: string;
+};
+
 /** What makes a folder's card a pane of a split view. */
 export type FolderCardPane = {
   id: string;
   side: PaneSide;
-  /** The pane New, Upload and the page's commands act on: the raised white card. */
+  /** Names the pane, and says whether it is the active one. */
+  label: string;
+  /** The pane New, Upload and the page's commands act on. */
   active: boolean;
-  /** Whether a drag over the pane's empty space would drop into its folder. */
-  highlighted: boolean;
+  classes: FolderCardClasses;
   /** The pane's own pointer, focus and drop handlers. */
   handlers: HTMLAttributes<HTMLElement>;
   /** Says where a drag over the pane would drop. */
   hint: ReactNode;
 };
-
-const sideName = { left: "Left", right: "Right" } as const;
-
-/** The inactive pane's surface: the page's tint mixed into the window's, flatter than a card. */
-const recessed =
-  "bg-[color-mix(in_oklab,var(--background)_45%,var(--sidebar))]";
 
 /**
  * A folder on its card: a header row of Back, Up, the folder's path and its tools, then the
@@ -54,39 +56,23 @@ export function FolderCard({
   tools: ReactNode;
   body: ReactNode;
 }) {
-  const active = pane?.active ?? true;
   return (
     <section
       data-slot="folder-card"
       id={pane?.id}
       data-pane={pane?.side}
       data-active={pane?.active ? true : undefined}
-      aria-label={
-        pane
-          ? `${sideName[pane.side]} pane${active ? " (active)" : ""}`
-          : undefined
-      }
+      aria-label={pane?.label}
       aria-current={pane?.active ? "true" : undefined}
       {...pane?.handlers}
       className={cn(
         "relative transition-[background-color,box-shadow] duration-150 ease-out motion-reduce:transition-none",
         pane
-          ? cn(
-              "flex min-h-0 min-w-0 flex-col overflow-hidden",
-              active
-                ? PageSurface.raised
-                : cn(
-                    recessed,
-                    "rounded-xl ring-1 ring-border/60 dark:ring-white/[0.05]",
-                  ),
-            )
+          ? pane.classes.section
           : cn(
               "md:flex md:min-h-0 md:min-w-0 md:flex-1 md:flex-col md:overflow-hidden",
               PageSurface.raisedFromTablet,
             ),
-        // A drop target is washed and ringed inside, unlike the active pane, which only rises.
-        pane?.highlighted &&
-          "after:pointer-events-none after:absolute after:inset-0 after:z-20 after:rounded-xl after:bg-primary/[0.06] after:ring-2 after:ring-inset after:ring-primary/45",
       )}
     >
       <div
@@ -95,15 +81,7 @@ export function FolderCard({
           // The selection bar covers this row and takes its colour (`bg-inherit`), so it is solid.
           "z-10 items-center gap-1 border-b",
           pane
-            ? cn(
-                "@container relative flex h-14 shrink-0 border-border/60 px-2",
-                active
-                  ? "bg-card"
-                  : cn(
-                      recessed,
-                      "text-muted-foreground [&_[data-slot=breadcrumb-page]]:text-muted-foreground",
-                    ),
-              )
+            ? pane.classes.header
             : "surface-grain sticky top-16 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] border-border/70 bg-background px-4 py-3 md:relative md:top-auto md:m-0 md:flex md:h-14 md:shrink-0 md:border-border/60 md:bg-card md:bg-none md:px-2 md:py-0",
         )}
       >
@@ -149,7 +127,7 @@ export function FolderCard({
         className={cn(
           "overflow-x-clip",
           pane
-            ? "min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]"
+            ? pane.classes.body
             : "md:min-h-0 md:flex-1 md:overflow-y-auto md:p-4 md:[scrollbar-gutter:stable]",
         )}
       >

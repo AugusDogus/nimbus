@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DriveRoot } from "@nimbus/api/drive-root";
 import type { PaneFailure, PanePrefs } from "../files-page-client";
-import type { FolderMoves } from "../folder-card";
+import type { FolderCardClasses, FolderMoves } from "../folder-card";
 import type { PaneSide } from "../split-layout";
 
 const sideName = { left: "Left", right: "Right" } as const;
@@ -166,6 +166,47 @@ function PaneViewMenu({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/** The active pane's card: raised as a page's one card is from 768 px (`PageSurface`). */
+const raised =
+  "rounded-xl bg-card ring-1 ring-border/80 shadow-raised dark:ring-white/[0.08]";
+
+/**
+ * A pane's card: the active one raised and white, the other flatter, tinted and quieter. A drop
+ * target is washed and ringed inside, unlike the active pane, which only rises.
+ */
+export function paneCard(
+  side: PaneSide,
+  active: boolean,
+  highlighted: boolean,
+): { label: string; classes: FolderCardClasses } {
+  return {
+    label: `${sideName[side]} pane${active ? " (active)" : ""}`,
+    classes: {
+      section: cn(
+        "flex min-h-0 min-w-0 flex-col overflow-hidden",
+        active
+          ? raised
+          : cn(
+              recessed,
+              "rounded-xl ring-1 ring-border/60 dark:ring-white/[0.05]",
+            ),
+        highlighted &&
+          "after:pointer-events-none after:absolute after:inset-0 after:z-20 after:rounded-xl after:bg-primary/[0.06] after:ring-2 after:ring-inset after:ring-primary/45",
+      ),
+      header: cn(
+        "@container relative flex h-14 shrink-0 border-border/60 px-2",
+        active
+          ? "bg-card"
+          : cn(
+              recessed,
+              "text-muted-foreground [&_[data-slot=breadcrumb-page]]:text-muted-foreground",
+            ),
+      ),
+      body: "min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]",
+    },
+  };
 }
 
 /** After a pane's path: its sort, grouping and view in one menu, and Close. */

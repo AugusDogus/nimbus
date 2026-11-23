@@ -52,7 +52,11 @@ import { WebMcpFileTools } from "./webmcp-tools";
 import { useFilePreferences } from "./use-file-preferences";
 import { openSplit, SplitToggle } from "./split-toggle";
 import { HeaderTools } from "./header-tools";
-import { FolderCard, type FolderMoves } from "./folder-card";
+import {
+  FolderCard,
+  type FolderCardClasses,
+  type FolderMoves,
+} from "./folder-card";
 import { fileHref } from "./types";
 
 export function FilesPageClient() {
@@ -161,6 +165,8 @@ export type PaneFrame = {
   moves: FolderMoves;
   /** After the path in the pane's header: its sort and view menu, and Close. */
   tools: ReactNode;
+  /** The pane's card, given whether a drag would drop into its folder (see `FolderCard`). */
+  card: (highlighted: boolean) => { label: string; classes: FolderCardClasses };
   /** Says why the pane's folder cannot be shown, with ways on that keep the pane open. */
   failure: (failure: PaneFailure) => ReactNode;
   onActivate: () => void;
@@ -454,7 +460,7 @@ export function FolderPane({
           id: pane.id,
           side: pane.side,
           active: pane.active,
-          highlighted: drag.dropState(target.path) === "allowed",
+          ...pane.card(drag.dropState(target.path) === "allowed"),
           handlers: {
             onPointerDownCapture: pane.onActivate,
             onFocusCapture: pane.onActivate,
