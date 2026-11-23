@@ -45,9 +45,6 @@ export type McpUploadContext = {
 /** How often, in received bytes, a running upload re-reads free space. */
 const capacityCheckBytes = 64 * 1024 * 1024;
 
-/** Keys of uploads running now: one link uploads each of its paths once at a time. */
-const running = new Set<string>();
-
 /** Uploads one link may run at once, as an agent running curl in parallel would. */
 export const MAX_RUNNING_PER_LINK = 16;
 /** Uploads running now, by link nonce. */
@@ -265,23 +262,39 @@ async function upload(
   access.require(named.relative, "write");
   await Homes.requireNotReserved(context.drive, named.relative);
   const destination = await safePath(named.relative);
-  if (UploadClaims.claimed(context.db, key, context.now()))
-    return refuse(
-      410,
-      `This link already uploaded ${destination.relative}. Nothing was saved this time. ${newLink}`,
-    );
-  if (running.has(key))
-    return refuse(
-      409,
-      "Another upload of this path with this link is still running. Nothing was saved. Wait for it to finish, or call get_upload_link for a new link.",
-    );
   const sameLink = runningPerLink.get(link.nonce) ?? 0;
   if (sameLink >= MAX_RUNNING_PER_LINK)
     return refuse(
       429,
       `This link is already running ${MAX_RUNNING_PER_LINK} uploads. Nothing was saved. Upload at most ${MAX_RUNNING_PER_LINK} files at once, and send this one when another finishes.`,
     );
-  running.add(key);
+  // Reserved now, while the link is valid, and kept until this upload ends: every server sees
+  // it, so one link uploads each path once, at one time, on one server.
+  const reservation = UploadClaims.reserve(
+    context.db,
+    key,
+    link.expiresAt,
+    context.now(),
+  );
+  switch (reservation.kind) {
+    case "committed":
+      return refuse(
+        410,
+        `This link already uploaded ${destination.relative}. Nothing was saved this time. ${newLink}`,
+      );
+    case "running":
+      return refuse(
+        409,
+        "Another upload of this path with this link is still running. Nothing was saved. Wait for it to finish, or call get_upload_link for a new link.",
+      );
+    case "expired":
+      return refuse(
+        410,
+        `This upload link has expired: each upload must start before its expiresAt. Nothing was saved. ${newLink}`,
+      );
+    case "reserved":
+      break;
+  }
   runningPerLink.set(link.nonce, sameLink + 1);
   try {
     return await receiveAndCommit(
@@ -293,7 +306,8 @@ async function upload(
       authorize,
     );
   } finally {
-    running.delete(key);
+    // Gives back only a reservation that committed nothing.
+    UploadClaims.release(context.db, key);
     const left = (runningPerLink.get(link.nonce) ?? 1) - 1;
     if (left > 0) runningPerLink.set(link.nonce, left);
     else runningPerLink.delete(link.nonce);
@@ -394,8 +408,8 @@ async function stageAndCommit(
 /**
  * Commit `staged` at `relative` through the write path WebDAV PUT and the editor use: inside
  * the path's lock, with access re-checked, the previous content kept as a version and a new
- * path claimed. This link's record for the path is claimed inside the same lock, so each path
- * commits once, and released again when nothing was committed.
+ * path claimed. The link's reservation of the path is marked committed once the content is in
+ * place, also when a later step fails.
  */
 async function commit(
   context: McpUploadContext,
@@ -406,23 +420,10 @@ async function commit(
   authorize: () => ReturnType<typeof getAccess>,
 ): Promise<Response> {
   const rule = link.destination.rule;
-  let recorded = false;
-  let done = false;
   const credentials = {
     userId: link.userId,
     drive: context.drive,
-    async authorize() {
-      const access = await authorize();
-      if (!recorded) {
-        if (!UploadClaims.claim(context.db, key, link.expiresAt, context.now()))
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: `This link already uploaded ${relative}. Nothing was saved this time. ${newLink}`,
-          });
-        recorded = true;
-      }
-      return access;
-    },
+    authorize,
   };
   const parent = path.posix.dirname(relative);
   const name = path.posix.basename(relative);
@@ -447,7 +448,7 @@ async function commit(
       switch (outcome.kind) {
         case "created":
         case "replaced":
-          done = true;
+          UploadClaims.commit(context.db, key);
           return reply(outcome.kind === "created" ? 201 : 200, {
             outcome: outcome.kind,
             path: outcome.entry.path,
@@ -498,13 +499,9 @@ async function commit(
     }
   } catch (error) {
     // A failure after the content was put in place, such as pruning old versions, leaves the
-    // upload committed: its record stays, so the link cannot write the path again.
-    if (recorded && !(await holds(candidate, incoming)))
-      UploadClaims.release(context.db, key);
-    recorded = false;
+    // upload committed, so the link cannot write the path again.
+    if (await holds(candidate, incoming)) UploadClaims.commit(context.db, key);
     throw error;
-  } finally {
-    if (recorded && !done) UploadClaims.release(context.db, key);
   }
 }
 

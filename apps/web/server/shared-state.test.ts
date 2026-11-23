@@ -77,27 +77,59 @@ describe("undo claims", () => {
   });
 });
 
-describe("MCP upload claims", () => {
-  test("a path one server committed for a link is refused on the other", () => {
+describe("MCP upload reservations", () => {
+  test("a path one server is uploading for a link is refused on the other until it ends", () => {
     const [old, next] = servers;
-    expect(UploadClaims.claim(old.db, "link/path", 10_000, 1_000)).toBe(true);
-    expect(UploadClaims.claimed(next.db, "link/path", 1_000)).toBe(true);
-    expect(UploadClaims.claim(next.db, "link/path", 10_000, 1_000)).toBe(false);
+    expect(UploadClaims.reserve(old.db, "link/path", 10_000, 1_000)).toEqual({
+      kind: "reserved",
+    });
+    expect(UploadClaims.reserve(next.db, "link/path", 10_000, 1_000)).toEqual({
+      kind: "running",
+    });
+    UploadClaims.commit(old.db, "link/path");
+    expect(UploadClaims.reserve(next.db, "link/path", 10_000, 2_000)).toEqual({
+      kind: "committed",
+    });
   });
 
-  test("a released claim lets the link upload the path again", () => {
+  test("an upload that finishes after its link expired still holds the path, so nothing commits it twice", () => {
     const [old, next] = servers;
-    expect(UploadClaims.claim(old.db, "link/path", 10_000, 1_000)).toBe(true);
+    expect(UploadClaims.reserve(old.db, "link/path", 10_000, 1_000).kind).toBe(
+      "reserved",
+    );
+    // Past expiry, another link's admission prunes what expired: the running upload's
+    // reservation stays, and its link admits nothing new.
+    expect(
+      UploadClaims.reserve(next.db, "other/path", 50_000, 20_000).kind,
+    ).toBe("reserved");
+    expect(UploadClaims.reserve(next.db, "link/path", 10_000, 20_000)).toEqual({
+      kind: "expired",
+    });
+    UploadClaims.commit(old.db, "link/path");
+    expect(
+      UploadClaims.reserve(next.db, "link/path", 10_000, 20_000).kind,
+    ).toBe("expired");
+  });
+
+  test("a released reservation lets the link upload the path again", () => {
+    const [old, next] = servers;
+    expect(UploadClaims.reserve(old.db, "link/path", 10_000, 1_000).kind).toBe(
+      "reserved",
+    );
     UploadClaims.release(old.db, "link/path");
-    expect(UploadClaims.claimed(next.db, "link/path", 1_000)).toBe(false);
-    expect(UploadClaims.claim(next.db, "link/path", 10_000, 1_000)).toBe(true);
+    expect(UploadClaims.reserve(next.db, "link/path", 10_000, 1_000).kind).toBe(
+      "reserved",
+    );
   });
 
-  test("claims end with their link", () => {
+  test("a release never gives up a committed path", () => {
     const [old, next] = servers;
-    expect(UploadClaims.claim(old.db, "link/path", 2_000, 1_000)).toBe(true);
-    expect(UploadClaims.claimed(next.db, "link/path", 2_000)).toBe(false);
-    expect(UploadClaims.claim(next.db, "link/path", 9_000, 2_000)).toBe(true);
+    UploadClaims.reserve(old.db, "link/path", 10_000, 1_000);
+    UploadClaims.commit(old.db, "link/path");
+    UploadClaims.release(next.db, "link/path");
+    expect(UploadClaims.reserve(next.db, "link/path", 10_000, 1_000).kind).toBe(
+      "committed",
+    );
   });
 });
 

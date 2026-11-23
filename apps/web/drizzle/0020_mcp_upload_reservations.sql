@@ -1,0 +1,1 @@
+ALTER TABLE `nimbus_mcp_upload_claim` ADD `state` text DEFAULT 'committed' NOT NULL;
