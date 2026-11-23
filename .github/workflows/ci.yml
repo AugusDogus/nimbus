@@ -74,6 +74,10 @@ jobs:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - run: bun run build
+      # Hands the port over between real servers under the supervisor while films stream; it
+      # needs the built client, so it is skipped in the unit job and runs here.
+      - run: bun test apps/web/server/supervisor/handover.e2e.test.ts
+        timeout-minutes: 3
       # Public pages must load no module of the signed-in app.
       - run: bun scripts/page-modules.ts
       - run: bun scripts/first-load-js.ts --budget scripts/first-load-js-budget.json

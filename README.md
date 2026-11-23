@@ -132,6 +132,8 @@ Publishing uses the workflow's `GITHUB_TOKEN`; no registry secret needs to be co
 
 Set `PUID=99` and `PGID=100`, Unraid's `nobody:users` owner for shares, so files created by Nimbus are accessible over SMB and to other containers.
 
+In the container's **Advanced View**, add `--sysctl net.ipv4.tcp_migrate_req=1 --stop-timeout 35` to **Extra Parameters**, so [restarts without downtime](#restarts-without-downtime) hand every connection to the new server and a container stop lets responses finish.
+
 An existing installation that ran with another `PUID`, including every installation from images before `PUID` existed (which ran as `1000:1000`), owns its folders as that user. Nimbus never re-owns your files, so after changing `PUID` it cannot write to those folders, including existing home folders, until you re-own them. Either keep the old `PUID` and `PGID`, or stop Nimbus and re-own the data once, for example from the Unraid terminal with `chown -R 99:100 /mnt/user/data`, or with Compose:
 
 ```bash
@@ -192,6 +194,10 @@ Set the deployment values in `apps/web/.env` before startup. For PDF and video t
 | `NIMBUS_WATCH_DEBOUNCE_MS`    | Milliseconds to wait for changes made outside Nimbus to settle before open folders and search refresh, default `300`. Invalid values use the default. |
 | `NIMBUS_RECONCILE_INTERVAL_MS` | Milliseconds between comparisons of the search index with the disk, which catch changes the file watcher missed and check again folders it could not read, default `1800000` (30 minutes), from `1000` to `2147483647` (about 24 days). Other values use the default. |
 | `NIMBUS_MCP_ENABLED`          | Optional. `false` turns off the MCP server, its OAuth endpoints, and discovery documents. Default: `true`. Approved clients stay stored. |
+| `NIMBUS_DRAIN_HOURS`          | Container only. Hours a server replaced by a [restart without downtime](#restarts-without-downtime) keeps sending the responses it had started, such as a film, from `0.01` to `48`. Default `6`. |
+| `NIMBUS_MAX_DRAINING`         | Container only. Replaced servers kept finishing their responses at once, from `1` to `8`. One more makes the oldest stop now. Default `2`. |
+| `NIMBUS_READY_TIMEOUT_SECONDS` | Container only. Seconds a new server may take to migrate, index the drive and pass its health check before a restart is abandoned and the running server keeps serving. Default `300`. |
+| `NIMBUS_STOP_SECONDS`         | Container only. Seconds every server may finish its responses when the container stops. Keep it below the container's stop timeout. Default `30`. |
 
 Startup fails with a message naming the problem when an optional integration is only partly configured or a setting has an invalid value, such as `NIMBUS_MCP_ENABLED=no` or an unsafe `NIMBUS_HOMES_PATH`, so a typo cannot silently turn email, single sign-on, or MCP off.
 
@@ -427,6 +433,25 @@ docker compose up -d
 For Unraid bind mounts or a local installation, stop Nimbus and copy the same database and any companion journal files from the old `.nimbus` directory to the new config directory. Keep `BETTER_AUTH_SECRET` unchanged. Startup gives the database, its journal files, backups, and thumbnail cache in the config directory to `PUID`:`PGID`, and stops with a message naming the files if the database still cannot be written, for example when a local installation's files belong to another user. Thumbnails can regenerate, or you can copy `.nimbus/cache` into the config directory too. Leave `.nimbus/trash` and `.nimbus/uploads` under the data root.
 
 Verify your existing accounts, shares, and trash after restarting. The old database copy is a backup of the migration point; it does not receive subsequent changes. Once verified and backed up, you can remove the old database, its journal files, and the old thumbnail cache. An explicit `DATABASE_URL` continues to take precedence and is never relocated automatically.
+
+### Restarts without downtime
+
+In the container, Nimbus runs under a small supervisor that can replace the server with a fresh one without closing its port:
+
+```bash
+docker compose exec nimbus bun server/supervisor/control.ts restart
+docker compose exec nimbus bun server/supervisor/control.ts status
+```
+
+The new server starts beside the running one, builds its search index, applies pending migrations and passes its health check, and only then takes new connections. If it never gets that far, it is stopped and the running server keeps serving. Once it serves, the old server stops taking connections and finishes what it had started:
+
+- **Not interrupted:** a film or any other download already playing continues to its last byte from the server that started it, for up to `NIMBUS_DRAIN_HOURS`; the next request, such as a seek, goes to the new server. Uploads, page loads and API calls carry on. Media addresses, Undo, WebDAV locks and MCP upload links keep working.
+- **Reconnected:** live updates in open pages and MCP event streams end and reconnect to the new server at once.
+- **Still cut off:** a device disconnected meanwhile, as before. A request a client sends on an idle connection at the very moment the old server closes it can fail; browsers, reverse proxies and media players notice a closed connection before reusing it, so this is rare.
+
+Set `net.ipv4.tcp_migrate_req=1` for the container, as `compose.yaml` does (`docker run --sysctl net.ipv4.tcp_migrate_req=1`, or on Unraid in **Extra Parameters**). Without it, a connection that arrives in the moment the old server leaves the port can be reset; the log says so once at startup. The control socket lives inside the container, reachable only by root and the user Nimbus runs as; nothing about it listens on the network.
+
+Replacing the container, as pulling a new image does, still interrupts Nimbus: connections are refused until the new container is ready, and responses still running when the container stops are cut after `NIMBUS_STOP_SECONDS`, after which players usually resume from where they stopped. Keep the container's stop timeout above that, as `stop_grace_period: 35s` in `compose.yaml` does (`docker run --stop-timeout 35`). A host reboot interrupts Nimbus the same way.
 
 ### Application upgrades
 

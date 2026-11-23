@@ -62,4 +62,7 @@ EXPOSE 3000
 VOLUME ["/data", "/config"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD bun -e 'fetch(`http://127.0.0.1:${process.env.PORT || 3000}/api/health`).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'
 ENTRYPOINT ["nimbus-entrypoint"]
-CMD ["bun", "server/start.ts"]
+# The supervisor runs the server and can replace it with a fresh one without closing the port:
+# `docker exec <container> bun server/supervisor/control.ts restart`. See the README's
+# "Restarts without downtime".
+CMD ["bun", "server/supervisor/main.ts"]

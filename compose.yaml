@@ -14,7 +14,11 @@ services:
       - nimbus-data:/data
       - nimbus-config:/config
     restart: unless-stopped
+    # A stop lets responses finish for NIMBUS_STOP_SECONDS (30), so allow a little longer.
     stop_grace_period: 35s
+    # Hands connections that arrive during a restart without downtime to the new server.
+    sysctls:
+      net.ipv4.tcp_migrate_req: 1
 
 volumes:
   nimbus-data:
