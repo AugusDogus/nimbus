@@ -10,7 +10,10 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { forgetFileMutationsForTest } from "./file-mutations";
+import {
+  forgetFileMutationsForTest,
+  setScopeAuthority,
+} from "./file-mutations";
 import { appRouter } from "./routers";
 import { createTestDriveStore, transferredOf } from "./testing";
 import { TransferReceipt } from "./transfer-receipt";
@@ -278,6 +281,31 @@ describe("undoing moves and copies", () => {
       { kind: "kept", reason: "used" },
     ]);
     expect(await exists("archive/sub")).toBe(true);
+  });
+
+  it("undoes a receipt once even when two servers try at the same moment", async () => {
+    const receipt = receiptOf(
+      await caller().files.move({
+        sourcePath: "docs/report.txt",
+        destinationPath: "archive",
+      }),
+    );
+    // Scopes that exclude nothing, as if each undo ran on its own server: only the undo claim,
+    // which every server shares, keeps the receipt from being applied twice.
+    setScopeAuthority({ acquire: async () => () => undefined });
+    try {
+      const outcomes = (await Promise.all([undo([receipt]), undo([receipt])]))
+        .flat()
+        .map((outcome) =>
+          outcome.kind === "kept" ? outcome.reason : outcome.kind,
+        )
+        .sort();
+      expect(outcomes).toEqual(["undone", "used"]);
+    } finally {
+      setScopeAuthority(null);
+    }
+    expect(await exists("docs/report.txt")).toBe(true);
+    expect(await exists("archive/report.txt")).toBe(false);
   });
 
   it("moves a folder back after entries were added to it, but keeps a copy someone added to", async () => {

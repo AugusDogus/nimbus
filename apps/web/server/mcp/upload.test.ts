@@ -200,6 +200,34 @@ describe("MCP upload links", () => {
     );
   });
 
+  it("records each committed path in the database, where the next server refuses it", async () => {
+    const { token } = await link({
+      kind: "file",
+      path: "docs/once.txt",
+      rule: { kind: "overwrite" },
+    });
+    expect((await put(token, "first")).status).toBe(201);
+    // All a server after an update shares with this one is the database.
+    const claims = drive.sqlite
+      .query<{ expires_at: number }, []>(
+        "SELECT expires_at FROM nimbus_mcp_upload_claim",
+      )
+      .all();
+    expect(claims).toEqual([{ expires_at: now + UPLOAD_LINK_TTL_MS }]);
+    const again = await put(token, "second");
+    expect(again.status).toBe(410);
+    // A refused or failed upload commits nothing and keeps no claim of its own.
+    const refusedLink = await link({
+      kind: "file",
+      path: "docs/report.txt",
+      rule: { kind: "refuse" },
+    });
+    expect((await put(refusedLink.token, "replacement")).status).toBe(409);
+    expect(
+      drive.sqlite.query("SELECT key FROM nimbus_mcp_upload_claim").all(),
+    ).toHaveLength(1);
+  });
+
   it("refuses to start once expired, but lets a started upload finish", async () => {
     const { token } = await link({
       kind: "file",
