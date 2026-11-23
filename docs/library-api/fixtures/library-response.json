@@ -1,0 +1,42 @@
+{
+  "library": { "id": "lib_exampleKitchen", "title": "Kitchen" },
+  "items": [
+    {
+      "id": "itm_exampleSourdough01",
+      "name": "01 Sourdough basics.mp4",
+      "kind": "video",
+      "contentType": "video/mp4",
+      "folder": 0,
+      "path": "Guides/01 Sourdough basics.mp4",
+      "addedAt": "2026-11-15T12:00:00.000Z",
+      "sizeBytes": 387973120,
+      "version": "v1_exampleVersion0001",
+      "poster": null
+    },
+    {
+      "id": "itm_exampleTrailMap001",
+      "name": "Trail map.pdf",
+      "kind": "document",
+      "contentType": "application/pdf",
+      "folder": 0,
+      "path": "Maps/Trail map.pdf",
+      "addedAt": "2026-11-12T10:00:00.000Z",
+      "sizeBytes": 245760,
+      "version": "v1_exampleVersion0002",
+      "poster": null
+    },
+    {
+      "id": "itm_exampleBikeNotes01",
+      "name": "Bike repair notes.md",
+      "kind": "document",
+      "contentType": "text/plain; charset=utf-8",
+      "folder": 1,
+      "path": "Bike repair notes.md",
+      "addedAt": "2026-11-10T09:00:00.000Z",
+      "sizeBytes": 4096,
+      "version": "v1_exampleVersion0003",
+      "poster": null
+    }
+  ],
+  "generatedAt": "2026-11-15T12:00:00.000Z"
+}

@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "slow_down",
+    "message": "This device is checking too often. Wait 10 seconds between checks from now on."
+  },
+  "interval": 10
+}

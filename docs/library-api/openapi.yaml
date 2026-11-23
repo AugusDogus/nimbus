@@ -1,0 +1,410 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Nimbus library API
+  version: 1.0.0
+  summary: Read-only access to one library for a paired device
+  description: >-
+    A library is a named set of folders that a Nimbus account offers, read-only, to the devices it
+    pairs. A device pairs by showing a code that the account's owner approves on a signed-in phone
+    or browser, and then holds one opaque bearer token bound to that one library. See README.md.
+    Every response is JSON unless stated otherwise and carries Cache-Control private, no-store,
+    except where a response says private, no-cache. Request bodies are JSON, at most 4 KiB, and
+    unknown fields are refused.
+servers:
+  - url: https://nimbus.example.test/api/library/v1
+    description: An invented server. Use your Nimbus server's public HTTPS address.
+security:
+  - DeviceBearer: []
+paths:
+  /pair/start:
+    post:
+      operationId: startPairing
+      summary: Start pairing a device
+      description: >-
+        Needs no sign-in and grants nothing by itself. Show `pairingCode` (and optionally a QR code
+        of `verificationUrlComplete`) to the person, then poll with `deviceCode`, which is secret.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairStartRequest"
+      responses:
+        "200":
+          description: A pairing request, valid for `expiresIn` seconds.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairStartResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Error"
+  /pair/poll:
+    post:
+      operationId: pollPairing
+      summary: Ask how a pairing request stands
+      description: >-
+        Poll no more often than `interval` seconds. An early poll is answered with 429 `slow_down`
+        and a larger `interval`, which applies to every later poll. The token is returned exactly
+        once; if that response is lost, start pairing again.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairPollRequest"
+      responses:
+        "200":
+          description: The request's state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairPollResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /me:
+    get:
+      operationId: getMe
+      summary: This device and its library
+      responses:
+        "200":
+          description: The paired device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Error"
+  /library:
+    get:
+      operationId: getLibrary
+      summary: Every file in the library, newest first
+      description: >-
+        One complete flat list of the regular files under the library's folders, ordered by
+        `addedAt` descending, then `id` ascending. Hidden files and folders, files more than 32 folders deep, and the library data
+        file are not listed. A chosen folder that is missing contributes nothing, so the list may
+        be empty. Private, no-cache: revalidate with If-None-Match.
+      parameters:
+        - name: kinds
+          in: query
+          required: false
+          description: Comma-separated kinds to list, such as `video,document`. All kinds when absent.
+          schema:
+            type: string
+            pattern: ^(video|audio|image|document|other)(,(video|audio|image|document|other))*$
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: The library.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryResponse"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    DeviceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Opaque Nimbus device token (nimbus_device_ prefix)
+      description: >-
+        The token `/pair/poll` returned. Checked against the server on every request. It stays
+        valid until revoked or unused for 30 days; each successful request slides that deadline.
+  parameters:
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema:
+        type: string
+  headers:
+    ETag:
+      description: Opaque validator of this representation.
+      schema:
+        type: string
+    RetryAfter:
+      description: Seconds to wait.
+      schema:
+        type: string
+        pattern: ^[0-9]+$
+  responses:
+    Error:
+      description: A failure with a stable code.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >-
+        `authorization_required` (no token sent), `token_invalid` (not a token this server knows)
+        or `token_revoked` (revoked, unused for 30 days, or its account or library is gone). Pair
+        again in every case.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: "`rate_limited`, or `slow_down` for an early poll."
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotModified:
+      description: Unchanged since the ETag sent. The request was authorized first.
+  schemas:
+    PairStartRequest:
+      type: object
+      additionalProperties: false
+      required: [deviceName]
+      properties:
+        deviceName:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: >-
+            Shown to the person approving, labeled as supplied by the device. No control,
+            invisible formatting (such as bidirectional marks) or line break characters.
+          examples: [Media box]
+    PairStartResponse:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          deviceCode,
+          pairingCode,
+          verificationUrl,
+          verificationUrlComplete,
+          expiresIn,
+          interval,
+        ]
+      properties:
+        deviceCode:
+          type: string
+          minLength: 32
+          maxLength: 191
+          description: Secret. Never show, log or encode it in a QR code.
+        pairingCode:
+          type: string
+          pattern: ^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$
+          examples: [B7KD-M4Q9]
+        verificationUrl:
+          type: string
+          format: uri
+          examples: [https://nimbus.example.test/pair]
+        verificationUrlComplete:
+          type: string
+          format: uri
+          description: The pairing page with the code filled in, for a QR code. Opening it approves nothing.
+          examples: [https://nimbus.example.test/pair?code=B7KD-M4Q9]
+        expiresIn:
+          type: integer
+          const: 600
+        interval:
+          type: integer
+          const: 5
+    PairPollRequest:
+      type: object
+      additionalProperties: false
+      required: [deviceCode]
+      properties:
+        deviceCode:
+          type: string
+          minLength: 1
+          maxLength: 191
+    PairPollResponse:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [status]
+          properties:
+            status:
+              const: pending
+        - type: object
+          additionalProperties: false
+          required: [status]
+          properties:
+            status:
+              const: denied
+        - type: object
+          additionalProperties: false
+          required: [status]
+          description: Also the answer for an unknown or already collected code.
+          properties:
+            status:
+              const: expired
+        - type: object
+          additionalProperties: false
+          required: [status, token, library]
+          properties:
+            status:
+              const: approved
+            token:
+              type: string
+              minLength: 20
+              description: The device's bearer token, returned only this once.
+            library:
+              $ref: "#/components/schemas/LibrarySummary"
+    LibrarySummary:
+      type: object
+      additionalProperties: false
+      required: [id, title]
+      properties:
+        id:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{5,100}$
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+    Me:
+      type: object
+      additionalProperties: false
+      required: [deviceName, library]
+      properties:
+        deviceName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        library:
+          $ref: "#/components/schemas/LibrarySummary"
+    LibraryResponse:
+      type: object
+      additionalProperties: false
+      required: [library, items, generatedAt]
+      properties:
+        library:
+          $ref: "#/components/schemas/LibrarySummary"
+        items:
+          type: array
+          maxItems: 2000
+          items:
+            $ref: "#/components/schemas/Item"
+        generatedAt:
+          type: string
+          format: date-time
+          description: When this library's contents or settings last changed.
+    Item:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          name,
+          kind,
+          contentType,
+          folder,
+          path,
+          addedAt,
+          sizeBytes,
+          version,
+          poster,
+        ]
+      properties:
+        id:
+          type: string
+          pattern: ^itm_[A-Za-z0-9_-]{10,64}$
+          description: >-
+            Opaque and random. Kept through renames and moves within the library, also ones made
+            outside Nimbus, while the content is unchanged and the match is unambiguous; see README.md.
+        name:
+          type: string
+          minLength: 1
+          description: The file's name, extension included.
+        kind:
+          type: string
+          enum: [video, audio, image, document, other]
+        contentType:
+          type: string
+          minLength: 1
+          examples: [video/mp4, application/pdf]
+        folder:
+          type: integer
+          minimum: 0
+          description: >-
+            Which of the library's folders holds the file, as an index: 0 for the first, in the
+            owner's order, counting only the folders the device sees now.
+        path:
+          type: string
+          minLength: 1
+          description: >-
+            The file's path below that folder, its real names joined with `/` and no leading
+            slash, such as `Guides/Trail map.pdf`, or just its name at the top of the folder.
+        addedAt:
+          type: string
+          format: date-time
+          description: >-
+            When the file joined the library: its modification time for files found when a folder
+            is first scanned, otherwise when the library first saw it. Never changes afterwards.
+        sizeBytes:
+          type: integer
+          minimum: 0
+        version:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{8,128}$
+          description: Opaque; changes whenever the file's content may have changed.
+        poster:
+          type: "null"
+          description: Reserved for a later version.
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_request
+                - authorization_required
+                - token_invalid
+                - token_revoked
+                - forbidden_origin
+                - not_found
+                - item_not_found
+                - method_not_allowed
+                - library_too_large
+                - rate_limited
+                - slow_down
+                - library_unavailable
+                - service_unavailable
+            message:
+              type: string
+              minLength: 1
+              description: For people. Never contains paths or credentials.
+        interval:
+          type: integer
+          minimum: 5
+          description: Only with `slow_down`; the least poll interval from now on.

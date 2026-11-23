@@ -1,0 +1,5 @@
+{
+  "status": "approved",
+  "token": "nimbus_device_example-only-not-a-real-token-0123456789",
+  "library": { "id": "lib_exampleKitchen", "title": "Kitchen" }
+}
