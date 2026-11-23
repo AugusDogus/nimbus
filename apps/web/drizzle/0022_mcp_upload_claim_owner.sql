@@ -1,0 +1,1 @@
+ALTER TABLE `nimbus_mcp_upload_claim` ADD `owner` text;

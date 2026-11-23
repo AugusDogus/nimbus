@@ -81,58 +81,113 @@ describe("undo claims", () => {
 });
 
 describe("MCP upload reservations", () => {
+  const at = (time: number) => () => time;
+
   test("a path one server is uploading for a link is refused on the other until it ends", () => {
     const [old, next] = servers;
-    expect(UploadClaims.reserve(old.db, "link/path", 10_000, 1_000)).toEqual({
-      kind: "reserved",
-    });
-    expect(UploadClaims.reserve(next.db, "link/path", 10_000, 1_000)).toEqual({
-      kind: "running",
-    });
+    expect(
+      UploadClaims.reserve(old.db, "link/path", 10_000, "old", at(1_000)),
+    ).toEqual({ kind: "reserved" });
+    expect(
+      UploadClaims.reserve(next.db, "link/path", 10_000, "next", at(1_000)),
+    ).toEqual({ kind: "running" });
     UploadClaims.commit(old.db, "link/path");
-    expect(UploadClaims.reserve(next.db, "link/path", 10_000, 2_000)).toEqual({
-      kind: "committed",
-    });
+    expect(
+      UploadClaims.reserve(next.db, "link/path", 10_000, "next", at(2_000)),
+    ).toEqual({ kind: "committed" });
   });
 
-  test("an upload that finishes after its link expired still holds the path, so nothing commits it twice", () => {
+  test("reads the clock only once it holds the database's write lock", () => {
     const [old, next] = servers;
-    expect(UploadClaims.reserve(old.db, "link/path", 10_000, 1_000).kind).toBe(
-      "reserved",
-    );
-    // Past expiry, another link's admission prunes what expired: the running upload's
-    // reservation stays, and its link admits nothing new.
-    expect(
-      UploadClaims.reserve(next.db, "other/path", 50_000, 20_000).kind,
-    ).toBe("reserved");
-    expect(UploadClaims.reserve(next.db, "link/path", 10_000, 20_000)).toEqual({
-      kind: "expired",
+    next.sqlite.run("PRAGMA busy_timeout = 0");
+    const writable: boolean[] = [];
+    UploadClaims.reserve(old.db, "link/path", 10_000, "old", () => {
+      try {
+        next.sqlite.run(
+          "INSERT INTO nimbus_mcp_upload_claim (key, expires_at) VALUES ('other/path', 1)",
+        );
+        writable.push(true);
+      } catch {
+        writable.push(false);
+      }
+      return 1_000;
     });
+    // Another server committing meanwhile would make the time read stale.
+    expect(writable).toEqual([false]);
+  });
+
+  test("an upload still running long after its link expired keeps the path", () => {
+    const [old, next] = servers;
+    expect(
+      UploadClaims.reserve(old.db, "link/path", 10_000, "old", at(1_000)).kind,
+    ).toBe("reserved");
+    // Two days later another link's admission prunes what expired.
+    const later = 10_000 + 2 * 24 * 60 * 60 * 1000;
+    expect(
+      UploadClaims.reserve(
+        next.db,
+        "other/path",
+        later + 50_000,
+        "next",
+        at(later),
+      ).kind,
+    ).toBe("reserved");
+    const kept = old.sqlite
+      .query<{ state: string }, []>(
+        "SELECT state FROM nimbus_mcp_upload_claim WHERE key = 'link/path'",
+      )
+      .get();
+    expect(kept?.state).toBe("reserved");
     UploadClaims.commit(old.db, "link/path");
     expect(
-      UploadClaims.reserve(next.db, "link/path", 10_000, 20_000).kind,
+      UploadClaims.reserve(next.db, "link/path", 10_000, "next", at(later))
+        .kind,
     ).toBe("expired");
+  });
+
+  test("a server that exited leaves its paths taken until its link expires, as it may have written them", () => {
+    const [old, next] = servers;
+    UploadClaims.reserve(old.db, "link/a", 10_000, "old", at(1_000));
+    UploadClaims.reserve(next.db, "link/b", 10_000, "next", at(1_000));
+    UploadClaims.settleOwnedBy(next.db, "old");
+    // The exited server's reservation counts as written; the live one is still running.
+    expect(
+      UploadClaims.reserve(next.db, "link/a", 10_000, "next", at(2_000)),
+    ).toEqual({ kind: "committed" });
+    expect(
+      UploadClaims.reserve(old.db, "link/b", 10_000, "old", at(2_000)),
+    ).toEqual({ kind: "running" });
+    // Once the link expired, both go.
+    UploadClaims.settleAll(next.db);
+    UploadClaims.reserve(next.db, "other/c", 90_000, "next", at(20_000));
+    expect(
+      old.sqlite
+        .query<{ key: string }, []>("SELECT key FROM nimbus_mcp_upload_claim")
+        .all(),
+    ).toEqual([{ key: "other/c" }]);
   });
 
   test("a released reservation lets the link upload the path again", () => {
     const [old, next] = servers;
-    expect(UploadClaims.reserve(old.db, "link/path", 10_000, 1_000).kind).toBe(
-      "reserved",
-    );
+    expect(
+      UploadClaims.reserve(old.db, "link/path", 10_000, "old", at(1_000)).kind,
+    ).toBe("reserved");
     UploadClaims.release(old.db, "link/path");
-    expect(UploadClaims.reserve(next.db, "link/path", 10_000, 1_000).kind).toBe(
-      "reserved",
-    );
+    expect(
+      UploadClaims.reserve(next.db, "link/path", 10_000, "next", at(1_000))
+        .kind,
+    ).toBe("reserved");
   });
 
   test("a release never gives up a committed path", () => {
     const [old, next] = servers;
-    UploadClaims.reserve(old.db, "link/path", 10_000, 1_000);
+    UploadClaims.reserve(old.db, "link/path", 10_000, "old", at(1_000));
     UploadClaims.commit(old.db, "link/path");
     UploadClaims.release(next.db, "link/path");
-    expect(UploadClaims.reserve(next.db, "link/path", 10_000, 1_000).kind).toBe(
-      "committed",
-    );
+    expect(
+      UploadClaims.reserve(next.db, "link/path", 10_000, "next", at(1_000))
+        .kind,
+    ).toBe("committed");
   });
 });
 

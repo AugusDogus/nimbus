@@ -17,6 +17,7 @@ import { lexicalPath, safePath } from "@nimbus/api/file-operations";
 import { FilesystemCapacity } from "@nimbus/api/filesystem-capacity";
 import { Homes } from "@nimbus/api/homes";
 import { McpScope } from "@nimbus/api/mcp-scope";
+import { ServerRun } from "@nimbus/api/server-run";
 import { numberedName } from "@nimbus/api/numbered-name";
 import { isApiError, isFsError } from "@nimbus/api/safe-path";
 import { UploadDestination } from "@nimbus/api/upload-destination";
@@ -274,13 +275,14 @@ async function upload(
     context.db,
     key,
     link.expiresAt,
-    context.now(),
+    ServerRun.processId(),
+    context.now,
   );
   switch (reservation.kind) {
     case "committed":
       return refuse(
         410,
-        `This link already uploaded ${destination.relative}. Nothing was saved this time. ${newLink}`,
+        `This link already uploaded ${destination.relative}, or was uploading it when its server stopped. Nothing was saved this time. ${newLink}`,
       );
     case "running":
       return refuse(
@@ -296,18 +298,25 @@ async function upload(
       break;
   }
   runningPerLink.set(link.nonce, sameLink + 1);
+  // Settled once the content is or may be in place (see `commit`), even when recording that
+  // fails: the reservation then stays until this server's exit settles it. Otherwise nothing
+  // was put in place, and it is given back.
+  let settled = false;
+  const markCommitted = () => {
+    settled = true;
+    UploadClaims.commit(context.db, key);
+  };
   try {
     return await receiveAndCommit(
       context,
       request,
       link,
       destination,
-      key,
+      markCommitted,
       authorize,
     );
   } finally {
-    // Gives back only a reservation that committed nothing.
-    UploadClaims.release(context.db, key);
+    if (!settled) UploadClaims.release(context.db, key);
     const left = (runningPerLink.get(link.nonce) ?? 1) - 1;
     if (left > 0) runningPerLink.set(link.nonce, left);
     else runningPerLink.delete(link.nonce);
@@ -320,7 +329,7 @@ async function receiveAndCommit(
   request: Request,
   link: UploadLink,
   destination: { absolute: string; relative: string },
-  key: string,
+  markCommitted: () => void,
   authorize: () => ReturnType<typeof getAccess>,
 ): Promise<Response> {
   // Refused before any byte is received when the outcome is already known; checked again at commit.
@@ -359,7 +368,7 @@ async function receiveAndCommit(
       request,
       link,
       destination,
-      key,
+      markCommitted,
       body,
       authorize,
     );
@@ -373,7 +382,7 @@ async function stageAndCommit(
   request: Request,
   link: UploadLink,
   destination: { absolute: string; relative: string },
-  key: string,
+  markCommitted: () => void,
   body: ReturnType<typeof receive> | null,
   authorize: () => ReturnType<typeof getAccess>,
 ): Promise<Response> {
@@ -397,7 +406,7 @@ async function stageAndCommit(
       link,
       destination.relative,
       staged,
-      key,
+      markCommitted,
       authorize,
     );
   } finally {
@@ -416,7 +425,7 @@ async function commit(
   link: UploadLink,
   relative: string,
   staged: StagedFile,
-  key: string,
+  markCommitted: () => void,
   authorize: () => ReturnType<typeof getAccess>,
 ): Promise<Response> {
   const rule = link.destination.rule;
@@ -448,7 +457,7 @@ async function commit(
       switch (outcome.kind) {
         case "created":
         case "replaced":
-          UploadClaims.commit(context.db, key);
+          markCommitted();
           return reply(outcome.kind === "created" ? 201 : 200, {
             outcome: outcome.kind,
             path: outcome.entry.path,
@@ -499,19 +508,25 @@ async function commit(
     }
   } catch (error) {
     // A failure after the content was put in place, such as pruning old versions, leaves the
-    // upload committed, so the link cannot write the path again.
-    if (await holds(candidate, incoming)) UploadClaims.commit(context.db, key);
+    // upload committed, so the link cannot write the path again; so does one that leaves it
+    // unclear whether it is.
+    if ((await holds(candidate, incoming)) !== "no") markCommitted();
     throw error;
   }
 }
 
 /** Whether the drive file at `relative` is the staged file described by `incoming`. */
-async function holds(relative: string, incoming: { dev: number; ino: number }) {
+async function holds(
+  relative: string,
+  incoming: { dev: number; ino: number },
+): Promise<"yes" | "no" | "unknown"> {
   try {
     const now = await lstat(path.join(getDataRoot(), relative));
-    return now.dev === incoming.dev && now.ino === incoming.ino;
-  } catch {
-    return false;
+    return now.dev === incoming.dev && now.ino === incoming.ino ? "yes" : "no";
+  } catch (error) {
+    return isFsError(error, "ENOENT") || isFsError(error, "ENOTDIR")
+      ? "no"
+      : "unknown";
   }
 }
 

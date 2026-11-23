@@ -112,6 +112,12 @@ export const mcpUploadClaims = sqliteTable(
     state: text("state", { enum: ["reserved", "committed"] })
       .notNull()
       .default("committed"),
+    /**
+     * The server process running a reserved upload (see ServerRun.processId), so the
+     * reservation is settled once that process has exited. Null once committed, and on rows an
+     * older server wrote, which are settled when a server next starts alone.
+     */
+    owner: text("owner"),
   },
   (table) => [index("nimbus_mcp_upload_claim_expiry").on(table.expiresAt)],
 );

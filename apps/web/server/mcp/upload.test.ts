@@ -615,6 +615,24 @@ describe("MCP upload links", () => {
     );
   });
 
+  it("keeps its single use when recording the commit fails after the file was placed", async () => {
+    const { token } = await link({
+      kind: "file",
+      path: "docs/recorded.txt",
+      rule: { kind: "overwrite" },
+    });
+    // The database refuses to mark the path committed once its content is in place.
+    drive.sqlite.run(
+      "CREATE TRIGGER refuse_commit BEFORE UPDATE ON nimbus_mcp_upload_claim BEGIN SELECT RAISE(FAIL, 'disk I/O error'); END",
+    );
+    expect((await put(token, "first")).status).toBe(500);
+    drive.sqlite.run("DROP TRIGGER refuse_commit");
+    expect([409, 410]).toContain((await put(token, "second")).status);
+    expect(await readFile(drive.absolute("docs/recorded.txt"), "utf8")).toBe(
+      "first",
+    );
+  });
+
   it("treats spellings of one path as the same path", async () => {
     const { token } = await link({
       kind: "folder",

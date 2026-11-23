@@ -43,6 +43,7 @@ import { Supervision, type LifecycleMessage } from "./supervisor/supervision";
 import { ServerRun } from "@nimbus/api/server-run";
 import { InstallationLock } from "./installation-lock";
 import { MigrationGate } from "./db/migration-gate";
+import { UploadClaims } from "./mcp/upload-claims";
 import { NEEDS_FULL_RESTART_EXIT } from "./supervisor/protocol";
 import { GuessBudgets } from "./guess-budgets";
 
@@ -158,11 +159,14 @@ const store = createDriveStore(db);
 // no other on the installation (InstallationLock) recovers all of them before any request:
 // whoever recorded them has died. Beside other servers it recovers nothing at startup; the
 // supervisor asks it to settle each server's changes once that server has exited.
-if (!replacing)
+if (!replacing) {
   for (const recovered of await PendingChanges.recover(store, getDataRoot()))
     (recovered.outcome === "unclear" ? console.warn : console.info)(
       PendingChanges.describe(recovered),
     );
+  // So did every MCP upload: none is running, though some may have put their content in place.
+  UploadClaims.settleAll(db);
+}
 const homesContainer = await Homes.prepare(store, homesPath);
 if (homesContainer.kind === "refused") throw new Error(homesContainer.message);
 if (homesContainer.created)
@@ -497,6 +501,8 @@ async function settleFor(
   for (;;) {
     let failures = 0;
     try {
+      // Its MCP uploads stopped with it, perhaps after their content was in place.
+      UploadClaims.settleOwnedBy(db, message.owner);
       const released = new Set<number>();
       const { recovered, failed } = await PendingChanges.recoverOwned(
         store,
@@ -521,7 +527,7 @@ async function settleFor(
       failures = failed.length;
     } catch (error) {
       console.error(
-        `Nimbus could not read the changes server process ${message.owner} left unfinished, so the items involved stay locked; it tries again in 10 seconds. Check that the database is writable.`,
+        `Nimbus could not read or settle what server process ${message.owner} left unfinished, so the items involved stay locked; it tries again in 10 seconds. Check that the database is writable.`,
         error,
       );
       failures = 1;
