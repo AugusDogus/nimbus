@@ -603,8 +603,9 @@ components:
           type: string
           pattern: ^itm_[A-Za-z0-9_-]{10,64}$
           description: >-
-            Opaque and random. Kept through renames and moves made through Nimbus and when a file
-            returns to its path; a rename made outside Nimbus gives a new id. See README.md.
+            Opaque and random. Kept through renames and moves made through Nimbus, when a file
+            returns to its path, and through a rename or move made outside Nimbus that leaves the
+            file's size and modification time unchanged and is unambiguous. See README.md.
         name:
           type: string
           minLength: 1

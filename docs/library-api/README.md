@@ -50,7 +50,7 @@ Each item has:
 
 | Field | Meaning |
 | --- | --- |
-| `id` | Opaque and random. Kept through renames and moves made through Nimbus; see [Identity](#identity). |
+| `id` | Opaque and random. Kept through renames and moves; see [Identity](#identity). |
 | `name` | The file's real name, extension included. |
 | `kind` | `video`, `audio`, `image`, `document` or `other`, from the name. |
 | `contentType` | The type Nimbus serves the file as, such as `video/mp4` or `application/pdf`. |
@@ -62,12 +62,15 @@ Each item has:
 
 ### Identity
 
-Ids and added dates survive renames and moves made through Nimbus, and a folder disappearing for a while and returning. Renames and moves made outside Nimbus (over a network share, by a sync tool, directly on disk) currently produce a new item with a new id.
+Ids and added dates survive renames and moves made through Nimbus, and a folder disappearing for a while and returning. They also survive a rename or move made outside Nimbus (over a network share, by a sync tool, directly on disk) when the file's size and modification time are unchanged and the match is unambiguous. No file's content is read for this.
 
 - **Added dates.** A file found when a folder is first scanned, which happens when the folder is added to a library (or the library is created) and exists, is dated by its modification time, never later than the moment of the scan. A file that appears later is dated when the library first sees it, even when its modification time is older, as for a file copied in with its original dates.
 - **Edits.** A file changed in place keeps its id and added date; its `version` changes.
 - **Returns.** A file that disappears is remembered, unlisted and unreachable, for 30 days. When a file appears again at the same path with the same size and modification time, it gets its id and added date back, as when a folder was briefly unavailable.
-- **Otherwise a new item.** A different file at an old path, or a file at a new path, is a new item.
+- **Renames and moves outside Nimbus.** A file that appears at a new path takes over the id and added date of a file that disappeared from the same library, at that moment or within the 30 days before, when all of these hold: both paths are inside the library's folders currently offered, the size is above zero and size and modification time are equal, it is the only new file with that size and time, and the one it takes over is the only file that disappeared with them. A file returning to its own old path takes precedence. A move into another library, or between an offered folder and one not currently offered, is a new item.
+- **Otherwise a new item.** A different file at an old path, or a file at a new path that matches no file that disappeared, is a new item.
+
+A different file that happens to have exactly the same size and modification time as one that disappeared, with no other candidate, inherits its id and added date. This stays within one library and the folders it offers, so it can change which item a device sees under an id, never what a device may reach.
 
 ## Files
 
