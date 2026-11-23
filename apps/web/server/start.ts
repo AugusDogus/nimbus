@@ -116,6 +116,24 @@ const installation =
     : null;
 if (installation && !installation.ok)
   throw new Error(installation.error.message);
+if (supervision.kind === "standalone") {
+  // Servers a supervisor that died left behind still use the database.
+  const earlier = await InstallationLock.awaitLeases(getConfigRoot());
+  if (!earlier.ok) throw new Error(earlier.error.message);
+} else {
+  // Held for this process's life, so a supervisor started after its own died waits for it.
+  const lease = InstallationLock.lease(getConfigRoot(), ServerRun.processId());
+  if (!lease.ok) throw new Error(lease.error.message);
+  // Its file goes with it; one a crash leaves is cleared when the next supervisor starts.
+  process.on("exit", () => lease.value.release());
+  // Its supervisor may have died before the lease was taken, and the next one not waited.
+  if (!supervision.supervisorAlive()) {
+    console.error(
+      "Nimbus stopped this server before it served anything: the supervisor that started it is gone.",
+    );
+    process.exit(1);
+  }
+}
 DatabaseFiles.requireWritable(client, databasePath);
 // Beside an older server, only migrations the release declares safe beside it may run; any
 // other means a full restart, which the supervisor makes instead of this handover.

@@ -105,6 +105,8 @@ export const WorkerEnv = {
   predecessor: "NIMBUS_PREDECESSOR",
   /** Built clients of earlier releases, joined by ":", whose hashed assets stay servable. */
   previousAssets: "NIMBUS_PREVIOUS_ASSETS",
+  /** The supervisor's pid: a server whose parent is another has outlived it, and stops. */
+  supervisorPid: "NIMBUS_SUPERVISOR_PID",
 } as const;
 
 export const Protocol = {

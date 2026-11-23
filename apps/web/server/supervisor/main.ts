@@ -73,6 +73,7 @@ const spawn: SpawnWorker = (request, onMessage) => {
       [WorkerEnv.release]: request.release.name,
       [WorkerEnv.predecessor]: request.predecessor ? "1" : "0",
       [WorkerEnv.previousAssets]: request.previousAssets.join(":"),
+      [WorkerEnv.supervisorPid]: String(process.pid),
       [ServerRun.env.id]: run.id,
       [ServerRun.env.startedAt]: String(run.startedAt),
       [ServerRun.env.process]: request.processId,
@@ -137,6 +138,12 @@ await mkdir(configRoot, { recursive: true });
 const installation = InstallationLock.acquire(configRoot);
 if (!installation.ok) {
   console.error(installation.error.message);
+  process.exit(1);
+}
+// Servers a supervisor that died left behind still hold the port and the database.
+const earlier = await InstallationLock.awaitLeases(configRoot);
+if (!earlier.ok) {
+  console.error(`Nimbus did not start: ${earlier.error.message}`);
   process.exit(1);
 }
 

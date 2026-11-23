@@ -39,7 +39,7 @@ let root: string;
 let port: number;
 let origin: string;
 let socket: string;
-let supervisor: Subprocess<"ignore", "pipe", "inherit">;
+let supervisor: Subprocess<"ignore", "pipe", "inherit" | "pipe">;
 let log = "";
 const secret = "e2e-secret-0123456789abcdef0123456789abcdef";
 
@@ -503,6 +503,64 @@ describe.skipIf(!built)("handover with real servers", () => {
     );
     expect((await status()).phase).toBe("serving");
   }, 60_000);
+
+  test("a supervisor started after the last one died waits for the servers it left", async () => {
+    const left = (await status()).active?.pid;
+    if (!left) throw new Error("No server is active.");
+    // Frozen, so it is still running, holding its lease, when the supervisor dies.
+    process.kill(left, "SIGSTOP");
+    supervisor.kill("SIGKILL");
+    await supervisor.exited;
+    const env = {
+      ...process.env,
+      NODE_ENV: "production",
+      PORT: String(port),
+      BETTER_AUTH_URL: origin,
+      BETTER_AUTH_SECRET: secret,
+      NIMBUS_DATA_ROOT: path.join(root, "data"),
+      NIMBUS_CONFIG_ROOT: path.join(root, "config"),
+      NIMBUS_SUPERVISOR_SOCKET: socket,
+      NIMBUS_READY_TIMEOUT_SECONDS: "60",
+    };
+    const next = Bun.spawn([process.execPath, "server/supervisor/main.ts"], {
+      cwd: web,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let warnings = "";
+    void (async () => {
+      for await (const chunk of next.stderr)
+        warnings += new TextDecoder().decode(chunk);
+    })();
+    void (async () => {
+      for await (const chunk of next.stdout)
+        log += new TextDecoder().decode(chunk);
+    })();
+    supervisor = next;
+    await waitFor(
+      "the new supervisor to wait for the server left behind",
+      async () =>
+        warnings.includes(`waiting for server processes ${left} `)
+          ? true
+          : null,
+    );
+    await Bun.sleep(500);
+    expect([...(await listeners(port))]).toEqual([left]);
+    // An operator stops it, as the warning says.
+    process.kill(left, "SIGKILL");
+    await waitFor(
+      "the new supervisor to serve",
+      async () =>
+        (await status().catch(() => null))?.phase === "serving" ? true : null,
+      60_000,
+    );
+    expect([...(await listeners(port))]).not.toContain(left);
+    expect(
+      (await readdir(path.join(root, "config", "leases"))).filter((name) =>
+        name.includes(`.${left}.`),
+      ),
+    ).toEqual([]);
+  }, 90_000);
 
   test("a stop drains every server and exits", async () => {
     supervisor.kill("SIGTERM");

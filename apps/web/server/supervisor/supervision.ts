@@ -33,6 +33,8 @@ export type Supervision =
       onTransferSignal: (listener: (signal: TransferSignal) => void) => void;
       /** Called once if the supervisor goes away. */
       onDisconnect: (listener: () => void) => void;
+      /** Whether the supervisor that started this process still runs: it is still its parent. */
+      supervisorAlive: () => boolean;
     };
 
 export type SupervisionError = { kind: "supervision"; message: string };
@@ -85,9 +87,10 @@ function fromProcess(
       `This Nimbus release speaks supervisor protocol ${PROTOCOL_VERSION}, but its supervisor speaks ${protocol}. It did not start, and the release already serving keeps serving. Update the container image so the supervisor matches the release.`,
     );
   const release = env[WorkerEnv.release];
-  if (!release || !process.send)
+  const supervisorPid = Number(env[WorkerEnv.supervisorPid]);
+  if (!release || !process.send || !Number.isSafeInteger(supervisorPid))
     return fail(
-      `${WorkerEnv.protocol} is set, but this process has no IPC channel or ${WorkerEnv.release} is missing, so it was not started by the supervisor. Unset ${WorkerEnv.protocol} to run Nimbus on its own.`,
+      `${WorkerEnv.protocol} is set, but this process has no IPC channel or ${WorkerEnv.release} or ${WorkerEnv.supervisorPid} is missing, so it was not started by the supervisor. Unset ${WorkerEnv.protocol} to run Nimbus on its own.`,
     );
   const send = (message: WorkerMessage) => void process.send?.(message);
   const scopes = remoteScopes(send);
@@ -135,6 +138,7 @@ function fromProcess(
       onDisconnect(listener) {
         process.once("disconnect", listener);
       },
+      supervisorAlive: () => process.ppid === supervisorPid,
     },
   };
 }

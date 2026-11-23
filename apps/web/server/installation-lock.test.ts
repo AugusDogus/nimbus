@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { InstallationLock } from "./installation-lock";
@@ -63,4 +63,50 @@ test("stays held when nothing refers to it any more", async () => {
      console.log(InstallationLock.acquire(${JSON.stringify(configRoot)}).ok ? "acquired" : "refused");`,
   ]);
   expect(child.stdout.toString().trim()).toBe("refused");
+});
+
+test("a starting server waits for the server processes of an earlier start to exit", async () => {
+  // One left running by a supervisor that died, still draining.
+  const holder = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      `const { InstallationLock } = await import(${JSON.stringify(`${import.meta.dir}/installation-lock.ts`)});
+       const held = InstallationLock.lease(${JSON.stringify(configRoot)}, "earlier-run-1");
+       console.log(held.ok ? "held" : held.error.message);
+       await Bun.sleep(60_000);`,
+    ],
+    { stdout: "pipe" },
+  );
+  const reader = holder.stdout.getReader();
+  const first = await reader.read();
+  expect(new TextDecoder().decode(first.value).trim()).toBe("held");
+  const logged: string[] = [];
+  let done = false;
+  const waiting = InstallationLock.awaitLeases(configRoot, {
+    pollMs: 10,
+    reportMs: 20,
+    log: (line) => logged.push(line),
+  }).then((outcome) => {
+    done = true;
+    return outcome;
+  });
+  await Bun.sleep(100);
+  expect(done).toBe(false);
+  expect(logged.join("\n")).toContain(String(holder.pid));
+  holder.kill("SIGKILL");
+  await holder.exited;
+  expect(await waiting).toEqual({ ok: true });
+  // What it left behind is cleared.
+  expect(await readdir(path.join(configRoot, "leases"))).toEqual([]);
+});
+
+test("a lease is released with its holder, and taken by no one else meanwhile", () => {
+  const lease = InstallationLock.lease(configRoot, "run-2");
+  if (!lease.ok) throw new Error(lease.error.message);
+  expect(InstallationLock.lease(configRoot, "run-2").ok).toBe(false);
+  lease.value.release();
+  const again = InstallationLock.lease(configRoot, "run-2");
+  expect(again.ok).toBe(true);
+  if (again.ok) again.value.release();
 });
