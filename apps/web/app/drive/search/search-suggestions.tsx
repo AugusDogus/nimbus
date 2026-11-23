@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 import { PreviewDialog } from "../files/preview-dialog";
 import { fileHref, type FileEntry } from "../files/types";
+import { SplitAddress } from "../files/split/split-address";
 import { Highlighted, parentLabel } from "./highlight";
 import { useSearch } from "./use-search";
 
@@ -51,8 +52,15 @@ export default function SearchSuggestions({
 
   const choose = (entry: FileEntry) => {
     setOpen(false);
-    if (entry.type === "dir") navigate(fileHref(entry.path));
-    else
+    if (entry.type === "dir") {
+      // A split view stays: the folder opens in its active pane.
+      const split = SplitAddress.here();
+      navigate(
+        split
+          ? SplitAddress.openInActive(split, entry.path)
+          : fileHref(entry.path),
+      );
+    } else
       setPreview({
         entry,
         files: entries.filter((item) => item.type === "file"),
