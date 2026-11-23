@@ -9,7 +9,9 @@
 
 /**
  * `updated`: a deployment replaced the files of the build this page runs. `unavailable`: loading
- * kept failing, though the files may still be there, such as while offline.
+ * kept failing, though the files may still be there, such as while offline. Either way only a
+ * reload helps: the browser keeps the failure of a file a failed load imported, and never asks
+ * for it again.
  */
 export type CodeLoadFailure = "updated" | "unavailable";
 
@@ -17,7 +19,7 @@ const messages: Record<CodeLoadFailure, string> = {
   updated:
     "Nimbus was updated while this page was open. Reload to use the new version.",
   unavailable:
-    "Part of Nimbus could not load. Check your connection, then try again.",
+    "Part of Nimbus could not load. Check your connection, then reload the page.",
 };
 
 export class CodeLoadError extends Error {
@@ -83,7 +85,6 @@ let updated = false;
 let notice: CodeLoadNotice = null;
 let announced = false;
 const watchers = new Set<() => void>();
-const retries = new Set<() => void>();
 
 function show(next: CodeLoadNotice) {
   notice = next;
@@ -136,8 +137,8 @@ export const CodeLoad = {
   message: (kind: CodeLoadFailure) => messages[kind],
 
   /**
-   * Shows that code a page needs did not load: that Nimbus was updated was said already, once;
-   * any other failure offers to try again.
+   * Shows that code a page needs did not load and that reloading is needed: that Nimbus was
+   * updated was said already, once.
    */
   failed(error: unknown) {
     if (updated || (error instanceof CodeLoadError && error.kind === "updated"))
@@ -177,14 +178,4 @@ export const CodeLoad = {
     return () => void watchers.delete(watcher);
   },
   dismiss: () => show(null),
-
-  /** Runs `retry` each time the person asks to try a failed load again. */
-  onRetry(retry: () => void) {
-    retries.add(retry);
-    return () => void retries.delete(retry);
-  },
-  retry() {
-    show(null);
-    for (const retry of retries) retry();
-  },
 } as const;

@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { CodeLoad } from "@/lib/code-load";
 
 /**
- * Says that code the page needs did not load: that Nimbus was updated, with Reload, or that
- * loading failed, with Try again. Part of every page's startup code, so it never depends on code
+ * Says that code the page needs did not load, because Nimbus was updated or loading kept
+ * failing, with Reload. Part of every page's startup code, so it never depends on code
  * that can go missing. Reload goes through the page's leave warnings, such as for a running
  * upload or unsaved text. It sits below the page header and under menus and dialogs, so the
  * account menu and its Sign out stay in reach.
@@ -26,16 +26,30 @@ export function CodeLoadNotice() {
         <Button size="sm" variant="ghost" onClick={CodeLoad.dismiss}>
           Dismiss
         </Button>
-        {notice === "updated" ? (
-          <Button size="sm" onClick={() => location.reload()}>
-            Reload
-          </Button>
-        ) : (
-          <Button size="sm" onClick={CodeLoad.retry}>
-            Try again
-          </Button>
-        )}
+        <Button size="sm" onClick={() => location.reload()}>
+          Reload
+        </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * In place of a preview or other content shown in place whose code did not load. Inside a dialog
+ * the notice is out of reach behind it, so this offers Reload itself.
+ */
+export function CodeLoadFailed() {
+  return (
+    <div
+      role="alert"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-4 text-sm"
+    >
+      <p className="text-pretty">
+        This part of Nimbus could not load. Reload the page to use it.
+      </p>
+      <Button size="sm" onClick={() => location.reload()}>
+        Reload
+      </Button>
     </div>
   );
 }

@@ -1,7 +1,6 @@
 import {
   createRouter,
   ErrorComponent,
-  useRouter,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
@@ -12,16 +11,13 @@ import { routeTree } from "./route-tree.gen";
 
 /**
  * A route that failed. One whose code did not load says so; the code load notice says why, and
- * its Try again loads the route again. The layout around it, and anything running there, stays.
+ * offers Reload. The layout around it, and anything running there, stays until then.
  */
 function RouteError({ error }: ErrorComponentProps) {
-  const router = useRouter();
   const codeMissing = error instanceof CodeLoadError;
   useEffect(() => {
-    if (!codeMissing) return;
-    CodeLoad.failed(error);
-    return CodeLoad.onRetry(() => void router.invalidate());
-  }, [codeMissing, error, router]);
+    if (codeMissing) CodeLoad.failed(error);
+  }, [codeMissing, error]);
   if (!codeMissing) return <ErrorComponent error={error} />;
   return (
     <p className="mx-auto max-w-md p-6 text-center text-pretty text-sm text-muted-foreground">

@@ -237,7 +237,7 @@ test("tries again with a new request when the picker's code fails to arrive once
   await expect(updated(page)).toHaveCount(0);
 });
 
-test("says when the picker's code keeps failing to arrive, without claiming an update, and tries again when asked", async ({
+test("says when the picker's code keeps failing to arrive, without claiming an update, and that reloading is needed", async ({
   page,
   isMobile,
 }) => {
@@ -265,11 +265,61 @@ test("says when the picker's code keeps failing to arrive, without claiming an u
   );
   await expect(updated(page)).toHaveCount(0);
 
+  // Trying again cannot help once the browser holds a failure, so the notice offers Reload.
+  await expect(
+    unavailable(page).getByRole("button", { name: "Try again" }),
+  ).toHaveCount(0);
+  expect(await marked(page)).toBe("this load");
   await page.unrouteAll();
-  await unavailable(page).getByRole("button", { name: "Try again" }).click();
+  await unavailable(page).getByRole("button", { name: "Reload" }).click();
+  await expect.poll(() => marked(page)).toBe("");
+  await openPicker(page, isMobile);
   await expect(page.locator("[data-picker]")).toBeVisible();
   await expect(unavailable(page)).toHaveCount(0);
-  expect(await marked(page)).toBe("this load");
+});
+
+test("says reloading is needed when a file the preview's code imports fails to arrive once", async ({
+  page,
+}) => {
+  const name = await folder({
+    "d.md": "# Heading\n\n```ts\nconst x = 1;\n```\n",
+  });
+  await page.goto(href(name));
+  // The markdown view imports the code view; the browser keeps that file's failure, so retrying
+  // the markdown view with new requests can never load it.
+  const dependency = await built("app/drive/files/preview/code-view.tsx");
+  let failed = false;
+  await page.route(
+    (url) => url.pathname === dependency,
+    (route) => {
+      if (failed || route.request().method() !== "GET") return route.fallback();
+      failed = true;
+      return route.abort("connectionreset");
+    },
+  );
+  await page
+    .locator('[data-entry-name="d.md"]')
+    .filter({ visible: true })
+    .click();
+  // The notice is behind the preview dialog, so the preview says so itself, with Reload.
+  const inPlace = page
+    .getByRole("dialog", { name: "d.md" })
+    .getByRole("alert")
+    .filter({ hasText: "This part of Nimbus could not load." });
+  await expect(inPlace).toBeVisible();
+  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  await expect(updated(page)).toHaveCount(0);
+  await inPlace.getByRole("button", { name: "Reload" }).click();
+  await page
+    .locator('[data-entry-name="d.md"]')
+    .filter({ visible: true })
+    .click();
+  await expect(
+    page
+      .getByRole("dialog", { name: "d.md" })
+      .getByRole("heading", { name: "Heading" }),
+  ).toBeVisible();
+  await expect(unavailable(page)).toHaveCount(0);
 });
 
 /** Every answer from the API names another build than this page's. */

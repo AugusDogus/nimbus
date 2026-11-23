@@ -2,12 +2,11 @@ import {
   createElement,
   Suspense,
   use,
-  useEffect,
-  useReducer,
   useState,
   type ComponentType,
   type ReactNode,
 } from "react";
+import { CodeLoadFailed } from "@/components/code-load-notice";
 import { CodeLoad } from "@/lib/code-load";
 
 type Loading<P> =
@@ -21,9 +20,10 @@ type Loading<P> =
  * dialogs, previews and other UI that most visits never open.
  *
  * Loads through `CodeLoad.load`. A load that fails, also after its retries, shows the code load
- * notice and renders nothing, so the page stays as it is. It starts over when the component
- * mounts again, such as when its dialog opens again, or when the person asks to try again; never
- * on its own, so a file that stays missing is not asked for again and again.
+ * notice, which offers Reload, and renders nothing, so the page stays as it is. It starts over
+ * when the component mounts again, such as when its dialog opens again; never on its own, so a
+ * file that stays missing is not asked for again and again. Content shown in place, which has a
+ * `fallback`, shows `CodeLoadFailed` there instead, since a dialog around it can cover the notice.
  */
 export function lazyComponent<P extends object>(
   load: () => Promise<{ default: ComponentType<P> }>,
@@ -53,21 +53,12 @@ export function lazyComponent<P extends object>(
   function Loaded(props: P) {
     if (state.kind === "idle") start();
     if (state.kind === "loading") use(state.done);
-    return state.kind === "loaded"
-      ? createElement(state.Component, props)
-      : null;
+    if (state.kind === "loaded") return createElement(state.Component, props);
+    return fallback === null ? null : <CodeLoadFailed />;
   }
 
   return function LazyComponent(props: P) {
-    const [, rerender] = useReducer((count: number) => count + 1, 0);
     useState(again);
-    useEffect(
-      () =>
-        CodeLoad.onRetry(() => {
-          if (again()) rerender();
-        }),
-      [],
-    );
     return (
       <Suspense fallback={fallback}>{createElement(Loaded, props)}</Suspense>
     );
