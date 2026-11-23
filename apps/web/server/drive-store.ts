@@ -41,6 +41,7 @@ import {
   homes,
   pendingChanges,
   revokedShares,
+  undoneReceipts,
   serverSettings,
   shares,
   trash,
@@ -643,6 +644,27 @@ export function createDriveStore(database: Database): DriveStore {
         ])
           tx.delete(table).where(atOrUnder(table.path, path)).run();
       });
+    },
+    async claimUndo(receiptId, expiresAt, now = Date.now()) {
+      return database.transaction((tx) => {
+        tx.delete(undoneReceipts)
+          .where(lte(undoneReceipts.expiresAt, now))
+          .run();
+        return (
+          tx
+            .insert(undoneReceipts)
+            .values({ id: receiptId, expiresAt })
+            .onConflictDoNothing()
+            .returning({ claimed: undoneReceipts.id })
+            .all().length === 1
+        );
+      });
+    },
+    async releaseUndo(receiptId) {
+      database
+        .delete(undoneReceipts)
+        .where(eq(undoneReceipts.id, receiptId))
+        .run();
     },
     async addPendingChange(change) {
       await database.insert(pendingChanges).values({

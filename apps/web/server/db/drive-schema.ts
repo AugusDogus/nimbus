@@ -220,3 +220,17 @@ export const accessEpoch = sqliteTable(
   },
   () => [check("nimbus_access_epoch_single_row", sql`id = 0`)],
 );
+
+/**
+ * Transfer receipts already undone, by receipt id, until they would have expired anyway. In
+ * the database rather than in memory so that two servers running side by side during an update
+ * cannot both undo one receipt: claiming the row is what allows an undo.
+ */
+export const undoneReceipts = sqliteTable(
+  "nimbus_undone_receipt",
+  {
+    id: text("id").primaryKey(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => [index("nimbus_undone_receipt_expiry").on(table.expiresAt)],
+);

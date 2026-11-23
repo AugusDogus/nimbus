@@ -1,12 +1,10 @@
 import { FilesystemCapacity } from "@nimbus/api/filesystem-capacity";
+import { ServerRun } from "@nimbus/api/server-run";
 import type { RouteContext } from "@/server/http-route";
 import { httpDriveStore } from "@/server/http-files";
 import { allowedOrigins } from "@/server/mcp/request-guard";
 import { withMcp } from "@/server/mcp/runtime";
 import { McpUpload } from "@/server/mcp/upload";
-
-/** Links made before this process started are refused; see McpUpload. */
-const startedAt = Date.now();
 
 /**
  * Uploads for links from the MCP get_upload_link tool: `PUT <link>` for a file link, or
@@ -23,7 +21,8 @@ export const PUT = (
         db: oauth.db,
         drive: httpDriveStore,
         secret: oauth.secret,
-        startedAt,
+        // Links made before this run of the server are refused; see McpUpload.
+        startedAt: ServerRun.current().startedAt,
         origins: allowedOrigins(
           oauth.origin,
           process.env.BETTER_AUTH_TRUSTED_ORIGINS,

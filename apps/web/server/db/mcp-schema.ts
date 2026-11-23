@@ -96,3 +96,17 @@ export const mcpTokens = sqliteTable(
     index("nimbus_mcp_token_parent").on(table.parentHash),
   ],
 );
+
+/**
+ * Paths each MCP upload link has written, by link and path, until the link expires. A link
+ * writes each path once; claiming the row inside the path's lock is what allows the commit, so
+ * two servers running side by side during an update cannot both commit it.
+ */
+export const mcpUploadClaims = sqliteTable(
+  "nimbus_mcp_upload_claim",
+  {
+    key: text("key").primaryKey(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => [index("nimbus_mcp_upload_claim_expiry").on(table.expiresAt)],
+);

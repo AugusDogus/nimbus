@@ -30,6 +30,7 @@ import { PendingChanges } from "./pending-changes";
 import { Staging } from "./staging";
 import {
   ItemIdentity,
+  RECEIPT_LIFETIME_MS,
   TransferReceipt,
   type ReceiptRefusal,
 } from "./transfer-receipt";
@@ -697,8 +698,6 @@ export type UndoRefusal =
   | "forbidden"
   /** Undone already: a receipt works once. */
   | "used"
-  /** Nimbus is remembering as many undone receipts as it can; see `USED_RECEIPT_LIMIT`. */
-  | "busy"
   /** Anything else the move or trash refused, with its own reason. */
   | "refused";
 
@@ -740,8 +739,6 @@ function keptMessage(
       return `${stays}: Nimbus restarted since, so this change can no longer be undone. ${receipt.operation === "move" ? "Move it back" : "Delete it"} yourself.`;
     case "used":
       return "This change was already undone, so nothing more was changed.";
-    case "busy":
-      return `${stays}: Nimbus is undoing too many changes at once. Nothing was changed; try again in a few minutes.`;
     case "changed":
       return receipt.operation === "move"
         ? `${item} was changed since and stayed in ${folderOf(receipt.to)}.`
@@ -768,6 +765,42 @@ const kept = (
   reason,
   message: keptMessage(receipt, reason, cause),
 });
+
+/** The undo of a claimed receipt, inside its scope: everything after the claim. */
+async function undoClaimed(
+  store: DriveStore,
+  current: Access,
+  receipt: TransferReceipt,
+  landed: string,
+  original: string,
+  trashId: string,
+): Promise<UndoOutcome> {
+  const at = await safePath(landed);
+  // A folder moved back may have gained or lost entries since; a copy is trashed only
+  // exactly as it was made, never with work added to it.
+  const match = await ItemIdentity.matchAt(
+    at.absolute,
+    receipt.identity,
+    receipt.operation === "move" ? "entries" : "exact",
+  );
+  if (match !== "same") return kept(receipt, match);
+  if (receipt.operation === "copy") {
+    await trashUnlocked(store, current, at.relative, trashId);
+    return { kind: "undone", receipt };
+  }
+  current.require(original, "write");
+  const back = await safePath(original);
+  if (await statOrNull(back.absolute)) return kept(receipt, "original-taken");
+  await moveUnlocked(
+    store,
+    current,
+    at.relative,
+    back.relative,
+    "refuse",
+    trashId,
+  );
+  return { kind: "undone", receipt };
+}
 
 /**
  * Undo one move or copy from its receipt, checking everything again as of now: the receipt
@@ -800,37 +833,34 @@ export async function undoTransfer(
       async () => {
         const current = await getAccess(store, access.user.id);
         current.require(landed.relative, "write");
-        // Inside the scope, so two undos of one receipt cannot both pass.
-        if (TransferReceipt.wasUsed(receipt)) return kept(receipt, "used");
-        if (!TransferReceipt.canMarkUsed()) return kept(receipt, "busy");
-        const at = await safePath(landed.relative);
-        // A folder moved back may have gained or lost entries since; a copy is trashed only
-        // exactly as it was made, never with work added to it.
-        const match = await ItemIdentity.matchAt(
-          at.absolute,
-          receipt.identity,
-          receipt.operation === "move" ? "entries" : "exact",
-        );
-        if (match !== "same") return kept(receipt, match);
-        if (receipt.operation === "copy") {
-          await trashUnlocked(store, current, at.relative, trashId);
-          TransferReceipt.markUsed(receipt);
-          return { kind: "undone", receipt } satisfies UndoOutcome;
+        // Inside the scope, and in the store every server process shares, so two undos of one
+        // receipt cannot both pass, even on two servers during an update.
+        if (
+          !(await store.claimUndo(
+            receipt.id,
+            receipt.issuedAt + RECEIPT_LIFETIME_MS,
+          ))
+        )
+          return kept(receipt, "used");
+        let keepClaim = false;
+        try {
+          const outcome = await undoClaimed(
+            store,
+            current,
+            receipt,
+            landed.relative,
+            original.relative,
+            trashId,
+          );
+          keepClaim = outcome.kind === "undone";
+          return outcome;
+        } catch (error) {
+          // Something may have changed partway, so the receipt stays used.
+          keepClaim = error instanceof PartwayError;
+          throw error;
+        } finally {
+          if (!keepClaim) await store.releaseUndo(receipt.id);
         }
-        current.require(original.relative, "write");
-        const back = await safePath(original.relative);
-        if (await statOrNull(back.absolute))
-          return kept(receipt, "original-taken");
-        await moveUnlocked(
-          store,
-          current,
-          at.relative,
-          back.relative,
-          "refuse",
-          trashId,
-        );
-        TransferReceipt.markUsed(receipt);
-        return { kind: "undone", receipt } satisfies UndoOutcome;
       },
       { trash: [trashId] },
     );

@@ -63,6 +63,8 @@ export function createTestDriveStore() {
   const bookmarks = new Map<string, Bookmark[]>();
   const passwords = new Map<string, AppPassword>();
   const pending = new Map<string, PendingChange>();
+  /** Undone receipts by id, with when each claim lapses. */
+  const undone = new Map<string, number>();
   const versions = createTestFileVersionStore();
   // Tests edit the maps directly, so cached access is never reused.
   let epoch = 0;
@@ -366,6 +368,15 @@ export function createTestDriveStore() {
     },
     async addPendingChange(change) {
       pending.set(change.id, change);
+    },
+    async claimUndo(receiptId, expiresAt, now = Date.now()) {
+      for (const [id, until] of undone) if (until <= now) undone.delete(id);
+      if (undone.has(receiptId)) return false;
+      undone.set(receiptId, expiresAt);
+      return true;
+    },
+    async releaseUndo(receiptId) {
+      undone.delete(receiptId);
     },
     async removePendingChange(id) {
       pending.delete(id);

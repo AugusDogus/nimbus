@@ -10,6 +10,7 @@
     "./routers": "./src/routers.ts",
     "./file-events": "./src/file-events.ts",
     "./data-root": "./src/data-root.ts",
+    "./server-run": "./src/server-run.ts",
     "./safe-path": "./src/safe-path.ts",
     "./staging": "./src/staging.ts",
     "./fs-utils": "./src/fs-utils.ts",

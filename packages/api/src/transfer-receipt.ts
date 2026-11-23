@@ -9,6 +9,7 @@ import {
 import { lstat } from "node:fs/promises";
 import { z } from "zod";
 import { isFsError } from "./safe-path";
+import { ServerRun } from "./server-run";
 
 /**
  * What a move or copy hands back for each item it transferred, so the account that made it
@@ -20,9 +21,13 @@ import { isFsError } from "./safe-path";
  * nobody can fabricate one or use another account's. They grant nothing by themselves: undoing
  * is checked like any other move or trash, with the account's current permissions.
  *
- * They are also bound to one run of the server (`boot`): an item's identity includes its inode
- * number, which Unraid user shares hand out again when the array is mounted again, so a
- * restart ends every receipt issued before it.
+ * They are also bound to one run of the server (`boot`, see ServerRun): an item's identity
+ * includes its inode number, which Unraid user shares hand out again when the array is mounted
+ * again, so a restart ends every receipt issued before it. An update the supervisor makes
+ * without stopping keeps the run, and so keeps receipts working.
+ *
+ * Each receipt can be undone once: undoing claims it in the store (`DriveStore.claimUndo`),
+ * which every server process shares.
  */
 export type TransferReceipt = {
   /** Distinct for every receipt. */
@@ -76,7 +81,7 @@ const key = Buffer.from(
 );
 
 /** This run of the server. */
-const currentBoot = randomUUID();
+const currentBoot = () => ServerRun.current().id;
 
 const sealOf = (fields: Omit<TransferReceipt, "seal">) =>
   createHmac("sha256", key)
@@ -98,7 +103,7 @@ function issue(
   fields: Omit<TransferReceipt, "id" | "boot" | "seal" | "issuedAt">,
   now = Date.now(),
   /** Another run's id, for tests of receipts that outlived their run. */
-  boot: string = currentBoot,
+  boot: string = currentBoot(),
 ): TransferReceipt {
   const unsealed = { ...fields, id: randomUUID(), boot, issuedAt: now };
   return { ...unsealed, seal: sealOf(unsealed) };
@@ -127,50 +132,16 @@ function verify(
   )
     return { ok: false, reason: "forged" };
   if (receipt.actor !== actor) return { ok: false, reason: "other-account" };
-  if (receipt.boot !== currentBoot) return { ok: false, reason: "restarted" };
+  if (receipt.boot !== currentBoot()) return { ok: false, reason: "restarted" };
   if (now - receipt.issuedAt > RECEIPT_LIFETIME_MS || receipt.issuedAt > now)
     return { ok: false, reason: "expired" };
   return { ok: true };
 }
 
-/**
- * Receipts already undone, by id, until they expire anyway. Kept in memory: a restart ends
- * every receipt issued before it (`restarted`), so nothing here needs to outlive the process,
- * and undoing writes nothing more to the database than the change itself.
- */
-const used = new Map<string, number>();
-
-/** Receipts remembered as undone at most: more than an hour of undos on one server. */
-export const USED_RECEIPT_LIMIT = 100_000;
-
-/** Whether `receipt` was undone already. */
-const wasUsed = (receipt: TransferReceipt) => used.has(receipt.id);
-
-/**
- * Room to remember one more undone receipt, after forgetting those expired anyway. Without
- * it the caller refuses to undo rather than forget a receipt that still works.
- */
-function canMarkUsed(now = Date.now()) {
-  if (used.size < USED_RECEIPT_LIMIT) return true;
-  for (const [id, expires] of used) if (expires < now) used.delete(id);
-  return used.size < USED_RECEIPT_LIMIT;
-}
-
-/** Remember `receipt` as undone until it would have expired. */
-const markUsed = (receipt: TransferReceipt) =>
-  void used.set(receipt.id, receipt.issuedAt + RECEIPT_LIFETIME_MS);
-
-/** Forget every undone receipt, for tests. */
-const forgetUsedForTest = () => used.clear();
-
 export const TransferReceipt = {
   schema,
   issue,
   verify,
-  wasUsed,
-  canMarkUsed,
-  markUsed,
-  forgetUsedForTest,
 } as const;
 
 type IdentityStats = Pick<

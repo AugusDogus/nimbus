@@ -219,6 +219,19 @@ export type DriveStore = {
     settles?: string,
   ): Promise<void>;
   addPendingChange(change: PendingChange): Promise<void>;
+  /**
+   * Claim the undo of transfer receipt `receiptId` until `expiresAt`, unless it was claimed
+   * already: true when this call claimed it. Claims are shared by every server process, so a
+   * receipt is undone at most once even while an update runs two servers side by side.
+   * Expired claims are forgotten.
+   */
+  claimUndo(
+    receiptId: string,
+    expiresAt: number,
+    now?: number,
+  ): Promise<boolean>;
+  /** Give back a claim whose undo changed nothing, so the receipt can be tried again. */
+  releaseUndo(receiptId: string): Promise<void>;
   removePendingChange(id: string): Promise<void>;
   listPendingChanges(): Promise<PendingChange[]>;
   /**

@@ -22,6 +22,7 @@ import { isApiError, isFsError } from "@nimbus/api/safe-path";
 import { UploadDestination } from "@nimbus/api/upload-destination";
 import { httpError } from "../http-error";
 import { ensureFolders } from "../routes/upload-commit";
+import { UploadClaims } from "./upload-claims";
 import type { Database } from "./oauth/context";
 import { liveConnectionUser } from "./oauth/connections";
 import { guardTransport } from "./request-guard";
@@ -32,7 +33,7 @@ export type McpUploadContext = {
   db: Database;
   drive: DriveStore;
   secret: string;
-  /** When this server process started: links made earlier are refused. */
+  /** When this run of the server started (see ServerRun): links made earlier are refused. */
   startedAt: number;
   /** Origins and hosts the server answers for, as the MCP endpoint checks them. */
   origins: ReadonlySet<string>;
@@ -58,26 +59,6 @@ const runningPerLink = new Map<string, number>();
  * cannot each spend the same free space.
  */
 let pendingBytes = 0;
-
-/**
- * Keys of paths committed through links that can still start uploads, with when each link
- * expires. Links made before the process started are refused, so this record, kept only in
- * memory, covers every link that can still be used.
- */
-const committed = new Map<string, number>();
-/** Expired keys are dropped whenever the record has doubled since the last time. */
-let pruneAt = 1024;
-
-function claimCommit(key: string, expiresAt: number, now: number) {
-  if (committed.size >= pruneAt) {
-    for (const [stale, until] of committed)
-      if (until <= now) committed.delete(stale);
-    pruneAt = Math.max(1024, committed.size * 2);
-  }
-  if (committed.has(key)) return false;
-  committed.set(key, expiresAt);
-  return true;
-}
 
 const reply = (status: number, body: Record<string, unknown>) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -284,7 +265,7 @@ async function upload(
   access.require(named.relative, "write");
   await Homes.requireNotReserved(context.drive, named.relative);
   const destination = await safePath(named.relative);
-  if (committed.has(key))
+  if (UploadClaims.claimed(context.db, key, context.now()))
     return refuse(
       410,
       `This link already uploaded ${destination.relative}. Nothing was saved this time. ${newLink}`,
@@ -433,7 +414,7 @@ async function commit(
     async authorize() {
       const access = await authorize();
       if (!recorded) {
-        if (!claimCommit(key, link.expiresAt, context.now()))
+        if (!UploadClaims.claim(context.db, key, link.expiresAt, context.now()))
           throw new TRPCError({
             code: "CONFLICT",
             message: `This link already uploaded ${relative}. Nothing was saved this time. ${newLink}`,
@@ -518,11 +499,12 @@ async function commit(
   } catch (error) {
     // A failure after the content was put in place, such as pruning old versions, leaves the
     // upload committed: its record stays, so the link cannot write the path again.
-    if (recorded && !(await holds(candidate, incoming))) committed.delete(key);
+    if (recorded && !(await holds(candidate, incoming)))
+      UploadClaims.release(context.db, key);
     recorded = false;
     throw error;
   } finally {
-    if (recorded && !done) committed.delete(key);
+    if (recorded && !done) UploadClaims.release(context.db, key);
   }
 }
 
