@@ -6,6 +6,8 @@ import { client, databasePath, db } from "./db";
 import { DatabaseFiles } from "./db/database-files";
 import { upgradeDatabase } from "./db/migrate-database";
 import { createDriveStore } from "./drive-store";
+import { DavLockStore } from "./dav-lock-store";
+import { setFileLockStore } from "@nimbus/api/file-mutations";
 import { handleWebDAV } from "./webdav";
 import { cleanExpiredData } from "./maintenance";
 import {
@@ -83,6 +85,8 @@ await upgradeDatabase(client, async () =>
 DatabaseFiles.restrictDirectory(getConfigRoot());
 DatabaseFiles.restrict(databasePath);
 setAuditSink(createAuditSink(db));
+// WebDAV locks outlive this process, so the next one an update starts honours them.
+setFileLockStore(DavLockStore.create(db));
 const store = createDriveStore(db);
 // Before any request: changes a crash cut between their filesystem and database steps.
 for (const recovered of await PendingChanges.recover(store, getDataRoot()))

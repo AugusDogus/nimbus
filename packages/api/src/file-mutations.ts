@@ -20,8 +20,45 @@ export type FileLock = {
   timeoutSeconds: number;
   expiresAt: number;
 };
-/** Who is changing what, and the active WebDAV locks by token. */
-type MutationState = { scopes: PathLocks; locks: Map<string, FileLock> };
+/**
+ * Where WebDAV locks are kept. Synchronous, so lock checks stay inside the commit that holds a
+ * path's scope. The server keeps them in its database (see `setFileLockStore`), so locks
+ * outlive the process that granted them, as an update without stopping needs; without one they
+ * stay in this process's memory, as tests use.
+ */
+export type FileLockStore = {
+  /** Locks that have not expired at `now`. */
+  active(now: number): FileLock[];
+  add(lock: FileLock): void;
+  /** Give the lock `token` a new timeout, ending at `expiresAt`. */
+  refresh(token: string, timeoutSeconds: number, expiresAt: number): void;
+  remove(tokens: readonly string[]): void;
+};
+
+/** Locks in this process's memory, by token. */
+function memoryLockStore(): FileLockStore {
+  const locks = new Map<string, FileLock>();
+  return {
+    active(now) {
+      for (const [token, lock] of locks)
+        if (lock.expiresAt <= now) locks.delete(token);
+      return [...locks.values()];
+    },
+    add(lock) {
+      locks.set(lock.token, { ...lock });
+    },
+    refresh(token, timeoutSeconds, expiresAt) {
+      const lock = locks.get(token);
+      if (lock) locks.set(token, { ...lock, timeoutSeconds, expiresAt });
+    },
+    remove(tokens) {
+      for (const token of tokens) locks.delete(token);
+    },
+  };
+}
+
+/** Who is changing what, and the active WebDAV locks. */
+type MutationState = { scopes: PathLocks; locks: FileLockStore };
 
 /** Locks never outlive a client that stops refreshing them by more than this. */
 export const maxLockSeconds = 60 * 60;
@@ -61,16 +98,31 @@ function lockProtects(lock: FileLock, path: string) {
  * data root per test.
  */
 const states = new Map<string, MutationState>();
+/** The store every data root's locks use, once the server installed one. */
+let sharedLocks: FileLockStore | null = null;
 function state() {
   const root = getDataRoot();
   let current = states.get(root);
   if (!current) {
-    current = { scopes: createPathLocks(), locks: new Map() };
+    current = {
+      scopes: createPathLocks(),
+      locks: sharedLocks ?? memoryLockStore(),
+    };
     states.set(root, current);
   }
-  for (const [token, lock] of current.locks)
-    if (lock.expiresAt <= Date.now()) current.locks.delete(token);
   return current;
+}
+
+/** Active WebDAV locks now. */
+const activeLocks = () => state().locks.active(Date.now());
+
+/**
+ * Keep WebDAV locks in `store` from now on, instead of this process's memory, or in memory
+ * again with null. The server calls it once at startup, before any request.
+ */
+export function setFileLockStore(store: FileLockStore | null) {
+  sharedLocks = store;
+  states.clear();
 }
 
 /** Drop the coordinator of a data root a test has finished with. */
@@ -104,7 +156,7 @@ export function requireUnlocked(
   const submitted = (lock: FileLock) =>
     lock.userId === credentials.userId &&
     (credentials.lockTokens?.includes(lock.token) ?? false);
-  const locks = [...state().locks.values()];
+  const locks = activeLocks();
   for (const path of paths) {
     const protecting = locks.filter((lock) => lockProtects(lock, path));
     const shared = protecting.filter((lock) => lock.scope === "shared");
@@ -202,7 +254,7 @@ export function requireLockable(
   },
 ) {
   let held = 0;
-  for (const lock of state().locks.values()) {
+  for (const lock of activeLocks()) {
     if (
       (lockCovers(lock, path) ||
         (request.depth === "infinity" && within(path, lock.path))) &&
@@ -230,7 +282,6 @@ export function lockFile(
   },
 ) {
   requireLockable(path, credentials, request);
-  const current = state();
   const lock: FileLock = {
     path,
     token: `opaquelocktoken:${randomUUID()}`,
@@ -238,7 +289,7 @@ export function lockFile(
     ...request,
     expiresAt: Date.now() + request.timeoutSeconds * 1000,
   };
-  current.locks.set(lock.token, lock);
+  state().locks.add(lock);
   return lock;
 }
 
@@ -248,31 +299,39 @@ export function refreshLock(
   credentials: MutationCredentials,
   timeoutSeconds: number,
 ) {
-  for (const lock of state().locks.values()) {
+  for (const lock of activeLocks()) {
     if (
       lock.userId !== credentials.userId ||
       !credentials.lockTokens?.includes(lock.token) ||
       !lockCovers(lock, path)
     )
       continue;
-    lock.timeoutSeconds = timeoutSeconds;
-    lock.expiresAt = Date.now() + timeoutSeconds * 1000;
-    return lock;
+    const refreshed = {
+      ...lock,
+      timeoutSeconds,
+      expiresAt: Date.now() + timeoutSeconds * 1000,
+    };
+    state().locks.refresh(
+      lock.token,
+      refreshed.timeoutSeconds,
+      refreshed.expiresAt,
+    );
+    return refreshed;
   }
   return null;
 }
 
 /** Release a lock by its token from any URL within its scope. */
 export function unlockFile(path: string, userId: string, token: string) {
-  const current = state();
-  const lock = current.locks.get(token.replace(/^<|>$/g, ""));
+  const bare = token.replace(/^<|>$/g, "");
+  const lock = activeLocks().find((candidate) => candidate.token === bare);
   if (
     lock &&
     lock.userId === userId &&
     token === `<${lock.token}>` &&
     lockCovers(lock, path)
   ) {
-    current.locks.delete(lock.token);
+    state().locks.remove([lock.token]);
     return;
   }
   throw new TRPCError({
@@ -284,12 +343,14 @@ export function unlockFile(path: string, userId: string, token: string) {
 
 /** A lock ends when DELETE or MOVE removes its root URL (RFC 4918, section 6.1). */
 export function forgetFileLocks(path: string) {
-  const current = state();
-  for (const [token, lock] of current.locks)
-    if (within(path, lock.path)) current.locks.delete(token);
+  state().locks.remove(
+    activeLocks()
+      .filter((lock) => within(path, lock.path))
+      .map((lock) => lock.token),
+  );
 }
 
 /** Active locks whose scope includes a resource. */
 export function locksCovering(path: string) {
-  return [...state().locks.values()].filter((lock) => lockCovers(lock, path));
+  return activeLocks().filter((lock) => lockCovers(lock, path));
 }

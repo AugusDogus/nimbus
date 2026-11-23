@@ -234,3 +234,25 @@ export const undoneReceipts = sqliteTable(
   },
   (table) => [index("nimbus_undone_receipt_expiry").on(table.expiresAt)],
 );
+
+/**
+ * Active WebDAV locks (see FileLockStore in file-mutations.ts), in the database so that they
+ * outlive the server process that granted them: during an update the next server honours them.
+ * Rows past `expires_at` are expired locks, ignored and deleted as locks are next changed.
+ */
+export const davLocks = sqliteTable(
+  "nimbus_dav_lock",
+  {
+    token: text("token").primaryKey(),
+    path: text("path").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    scope: text("scope", { enum: ["exclusive", "shared"] }).notNull(),
+    depth: text("depth", { enum: ["0", "infinity"] }).notNull(),
+    owner: text("owner").notNull(),
+    timeoutSeconds: integer("timeout_seconds").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => [index("nimbus_dav_lock_expiry").on(table.expiresAt)],
+);
