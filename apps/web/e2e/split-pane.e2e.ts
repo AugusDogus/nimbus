@@ -164,6 +164,46 @@ test.describe("split view on a wide screen", () => {
     expect(await listing?.evaluate((grid) => grid.isConnected)).toBe(true);
   });
 
+  test("opens when the toggle is used before the split view's code has arrived", async ({
+    page,
+  }) => {
+    const { root } = await seed(page);
+    // Holds the split view's code back, so the click comes before any preload has finished.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(/\/split-view[-.]/, async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.goto(`/browse/${root}/Projects`);
+    await expect(entry(page.locator("main"), "Client Alpha")).toBeVisible();
+    await page.getByRole("button", { name: "Split view" }).click();
+    // Nothing changes until the code is here; then the split opens as usual.
+    await expect(page.locator("[data-pane]")).toHaveCount(0);
+    release();
+    await expect(entry(rightPane(page), "Client Alpha")).toBeVisible();
+    await expect(entry(leftPane(page), "Client Alpha")).toBeVisible();
+  });
+
+  test("shows both panes when another page opens a split address", async ({
+    page,
+  }) => {
+    const { root } = await seed(page);
+    // With the split view's code loaded, the page and its split mount together.
+    await page.goto(splitHref(root));
+    await expect(entry(rightPane(page), "2025")).toBeVisible();
+    await page
+      .getByRole("link", { name: "Shared", exact: true })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/shared/);
+    await page.goBack();
+    await expect(entry(rightPane(page), "2025")).toBeVisible();
+    await expect(entry(leftPane(page), "Client Alpha")).toBeVisible();
+  });
+
   test("names the active pane, not only colours it", async ({ page }) => {
     const { root } = await seed(page);
     await page.goto(splitHref(root));

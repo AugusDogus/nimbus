@@ -6,7 +6,14 @@ import {
   useRouteContext,
   useRouter,
 } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import type { UserPreferences } from "@nimbus/api/context";
@@ -76,7 +83,13 @@ export function FilesPageClient() {
   const published = useSplitFrame();
   const split = layout && code ? published : null;
   const first = split?.first.kind === "folder" ? split.first : null;
+  // The frame as state too: a controller that mounts with the page measures it once it exists.
   const frameRef = useRef<HTMLDivElement>(null);
+  const [frame, setFrame] = useState<HTMLDivElement | null>(null);
+  const attachFrame = useCallback((element: HTMLDivElement | null) => {
+    frameRef.current = element;
+    setFrame(element);
+  }, []);
   // The split view's code loads once a folder page has settled, so the split opens at once.
   useEffect(() => {
     if (!matchMedia("(min-width: 1024px)").matches) return;
@@ -102,11 +115,16 @@ export function FilesPageClient() {
         />
       </HeaderTools>
       {layout && code && (
-        <code.SplitController left={left} layout={layout} frameRef={frameRef} />
+        <code.SplitController
+          left={left}
+          layout={layout}
+          frame={frame}
+          frameRef={frameRef}
+        />
       )}
       <OtherPaneActionsSlot.Provider value={split?.otherPaneActions ?? null}>
         <div
-          ref={frameRef}
+          ref={attachFrame}
           data-split-view={
             split ? (split.sideBySide ? "" : "narrow") : undefined
           }

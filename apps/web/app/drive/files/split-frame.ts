@@ -43,13 +43,27 @@ export type SplitFrame = {
  * store rather than state, so the controller can sit beside the frame instead of around it.
  */
 let current: SplitFrame | null = null;
+/** The controller that published `current`. */
+let publisher: symbol | null = null;
 const listeners = new Set<() => void>();
+const notify = () => {
+  for (const listener of listeners) listener();
+};
 
 export const SplitFrameStore = {
   get: () => current,
-  set(frame: SplitFrame | null) {
+  /** Publishes `owner`'s frame; null while it has measured nothing yet. */
+  set(frame: SplitFrame | null, owner: symbol) {
     current = frame;
-    for (const listener of listeners) listener();
+    publisher = owner;
+    notify();
+  },
+  /** Withdraws `owner`'s frame, unless another controller has published since. */
+  clear(owner: symbol) {
+    if (publisher !== owner) return;
+    current = null;
+    publisher = null;
+    notify();
   },
   subscribe(listener: () => void) {
     listeners.add(listener);

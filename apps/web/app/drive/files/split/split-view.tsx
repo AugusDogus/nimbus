@@ -80,10 +80,10 @@ const columns = (ratio: number, collapsed: PaneSide | null) =>
  * The width of the page's content area, measured: it decides whether the panes fit side by side.
  * The panes fill the area's height, each scrolling on its own below its header.
  */
-function useContentWidth(frame: RefObject<HTMLDivElement | null>) {
+function useContentWidth(frame: HTMLDivElement | null) {
   const [width, setWidth] = useState<number | null>(null);
   useLayoutEffect(() => {
-    const area = frame.current?.parentElement;
+    const area = frame?.parentElement;
     if (!area) return;
     const measure = () => setWidth(area.clientWidth);
     measure();
@@ -101,11 +101,17 @@ type ControllerProps = {
   layout: SplitLayout;
   /** The page's folder frame, which the panes fill and the divider sizes. */
   frameRef: RefObject<HTMLDivElement | null>;
+  /**
+   * The frame itself, once it is on the page. A controller can mount in the same update as the
+   * page, before the frame is attached; it measures the frame when this arrives.
+   */
+  frame: HTMLDivElement | null;
 };
 
 const sameProps = (a: ControllerProps, b: ControllerProps) =>
   a.left === b.left &&
   a.frameRef === b.frameRef &&
+  a.frame === b.frame &&
   a.layout.right === b.layout.right &&
   a.layout.active === b.layout.active &&
   a.layout.ratio === b.layout.ratio &&
@@ -125,6 +131,7 @@ export const SplitController = memo(function SplitController({
   left,
   layout,
   frameRef,
+  frame: frameElement,
 }: ControllerProps) {
   const navigate = useNavigate();
   const { session } = useRouteContext({ from: "/_authed" });
@@ -261,7 +268,8 @@ export const SplitController = memo(function SplitController({
     },
   });
 
-  const width = useContentWidth(frameRef);
+  const width = useContentWidth(frameElement);
+  const [owner] = useState(() => Symbol("split controller"));
   const wide = width !== null && width >= minSideBySide;
   const fitsFolded =
     width !== null && !wide && width + sidebarSpare >= minSideBySide;
@@ -453,8 +461,10 @@ export const SplitController = memo(function SplitController({
         };
   // After every render: the page shows this frame until the next one, or none once closed.
   useLayoutEffect(() => {
-    SplitFrameStore.set(frame);
+    SplitFrameStore.set(frame, owner);
   });
-  useLayoutEffect(() => () => SplitFrameStore.set(null), []);
+  // Clears only its own frame: a controller that has already replaced it, such as the next
+  // page's when a pane opens the drive root, keeps showing.
+  useLayoutEffect(() => () => SplitFrameStore.clear(owner), [owner]);
   return null;
 }, sameProps);
