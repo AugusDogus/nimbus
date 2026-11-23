@@ -34,7 +34,8 @@ export async function POST(request: Request) {
     const roots = await resolveArchiveRoots(paths, access);
     return new Response(
       zipStream(
-        archiveEntries(roots, access),
+        // The session and permissions again, before each file the archive adds.
+        archiveEntries(roots, () => requestAccess(request)),
         request.signal,
         `${roots.length} items`,
       ),

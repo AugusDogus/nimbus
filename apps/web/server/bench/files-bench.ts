@@ -1455,7 +1455,7 @@ const scenarios: Record<string, () => Promise<void>> = {
       if (url.pathname.startsWith("/dav")) return handleWebDAV(request);
       const target = url.searchParams.get("path") ?? "";
       return url.pathname === "/zip"
-        ? httpFiles.serveZip(target, access)
+        ? httpFiles.serveZip(target, async () => access)
         : httpFiles.serveFile(request, target, access);
     });
     try {

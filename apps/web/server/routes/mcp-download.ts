@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { getAccess } from "@nimbus/api/access";
 import { entryAt } from "@nimbus/api/file-browser";
 import { McpScope } from "@nimbus/api/mcp-scope";
@@ -49,7 +50,25 @@ export const GET = (request: Request) =>
       access.require(link.path, "read");
       const entry = await entryAt(link.path);
       return entry.type === "dir"
-        ? await serveZip(link.path, access, request.method === "HEAD")
+        ? await serveZip(
+            link.path,
+            // The connection, the account and its permissions again, before each file.
+            async () => {
+              const live = await liveConnectionUser(
+                oauth.db,
+                link.grantId,
+                McpScope.read,
+              );
+              if (live === null || live !== link.userId)
+                throw new TRPCError({
+                  code: "FORBIDDEN",
+                  message:
+                    "The connection that created this link was revoked or its account is disabled, so the download was stopped.",
+                });
+              return getAccess(httpDriveStore, live);
+            },
+            request.method === "HEAD",
+          )
         : await serveFile(request, link.path, access);
     } catch (error) {
       return httpError(error);

@@ -8,7 +8,12 @@ export async function GET(request: Request) {
     const target = await safePath(url.searchParams.get("path") ?? "");
     const access = await requestAccess(request);
     return url.searchParams.get("zip") === "1"
-      ? await serveZip(target.relative, access, request.method === "HEAD")
+      ? await serveZip(
+          target.relative,
+          // The session and permissions again, before each file the archive adds.
+          () => requestAccess(request),
+          request.method === "HEAD",
+        )
       : await serveFile(
           request,
           target.relative,

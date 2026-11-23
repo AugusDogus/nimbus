@@ -161,7 +161,7 @@ test("symlinks are never served", async () => {
 
 test("folder ZIPs list readable contents relative to the folder", async () => {
   const access = await admin();
-  const response = await serveZip("docs", access);
+  const response = await serveZip("docs", async () => access);
   const bytes = new Uint8Array(await response.arrayBuffer());
   const text = new TextDecoder("latin1").decode(bytes);
   for (const name of ["a.txt", "inner/", "inner/b.txt"])
@@ -169,7 +169,9 @@ test("folder ZIPs list readable contents relative to the folder", async () => {
   expect(text).not.toContain("docs/");
   // STORE keeps file content verbatim inside the archive.
   expect(text).toContain("0123456789");
-  await expect(serveZip("docs/a.txt", access)).rejects.toMatchObject({
+  await expect(
+    serveZip("docs/a.txt", async () => access),
+  ).rejects.toMatchObject({
     code: "BAD_REQUEST",
   });
 });
@@ -425,7 +427,7 @@ test("names files and folder archives so every browser saves them under their ow
     `attachment; ${fallback}`,
   );
   await mkdir(path.join(root, "Föld'er (x)"));
-  const zip = await serveZip("Föld'er (x)", access);
+  const zip = await serveZip("Föld'er (x)", async () => access);
   expect(zip.headers.get("content-disposition")).toBe(
     `attachment; filename="Fold'er (x).zip"; filename*=UTF-8''F%C3%B6ld%27er%20%28x%29.zip`,
   );

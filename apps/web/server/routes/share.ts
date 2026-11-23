@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { entryAt, readDirectory } from "@nimbus/api/file-browser";
 import { serveFile, servedVersion, serveZip } from "@/server/file-response";
 import { httpDriveStore, httpError } from "@/server/http-files";
@@ -54,7 +55,23 @@ export async function GET(request: Request, context: Context) {
         );
       const response =
         entry.type === "dir"
-          ? await serveZip(scoped.target.relative, scoped.access)
+          ? await serveZip(scoped.target.relative, async () => {
+              // The link, its password unlock and its owner's permissions again, before each file.
+              const now = await getPublicShare(token, { exhausted: "allow" });
+              if (!isShareUnlocked(now.share, request))
+                throw new TRPCError({
+                  code: "FORBIDDEN",
+                  message:
+                    "This link now needs its password again, so the download was stopped.",
+                });
+              return (
+                await sharedTarget(
+                  now.share,
+                  now.access,
+                  url.searchParams.get("path") ?? "",
+                )
+              ).access;
+            })
           : await serveFile(
               request,
               scoped.target.relative,

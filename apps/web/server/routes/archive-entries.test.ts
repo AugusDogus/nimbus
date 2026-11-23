@@ -19,7 +19,7 @@ describe("archive entries", () => {
     const result: string[] = [];
     for await (const entry of archiveEntries(
       await resolveArchiveRoots(paths, access),
-      access,
+      async () => access,
     ))
       result.push(entry.name);
     return result;
@@ -39,6 +39,48 @@ describe("archive entries", () => {
     await rm(root, { recursive: true, force: true });
     if (previousRoot === undefined) delete process.env.NIMBUS_DATA_ROOT;
     else process.env.NIMBUS_DATA_ROOT = previousRoot;
+  });
+
+  it("checks access again before each member, and ends once it is withdrawn", async () => {
+    memory.grants.set("reader-docs", {
+      id: "reader-docs",
+      subject: { type: "user", id: "reader" },
+      path: "docs",
+      permission: "read",
+    });
+    const access = async () => getAccess(memory.store, "reader");
+    const roots = await resolveArchiveRoots(["docs"], await access());
+    const seen: string[] = [];
+    const walking = (async () => {
+      for await (const entry of archiveEntries(roots, access)) {
+        seen.push(entry.name);
+        // Withdrawn once the archive has started: what is not yet read must stay unread.
+        if (entry.name === "docs/") memory.grants.delete("reader-docs");
+      }
+    })();
+    await expect(walking).rejects.toThrow();
+    expect(seen).toEqual(["docs/"]);
+  });
+
+  it("ends when the session or link that started it is gone", async () => {
+    const roots = await resolveArchiveRoots(
+      ["docs"],
+      await getAccess(memory.store, "user-1"),
+    );
+    let signedIn = true;
+    const access = async () => {
+      if (!signedIn) throw new Error("Signed out.");
+      return getAccess(memory.store, "user-1");
+    };
+    const seen: string[] = [];
+    const walking = (async () => {
+      for await (const entry of archiveEntries(roots, access)) {
+        seen.push(entry.name);
+        signedIn = false;
+      }
+    })();
+    await expect(walking).rejects.toThrow("Signed out.");
+    expect(seen).toEqual(["docs/"]);
   });
 
   it("places each selected item at the top level and walks folders", async () => {

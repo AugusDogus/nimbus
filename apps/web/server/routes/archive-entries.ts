@@ -7,6 +7,14 @@ import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { getDataRoot } from "@nimbus/api/data-root";
 import { DriveRoot } from "@nimbus/api/drive-root";
 
+/**
+ * The access an archive is read with, as of now: it checks again that the session, link or
+ * connection that started the download is still valid and returns the account's current
+ * permissions, or throws once they are gone. A folder download can run for hours, also on a
+ * server that is draining, so it asks before every folder it lists and every file it adds.
+ */
+export type ArchiveAccess = () => Promise<Access>;
+
 /** One member of a ZIP: a folder marker or a file read from disk. Names use `/` separators. */
 export type ArchiveEntry =
   | { type: "dir"; name: string; mtime: Date }
@@ -53,14 +61,17 @@ export async function folderRoot(relative: string) {
 
 /**
  * Walk the requested items breadth first, yielding readable entries. A root
- * named "" contributes its contents at the top level. Removed entries are skipped.
+ * named "" contributes its contents at the top level. Removed entries are skipped. Access is
+ * checked again before each folder is listed and each file is yielded (and so opened); once it
+ * is gone, the walk throws, which ends the archive.
  */
 export async function* archiveEntries(
   roots: readonly { relative: string; name: string; isDirectory: boolean }[],
-  access: Access,
+  current: ArchiveAccess,
 ): AsyncGenerator<ArchiveEntry> {
   const dataRoot = getDataRoot();
   for (const root of roots) {
+    (await current()).require(root.relative, "read");
     const top = await requireExisting(root.relative);
     if (!root.isDirectory) {
       yield {
@@ -81,7 +92,10 @@ export async function* archiveEntries(
       directory = pending.shift()
     ) {
       // Entries come from lstat inside a validated folder, so they are plain files and folders.
-      for (const entry of await readDirectory(directory, access)) {
+      const listing = await current();
+      listing.require(directory, "read");
+      for (const entry of await readDirectory(directory, listing)) {
+        const access = await current();
         if (!access.can(entry.path, "read")) continue;
         const name = `${prefix}${root.relative ? entry.path.slice(root.relative.length + 1) : entry.path}`;
         if (entry.type === "dir") {

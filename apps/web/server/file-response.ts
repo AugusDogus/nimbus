@@ -8,7 +8,11 @@ import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { isFsError } from "@nimbus/api/safe-path";
 import { FileKind } from "@/lib/file-kind";
 import { DriveFile } from "@nimbus/api/drive-file";
-import { archiveEntries, folderRoot } from "./routes/archive-entries";
+import {
+  archiveEntries,
+  folderRoot,
+  type ArchiveAccess,
+} from "./routes/archive-entries";
 import { ContentDisposition } from "./content-disposition";
 import { fileETag } from "./file-content";
 import { FileVersion } from "./file-version";
@@ -618,13 +622,16 @@ function fileResponse(
   return { kind: "body", init: { status, headers }, start, end, length };
 }
 
-/** Download a folder as a ZIP of its readable contents. */
+/**
+ * Download a folder as a ZIP of its readable contents, checking `access` again before each
+ * member (see ArchiveAccess).
+ */
 export async function serveZip(
   requested: string,
-  access: Access,
+  access: ArchiveAccess,
   head = false,
 ) {
-  access.require(requested, "read");
+  (await access()).require(requested, "read");
   const roots = await folderRoot(requested);
   const headers = {
     "Content-Type": "application/zip",
