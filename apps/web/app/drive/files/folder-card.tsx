@@ -124,6 +124,7 @@ export function FolderCard({
         {tools}
       </div>
       <div
+        data-slot="folder-list"
         className={cn(
           "overflow-x-clip",
           pane

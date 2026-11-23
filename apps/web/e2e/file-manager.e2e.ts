@@ -344,7 +344,10 @@ test("renders large folders as a window and keeps keyboard focus and scroll posi
     "2001",
   );
   const last = entry(page, "zz child");
-  const scroller = page.locator('[data-slot="sidebar-inset"]');
+  // The listing scrolls on its card, or with the page on a phone.
+  const scroller = page.locator(
+    isMobile ? '[data-slot="sidebar-inset"]' : '[data-slot="folder-list"]',
+  );
   if (isMobile)
     await scroller.evaluate((element) =>
       element.scrollTo(0, element.scrollHeight),
