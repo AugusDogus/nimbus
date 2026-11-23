@@ -45,6 +45,7 @@ import { AppFrame } from "@/components/app-frame";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { capabilitiesQueryOptions } from "./files/capabilities";
 import { FolderPath, useFolderPath } from "./files/folder-path";
+import { SplitLayout, useSplitLayout } from "./files/split-layout";
 import { fileListQueryOptions } from "./files/use-file-list";
 import { usePathname } from "@/hooks/use-pathname";
 import { trpcErrorCode } from "@/lib/trpc-error";
@@ -65,7 +66,9 @@ type FilesShellProps = {
 };
 
 export function FilesShell({ children }: FilesShellProps) {
-  const currentPath = useFolderPath();
+  // New, Upload and dropped files go to the folder shown, or the active pane's in a split view.
+  const split = useSplitLayout();
+  const currentPath = SplitLayout.activePath(useFolderPath(), split);
   const { session } = useRouteContext({ from: "/_authed" });
 
   const isAuthed = Boolean(session);
@@ -91,8 +94,16 @@ export function FilesShell({ children }: FilesShellProps) {
     ...fileListQueryOptions(currentPath, includeStats),
     enabled: false,
   });
-  const listingCode =
-    listing.isError && !listing.data ? trpcErrorCode(listing.error) : null;
+  // A pane of a split view sorts on its own, so its listing may be the one with or without stats.
+  const paneListing = useQuery({
+    ...fileListQueryOptions(currentPath, split ? !includeStats : includeStats),
+    enabled: false,
+  });
+  // A pane whose folder goes away shows that at once, even with its last listing (see `FolderPane`).
+  const failed = [listing, paneListing].find(
+    (query) => query.isError && (!query.data || split !== null),
+  );
+  const listingCode = failed ? trpcErrorCode(failed.error) : null;
   const offersNew =
     FolderPath.isShownAt(pathname) &&
     listingCode !== "NOT_FOUND" &&
