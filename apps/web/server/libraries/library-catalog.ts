@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHmac, hkdfSync } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -65,17 +65,39 @@ export type CatalogScan =
   /** This system cannot tell where an open folder is, so folders cannot be read confined. */
   | { kind: "unavailable" };
 
+/** The key versions are sealed with, derived from the server's secret, by secret. */
+const versionKeys = new Map<string, Uint8Array>();
+function versionKey(secret: string) {
+  let key = versionKeys.get(secret);
+  if (key === undefined) {
+    key = new Uint8Array(
+      hkdfSync(
+        "sha256",
+        secret,
+        new Uint8Array(0),
+        "nimbus/library-version/v1",
+        32,
+      ),
+    );
+    versionKeys.set(secret, key);
+  }
+  return key;
+}
+
 /**
  * An opaque revision of the file at drive path `relative`, from that path and the file's size,
  * modification and change times. The path is part of it because an id can move to a file at
  * another path (see CatalogIdentity), and moving a folder leaves its files' times unchanged:
- * what was checked or cached for one path never stands for another.
+ * what was checked or cached for one path never stands for another. Keyed with the server's
+ * secret, so it stays stable across restarts yet cannot confirm a guess at the folders above a
+ * library folder, which no device is shown.
  */
 const versionOf = (
+  secret: string,
   relative: string,
   stats: { size: number; mtimeMs: number; ctimeMs: number },
 ) =>
-  `v1_${createHash("sha256")
+  `v1_${createHmac("sha256", versionKey(secret))
     .update(`${relative}\0${FileVersion.of(stats)}`)
     .digest("base64url")
     .slice(0, 22)}`;
@@ -87,11 +109,12 @@ const versionOf = (
 export type OpenedSource = { path: string; versions: readonly string[] };
 
 const sourceOf = (
+  secret: string,
   item: LibraryItem,
   stats: { size: number; mtimeMs: number; ctimeMs: number },
 ): OpenedSource => ({
   path: item.path,
-  versions: [item.version, versionOf(item.path, stats)],
+  versions: [item.version, versionOf(secret, item.path, stats)],
 });
 
 /** Whether catalog row `item` still names `source`, rather than a file its id moved to since. */
@@ -197,15 +220,18 @@ let scanHooks: ScanHooks = noHooks;
 async function scan(
   folders: readonly string[],
   {
+    secret,
     cap = MAX_LIBRARY_ITEMS,
     beforeOpen = scanHooks.beforeOpen,
     afterOpen = scanHooks.afterOpen,
   }: {
+    /** The server's secret, which versions are keyed with. */
+    secret: string;
     cap?: number;
     /** Tests only: runs before each folder is opened, to change the disk under the scan. */
     beforeOpen?: (relative: string) => Promise<void>;
     afterOpen?: (relative: string) => Promise<void>;
-  } = {},
+  },
 ): Promise<CatalogScan> {
   // Reading by path again could follow a folder swapped meanwhile: refuse rather than guess.
   if (!DescriptorPath.available) return { kind: "unavailable" };
@@ -270,7 +296,7 @@ async function scan(
           }
           listed.push({
             path: child,
-            version: versionOf(child, stats),
+            version: versionOf(secret, child, stats),
             sizeBytes: stats.size,
             modifiedAt: Math.floor(stats.mtimeMs),
           });
@@ -503,7 +529,7 @@ let settleTimer: ReturnType<typeof setTimeout> | null = null;
 const keyOf = (target: CatalogTarget) => target.folders.join("\0");
 
 async function refresh(
-  ctx: Pick<LibraryContext, "db" | "now" | "drive">,
+  ctx: Pick<LibraryContext, "db" | "now" | "drive" | "secret">,
   libraryId: string,
   target: CatalogTarget,
 ): Promise<Cached> {
@@ -513,7 +539,7 @@ async function refresh(
   if (running) return running;
   const work = (async (): Promise<Cached> => {
     const before = changes.get(libraryId) ?? 0;
-    const scanned = await scan(target.folders);
+    const scanned = await scan(target.folders, { secret: ctx.secret });
     // The folders offered may have changed while the scan ran: one withdrawn must not lend
     // its rows to files found elsewhere, and one added was not read, so committing would
     // tombstone its rows over a fuller scan's. Such a scan is discarded, and the next look
@@ -566,7 +592,7 @@ export const LibraryCatalog = {
    * counted or dated into the library's change time.
    */
   async items(
-    ctx: Pick<LibraryContext, "db" | "now" | "drive">,
+    ctx: Pick<LibraryContext, "db" | "now" | "drive" | "secret">,
     libraryId: string,
     target: CatalogTarget,
   ) {
@@ -584,7 +610,7 @@ export const LibraryCatalog = {
    * whose folders hold it, or lie inside it, are reconciled shortly.
    */
   noteChange(
-    ctx: Pick<LibraryContext, "db" | "now" | "drive">,
+    ctx: Pick<LibraryContext, "db" | "now" | "drive" | "secret">,
     changed: string,
   ) {
     const relative = path
@@ -625,7 +651,7 @@ export const LibraryCatalog = {
 
   /** Reconcile library `libraryId` now, such as after its folders changed. */
   async refreshLibrary(
-    ctx: Pick<LibraryContext, "db" | "now" | "drive">,
+    ctx: Pick<LibraryContext, "db" | "now" | "drive" | "secret">,
     libraryId: string,
   ) {
     return refresh(
@@ -641,13 +667,17 @@ export const LibraryCatalog = {
   },
 
   /** Reconcile every library marked changed. */
-  async reconcileDirty(ctx: Pick<LibraryContext, "db" | "now" | "drive">) {
+  async reconcileDirty(
+    ctx: Pick<LibraryContext, "db" | "now" | "drive" | "secret">,
+  ) {
     for (const [libraryId, entry] of cache)
       if (entry.dirty) await LibraryCatalog.refreshLibrary(ctx, libraryId);
   },
 
   /** Reconcile every library, as at startup and on the search index's reconcile interval. */
-  async reconcileAll(ctx: Pick<LibraryContext, "db" | "now" | "drive">) {
+  async reconcileAll(
+    ctx: Pick<LibraryContext, "db" | "now" | "drive" | "secret">,
+  ) {
     const all = ctx.db.select({ id: libraries.id }).from(libraries).all();
     for (const library of all)
       await LibraryCatalog.refreshLibrary(ctx, library.id);

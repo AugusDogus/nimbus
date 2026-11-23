@@ -119,7 +119,7 @@ export const LibraryListing = {
 
   /** The scope's library, only items of `kinds` when given. */
   async library(
-    ctx: Pick<LibraryContext, "db" | "now" | "drive">,
+    ctx: Pick<LibraryContext, "db" | "now" | "drive" | "secret">,
     scope: LibraryScope,
     kinds: readonly LibraryItemKind[] | null,
   ): Promise<LibraryListingResult> {

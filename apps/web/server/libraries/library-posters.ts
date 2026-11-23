@@ -151,7 +151,7 @@ function recordOf(ctx: Pick<LibraryContext, "db">, itemId: string) {
  * file meanwhile: the record is keyed by the id alone, and is the new file's to write.
  */
 function remember(
-  ctx: Pick<LibraryContext, "db" | "now">,
+  ctx: Pick<LibraryContext, "db" | "now" | "secret">,
   itemId: string,
   source: OpenedSource,
   version: string,
@@ -280,7 +280,7 @@ const rendering = new Map<string, Job>();
  * outlives any one request; a descriptor of another version is refused.
  */
 function draw(
-  ctx: Pick<LibraryContext, "db" | "now">,
+  ctx: Pick<LibraryContext, "db" | "now" | "secret">,
   item: LibraryItem,
   file: OpenedDriveFile,
   source: PosterSource,
@@ -306,7 +306,7 @@ function draw(
           remember(
             ctx,
             item.id,
-            LibraryCatalog.sourceOf(item, file.stats),
+            LibraryCatalog.sourceOf(ctx.secret, item, file.stats),
             version,
             {
               state: "ready",
@@ -324,7 +324,7 @@ function draw(
           remember(
             ctx,
             item.id,
-            LibraryCatalog.sourceOf(item, file.stats),
+            LibraryCatalog.sourceOf(ctx.secret, item, file.stats),
             version,
             {
               state: again ? "failed" : "timed_out",
@@ -340,7 +340,7 @@ function draw(
           remember(
             ctx,
             item.id,
-            LibraryCatalog.sourceOf(item, file.stats),
+            LibraryCatalog.sourceOf(ctx.secret, item, file.stats),
             version,
             { state: "failed" },
           );
@@ -371,7 +371,7 @@ function draw(
 
 /** The largest poster of the item: cached, or drawn and recorded now. */
 async function largest(
-  ctx: Pick<LibraryContext, "db" | "now">,
+  ctx: Pick<LibraryContext, "db" | "now" | "secret">,
   item: LibraryItem,
   file: OpenedDriveFile,
   source: PosterSource,
@@ -469,7 +469,7 @@ function matches(request: Request, etag: string) {
  * the file it was drawn from, for the caller to check once more before releasing it.
  */
 async function respond(
-  ctx: Pick<LibraryContext, "db" | "now">,
+  ctx: Pick<LibraryContext, "db" | "now" | "secret">,
   request: Request,
   device: { id: string },
   scope: LibraryScope,
@@ -483,13 +483,13 @@ async function respond(
   const { item, opened: file } = opened.value;
   return {
     response: await answerFor(ctx, request, device, item, file, width),
-    source: LibraryCatalog.sourceOf(item, file.stats),
+    source: LibraryCatalog.sourceOf(ctx.secret, item, file.stats),
   };
 }
 
 /** The poster of the opened `item` at `width`. Closes the file. */
 async function answerFor(
-  ctx: Pick<LibraryContext, "db" | "now">,
+  ctx: Pick<LibraryContext, "db" | "now" | "secret">,
   request: Request,
   device: { id: string },
   item: LibraryItem,
@@ -499,7 +499,7 @@ async function answerFor(
   try {
     const source = drawable(path.posix.basename(item.path));
     if (source === null) return LibraryApiError.response(notAvailable);
-    const version = LibraryCatalog.versionOf(item.path, file.stats);
+    const version = LibraryCatalog.versionOf(ctx.secret, item.path, file.stats);
     const etag = `"poster-${FORMAT}-${version}-${width}"`;
     const cacheHeaders = {
       ETag: etag,

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
+  lstat,
   mkdir,
   rename,
   rm,
@@ -9,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { and, eq } from "drizzle-orm";
 import { libraryItems } from "../db/library-schema";
+import { FileVersion } from "../file-version";
 import { Libraries } from "./libraries";
 import { LibraryAccess } from "./library-access";
 import {
@@ -144,6 +147,24 @@ test("an edit in place keeps the id and added date, with a new version", async (
   expect(after?.id).toBe(before?.id ?? "");
   expect(after?.addedAt).toBe(before?.addedAt ?? -1);
   expect(after?.version).not.toBe(before?.version ?? "");
+});
+
+test("a version cannot be worked out from a file's path and times without the server's secret", async () => {
+  await file("library/kitchen/Notes.md", "proofing times");
+  await create();
+  const row = at("library/kitchen/Notes.md");
+  const stats = await lstat(t.drive.absolute("library/kitchen/Notes.md"));
+  const guessed = `v1_${createHash("sha256")
+    .update(`library/kitchen/Notes.md\0${FileVersion.of(stats)}`)
+    .digest("base64url")
+    .slice(0, 22)}`;
+  expect(row?.version).toMatch(/^v1_[A-Za-z0-9_-]{22}$/);
+  expect(row?.version).not.toBe(guessed);
+  // Stable for the same server, as after a restart.
+  LibraryCatalog.resetForTest();
+  t.drive.db.update(libraryItems).set({ version: "v1_stale" }).run();
+  await reconcile();
+  expect(at("library/kitchen/Notes.md")?.version).toBe(row?.version ?? "");
 });
 
 test("a rename outside Nimbus keeps the id and added date", async () => {
@@ -576,6 +597,7 @@ test("a folder swapped for a link during a scan lists nothing from where the lin
   await file("library/kitchen/Guides/Loaf.md", "loaf");
   await file("other/Guides/Not in the library.md", "private");
   const scanned = await LibraryCatalog.scan(["library/kitchen"], {
+    secret: t.ctx.secret,
     beforeOpen: async (relative) => {
       if (relative !== "library/kitchen/Guides") return;
       await rename(
@@ -655,6 +677,7 @@ test("a change during a scan is not lost when the scan finishes", async () => {
 test("a folder moved out of the library while it is read contributes nothing", async () => {
   await file("library/kitchen/Guides/Loaf.md", "loaf");
   const scanned = await LibraryCatalog.scan(["library/kitchen"], {
+    secret: t.ctx.secret,
     afterOpen: async (relative) => {
       if (relative !== "library/kitchen/Guides") return;
       await mkdir(t.drive.absolute("other"), { recursive: true });

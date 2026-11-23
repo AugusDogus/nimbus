@@ -377,7 +377,7 @@ const itemEndpoints: Record<string, Endpoint> = {
           await opened.value.opened.handle.close();
           const entry = LibraryListing.entry(ctx, scope, {
             ...item,
-            version: LibraryCatalog.versionOf(item.path, stats),
+            version: LibraryCatalog.versionOf(ctx.secret, item.path, stats),
             sizeBytes: stats.size,
           });
           return entry === null ? itemNotFound() : json(entry);
@@ -399,6 +399,7 @@ const itemEndpoints: Record<string, Endpoint> = {
           const served = await serveOpened(request, opened.value.opened, {
             filename: path.posix.basename(opened.value.item.path),
             etag: `"${LibraryCatalog.versionOf(
+              ctx.secret,
               opened.value.item.path,
               opened.value.opened.stats,
             )}"`,
@@ -432,6 +433,7 @@ const itemEndpoints: Record<string, Endpoint> = {
           const opened = await LibraryAccess.open(ctx, scope, itemId);
           if (!opened.ok) return LibraryApiError.response(opened.error);
           const version = LibraryCatalog.versionOf(
+            ctx.secret,
             opened.value.item.path,
             opened.value.opened.stats,
           );
@@ -513,6 +515,7 @@ const itemEndpoints: Record<string, Endpoint> = {
           if (!opened.ok) return itemNotFound();
           const { handle, stats } = opened.value.opened;
           const version = LibraryCatalog.versionOf(
+            ctx.secret,
             opened.value.item.path,
             stats,
           );
@@ -529,7 +532,8 @@ const itemEndpoints: Record<string, Endpoint> = {
             watch: await deviceWatch(ctx, device, scope, {
               kind: "source",
               itemId,
-              source: () => LibraryCatalog.sourceOf(opened.value.item, stats),
+              source: () =>
+                LibraryCatalog.sourceOf(ctx.secret, opened.value.item, stats),
             }),
           });
           if (served.kind === "served") return served.response;
