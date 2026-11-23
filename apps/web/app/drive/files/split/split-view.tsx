@@ -51,7 +51,8 @@ import {
 } from "./pane-section";
 import { SplitAddress } from "./split-address";
 import { SplitMemory } from "./split-memory";
-import { usePageArea } from "./split-page";
+import { useSidebarFold, usePageArea } from "./split-page";
+import { AppFrame } from "@/components/app-frame";
 
 /** Narrowest useful pane, in pixels. */
 const minPaneWidth = 420;
@@ -62,6 +63,9 @@ const minSideBySide = 900;
 
 const parentOf = (path: string) =>
   path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+
+/** What folding the sidebar to its icons gives the page, in pixels. */
+const sidebarSpare = (AppFrame.sidebarRem.open - AppFrame.sidebarRem.icon) * 16;
 
 const columns = (ratio: number, collapsed: PaneSide | null) =>
   collapsed === "left"
@@ -256,7 +260,12 @@ export default function SplitView({
 
   const frameRef = useRef<HTMLDivElement>(null);
   const box = useContentBox(frameRef);
-  const sideBySide = box !== null && box.width >= minSideBySide;
+  const wide = box !== null && box.width >= minSideBySide;
+  const fitsFolded =
+    box !== null && !wide && box.width + sidebarSpare >= minSideBySide;
+  const sidebar = useSidebarFold(fitsFolded);
+  // While the sidebar folds, the panes stay side by side as the room for them grows.
+  const sideBySide = wide || (fitsFolded && sidebar.foldedForSplit);
   usePageArea(frameRef, sideBySide);
   // Which pane a drag is over: that pane says where the drag would drop.
   const [dragOver, setDragOver] = useState<PaneSide | null>(null);

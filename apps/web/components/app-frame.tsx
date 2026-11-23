@@ -12,9 +12,12 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
+/** The sidebar's width open, and folded to its icons, in rem. */
+const sidebarRem = { open: 16, icon: 4 } as const;
+
 const sidebarStyle: CSSProperties & Record<`--${string}`, string> = {
-  "--sidebar-width": "16rem",
-  "--sidebar-width-icon": "4rem",
+  "--sidebar-width": `${sidebarRem.open}rem`,
+  "--sidebar-width-icon": `${sidebarRem.icon}rem`,
 };
 
 /** Where the current section's navigation renders inside the sidebar, once it is on the page. */
@@ -70,4 +73,4 @@ function SidebarBody({ children }: { children: ReactNode }) {
   return slot ? createPortal(children, slot) : null;
 }
 
-export const AppFrame = { Root, SidebarBody } as const;
+export const AppFrame = { Root, SidebarBody, sidebarRem } as const;
