@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -179,6 +179,16 @@ function cacheName(
 async function readCached(name: string) {
   try {
     return new Uint8Array(await readFile(path.join(cacheDirectory(), name)));
+  } catch (error) {
+    if (isFsError(error, "ENOENT")) return null;
+    throw error;
+  }
+}
+
+/** The cached file's size in bytes, or null when it is not cached. */
+async function cachedSize(name: string) {
+  try {
+    return (await stat(path.join(cacheDirectory(), name))).size;
   } catch (error) {
     if (isFsError(error, "ENOENT")) return null;
     throw error;
@@ -388,36 +398,40 @@ async function respond(
     )
       return new Response(null, { status: 304, headers: cacheHeaders });
     const name = cacheName(item, file, width);
-    let body = await readCached(name);
-    if (!body) {
-      const drawn = await forDevice(
-        device.id,
-        request.signal,
-        async (): Promise<Largest> => {
-          // Another request may have drawn it while this one waited.
-          const cached = await readCached(name);
-          if (cached) return { ok: true, jpeg: cached };
-          const known = recordOf(ctx, item.id);
-          if (failedBefore(known)) return { ok: false, error: failed };
-          const big = await largest(ctx, item, file, source, version, known);
-          if (!big.ok || width === LARGEST) return big;
-          const jpeg = await PosterRender.scaled(big.jpeg, width);
-          await store(name, jpeg);
-          return { ok: true, jpeg };
+    const answer = (body: Uint8Array<ArrayBuffer> | null, length: number) =>
+      new Response(body, {
+        headers: {
+          ...cacheHeaders,
+          "Content-Type": "image/jpeg",
+          "Content-Length": String(length),
+          "Content-Security-Policy": "sandbox; default-src 'none'",
         },
-      );
-      if (!drawn.ok) return LibraryApiError.response(drawn.error);
-      if (!drawn.value.ok) return LibraryApiError.response(drawn.value.error);
-      body = drawn.value.jpeg;
+      });
+    // HEAD reads no bytes when the poster is cached; GET reads them in the device's turn.
+    if (request.method === "HEAD") {
+      const size = await cachedSize(name);
+      if (size !== null) return answer(null, size);
     }
-    return new Response(request.method === "HEAD" ? null : body, {
-      headers: {
-        ...cacheHeaders,
-        "Content-Type": "image/jpeg",
-        "Content-Length": String(body.byteLength),
-        "Content-Security-Policy": "sandbox; default-src 'none'",
+    const drawn = await forDevice(
+      device.id,
+      request.signal,
+      async (): Promise<Largest> => {
+        const cached = await readCached(name);
+        if (cached) return { ok: true, jpeg: cached };
+        // Read again: another request may have drawn it, or failed, while this one waited.
+        const latest = recordOf(ctx, item.id);
+        if (failedBefore(latest)) return { ok: false, error: failed };
+        const big = await largest(ctx, item, file, source, version, latest);
+        if (!big.ok || width === LARGEST) return big;
+        const jpeg = await PosterRender.scaled(big.jpeg, width);
+        await store(name, jpeg);
+        return { ok: true, jpeg };
       },
-    });
+    );
+    if (!drawn.ok) return LibraryApiError.response(drawn.error);
+    if (!drawn.value.ok) return LibraryApiError.response(drawn.value.error);
+    const { jpeg } = drawn.value;
+    return answer(request.method === "HEAD" ? null : jpeg, jpeg.byteLength);
   } finally {
     await file.handle.close();
   }
