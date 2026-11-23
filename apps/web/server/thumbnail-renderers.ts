@@ -105,10 +105,17 @@ export const pdfRenderer =
 
 const FRAME_BYTES = THUMBNAIL_SIZE * THUMBNAIL_SIZE * 4;
 
-const frameAt = (
+/**
+ * One raw RGBA frame `seconds` into a video, through `filter`, from a single-threaded FFmpeg
+ * that reads only local files of the container formats Nimbus decodes. Empty when the video has
+ * no frame there. Output beyond `maxOutputBytes` fails the render.
+ */
+export const videoFrame = (
   ffmpeg: string,
   absolute: string,
   seconds: number,
+  filter: string,
+  maxOutputBytes: number,
   signal: AbortSignal,
 ) =>
   runBounded(
@@ -149,9 +156,8 @@ const frameAt = (
       "1",
       "-filter_threads",
       "1",
-      // Transparent letterboxing keeps the output size fixed and exact.
       "-vf",
-      `scale=${THUMBNAIL_SIZE}:${THUMBNAIL_SIZE}:force_original_aspect_ratio=decrease,format=rgba,pad=${THUMBNAIL_SIZE}:${THUMBNAIL_SIZE}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1`,
+      filter,
       "-c:v",
       "rawvideo",
       "-pix_fmt",
@@ -164,8 +170,24 @@ const frameAt = (
       timeoutMs: 8_000,
       memoryBytes: 1024 * 1024 * 1024,
       cpuSeconds: 5,
-      maxOutputBytes: FRAME_BYTES,
+      maxOutputBytes,
     },
+    signal,
+  );
+
+const frameAt = (
+  ffmpeg: string,
+  absolute: string,
+  seconds: number,
+  signal: AbortSignal,
+) =>
+  videoFrame(
+    ffmpeg,
+    absolute,
+    seconds,
+    // Transparent letterboxing keeps the output size fixed and exact.
+    `scale=${THUMBNAIL_SIZE}:${THUMBNAIL_SIZE}:force_original_aspect_ratio=decrease,format=rgba,pad=${THUMBNAIL_SIZE}:${THUMBNAIL_SIZE}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1`,
+    FRAME_BYTES,
     signal,
   );
 

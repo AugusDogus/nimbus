@@ -31,7 +31,7 @@ type RendererKind = "image" | "pdf" | "video";
 export const THUMBNAIL_SIZE = 256;
 const FORMAT_VERSION = 1;
 // Matches the decoded-pixel bound used before this module; about 160 MB of RGBA.
-const MAX_INPUT_PIXELS = 40_000_000;
+export const MAX_INPUT_PIXELS = 40_000_000;
 /** How long a file whose render timed out shows its generic icon before one more try. */
 const timeoutRetryMs = 10 * 60 * 1000;
 
