@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
-import { client, test } from "./helpers";
+import { client, origin, test } from "./helpers";
 
 // Every loading state takes the boxes of what replaces it, so nothing moves when content
 // arrives. Each check holds a response back, records where the placeholder's parts are, lets the
@@ -197,6 +197,34 @@ test.describe("skeletons", () => {
         },
       );
     });
+
+  test("a folder's served skeleton keeps a closed sidebar closed", async ({
+    page,
+    context,
+    isMobile,
+  }) => {
+    test.skip(isMobile, "Phones keep the sidebar in a drawer.");
+    const { name } = await folderOfEight(page);
+    await context.addCookies([
+      {
+        name: "sidebar_state",
+        value: "false",
+        url: origin,
+      },
+    ]);
+    await checkServedSkeleton(
+      page,
+      `/browse/${name}`,
+      [1680, 1024],
+      async (loaded) => {
+        await listed(loaded);
+        await expect(loaded.locator('[data-slot="sidebar"]')).toHaveAttribute(
+          "data-state",
+          "collapsed",
+        );
+      },
+    );
+  });
 
   for (const path of ["/trash", "/recent", "/settings/appearance"])
     test(`the served skeleton of ${path} is where the page will be`, async ({
