@@ -9,7 +9,7 @@ import { dataRoot, pdf } from "./pdf-files";
 test.use({ channel: "chromium" });
 
 /** A name with what RFC 8187 must escape: an apostrophe, parentheses, non-ASCII, a quote mark. */
-const name = "Dad's Café “Notes” (v2).pdf";
+const name = "Zoë's Café “Notes” (v2).pdf";
 
 /** The name the PDF viewer in `page` saves the document under, from its own download button. */
 async function viewerDownloadName(page: Page) {
@@ -122,21 +122,33 @@ test("a public link's page is titled with the shared item's name, so printing or
     // In the page the server sends, before any script runs: browsers name a printout or a
     // saved page after it, adding their own extension, so the title has none.
     const html = await (await visitor.request.get(`/s/${file.token}`)).text();
-    expect(html).toContain("<title>Dad&#39;s Café “Notes” (v2)</title>");
+    expect(html).toContain("<title>Zoë&#39;s Café “Notes” (v2)</title>");
     const page = await visitor.newPage();
     await page.goto(`/s/${file.token}`);
-    await expect(page).toHaveTitle("Dad's Café “Notes” (v2)");
+    await expect(page).toHaveTitle("Zoë's Café “Notes” (v2)");
     // A folder link follows what the visitor opens in it.
     await page.goto(`/s/${all.token}`);
     await expect(page).toHaveTitle(folder);
     await page.getByRole("button", { name: "other.pdf" }).click();
     await expect(page).toHaveTitle("other");
-    // A locked link names nothing before it is unlocked.
+    // A locked link names nothing before it is unlocked. Checked on text no hashed asset name
+    // can contain, in every form the page could carry it: plain, escaped and percent-encoded.
     await page.goto(`/s/${locked.token}`);
     await expect(page).toHaveTitle("Nimbus");
-    expect(
-      await (await visitor.request.get(`/s/${locked.token}`)).text(),
-    ).not.toContain("Dad");
+    const lockedHtml = await (
+      await visitor.request.get(`/s/${locked.token}`)
+    ).text();
+    for (const form of [
+      "Zoë",
+      "Café “Notes”",
+      "Zo&#235;",
+      "Caf&#233;",
+      "Zo&#xEB;",
+      "Caf&#xE9;",
+      "Zo%C3%AB",
+      "Caf%C3%A9",
+    ])
+      expect(lockedHtml).not.toContain(form);
   } finally {
     await visitor.close();
   }

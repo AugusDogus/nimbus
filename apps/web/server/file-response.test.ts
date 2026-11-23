@@ -412,12 +412,12 @@ test("names the served file's version, which a replacement with the same size an
 
 test("names files and folder archives so every browser saves them under their own name", async () => {
   const access = await admin();
-  const name = "Dad's Café “Notes” (v2).pdf";
+  const name = "Zoë's Café “Notes” (v2).pdf";
   await writeFile(path.join(root, "docs", name), "%PDF-1.4");
   const encoded =
-    "Dad%27s%20Caf%C3%A9%20%E2%80%9CNotes%E2%80%9D%20%28v2%29.pdf";
+    "Zo%C3%AB%27s%20Caf%C3%A9%20%E2%80%9CNotes%E2%80%9D%20%28v2%29.pdf";
   // An ASCII `filename` for clients without RFC 8187, then the exact name in `filename*`.
-  const fallback = `filename="Dad's Cafe _Notes_ (v2).pdf"; filename*=UTF-8''${encoded}`;
+  const fallback = `filename="Zoe's Cafe _Notes_ (v2).pdf"; filename*=UTF-8''${encoded}`;
   const inline = await serveFile(get(), `docs/${name}`, access, true);
   expect(inline.headers.get("content-disposition")).toBe(`inline; ${fallback}`);
   const attachment = await serveFile(get(), `docs/${name}`, access);
