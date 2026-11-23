@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, rename, rm, symlink, writeFile } from "node:fs/promises";
 import type { Server } from "bun";
 import { z } from "zod";
 import { DevicePairing } from "./device-pairing";
@@ -552,4 +552,30 @@ describe("media addresses", () => {
     });
     expect(eleventh.status).toBe(429);
   });
+});
+
+test("a file the server cannot open answers as an unknown item, for GET and HEAD alike", async () => {
+  const { token } = await pair();
+  const id = await idOf(token, "Small notes.md");
+  const unknown = await fetch(`${base}/items/itm_doesnotexist000000/file`, {
+    headers: auth(token),
+  });
+  const unknownBody = await unknown.text();
+  await chmod(t.drive.absolute("library/kitchen/Small notes.md"), 0o000);
+  try {
+    const get = await fetch(`${base}/items/${id}/file`, {
+      headers: auth(token),
+    });
+    expect(get.status).toBe(404);
+    expect(await get.text()).toBe(unknownBody);
+    const head = await fetch(`${base}/items/${id}/file`, {
+      method: "HEAD",
+      headers: auth(token),
+    });
+    expect(head.status).toBe(404);
+    expect(head.headers.get("etag")).toBeNull();
+    expect(head.headers.get("content-length")).not.toBe("14");
+  } finally {
+    await chmod(t.drive.absolute("library/kitchen/Small notes.md"), 0o644);
+  }
 });

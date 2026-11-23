@@ -6,6 +6,7 @@ import { Homes } from "@nimbus/api/homes";
 import { DriveFile, type OpenedDriveFile } from "@nimbus/api/drive-file";
 import {
   isApiError,
+  isFsError,
   isWithinPath,
   lexicalSafePath,
   PathError,
@@ -120,10 +121,14 @@ async function openRegular(path: string) {
       (await resolveSafePath(path)).absolute,
     );
   } catch (error) {
+    // A file the server may not open answers as one that is not there, so a device cannot
+    // tell the two apart.
     if (
       error instanceof PathError ||
       isApiError(error, "NOT_FOUND") ||
-      isApiError(error, "FORBIDDEN")
+      isApiError(error, "FORBIDDEN") ||
+      isFsError(error, "EACCES") ||
+      isFsError(error, "EPERM")
     )
       return null;
     throw error;

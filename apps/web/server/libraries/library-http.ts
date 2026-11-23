@@ -9,8 +9,7 @@ import type { LibraryContext } from "./library-context";
 import { LibraryListing } from "./library-listing";
 import { LibraryThrottle } from "./library-throttle";
 import path from "node:path";
-import { isApiError } from "@nimbus/api/safe-path";
-import { serveFile, serveOpened, type BodyWatch } from "../file-response";
+import { serveOpened, type BodyWatch } from "../file-response";
 import { LibraryCatalog } from "./library-catalog";
 import type { LibraryThrottleRule } from "./library-throttle";
 import { MediaTickets } from "./media-tickets";
@@ -277,30 +276,24 @@ const itemEndpoints: Record<string, Endpoint> = {
         ctx,
         request,
         async (_device, scope) => {
-          const item = LibraryAccess.resolve(ctx, scope, itemId);
-          if (!item.ok) return LibraryApiError.response(item.error);
-          // The file response every download uses, through the scope's read-only access.
-          try {
-            return await serveFile(
-              request,
-              item.value.path,
-              scope.access,
-              true,
-              () => "fast",
-              {
-                etag: (stats) => `"${LibraryCatalog.versionOf(stats)}"`,
-                cacheControl: "private, no-cache",
-              },
-            );
-          } catch (error) {
-            if (
-              isApiError(error, "NOT_FOUND") ||
-              isApiError(error, "FORBIDDEN") ||
-              isApiError(error, "BAD_REQUEST")
-            )
-              return itemNotFound();
-            throw error;
-          }
+          // Opened and checked the same way for GET and HEAD, so neither tells more. Sent
+          // whole with its exact length once checked; changes apply from the next request.
+          const opened = await LibraryAccess.open(ctx, scope, itemId);
+          if (!opened.ok) return itemNotFound();
+          const served = await serveOpened(request, opened.value.opened, {
+            filename: path.posix.basename(opened.value.item.path),
+            etag: `"${LibraryCatalog.versionOf(opened.value.opened.stats)}"`,
+            cacheControl: "private, no-cache",
+            whole: "exact",
+          });
+          return served.kind === "served"
+            ? served.response
+            : LibraryApiError.response({
+                code: "service_unavailable",
+                message:
+                  "This file changed while Nimbus read it. Try again in a moment.",
+                retryAfterSeconds: 1,
+              });
         },
         { rule: "mediaPerDevice" },
       ),

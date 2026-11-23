@@ -72,7 +72,7 @@ Ids and added dates survive renames and moves made through Nimbus, and a folder 
 
 ## Files
 
-`GET /items/{id}/file` sends the file's bytes with the token, for clients that can send an Authorization header. It answers as a file download does: the item's `contentType`, `Content-Length`, `Accept-Ranges: bytes`, a single byte range (`bytes=0-1`, `bytes=1000-`, `bytes=-500`) as `206` with an exact `Content-Range`, `416` with `Content-Range: bytes */<size>` for a range past the end, `HEAD`, and `If-Range`. The `ETag` is the item's `version`, quoted, and the answer is `Cache-Control: private, no-cache`. An id that is unknown, from another library, of a file that went missing, or of a file the device can no longer see all answer the same `404 item_not_found`.
+`GET /items/{id}/file` sends the file's bytes with the token, for clients that can send an Authorization header. It answers as a file download does: the item's `contentType`, `Content-Length`, `Accept-Ranges: bytes`, a single byte range (`bytes=0-1`, `bytes=1000-`, `bytes=-500`) as `206` with an exact `Content-Range`, `416` with `Content-Range: bytes */<size>` for a range past the end, `HEAD`, and `If-Range`. The `ETag` is the item's `version`, quoted, and the answer is `Cache-Control: private, no-cache`. An id that is unknown, from another library, of a file that went missing, or of a file the device can no longer see all answer the same `404 item_not_found`. Every answer, whole or ranged, goes out with its exact length and is checked immediately before it is sent; a disconnect, a library change or a file change applies from the next request.
 
 ## Media addresses
 

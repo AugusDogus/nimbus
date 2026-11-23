@@ -317,7 +317,8 @@ export type OpenedResponse =
  * `filename`, for callers that opened it themselves (see LibraryAccess.open). The handle is
  * always closed.
  *
- * A range is answered in full, zero-copy from this descriptor with an exact `Content-Length`,
+ * A range (and with `whole: "exact"` a whole file) is answered in full, zero-copy from this
+ * descriptor with an exact `Content-Length`,
  * after the file's version and `watch` are checked one last time. Once handed off, such an
  * answer cannot be stopped: Bun 1.4.4 sends a body it can stop only in chunks, without
  * `Content-Length`, which media players refuse for ranges. A request without a range streams
@@ -331,6 +332,11 @@ export async function serveOpened(
     filename: string;
     etag: string;
     cacheControl: string;
+    /**
+     * How an answer without a range goes out: `exact`, zero-copy with its exact length like a
+     * range, as a document viewer wants; `stream`, in checked chunks that can be stopped.
+     */
+    whole?: "exact" | "stream";
     watch?: BodyWatch;
   },
 ): Promise<OpenedResponse> {
@@ -355,9 +361,9 @@ export async function serveOpened(
       response.length === 0
     )
       return { kind: "served", response: new Response(null, response.init) };
-    const ranged = response.init.status === 206;
+    const exact = response.init.status === 206 || options.whole === "exact";
     if (
-      ranged &&
+      exact &&
       response.length > bufferedBytes &&
       descriptorPaths &&
       heldDescriptors < maxHeldDescriptors
