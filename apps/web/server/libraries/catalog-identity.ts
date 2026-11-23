@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { isWithinPath } from "@nimbus/api/safe-path";
 import type { libraryItems } from "../db/library-schema";
 
 /**
@@ -8,12 +9,16 @@ import type { libraryItems } from "../db/library-schema";
  * - A file at a path with a live row is that row. A changed file gets a new version.
  * - A row whose file vanished becomes a tombstone: never listed or reachable.
  * - A file appearing at a path with exactly one tombstone of the same size and modification
- *   time takes that row back, live again, as when a folder was briefly unavailable. Otherwise
- *   it is a new item.
+ *   time takes that row back, live again, as when a folder was briefly unavailable.
+ * - Otherwise, a file appearing at a new path takes over the row of a file that vanished, in
+ *   this pass or an earlier one, when it is the only new file with that size (above zero) and
+ *   modification time, that row is the only one that vanished with them, and the row's path
+ *   lies inside the folders this scan read: a rename or move made outside Nimbus.
+ * - Otherwise it is a new item.
  *
- * Renames and moves made through Nimbus carry rows along (see DriveStore.movePath). Renames
- * made outside Nimbus produce a new item. Only files the scan found inside the folders the
- * library currently offers are matched, so this never makes anything reachable that was not.
+ * Renames and moves made through Nimbus carry rows along (see DriveStore.movePath). Only files
+ * the scan found inside the folders the library currently offers are matched, and only to rows
+ * that were inside them too, so this never makes anything reachable that was not.
  */
 export type CatalogRow = typeof libraryItems.$inferSelect;
 
@@ -34,11 +39,34 @@ export type CatalogPlan = {
   tombstones: string[];
 };
 
-/** What to change so library `libraryId`'s rows, tombstones included, match `files`. */
+/** Size and modification time as one key, or null for an empty file, which is never matched. */
+const shapeOf = (entry: { sizeBytes: number; modifiedAt: number }) =>
+  entry.sizeBytes > 0 ? `${entry.sizeBytes}:${entry.modifiedAt}` : null;
+
+/** `entries` grouped by `shapeOf`, leaving out empty ones. */
+function byShape<T extends { sizeBytes: number; modifiedAt: number }>(
+  entries: readonly T[],
+) {
+  const groups = new Map<string, T[]>();
+  for (const entry of entries) {
+    const shape = shapeOf(entry);
+    if (shape === null) continue;
+    const group = groups.get(shape);
+    if (group) group.push(entry);
+    else groups.set(shape, [entry]);
+  }
+  return groups;
+}
+
+/**
+ * What to change so library `libraryId`'s rows, tombstones included, match `files`, which the
+ * scan found under `folders`.
+ */
 function plan(
   libraryId: string,
   rows: readonly CatalogRow[],
   files: readonly ScannedFile[],
+  folders: readonly string[],
   now: number,
 ): CatalogPlan {
   const result: CatalogPlan = { inserts: [], updates: [], tombstones: [] };
@@ -49,8 +77,9 @@ function plan(
   );
   const tombstones = rows.filter((row) => row.missingSince !== null);
   const present = new Set(files.map((file) => file.path));
-  for (const row of live.values())
-    if (!present.has(row.path)) result.tombstones.push(row.id);
+  const vanished = [...live.values()].filter((row) => !present.has(row.path));
+  const revived = new Set<string>();
+  const arrived: ScannedFile[] = [];
   for (const file of files) {
     const row = live.get(file.path);
     if (row) {
@@ -76,9 +105,36 @@ function plan(
         tombstone.modifiedAt === file.modifiedAt,
     );
     if (returning && others.length === 0) {
+      revived.add(returning.id);
       result.updates.push({
         id: returning.id,
         set: { version: file.version, missingSince: null },
+      });
+      continue;
+    }
+    arrived.push(file);
+  }
+  // Returns at the same path go first; what is left may be renames and moves.
+  const gone = byShape([
+    ...tombstones.filter((tombstone) => !revived.has(tombstone.id)),
+    ...vanished,
+  ]);
+  const newcomers = byShape(arrived);
+  const moved = new Set<string>();
+  for (const file of arrived) {
+    const shape = shapeOf(file);
+    const [row, ...rest] = (shape !== null && gone.get(shape)) || [];
+    if (
+      shape !== null &&
+      row &&
+      rest.length === 0 &&
+      newcomers.get(shape)?.length === 1 &&
+      folders.some((folder) => isWithinPath(folder, row.path))
+    ) {
+      moved.add(row.id);
+      result.updates.push({
+        id: row.id,
+        set: { path: file.path, version: file.version, missingSince: null },
       });
       continue;
     }
@@ -93,6 +149,8 @@ function plan(
       missingSince: null,
     });
   }
+  for (const row of vanished)
+    if (!moved.has(row.id)) result.tombstones.push(row.id);
   return result;
 }
 

@@ -374,7 +374,7 @@ describe("library", () => {
       id: map.id,
       addedAt: map.addedAt,
     });
-    // A rename outside Nimbus is, for now, a new item.
+    // So does a rename outside Nimbus, matched by size and modification time.
     await rename(
       t.drive.absolute("library/kitchen/Maps/North trail map.pdf"),
       t.drive.absolute("library/kitchen/Maps/South trail map.pdf"),
@@ -386,8 +386,8 @@ describe("library", () => {
     const south = external.items.find(
       (item) => item.name === "South trail map.pdf",
     );
-    expect(south?.id).not.toBe(map.id);
-    expect(external.items.map((item) => item.id)).not.toContain(map.id);
+    expect(south).toMatchObject({ id: map.id, addedAt: map.addedAt });
+    expect(external.items.filter((item) => item.id === map.id)).toHaveLength(1);
   });
 
   test("a library of missing folders is an empty list, not a failure", async () => {

@@ -130,22 +130,212 @@ test("an edit in place keeps the id and added date, with a new version", async (
   expect(after?.version).not.toBe(before?.version ?? "");
 });
 
-test("a rename outside Nimbus is a new item, and the old row a tombstone", async () => {
+test("a rename outside Nimbus keeps the id and added date", async () => {
+  await file("library/kitchen/Notes.md", "proofing times");
+  await create();
+  const original = at("library/kitchen/Notes.md");
+  t.advance(HOUR);
+  await rename(
+    t.drive.absolute("library/kitchen/Notes.md"),
+    t.drive.absolute("library/kitchen/Proofing notes.md"),
+  );
+  await reconcile();
+  const renamed = at("library/kitchen/Proofing notes.md");
+  expect(renamed?.id).toBe(original?.id ?? "");
+  expect(renamed?.addedAt).toBe(original?.addedAt ?? -1);
+  // A rename changes the file's change time, so its version, and so its poster, is new.
+  expect(renamed?.version).not.toBe(original?.version ?? "");
+  expect(await listed()).toEqual(["library/kitchen/Proofing notes.md"]);
+  expect(rows()).toHaveLength(1);
+});
+
+test("a move to another folder of the same library keeps the id", async () => {
+  await file("library/kitchen/Notes.md", "proofing times");
+  const id = await create(["library/kitchen", "library/garage"]);
+  const original = at("library/kitchen/Notes.md");
+  await rename(
+    t.drive.absolute("library/kitchen/Notes.md"),
+    t.drive.absolute("library/garage/Notes.md"),
+  );
+  await reconcile(id);
+  expect(at("library/garage/Notes.md")?.id).toBe(original?.id ?? "");
+  expect(rows()).toHaveLength(1);
+});
+
+test("a rename seen across two reconciles keeps the id", async () => {
   await file("library/kitchen/Notes.md", "proofing times");
   await create();
   const original = at("library/kitchen/Notes.md");
   await rename(
     t.drive.absolute("library/kitchen/Notes.md"),
+    t.drive.absolute("library/away.md"),
+  );
+  t.advance(HOUR);
+  await reconcile();
+  expect(await listed()).toEqual([]);
+  await rename(
+    t.drive.absolute("library/away.md"),
     t.drive.absolute("library/kitchen/Guides/Proofing notes.md"),
   );
   t.advance(HOUR);
   await reconcile();
-  expect(at("library/kitchen/Guides/Proofing notes.md")?.id).not.toBe(
+  expect(at("library/kitchen/Guides/Proofing notes.md")?.id).toBe(
     original?.id ?? "",
   );
-  expect(await listed()).toEqual(["library/kitchen/Guides/Proofing notes.md"]);
+  expect(rows()).toHaveLength(1);
+});
+
+test("two new files with the same size and time as a vanished one are new items", async () => {
+  await file("library/kitchen/Notes.md", "proofing times");
+  await create();
+  const original = at("library/kitchen/Notes.md");
+  await rename(
+    t.drive.absolute("library/kitchen/Notes.md"),
+    t.drive.absolute("library/kitchen/Copy one.md"),
+  );
+  await file("library/kitchen/Copy two.md", "proofing times");
+  await reconcile();
+  expect(at("library/kitchen/Copy one.md")?.id).not.toBe(original?.id ?? "");
+  expect(at("library/kitchen/Copy two.md")?.id).not.toBe(original?.id ?? "");
   expect(rows().find((row) => row.id === original?.id)?.missingSince).toBe(
     t.now(),
+  );
+});
+
+test("a new file matching two vanished ones by size and time is a new item", async () => {
+  await file("library/kitchen/First.md", "proofing times");
+  await file("library/kitchen/Second.md", "proofing times");
+  await create();
+  const before = rows().map((row) => row.id);
+  await rm(t.drive.absolute("library/kitchen/Second.md"));
+  await rename(
+    t.drive.absolute("library/kitchen/First.md"),
+    t.drive.absolute("library/kitchen/Third.md"),
+  );
+  await reconcile();
+  expect(before).not.toContain(at("library/kitchen/Third.md")?.id ?? "");
+  expect(rows()).toHaveLength(3);
+});
+
+test("an empty file renamed outside Nimbus is a new item", async () => {
+  await file("library/kitchen/Empty.md", "");
+  await create();
+  const original = at("library/kitchen/Empty.md");
+  await rename(
+    t.drive.absolute("library/kitchen/Empty.md"),
+    t.drive.absolute("library/kitchen/Still empty.md"),
+  );
+  await reconcile();
+  expect(at("library/kitchen/Still empty.md")?.id).not.toBe(original?.id ?? "");
+});
+
+test("a file moved into another library is a new item there", async () => {
+  await file("library/kitchen/Notes.md", "proofing times");
+  const kitchen = await create(["library/kitchen"]);
+  const original = at("library/kitchen/Notes.md", kitchen);
+  const garage = await create(["library/garage"]);
+  await rename(
+    t.drive.absolute("library/kitchen/Notes.md"),
+    t.drive.absolute("library/garage/Notes.md"),
+  );
+  await reconcile(kitchen);
+  await reconcile(garage);
+  expect(at("library/garage/Notes.md", garage)?.id).not.toBe(
+    original?.id ?? "",
+  );
+  expect(
+    rows(kitchen).find((row) => row.id === original?.id)?.missingSince,
+  ).toBe(t.now());
+});
+
+test("no match is made out of or into a folder outside the visible set", async () => {
+  await file("library/garage/Chain.md", "chain lube");
+  await file("library/kitchen/Notes.md", "proofing times");
+  const id = await create(["library/kitchen", "library/garage"]);
+  const chain = at("library/garage/Chain.md", id);
+  const notes = at("library/kitchen/Notes.md", id);
+  const narrow = { folders: ["library/kitchen"] };
+  // The garage stops being visible as its file moves into the kitchen, and a kitchen file
+  // moves into the garage.
+  await rename(
+    t.drive.absolute("library/garage/Chain.md"),
+    t.drive.absolute("library/kitchen/Chain.md"),
+  );
+  await rename(
+    t.drive.absolute("library/kitchen/Notes.md"),
+    t.drive.absolute("library/garage/Notes.md"),
+  );
+  LibraryCatalog.resetForTest();
+  const items = await LibraryCatalog.items(t.ctx, id, narrow);
+  expect(items.kind === "ok" && items.items.map((item) => item.path)).toEqual([
+    "library/kitchen/Chain.md",
+  ]);
+  expect(at("library/kitchen/Chain.md", id)?.id).not.toBe(chain?.id ?? "");
+  expect(at("library/garage/Notes.md", id)).toBeUndefined();
+  expect(rows(id).find((row) => row.id === notes?.id)?.missingSince).toBe(
+    t.now(),
+  );
+});
+
+test("a file moved after its tombstone expired is a new item", async () => {
+  await file("library/kitchen/Notes.md", "proofing times");
+  await create();
+  const original = at("library/kitchen/Notes.md");
+  await rename(
+    t.drive.absolute("library/kitchen/Notes.md"),
+    t.drive.absolute("library/away.md"),
+  );
+  await reconcile();
+  t.advance(TOMBSTONE_RETENTION_MS + DAY);
+  await rename(
+    t.drive.absolute("library/away.md"),
+    t.drive.absolute("library/kitchen/Guides/Notes.md"),
+  );
+  await reconcile();
+  expect(at("library/kitchen/Guides/Notes.md")?.id).not.toBe(
+    original?.id ?? "",
+  );
+  expect(rows()).toHaveLength(1);
+});
+
+test("a moved file keeps its id while a different file at the old path is new", async () => {
+  await file("library/kitchen/Notes.md", "proofing times");
+  await create();
+  const original = at("library/kitchen/Notes.md");
+  await rename(
+    t.drive.absolute("library/kitchen/Notes.md"),
+    t.drive.absolute("library/away.md"),
+  );
+  await reconcile();
+  await file("library/kitchen/Notes.md", "a different recipe");
+  await rename(
+    t.drive.absolute("library/away.md"),
+    t.drive.absolute("library/kitchen/Guides/Notes.md"),
+  );
+  await reconcile();
+  expect(at("library/kitchen/Guides/Notes.md")?.id).toBe(original?.id ?? "");
+  expect(at("library/kitchen/Notes.md")?.id).not.toBe(original?.id ?? "");
+  expect(rows()).toHaveLength(2);
+});
+
+test("a file returning to its old path wins over a copy elsewhere", async () => {
+  await file("library/kitchen/Notes.md", "proofing times");
+  await create();
+  const original = at("library/kitchen/Notes.md");
+  await rename(
+    t.drive.absolute("library/kitchen/Notes.md"),
+    t.drive.absolute("library/away.md"),
+  );
+  await reconcile();
+  await rename(
+    t.drive.absolute("library/away.md"),
+    t.drive.absolute("library/kitchen/Notes.md"),
+  );
+  await file("library/kitchen/Guides/Notes copy.md", "proofing times");
+  await reconcile();
+  expect(at("library/kitchen/Notes.md")?.id).toBe(original?.id ?? "");
+  expect(at("library/kitchen/Guides/Notes copy.md")?.id).not.toBe(
+    original?.id ?? "",
   );
 });
 

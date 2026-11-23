@@ -302,6 +302,7 @@ async function reconcile(
       ...file,
       firstScan: firstScan.has(file.path),
     })),
+    [...scanned.folders.keys()],
     now,
   );
   // The count limit covers every tombstone after this pass, the newest kept first.
