@@ -111,12 +111,13 @@ The server runs as an unprivileged user, by default UID and GID 1000. Set `PUID`
 
 ### Published image
 
-The CI workflow builds the Dockerfile for `linux/amd64` and `linux/arm64` on native runners only after every check passes for the same commit; pull requests build without publishing. Pushes to `main` and version tags such as `v1.2.3` that pass publish a multi-platform image to GitHub Container Registry with signed build provenance. Each Bun stage uses the `oven/bun:1.4.4` base image pinned by its multi-platform digest.
+The CI workflow builds the Dockerfile for `linux/amd64` and `linux/arm64` on native runners while the checks run, and gives the image the tags below only after every check passes for the same commit; pull requests build without publishing. Pushes to `main` and version tags such as `v1.2.3` that pass publish a multi-platform image to GitHub Container Registry with signed build provenance. Each Bun stage uses the `oven/bun:1.4.4` base image pinned by its multi-platform digest.
 
 - `ghcr.io/augusdogus/nimbus:1.2.3` is published from the `v1.2.3` tag.
 - `ghcr.io/augusdogus/nimbus:latest` tracks the most recently published stable release.
 - `ghcr.io/augusdogus/nimbus:edge` tracks builds from `main` for testing unreleased changes.
 - Prerelease tags such as `v1.3.0-beta.1` publish `:1.3.0-beta.1` without updating `:latest`.
+- `ghcr.io/augusdogus/nimbus:unverified` is the most recent build, whether or not its checks passed. Do not deploy it.
 
 To use a published image, replace `build: .` in `compose.yaml` with `image: ghcr.io/augusdogus/nimbus:latest`, keeping the environment and both volume mappings. Then run:
 

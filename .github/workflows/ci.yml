@@ -5,6 +5,8 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  # Runs every check and the whole publish path on any branch, but publishes only :unverified.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -167,8 +169,8 @@ jobs:
             e2e-server.log
           retention-days: 7
 
-  # The one check the image job waits for: it passes only when every job above passed, so a
-  # failed, cancelled or skipped check keeps images from being built.
+  # The one check publication waits for: it passes only when every job above passed, so a failed,
+  # cancelled or skipped check keeps the image from getting a deployable tag.
   verify:
     if: ${{ !cancelled() }}
     needs: [static, unit, build, litmus, e2e]
@@ -181,21 +183,39 @@ jobs:
         run: |
           failed=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
           if [ -n "$failed" ]; then
-            echo "These checks did not pass, so no image is built:"
+            echo "These checks did not pass, so the image is not published:"
             echo "$failed"
             exit 1
           fi
 
-  # Images are built and published only after every check above passes for the same commit.
+  # The deployable tags and version label for this commit: :edge on main, the version (and
+  # :latest) on v* tags, pr-<number> on pull requests, none on manual runs.
+  meta:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=pr
+            type=edge,branch=main
+            type=semver,pattern={{version}}
+
+  # Builds while the checks run. Outside pull requests it pushes the image, but only under
+  # :unverified (Docker's builder needs some tag for the manifest) and by digest, which no deploy
+  # uses; publish below adds the deployable tags once verify passed. :unverified is one fixed tag,
+  # so a failed run leaves no new tag, only an untagged image like every superseded :edge does.
   image:
-    needs: verify
-    concurrency:
-      group: docker-${{ github.ref }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    needs: meta
     permissions:
       contents: read
       packages: write
-      # Keyless signing of the provenance attestations on published images.
+      # Keyless signing of the provenance attestations on pushed images.
       id-token: write
     # Docker's reusable builder runs each platform on a native runner (ubuntu-26.04 and
     # ubuntu-26.04-arm), pushes by digest, and merges one multi-platform manifest.
@@ -205,18 +225,67 @@ jobs:
       context: .
       file: ./Dockerfile
       platforms: linux/amd64,linux/arm64
-      push: ${{ github.event_name == 'push' }}
+      push: ${{ github.event_name != 'pull_request' }}
       cache: true
       cache-mode: max
       cache-scope: nimbus
       meta-images: ghcr.io/${{ github.repository }}
-      meta-tags: |
-        type=ref,event=pr
-        type=edge,branch=main
-        type=semver,pattern={{version}}
+      meta-tags: type=raw,value=unverified
       set-meta-labels: true
+      # The version label the deployable tags would give it, not "unverified".
+      meta-labels: org.opencontainers.image.version=${{ needs.meta.outputs.version }}
     secrets:
       registry-auths: |
         - registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+  # The only step that makes an image deployable. It needs verify, so it runs only when every
+  # check passed for this commit, and it tags the exact manifest the image job pushed, so the
+  # digest, labels, provenance and signatures are the ones built. Manual runs re-apply only
+  # :unverified, to exercise this path from a branch.
+  publish:
+    if: ${{ github.event_name != 'pull_request' }}
+    needs: [verify, meta, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: docker-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag the verified image
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+          TAGS: ${{ github.event_name == 'push' && needs.meta.outputs.tags || '' }}
+        run: |
+          repo="ghcr.io/${GITHUB_REPOSITORY,,}"
+          [ -n "$TAGS" ] || TAGS="$repo:unverified"
+          source="$repo@$DIGEST"
+          # The deploy script requires the revision label to name this commit.
+          revisions=$(docker buildx imagetools inspect "$source" --format '{{json .Image}}' \
+            | jq -r '[.[].config.Labels["org.opencontainers.image.revision"]] | unique | join(" ")')
+          if [ "$revisions" != "$GITHUB_SHA" ]; then
+            echo "$source has revision labels '$revisions', not $GITHUB_SHA; nothing was tagged."
+            exit 1
+          fi
+          mapfile -t tags < <(grep -v '^$' <<< "$TAGS")
+          args=()
+          for tag in "${tags[@]}"; do args+=(--tag "$tag"); done
+          # With one source and no annotations this tags the manifest as is, without rewriting it.
+          docker buildx imagetools create "${args[@]}" "$source"
+          for tag in "${tags[@]}"; do
+            actual=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' | jq -r .digest)
+            if [ "$actual" != "$DIGEST" ]; then
+              echo "$tag points at $actual, not the built $DIGEST."
+              exit 1
+            fi
+            echo "$tag -> $DIGEST"
+          done
