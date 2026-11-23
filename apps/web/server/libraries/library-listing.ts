@@ -136,7 +136,7 @@ export const LibraryListing = {
     const items = catalog.items
       .filter((item) => LibraryAccess.reaches(scope, item.path))
       .sort(newestFirst)
-      .map((item) => listed(scope.configured, item))
+      .map((item) => listed(scope.folders, item))
       .filter((item) => kinds === null || kinds.includes(item.kind));
     // Read after the catalog step, which may just have recorded a change.
     const changed =

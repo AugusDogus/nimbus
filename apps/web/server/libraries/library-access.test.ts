@@ -339,3 +339,39 @@ test("a device never sees into a home container set up after its library", async
     LibraryAccess.reaches(scope, "library/kitchen/homes/bob/Private.md"),
   ).toBe(false);
 });
+
+test("collections are named from the folders the device sees", async () => {
+  await t.drive.write("library/kitchen/Guides/Loaf.md");
+  const outer = await t.drive.grant("library", "alice", "admin");
+  await t.drive.grant("library/kitchen", "alice", "admin");
+  const { token } = await scopeFor(["library", "library/kitchen"], "alice");
+  await t.drive.store.removeGrant(outer.id);
+  LibraryCatalog.resetForTest();
+  const listing = await LibraryListing.library(
+    t.ctx,
+    await current(token),
+    null,
+  );
+  if (!listing.ok) throw new Error(listing.error.message);
+  expect(
+    listing.body.items.find((item) => item.name === "Loaf.md")?.collection,
+  ).toBe("Guides");
+});
+
+test("names the listing would refuse change nothing a device can observe", async () => {
+  const { token } = await scopeFor(["library/kitchen"]);
+  const before = await LibraryListing.library(
+    t.ctx,
+    await current(token),
+    null,
+  );
+  if (!before.ok) throw new Error(before.error.message);
+  t.advance(60_000);
+  await t.drive.write("library/kitchen/odd\\name.md");
+  await t.drive.write("library/kitchen/tab\tname.md");
+  LibraryCatalog.resetForTest();
+  const after = await LibraryListing.library(t.ctx, await current(token), null);
+  if (!after.ok) throw new Error(after.error.message);
+  expect(after.etag).toBe(before.etag);
+  expect(after.body.generatedAt).toBe(before.body.generatedAt);
+});

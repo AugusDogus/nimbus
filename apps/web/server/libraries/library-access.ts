@@ -194,6 +194,9 @@ export const LibraryAccess = {
   },
 
   /** The catalog `scope` sees: everything a device may observe derives from it alone. */
+  /** Whether drive path `path` is written the one way the listing accepts. */
+  canonical: (path: string) => canonical(path) !== null,
+
   catalogTarget: (scope: LibraryScope): CatalogTarget => ({
     folders: scope.folders,
     excluded: dataPath(scope.configured),
