@@ -282,14 +282,25 @@ export function useFileActions({
   );
 
   /**
-   * Move without the picker, as drops and Move up one level do. Name clashes go to a picker
-   * opened for them, which reports the whole move once they are decided. When the page cannot
-   * open one, such as while another dialog is open or after the person left the page, this
-   * reports the move at once, with Undo for what moved and the choices for the clashes.
+   * Move or copy without the picker, as drops, Move up one level and the split view's "Move to"
+   * and "Copy to" do. A taken name is never replaced, nor a copy renamed unasked: name clashes go
+   * to a picker opened for them, which reports the whole transfer once they are decided. When
+   * the page cannot open one, such as while another dialog is open or after the person left the
+   * page, this reports the transfer at once, with Undo for what moved and the clashes' choices.
    */
-  const moveEntries = useCallback(
-    async (entries: readonly FileEntry[], destinationPath: string) => {
-      const result = await transferEntries("move", entries, destinationPath);
+  const transferDirectly = useCallback(
+    async (
+      operation: TransferOperation,
+      entries: readonly FileEntry[],
+      destinationPath: string,
+    ) => {
+      // Moves refuse by default; copies keep both unless told otherwise (see `files.copy`).
+      const result = await transferEntries(
+        operation,
+        entries,
+        destinationPath,
+        operation === "copy" ? { clash: "refuse" } : {},
+      );
       if (result.clashes.length && clashes.current?.(result)) {
         invalidateFileQueries();
         return result;
@@ -299,10 +310,16 @@ export function useFileActions({
     [reportTransfer, transferEntries],
   );
 
+  const moveEntries = useCallback(
+    (entries: readonly FileEntry[], destinationPath: string) =>
+      transferDirectly("move", entries, destinationPath),
+    [transferDirectly],
+  );
+
   const copyEntries = useCallback(
-    async (entries: readonly FileEntry[], destinationPath: string) =>
-      reportTransfer(await transferEntries("copy", entries, destinationPath)),
-    [reportTransfer, transferEntries],
+    (entries: readonly FileEntry[], destinationPath: string) =>
+      transferDirectly("copy", entries, destinationPath),
+    [transferDirectly],
   );
 
   const trashEntries = useCallback(

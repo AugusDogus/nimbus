@@ -13,13 +13,25 @@ type DragState =
       /** The target under the pointer, and what dropping there would do. */
       over: { target: DropTarget; verdict: DropVerdict } | null;
     }
-  | { status: "moving"; sources: readonly FileEntry[]; target: DropTarget };
+  | {
+      status: "moving";
+      operation: "move" | "copy";
+      sources: readonly FileEntry[];
+      target: DropTarget;
+    };
+
+type Transfer = (
+  sources: readonly FileEntry[],
+  destinationPath: string,
+) => Promise<unknown>;
 
 type Options = {
-  moveEntries: (
-    sources: readonly FileEntry[],
-    destinationPath: string,
-  ) => Promise<unknown>;
+  moveEntries: Transfer;
+  /**
+   * Copies instead while Ctrl (Option on macOS) is held over the target, as between the panes
+   * of a split view. Without it every drop of items moves them.
+   */
+  copyEntries?: Transfer;
   /**
    * Uploads files dropped from the computer into a folder. It must read `transfer` at once: the
    * browser empties it when the drop event ends. Without it, such drops reach the page instead.
@@ -29,6 +41,14 @@ type Options = {
 
 const isFileDrag = (event: DragEvent<HTMLElement>) =>
   event.dataTransfer.types.includes("Files");
+
+const isMac = () =>
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad/.test(navigator.userAgent);
+
+/** Whether the event holds the key that turns a move into a copy: Option on macOS, else Ctrl. */
+const holdsCopyKey = (event: DragEvent<HTMLElement>) =>
+  isMac() ? event.altKey : event.ctrlKey;
 
 /** A compact "3 items" drag image, so a multi-item drag does not show a single row. */
 function setCountImage(event: DragEvent<HTMLElement>, count: number) {
@@ -47,7 +67,7 @@ function setCountImage(event: DragEvent<HTMLElement>, count: number) {
  * them through `targetProps`, given the folder as a `DropTarget`, so rows and breadcrumbs share
  * one drag and one set of rules (see `DropTarget.verdict`).
  */
-export function useFileDrag({ moveEntries, uploadInto }: Options) {
+export function useFileDrag({ moveEntries, copyEntries, uploadInto }: Options) {
   const [state, setRendered] = useState<DragState>({ status: "idle" });
   // Handlers read the latest state from this ref: memoized rows keep handlers from earlier renders.
   const stateRef = useRef<DragState>(state);
@@ -76,12 +96,22 @@ export function useFileDrag({ moveEntries, uploadInto }: Options) {
     return () => removeEventListener("pointerdown", remember, true);
   }, []);
 
-  const move = async (sources: readonly FileEntry[], target: DropTarget) => {
-    setState({ status: "moving", sources, target });
+  const move = async (
+    operation: "move" | "copy",
+    sources: readonly FileEntry[],
+    target: DropTarget,
+  ) => {
+    setState({ status: "moving", operation, sources, target });
     // The summary toast reports the outcome, one item or many; a failure stays until closed.
-    await moveEntries(sources, target.path);
+    if (operation === "copy" && copyEntries)
+      await copyEntries(sources, target.path);
+    else await moveEntries(sources, target.path);
     setState({ status: "idle" });
   };
+
+  /** What dropping items now would do: copy while the copy key is held, when this view copies. */
+  const operationOf = (event: DragEvent<HTMLElement>) =>
+    copyEntries && holdsCopyKey(event) ? "copy" : "move";
 
   /** The drag this event belongs to, if it is this view's item drag. */
   const itemDrag = (event: DragEvent<HTMLElement>) => {
@@ -116,7 +146,7 @@ export function useFileDrag({ moveEntries, uploadInto }: Options) {
         entryDragType,
         dragged.map((source) => source.path).join("\n"),
       );
-      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.effectAllowed = copyEntries ? "copyMove" : "move";
       if (dragged.length > 1) setCountImage(event, dragged.length);
       setState({
         status: "dragging",
@@ -156,13 +186,13 @@ export function useFileDrag({ moveEntries, uploadInto }: Options) {
       // A refused target takes the event too, so the page does not upload the files itself.
       event.preventDefault();
       event.stopPropagation();
-      const verdict = DropTarget.verdict(payload, target);
+      const verdict = DropTarget.verdict(payload, target, operationOf(event));
       event.dataTransfer.dropEffect =
         verdict.kind === "refused"
           ? "none"
-          : verdict.kind === "upload"
-            ? "copy"
-            : "move";
+          : verdict.kind === "move"
+            ? "move"
+            : "copy";
       setState((latest) =>
         latest.status === "moving"
           ? latest
@@ -195,9 +225,10 @@ export function useFileDrag({ moveEntries, uploadInto }: Options) {
       if (!payload) return;
       event.preventDefault();
       event.stopPropagation();
-      const accepted = DropTarget.accepts(payload, target);
+      const operation = operationOf(event);
+      const accepted = DropTarget.accepts(payload, target, operation);
       if (payload.kind === "entries" && accepted)
-        void move(payload.sources, target);
+        void move(operation, payload.sources, target);
       else {
         if (payload.kind === "files" && accepted)
           uploadInto?.(event.dataTransfer, target.path);

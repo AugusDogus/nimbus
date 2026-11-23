@@ -63,12 +63,17 @@ function forItems(
   return { kind: operation };
 }
 
-function verdict(payload: DragPayload, target: DropTarget): DropVerdict {
+/** What dropping `payload` on `target` does; items move unless `operation` copies them. */
+function verdict(
+  payload: DragPayload,
+  target: DropTarget,
+  operation: "move" | "copy" = "move",
+): DropVerdict {
   if (payload.kind === "files")
     return target.writable
       ? { kind: "upload" }
       : { kind: "refused", reason: "read-only" };
-  return forItems("move", payload.sources, target);
+  return forItems(operation, payload.sources, target);
 }
 
 /** `sources` without those already in the folder at `path`, which a move there leaves alone. */
@@ -141,6 +146,9 @@ export const DropTarget = {
   notIn,
   hint,
   /** Whether a drop would be taken. */
-  accepts: (payload: DragPayload, target: DropTarget) =>
-    verdict(payload, target).kind !== "refused",
+  accepts: (
+    payload: DragPayload,
+    target: DropTarget,
+    operation: "move" | "copy" = "move",
+  ) => verdict(payload, target, operation).kind !== "refused",
 } as const;
