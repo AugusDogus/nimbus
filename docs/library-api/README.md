@@ -57,7 +57,7 @@ Each item has:
 | `folder` | Which of the library's folders holds the file: `0` for the first, in the owner's order, counting only the folders the device sees now. Two folders with the same name are told apart by it. |
 | `path` | The file's path below that folder: its real names joined with `/`, no leading slash, such as `Guides/Trail map.pdf`, or just its name at the top of the folder. Nothing at or above a library folder is shown. |
 | `addedAt` | When the file joined the library; see [Identity](#identity). It never changes afterwards, also when the file is edited. |
-| `sizeBytes`, `version` | Size, and an opaque value that changes whenever the content may have changed. |
+| `sizeBytes`, `version` | Size, and an opaque value that changes whenever the content may have changed or the file moved, also when its id moved with it. |
 | `poster` | `{ url, width, height }`, or `null` when the item has no poster; see [Posters](#posters). |
 
 ### Identity

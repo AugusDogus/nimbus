@@ -338,7 +338,7 @@ const itemEndpoints: Record<string, Endpoint> = {
           await opened.value.opened.handle.close();
           const entry = LibraryListing.entry(ctx, scope, {
             ...item,
-            version: LibraryCatalog.versionOf(stats),
+            version: LibraryCatalog.versionOf(item.path, stats),
             sizeBytes: stats.size,
           });
           return entry === null ? itemNotFound() : json(entry);
@@ -359,7 +359,10 @@ const itemEndpoints: Record<string, Endpoint> = {
           if (!opened.ok) return itemNotFound();
           const served = await serveOpened(request, opened.value.opened, {
             filename: path.posix.basename(opened.value.item.path),
-            etag: `"${LibraryCatalog.versionOf(opened.value.opened.stats)}"`,
+            etag: `"${LibraryCatalog.versionOf(
+              opened.value.item.path,
+              opened.value.opened.stats,
+            )}"`,
             cacheControl: "private, no-cache",
             whole: "exact",
           });
@@ -389,7 +392,10 @@ const itemEndpoints: Record<string, Endpoint> = {
             });
           const opened = await LibraryAccess.open(ctx, scope, itemId);
           if (!opened.ok) return LibraryApiError.response(opened.error);
-          const version = LibraryCatalog.versionOf(opened.value.opened.stats);
+          const version = LibraryCatalog.versionOf(
+            opened.value.item.path,
+            opened.value.opened.stats,
+          );
           await opened.value.opened.handle.close();
           // Nimbus does not know durations: every address gets the default lifetime.
           const minted = MediaTickets.mint(ctx, device, itemId, version, null);
@@ -455,7 +461,10 @@ const itemEndpoints: Record<string, Endpoint> = {
           const opened = await LibraryAccess.open(ctx, scope, itemId);
           if (!opened.ok) return itemNotFound();
           const { handle, stats } = opened.value.opened;
-          const version = LibraryCatalog.versionOf(stats);
+          const version = LibraryCatalog.versionOf(
+            opened.value.item.path,
+            stats,
+          );
           if (version !== session.version) {
             await handle.close();
             return sourceChanged();

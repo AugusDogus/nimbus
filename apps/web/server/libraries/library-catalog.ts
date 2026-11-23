@@ -54,9 +54,20 @@ export type CatalogScan =
   /** This system cannot tell where an open folder is, so folders cannot be read confined. */
   | { kind: "unavailable" };
 
-/** An opaque revision of a file's content, from its size, modification and change times. */
-const versionOf = (stats: { size: number; mtimeMs: number; ctimeMs: number }) =>
-  `v1_${createHash("sha256").update(FileVersion.of(stats)).digest("base64url").slice(0, 22)}`;
+/**
+ * An opaque revision of the file at drive path `relative`, from that path and the file's size,
+ * modification and change times. The path is part of it because an id can move to a file at
+ * another path (see CatalogIdentity), and moving a folder leaves its files' times unchanged:
+ * what was checked or cached for one path never stands for another.
+ */
+const versionOf = (
+  relative: string,
+  stats: { size: number; mtimeMs: number; ctimeMs: number },
+) =>
+  `v1_${createHash("sha256")
+    .update(`${relative}\0${FileVersion.of(stats)}`)
+    .digest("base64url")
+    .slice(0, 22)}`;
 
 /** `folders` without any that lie inside another, so overlapping folders list a file once. */
 const outermost = (folders: readonly string[]) =>
@@ -227,7 +238,7 @@ async function scan(
           }
           read.push({
             path: child,
-            version: versionOf(stats),
+            version: versionOf(child, stats),
             sizeBytes: stats.size,
             modifiedAt: Math.floor(stats.mtimeMs),
           });

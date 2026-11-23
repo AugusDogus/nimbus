@@ -451,7 +451,7 @@ async function respond(
   try {
     const source = drawable(path.posix.basename(item.path));
     if (source === null) return LibraryApiError.response(notAvailable);
-    const version = LibraryCatalog.versionOf(file.stats);
+    const version = LibraryCatalog.versionOf(item.path, file.stats);
     const etag = `"poster-${FORMAT}-${version}-${width}"`;
     const cacheHeaders = {
       ETag: etag,

@@ -465,6 +465,22 @@ describe("media addresses", () => {
     expect((await media(moved)).status).toBe(404);
   });
 
+  test("a file whose folder was renamed is never served under an old ticket", async () => {
+    const { token } = await pair();
+    const id = await idOf(token, "Pattern.mp4");
+    const minted = await mint(token, id);
+    // Renaming the folder leaves the file's own size and times as they were.
+    await rename(
+      t.drive.absolute("library/kitchen/Guides"),
+      t.drive.absolute("library/kitchen/Recipes"),
+    );
+    LibraryCatalog.resetForTest();
+    expect(await idOf(token, "Pattern.mp4")).toBe(id);
+    const answer = await media(minted, { range: "bytes=0-1" });
+    expect(answer.status).toBe(409);
+    expect(await errorCode(answer)).toBe("stream_source_changed");
+  });
+
   test("end with the device or the owner's access, between ranges and during a body", async () => {
     const { token, deviceId } = await pair();
     const id = await idOf(token, "Pattern.mp4");
