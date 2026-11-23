@@ -95,6 +95,7 @@ export function parseSettings(
       maxDraining: maxDraining.value,
       readyTimeoutMs: Math.round(ready.value * 1000),
       stopMs: Math.round(stop.value * 1000),
+      killGraceMs: 10_000,
       restartMs: { initial: 1_000, max: 30_000 },
       releasesDir: env.NIMBUS_RELEASES_DIR || null,
       socketPath,

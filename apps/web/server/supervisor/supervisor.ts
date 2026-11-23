@@ -46,6 +46,11 @@ export type SupervisorSettings = {
   maxDraining: number;
   /** How long workers may drain when the container stops. */
   stopMs: number;
+  /**
+   * How long past its deadline a draining worker may take to exit before it is killed: its own
+   * deadline timer normally ends it, but one that stopped responding must not hold its locks.
+   */
+  killGraceMs: number;
   /** Waits before starting a crashed worker again: doubled per crash up to the maximum. */
   restartMs: { initial: number; max: number };
 };
@@ -77,7 +82,12 @@ type Worker = {
   toldAlone: boolean;
 };
 
-type Drainer = { worker: Worker; drain: Drain };
+type Drainer = {
+  worker: Worker;
+  drain: Drain;
+  /** Kills the worker if it is still running `killGraceMs` past its deadline. */
+  killTimer: ReturnType<typeof setTimeout> | null;
+};
 
 /**
  * What the supervisor is doing. Every live worker is in exactly one place: the active one, the
@@ -273,7 +283,9 @@ export function createSupervisor(deps: {
     for (const unlock of worker.grants.values()) unlock();
     worker.grants.clear();
     const draining = drainersOf(state);
-    if (draining.some((drainer) => drainer.worker === worker)) {
+    const drained = draining.find((drainer) => drainer.worker === worker);
+    if (drained?.killTimer) clearTimeout(drained.killTimer);
+    if (drained) {
       state = withDraining(draining.filter((d) => d.worker !== worker));
       log(`${named(worker)} exited after draining, code ${code}`);
     } else if (state.kind === "serving" && state.active === worker) {
@@ -316,7 +328,7 @@ export function createSupervisor(deps: {
         fallback: { release, previousAssets },
         draining: state.draining,
       };
-      void promote(candidate, null).then((outcome) => {
+      void promote(candidate).then((outcome) => {
         if (outcome.kind === "promoted") {
           restartDelay = settings.restartMs.initial;
           log(`${named(candidate)} is serving again`);
@@ -331,22 +343,8 @@ export function createSupervisor(deps: {
    * that one still lives, drains. If it never gets ready, the active worker keeps serving, or,
    * when there is none, another starts after a wait.
    */
-  async function promote(
-    candidate: Worker,
-    timeoutMs: number | null,
-  ): Promise<Promotion> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const readiness: Readiness = await Promise.race([
-      candidate.ready,
-      ...(timeoutMs === null
-        ? []
-        : [
-            new Promise<"timed out">((resolve) => {
-              timer = setTimeout(() => resolve("timed out"), timeoutMs);
-            }),
-          ]),
-    ]);
-    clearTimeout(timer);
+  async function promote(candidate: Worker): Promise<Promotion> {
+    const readiness = await readinessOf(candidate);
     const current = state;
     const mine =
       (current.kind === "handing-over" || current.kind === "starting") &&
@@ -361,6 +359,7 @@ export function createSupervisor(deps: {
         }
         replaced = {
           worker: current.active,
+          killTimer: null,
           drain: {
             reason: `replaced by ${candidate.release.name} at ${iso(now())}`,
             since: now(),
@@ -373,6 +372,7 @@ export function createSupervisor(deps: {
           kind: "drain",
           deadline: replaced.drain.deadline,
         });
+        killAfterDeadline(replaced);
         draining = [...draining, replaced];
       }
       state = { kind: "serving", active: candidate, draining };
@@ -380,13 +380,9 @@ export function createSupervisor(deps: {
       tellAlone();
       return { kind: "promoted", replaced };
     }
-    if (!candidate.exited) {
-      candidate.process.kill("SIGTERM");
-      await reap(candidate, 5_000);
-    }
     const reason =
       readiness === "timed out"
-        ? `it was not ready within ${Math.round((timeoutMs ?? 0) / 1000)} seconds`
+        ? `it was not ready within ${Math.round(settings.readyTimeoutMs / 1000)} seconds`
         : "it exited before it was ready";
     const after = state;
     if (after.kind === "handing-over" && after.candidate === candidate) {
@@ -414,6 +410,26 @@ export function createSupervisor(deps: {
       : { kind: "failed", reason };
   }
 
+  /**
+   * How `candidate`'s startup ended: every worker gets `readyTimeoutMs`, and one that is not
+   * ready by then, such as one whose search index never finished, is stopped.
+   */
+  async function readinessOf(candidate: Worker): Promise<Readiness> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const readiness = await Promise.race([
+      candidate.ready,
+      new Promise<"timed out">((resolve) => {
+        timer = setTimeout(() => resolve("timed out"), settings.readyTimeoutMs);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (readiness !== "ready" && !candidate.exited) {
+      candidate.process.kill("SIGTERM");
+      await reap(candidate, 5_000);
+    }
+    return readiness;
+  }
+
   /** Tell the active worker once when it runs alone: crash recovery may start. */
   function tellAlone() {
     if (state.kind !== "serving" || state.draining.length) return;
@@ -431,6 +447,22 @@ export function createSupervisor(deps: {
     if (drainer.drain.deadline <= deadline) return;
     drainer.drain = { ...drainer.drain, deadline, deadlineReason };
     drainer.worker.process.send({ kind: "drain", deadline });
+    killAfterDeadline(drainer);
+  }
+
+  /** The supervisor, not the worker, makes sure a drainer is gone soon after its deadline. */
+  function killAfterDeadline(drainer: Drainer) {
+    if (drainer.killTimer) clearTimeout(drainer.killTimer);
+    drainer.killTimer = setTimeout(
+      () => {
+        if (drainer.worker.exited) return;
+        log(
+          `${named(drainer.worker)} was still running ${settings.killGraceMs} ms past its drain deadline; killing it`,
+        );
+        drainer.worker.process.kill("SIGKILL");
+      },
+      Math.max(0, drainer.drain.deadline - now()) + settings.killGraceMs,
+    );
   }
 
   /** Wait for `worker` to exit, killing it if it outlasts `graceMs`. */
@@ -466,7 +498,7 @@ export function createSupervisor(deps: {
         fallback: { release, previousAssets: [] },
         draining: [],
       };
-      const ready = await candidate.ready;
+      const ready = await readinessOf(candidate);
       const current = state;
       if (
         ready === "ready" &&
@@ -483,7 +515,10 @@ export function createSupervisor(deps: {
         ok: false,
         error: {
           kind: "not-ready",
-          message: `Nimbus (${release.name}) exited before it was ready, so the container stops. Its log above names the failing step.`,
+          message:
+            ready === "timed out"
+              ? `Nimbus (${release.name}) was not ready within ${Math.round(settings.readyTimeoutMs / 1000)} seconds, so it was stopped and the container stops. Its log above names the step it waited on; raise NIMBUS_READY_TIMEOUT_SECONDS if the drive needs longer to index.`
+              : `Nimbus (${release.name}) exited before it was ready, so the container stops. Its log above names the failing step.`,
         },
       };
     },
@@ -530,7 +565,7 @@ export function createSupervisor(deps: {
         candidate,
         draining: current.draining,
       };
-      const outcome = await promote(candidate, settings.readyTimeoutMs);
+      const outcome = await promote(candidate);
       switch (outcome.kind) {
         case "promoted":
           log(
@@ -575,6 +610,7 @@ export function createSupervisor(deps: {
         (worker) =>
           draining.find((drainer) => drainer.worker === worker) ?? {
             worker,
+            killTimer: null,
             drain: {
               reason: "the container is stopping",
               since: now(),

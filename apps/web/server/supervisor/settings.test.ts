@@ -12,6 +12,7 @@ describe("parseSettings", () => {
         maxDraining: 2,
         readyTimeoutMs: 300_000,
         stopMs: 30_000,
+        killGraceMs: 10_000,
         restartMs: { initial: 1_000, max: 30_000 },
         releasesDir: null,
         socketPath: defaultSocketPath,

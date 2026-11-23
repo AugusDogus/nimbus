@@ -28,6 +28,7 @@ const settings: SupervisorSettings = {
   drainMs: 60_000,
   maxDraining: 2,
   stopMs: 1_000,
+  killGraceMs: 5_000,
   restartMs: { initial: 10, max: 40 },
 };
 
@@ -367,6 +368,49 @@ describe("the supervisor", () => {
     expect(h.supervisor.status().active?.pid).toBe(third.pid);
     await Bun.sleep(100);
     expect(h.workers).toHaveLength(3);
+  });
+
+  test("a first worker that never gets ready is stopped after the ready time", async () => {
+    const h = harness();
+    const starting = h.supervisor.start();
+    const first = await h.started(0);
+    const outcome = await starting;
+    expect(outcome.ok).toBe(false);
+    expect(first.killed).toEqual(["SIGTERM"]);
+  });
+
+  test("a restarted worker that never gets ready is stopped and tried again", async () => {
+    const h = harness();
+    const first = await h.serving();
+    first.exit(1);
+    const stuck = await h.started(1);
+    await Bun.sleep(settings.readyTimeoutMs + 50);
+    expect(stuck.killed).toEqual(["SIGTERM"]);
+    const again = await h.started(2);
+    h.ready(again);
+    await Bun.sleep(1);
+    expect(h.supervisor.status().active?.pid).toBe(again.pid);
+  });
+
+  test("a drainer still running after its deadline is killed by the supervisor", async () => {
+    const h = harness({ drainMs: 30, killGraceMs: 20 });
+    const first = await h.serving();
+    await h.handover("b", 1);
+    expect(first.killed).toEqual([]);
+    await Bun.sleep(100);
+    expect(first.killed).toEqual(["SIGKILL"]);
+    expect(h.supervisor.status().draining).toEqual([]);
+  });
+
+  test("the oldest drainer, told to finish at the drain limit, is killed if it does not", async () => {
+    const h = harness({ killGraceMs: 20 });
+    const first = await h.serving();
+    await h.handover("b", 1);
+    await h.handover("a", 2);
+    await h.handover("b", 3);
+    await Bun.sleep(60);
+    expect(first.killed).toEqual(["SIGKILL"]);
+    expect(h.workers[1]?.killed).toEqual([]);
   });
 
   test("stops by draining every worker within the stop time", async () => {
