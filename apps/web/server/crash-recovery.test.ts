@@ -391,13 +391,14 @@ describe("changes interrupted by a crash", () => {
       } finally {
         opened.sqlite.close();
       }
-      const recovered = await PendingChanges.recoverOwned(
+      const { recovered, failed } = await PendingChanges.recoverOwned(
         store,
         root,
         deadServer,
         [],
         () => undefined,
       );
+      expect(failed).toEqual([]);
       expect(recovered.map((one) => one.outcome)).toEqual(["undone"]);
       expect((await getAccess(store, "carol")).can("doc.txt", "read")).toBe(
         true,
@@ -420,18 +421,22 @@ describe("changes interrupted by a crash", () => {
       const release = await scopes.acquire([
         FileMutations.driveScope("doc.txt"),
       ]);
-      let fenceDone = false;
       const recovering = withStore((store) =>
-        PendingChanges.recoverOwned(store, root, deadServer, [], () => {
-          fenceDone = true;
-        }),
+        PendingChanges.recoverOwned(
+          store,
+          root,
+          deadServer,
+          [],
+          () => undefined,
+        ),
       );
       await Bun.sleep(50);
       // Nothing fenced it, so recovery waits for the path and re-reads the change after.
-      expect(fenceDone).toBe(true);
       expect(await readFile(path.join(root, "doc.txt"), "utf8")).toBe("old");
       release();
-      expect((await recovering).map((one) => one.outcome)).toEqual(["undone"]);
+      expect((await recovering).recovered.map((one) => one.outcome)).toEqual([
+        "undone",
+      ]);
     } finally {
       setScopeAuthority(null);
     }
@@ -445,18 +450,82 @@ describe("changes interrupted by a crash", () => {
     setScopeAuthority(fenced);
     try {
       await fenced.acquire(fence);
-      const recovered = await withStore((store) =>
+      const released: number[] = [];
+      const { recovered } = await withStore((store) =>
         PendingChanges.recoverOwned(
           store,
           root,
           deadServer,
-          fence,
-          () => undefined,
+          [{ grant: 4, scopes: [...fence] }],
+          (grant) => void released.push(grant),
         ),
       );
       expect(recovered.map((one) => one.outcome)).toEqual(["undone"]);
+      expect(released).toEqual([4]);
     } finally {
       setScopeAuthority(null);
     }
+  });
+
+  test("a path recovery keeps failing on stays fenced; every other grant is released", async () => {
+    await shareWithCarol();
+    await crashDuring("trash");
+    // A second change the dead server left, in another folder.
+    await Bun.write(path.join(root, "other.txt"), "other");
+    await withStore(async (store) => {
+      const identity = await PendingChanges.identityAt(
+        path.join(root, "other.txt"),
+      );
+      await store.addTrash({
+        id: "other-trash",
+        path: "other.txt",
+        deletedBy: "owner",
+        deletedAt: 1,
+        expiresAt: Date.now() + 60_000,
+      });
+      const opened = openDatabase(database);
+      try {
+        opened.sqlite.run(
+          "INSERT INTO nimbus_pending_change (id, kind, trash_id, identity, created_at, owner) VALUES (?, 'trash', 'other-trash', ?, 1, ?)",
+          [PendingChanges.trashMarker("other-trash"), identity, deadServer],
+        );
+      } finally {
+        opened.sqlite.close();
+      }
+      const released: number[] = [];
+      const failing = path.join(root, "doc.txt");
+      const { recovered, failed } = await PendingChanges.recoverOwned(
+        store,
+        root,
+        deadServer,
+        [
+          {
+            grant: 1,
+            scopes: [
+              FileMutations.driveScope("doc.txt"),
+              FileMutations.trashScope(""),
+            ],
+          },
+          {
+            grant: 2,
+            scopes: [
+              FileMutations.driveScope("other.txt"),
+              FileMutations.trashScope(""),
+            ],
+          },
+        ],
+        (grant) => void released.push(grant),
+        async (absolute) => {
+          if (absolute === failing)
+            throw Object.assign(new Error("EIO: i/o error"), { code: "EIO" });
+          return lstat(absolute, { bigint: true });
+        },
+      );
+      expect(recovered.map((one) => one.change.id)).toEqual([
+        PendingChanges.trashMarker("other-trash"),
+      ]);
+      expect(failed.map((one) => one.path)).toEqual(["doc.txt"]);
+      expect(released).toEqual([2]);
+    });
   });
 });

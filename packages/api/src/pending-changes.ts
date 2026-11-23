@@ -178,47 +178,86 @@ async function scopesOf(
   ];
 }
 
+/** One grant of what a dead server process held, as the supervisor fences it. */
+export type FenceGrant = { grant: number; scopes: HeldScope[] };
+
+/** A change recovery could not settle this time, at the path an operator should look at. */
+export type RecoveryFailure = {
+  change: PendingChange;
+  path: string;
+  error: unknown;
+};
+
+/** The path a change is about, for an operator to check. */
+async function pathOf(store: DriveStore, change: PendingChange) {
+  if (change.kind === "move") return change.from;
+  return (
+    (await store.getTrash(change.trashId))?.path ??
+    `.nimbus/trash/${change.trashId}`
+  );
+}
+
 /**
  * Finish or undo the changes server process `owner` left when it died, while other servers keep
  * running, and only those: another process's changes in progress look the same as a crash's
- * leftovers. `fence` is what the dead process held when it died, which the supervisor keeps
- * held for it until `fenceDone` is called: changes within it are settled first, as nobody else
- * can reach them. The rest are settled once their own scopes are held. Each change is read again
- * once nobody else can touch it, and skipped if it was settled meanwhile. If it fails before
- * the fenced changes are settled, `fenceDone` is not called and the fence stays up.
+ * leftovers. `fence` is what the dead process held when it died, grant by grant, which the
+ * supervisor keeps held for it: changes within one grant are settled first, as nobody else can
+ * reach them, and `release` is called for each grant once every change in it is settled, so an
+ * unrelated folder is never held up by a path that keeps failing. The rest are settled once
+ * their own scopes are held. Each change is read again once nobody else can touch it, and
+ * skipped if it was settled meanwhile. A change that fails is reported, not thrown, and its
+ * grant stays fenced; the caller tries again.
  */
 async function recoverOwned(
   store: DriveStore,
   dataRoot: string,
   owner: string,
-  fence: readonly HeldScope[],
-  fenceDone: () => void,
+  fence: readonly FenceGrant[],
+  release: (grant: number) => void,
   stat: StatAt = statAt,
-): Promise<Recovery[]> {
+): Promise<{ recovered: Recovery[]; failed: RecoveryFailure[] }> {
   const recovered: Recovery[] = [];
+  const failed: RecoveryFailure[] = [];
+  /** Settle change `id` if it is still this owner's; false when it failed. */
   const settle = async (id: string) => {
     const change = await store.getPendingChange(id);
-    if (change?.owner === owner)
+    if (change?.owner !== owner) return true;
+    try {
       recovered.push({
         change,
         outcome: await recoverOne(store, dataRoot, change, stat),
       });
+      return true;
+    } catch (error) {
+      failed.push({ change, path: await pathOf(store, change), error });
+      return false;
+    }
   };
+  const byGrant = new Map<number, PendingChange[]>(
+    fence.map((held) => [held.grant, []]),
+  );
   const outside: PendingChange[] = [];
   for (const change of await store.listPendingChanges()) {
     if (change.owner !== owner) continue;
     const needed = await scopesOf(store, change);
-    if (needed.every((scope) => fence.some((held) => covers(held, scope))))
-      await settle(change.id);
+    const holder = fence.find((held) =>
+      needed.every((scope) => held.scopes.some((one) => covers(one, scope))),
+    );
+    if (holder) byGrant.get(holder.grant)?.push(change);
     else outside.push(change);
   }
-  // Only once everything inside it is settled: a failure keeps the fence up.
-  fenceDone();
+  for (const [grant, changes] of byGrant) {
+    let settled = true;
+    for (const change of changes)
+      settled = (await settle(change.id)) && settled;
+    // Only once everything inside it is settled: a failure keeps this grant up.
+    if (settled) release(grant);
+  }
   for (const change of outside)
     await FileMutations.holdScopes(await scopesOf(store, change), () =>
       settle(change.id),
     );
-  return recovered;
+  return { recovered, failed };
 }
 
 /** Whether a change to trash item `trashId` was interrupted and could not be settled. */
@@ -261,5 +300,6 @@ export const PendingChanges = {
   restoreMarker,
   recover,
   recoverOwned,
+  pathOf,
   describe,
 } as const;

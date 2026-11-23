@@ -44,14 +44,15 @@ const supervisorMessage = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("active") }),
   /**
    * Server process `owner` exited: settle the changes it left unfinished (see
-   * PendingChanges.recoverOwned). `fence` is what it held, kept held for it until this worker
-   * answers `fence-done` with the same id.
+   * PendingChanges.recoverOwned). `fence` is what it held, by grant, each kept held for it until
+   * this worker answers `fence-release` for it; the recovery lasts until it answers
+   * `recovered`, and goes to the next active worker if this one exits first.
    */
   z.object({
     kind: z.literal("recover"),
     id: z.number(),
     owner: z.string(),
-    fence: z.array(scope),
+    fence: z.array(z.object({ grant: z.number(), scopes: z.array(scope) })),
   }),
   /** The path scopes asked for as `id` are held for this worker until it releases them. */
   z.object({ kind: z.literal("scopes-granted"), id: z.number() }),
@@ -78,8 +79,14 @@ const workerMessage = z.discriminatedUnion("kind", [
    * not apply them and exits: the supervisor stops every server and starts it alone instead.
    */
   z.object({ kind: z.literal("needs-full-restart"), reason: z.string() }),
-  /** The changes inside recovery `id`'s fence are settled: its scopes may go. */
-  z.object({ kind: z.literal("fence-done"), id: z.number() }),
+  /** The changes inside grant `grant` of recovery `id`'s fence are settled: it may go. */
+  z.object({
+    kind: z.literal("fence-release"),
+    id: z.number(),
+    grant: z.number(),
+  }),
+  /** Every change recovery `id`'s owner left is settled. */
+  z.object({ kind: z.literal("recovered"), id: z.number() }),
   z.object({ kind: z.literal("transfer-signal"), signal: transferSignal }),
 ]);
 export type WorkerMessage = z.infer<typeof workerMessage>;

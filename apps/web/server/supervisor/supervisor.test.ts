@@ -272,7 +272,7 @@ describe("the supervisor", () => {
     ]);
   });
 
-  test("keeps a dead worker's scopes fenced until the active worker recovered its changes", async () => {
+  test("keeps a dead worker's scopes fenced until the active worker settled the changes in them", async () => {
     const h = harness();
     const first = await h.serving();
     await h.handover("b", 1);
@@ -298,11 +298,43 @@ describe("the supervisor", () => {
       kind: "recover",
       id: 1,
       owner: first.processId,
-      fence: [{ space: "trash", path: "" }],
+      fence: [{ grant: 7, scopes: [{ space: "trash", path: "" }] }],
     });
-    second.say({ kind: "fence-done", id: 1 });
+    second.say({ kind: "fence-release", id: 1, grant: 7 });
     await Bun.sleep(1);
     expect(second.sent.at(-1)).toEqual({ kind: "scopes-granted", id: 1 });
+    // Released, but its changes outside the fence may still be unsettled.
+    expect(h.supervisor.status().recovering).toEqual([
+      { owner: first.processId, fenced: 0 },
+    ]);
+    second.say({ kind: "recovered", id: 1 });
+    await Bun.sleep(1);
+    expect(h.supervisor.status().recovering).toEqual([]);
+  });
+
+  test("asks the next active worker again when the one settling exits before it is done", async () => {
+    const h = harness();
+    const first = await h.serving();
+    await h.handover("b", 1);
+    const second = h.workers[1];
+    if (!second) throw new Error("no second worker");
+    first.exit(1);
+    await Bun.sleep(1);
+    second.say({
+      kind: "acquire-scopes",
+      id: 3,
+      scopes: [{ space: "drive", path: "docs" }],
+    });
+    await Bun.sleep(1);
+    // Waiting for a scope outside the fence, it exits: the first worker's changes still count.
+    second.exit(1);
+    const third = await h.started(2);
+    h.ready(third);
+    await Bun.sleep(1);
+    const owners = third.sent.flatMap((m) =>
+      m.kind === "recover" ? [m.owner] : [],
+    );
+    expect(owners).toEqual([first.processId, second.processId]);
   });
 
   test("asks the next active worker again when the one recovering dies first", async () => {

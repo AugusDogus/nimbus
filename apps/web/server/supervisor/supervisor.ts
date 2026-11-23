@@ -121,7 +121,8 @@ type Worker = {
 type Recovery = {
   id: number;
   owner: string;
-  fence: Grant[];
+  /** What it held when it died, by grant id, until the changes in each are settled. */
+  fence: Map<number, Grant>;
   /** The worker asked to settle it, until it answers or exits. */
   askedOf: Worker | null;
 };
@@ -374,12 +375,20 @@ export function createSupervisor(deps: {
         worker.grants.get(message.id)?.unlock();
         worker.grants.delete(message.id);
         return;
-      case "fence-done": {
+      case "fence-release": {
+        const recovery = recoveries.find(
+          (one) => one.id === message.id && one.askedOf === worker,
+        );
+        recovery?.fence.get(message.grant)?.unlock();
+        recovery?.fence.delete(message.grant);
+        return;
+      }
+      case "recovered": {
         const recovery = recoveries.find(
           (one) => one.id === message.id && one.askedOf === worker,
         );
         if (!recovery) return;
-        for (const held of recovery.fence) held.unlock();
+        for (const held of recovery.fence.values()) held.unlock();
         recoveries = recoveries.filter((one) => one !== recovery);
         log(`${named(worker)} settled what ${recovery.owner} left unfinished`);
         return;
@@ -554,7 +563,7 @@ export function createSupervisor(deps: {
     recoveries.push({
       id: nextRecovery++,
       owner: worker.processId,
-      fence: [...worker.grants.values()],
+      fence: new Map(worker.grants),
       askedOf: null,
     });
     worker.grants.clear();
@@ -709,7 +718,10 @@ export function createSupervisor(deps: {
         kind: "recover",
         id: recovery.id,
         owner: recovery.owner,
-        fence: recovery.fence.flatMap((held) => held.scopes),
+        fence: [...recovery.fence].map(([grant, held]) => ({
+          grant,
+          scopes: held.scopes,
+        })),
       });
     }
   }
@@ -855,7 +867,7 @@ export function createSupervisor(deps: {
         })),
         recovering: recoveries.map((one) => ({
           owner: one.owner,
-          fenced: one.fence.length,
+          fenced: one.fence.size,
         })),
       };
     },

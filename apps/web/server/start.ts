@@ -483,32 +483,52 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 /**
- * Settle what an exited server process left unfinished. Its fence stays up until the changes
- * inside it are settled, so a failure is retried rather than given up: the paths involved wait.
+ * Settle what an exited server process left unfinished. Each grant of its fence is released as
+ * soon as the changes inside it are settled; a change that keeps failing keeps only its own grant
+ * fenced, and is tried again every 10 seconds. The supervisor counts the recovery as done only
+ * when `recovered` says so: until then it asks the next active server if this one exits.
  */
 async function settleFor(
   message: Extract<LifecycleMessage, { kind: "recover" }>,
 ): Promise<void> {
   if (supervision.kind !== "supervised") return;
   const { send } = supervision;
-  try {
-    for (const recovered of await PendingChanges.recoverOwned(
-      store,
-      getDataRoot(),
-      message.owner,
-      message.fence,
-      () => send({ kind: "fence-done", id: message.id }),
-    ))
-      (recovered.outcome === "unclear" ? console.warn : console.info)(
-        PendingChanges.describe(recovered),
+  let fence = message.fence;
+  for (;;) {
+    let failures = 0;
+    try {
+      const released = new Set<number>();
+      const { recovered, failed } = await PendingChanges.recoverOwned(
+        store,
+        getDataRoot(),
+        message.owner,
+        fence,
+        (grant) => {
+          released.add(grant);
+          send({ kind: "fence-release", id: message.id, grant });
+        },
       );
-  } catch (error) {
-    console.error(
-      `Nimbus could not settle the changes server process ${message.owner} left unfinished, so the items involved stay locked; it tries again in 10 seconds.`,
-      error,
-    );
+      fence = fence.filter((held) => !released.has(held.grant));
+      for (const one of recovered)
+        (one.outcome === "unclear" ? console.warn : console.info)(
+          PendingChanges.describe(one),
+        );
+      for (const one of failed)
+        console.error(
+          `Nimbus could not settle a change server process ${message.owner} left unfinished at ${one.path}, so ${one.path} stays locked against changes until it can; it tries again in 10 seconds. Check that Nimbus can read and write it (permissions, a disk or mount that went away), then wait for the next try.`,
+          one.error,
+        );
+      failures = failed.length;
+    } catch (error) {
+      console.error(
+        `Nimbus could not read the changes server process ${message.owner} left unfinished, so the items involved stay locked; it tries again in 10 seconds. Check that the database is writable.`,
+        error,
+      );
+      failures = 1;
+    }
+    if (failures === 0) return send({ kind: "recovered", id: message.id });
     await Bun.sleep(10_000);
-    if (!draining) await settleFor(message);
+    if (draining) return;
   }
 }
 

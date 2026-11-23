@@ -88,8 +88,8 @@ type Fake = {
   holding: Set<number>;
   waiting: Set<number>;
   nextRequest: number;
-  /** Recovery requests it was sent and has not answered. */
-  asked: { id: number; owner: string }[];
+  /** Recovery requests it was sent and has not answered, with the grants still fenced. */
+  asked: { id: number; owner: string; grants: number[] }[];
   say: (message: WorkerMessage) => void;
   exit: (code: number | null) => void;
 };
@@ -149,7 +149,11 @@ async function runSequence(seed: number) {
           fake.holding.add(message.id);
         }
         if (message.kind === "recover")
-          fake.asked.push({ id: message.id, owner: message.owner });
+          fake.asked.push({
+            id: message.id,
+            owner: message.owner,
+            grants: message.fence.map((held) => held.grant),
+          });
       },
       kill(signal) {
         if (!fake.alive) return;
@@ -241,9 +245,12 @@ async function runSequence(seed: number) {
         fakes.some((f) => f.processId === recovery.owner && f.alive)
       )
         fail(`a live worker ${recovery.owner} is fenced`);
+    // Its fence may already be released grant by grant, but its recovery stays until settled.
     for (const owner of unsettled)
-      if (!status.recovering.some((r) => r.owner === owner && r.fenced > 0))
-        fail(`dead worker ${owner} held scopes but nothing fences them`);
+      if (!status.recovering.some((r) => r.owner === owner))
+        fail(
+          `dead worker ${owner} held scopes but nobody is to settle its changes`,
+        );
   }
 
   const say = (fake: Fake, message: WorkerMessage) => {
@@ -305,10 +312,16 @@ async function runSequence(seed: number) {
           say(fake, { kind: "release-scopes", id: held });
         });
       const [asked] = fake.asked;
+      const [grant] = asked?.grants ?? [];
+      if (asked && grant !== undefined)
+        options.push(() => {
+          asked.grants.shift();
+          say(fake, { kind: "fence-release", id: asked.id, grant });
+        });
       if (asked)
         options.push(() => {
           fake.asked.shift();
-          say(fake, { kind: "fence-done", id: asked.id });
+          say(fake, { kind: "recovered", id: asked.id });
           unsettled.delete(asked.owner);
         });
     }
