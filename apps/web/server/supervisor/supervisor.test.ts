@@ -596,6 +596,29 @@ describe("the supervisor", () => {
     expect(retried.predecessor).toBe(false);
   });
 
+  test("after a full restart, a new release that fails is retried, never replaced by the old one", async () => {
+    const h = harness();
+    const first = await h.serving();
+    const handing = h.supervisor.handover("b");
+    const candidate = await h.started(1);
+    candidate.say({ kind: "needs-full-restart", reason: "unsafe" });
+    candidate.exit(75);
+    await Bun.sleep(1);
+    first.exit(0);
+    // It may have applied migrations the old release cannot run before it failed.
+    const fresh = await h.started(2);
+    fresh.exit(1);
+    expect((await handing).ok).toBe(false);
+    const retried = await h.started(3);
+    expect(retried.release).toBe("b");
+    retried.exit(1);
+    const again = await h.started(4);
+    expect(again.release).toBe("b");
+    expect(
+      h.lines.some((line) => line.includes("restore the pre-migration backup")),
+    ).toBe(true);
+  });
+
   test("stops by draining every worker within the stop time", async () => {
     const h = harness();
     const first = await h.serving();

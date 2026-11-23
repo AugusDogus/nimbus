@@ -169,7 +169,11 @@ type Purpose =
       kind: "first-start";
       settle: (outcome: Outcome<void, HandoverError>) => void;
     }
-  | { kind: "restart" }
+  /**
+   * A crashed or failed worker is started again. After a full restart it is the new release that
+   * is retried, never the old one: the new one may have applied migrations the old cannot run.
+   */
+  | { kind: "restart"; afterFullRestart: Release | null }
   | {
       kind: "handover";
       from: Release;
@@ -203,7 +207,13 @@ type State =
       draining: Drainer[];
     }
   /** Nobody serves; `next` starts when the timer `cancel` belongs to fires. */
-  | { kind: "restarting"; next: Launch; draining: Drainer[]; cancel: Cancel }
+  | {
+      kind: "restarting";
+      next: Launch;
+      afterFullRestart: Release | null;
+      draining: Drainer[];
+      cancel: Cancel;
+    }
   /** A release that cannot run beside the others starts once every worker has drained. */
   | {
       kind: "full-restart";
@@ -527,9 +537,11 @@ export function createSupervisor(deps: {
         return;
       case "restart":
         log(
-          `${fallback.release.name} did not start (${reason}); trying again in ${restartDelay} ms`,
+          purpose.afterFullRestart
+            ? `${fallback.release.name} still does not start after the full restart that replaced ${purpose.afterFullRestart.name} (${reason}); trying again in ${restartDelay} ms. Nimbus does not go back to ${purpose.afterFullRestart.name} by itself: ${fallback.release.name} may already have applied database migrations that ${purpose.afterFullRestart.name} cannot run. Requests are refused meanwhile. Fix what its log names and restart the container, or go back by hand: stop the container, restore the pre-migration backup from the config root's backups folder, and start the older image.`
+            : `${fallback.release.name} did not start (${reason}); trying again in ${restartDelay} ms`,
         );
-        return scheduleRestart(fallback, draining);
+        return scheduleRestart(fallback, draining, purpose.afterFullRestart);
       case "handover":
         scheduleRestart(fallback, draining);
         return purpose.settle(
@@ -539,12 +551,12 @@ export function createSupervisor(deps: {
         );
       case "full-restart":
         log(
-          `${fallback.release.name} did not start after a full restart (${reason}); trying again in ${restartDelay} ms`,
+          `${fallback.release.name} did not start after a full restart (${reason}); trying it again in ${restartDelay} ms, not ${purpose.from.name}, which may not run on the migrated database. If it keeps failing, restore the pre-migration backup from the config root's backups folder and start the older image.`,
         );
-        scheduleRestart(fallback, draining);
+        scheduleRestart(fallback, draining, purpose.from);
         purpose.settle?.(
           notReady(
-            `The new release did not start after a full restart (${reason}); ${fallback.release.name} is started again. The new worker's log above names the failing step.`,
+            `${fallback.release.name} did not start after a full restart (${reason}). Nimbus keeps trying it and does not go back to ${purpose.from.name}, whose code may not run on the migrated database; requests are refused meanwhile. Fix what the new worker's log names, or restore the pre-migration backup from the config root's backups folder and start the older image.`,
           ),
         );
         purpose.settle = null;
@@ -621,14 +633,18 @@ export function createSupervisor(deps: {
     askToRecover();
   }
 
-  function scheduleRestart(next: Launch, draining: Drainer[]) {
+  function scheduleRestart(
+    next: Launch,
+    draining: Drainer[],
+    afterFullRestart: Release | null = null,
+  ) {
     const delay = restartDelay;
     restartDelay = Math.min(restartDelay * 2, settings.restartMs.max);
     const cancel = clock.after(delay, () => {
       if (state.kind !== "restarting" || state.cancel !== cancel) return;
-      startCandidate(next, { kind: "restart" }, next);
+      startCandidate(next, { kind: "restart", afterFullRestart }, next);
     });
-    state = { kind: "restarting", next, draining, cancel };
+    state = { kind: "restarting", next, afterFullRestart, draining, cancel };
   }
 
   /** Stop every worker within the stop time, then start `target` alone. */
