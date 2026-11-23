@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmod, rename, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  link,
+  mkdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import type { Server } from "bun";
 import { z } from "zod";
 import { DevicePairing } from "./device-pairing";
@@ -578,4 +586,46 @@ test("a file the server cannot open answers as an unknown item, for GET and HEAD
   } finally {
     await chmod(t.drive.absolute("library/kitchen/Small notes.md"), 0o644);
   }
+});
+
+test("a file with other names outside Nimbus's upload staging is neither listed nor served", async () => {
+  // A second name, outside the library, for a file inside it.
+  await link(
+    t.drive.absolute("other/Not shared.mp4"),
+    t.drive.absolute("library/kitchen/Linked.mp4"),
+  );
+  // A fresh upload still holds its staging name, which is Nimbus's own.
+  await mkdir(t.drive.absolute(".nimbus/uploads"), { recursive: true });
+  await t.drive.write("library/kitchen/Uploaded.md", "just uploaded");
+  await link(
+    t.drive.absolute("library/kitchen/Uploaded.md"),
+    t.drive.absolute(".nimbus/uploads/upload-id"),
+  );
+  const { token } = await pair();
+  const names = listing
+    .parse(
+      await (await fetch(`${base}/library`, { headers: auth(token) })).json(),
+    )
+    .items.map((item) => item.name);
+  expect(names).toContain("Uploaded.md");
+  expect(names).not.toContain("Linked.mp4");
+  // Linked after it was listed: its id no longer opens.
+  const small = await idOf(token, "Small notes.md");
+  await rm(t.drive.absolute("library/kitchen/Small notes.md"));
+  await link(
+    t.drive.absolute("other/Not shared.mp4"),
+    t.drive.absolute("library/kitchen/Small notes.md"),
+  );
+  for (const method of ["GET", "HEAD"]) {
+    const response = await fetch(`${base}/items/${small}/file`, {
+      method,
+      headers: auth(token),
+    });
+    expect(response.status).toBe(404);
+  }
+  const uploaded = await idOf(token, "Uploaded.md");
+  expect(
+    (await fetch(`${base}/items/${uploaded}/file`, { headers: auth(token) }))
+      .status,
+  ).toBe(200);
 });

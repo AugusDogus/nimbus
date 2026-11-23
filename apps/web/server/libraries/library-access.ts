@@ -13,6 +13,7 @@ import {
   resolveSafePath,
 } from "@nimbus/api/safe-path";
 import { libraries, libraryItems } from "../db/library-schema";
+import { HardLinks } from "./hard-links";
 import { Libraries } from "./libraries";
 import type { LibraryApiError } from "./library-api-error";
 import type { LibraryContext } from "./library-context";
@@ -133,7 +134,13 @@ async function openRegular(path: string) {
       return null;
     throw error;
   }
-  if (opened.stats.isFile()) return opened;
+  // Checked on the opened descriptor: a second name elsewhere could be outside the library.
+  if (
+    opened.stats.isFile() &&
+    (opened.stats.nlink <= 1 ||
+      HardLinks.offered(opened.stats, await HardLinks.staged()))
+  )
+    return opened;
   await opened.handle.close();
   return null;
 }

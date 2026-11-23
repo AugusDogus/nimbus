@@ -15,6 +15,7 @@ import { libraries, libraryFolders, libraryItems } from "../db/library-schema";
 import { FileVersion } from "../file-version";
 import { reconcileIntervalMs } from "../search-protocol";
 import { CatalogIdentity, type ScannedFile } from "./catalog-identity";
+import { HardLinks, type StagedNames } from "./hard-links";
 import {
   LibraryAccess,
   type CatalogTarget,
@@ -169,6 +170,8 @@ async function scan(
   // Reading by path again could follow a folder swapped meanwhile: refuse rather than guess.
   if (!DescriptorPath.available) return { kind: "unavailable" };
   const root = getDataRoot();
+  /** Upload staging's names, read once a file with several names is found. */
+  let staged: StagedNames | undefined;
   const files: Omit<ScannedFile, "firstScan">[] = [];
   const found = new Map<string, string[]>();
   for (const folder of outermost(folders)) {
@@ -218,6 +221,10 @@ async function scan(
             continue;
           }
           if (!stats.isFile()) continue;
+          if (stats.nlink > 1) {
+            staged ??= await HardLinks.staged(root);
+            if (!HardLinks.offered(stats, staged)) continue;
+          }
           read.push({
             path: child,
             version: versionOf(stats),
