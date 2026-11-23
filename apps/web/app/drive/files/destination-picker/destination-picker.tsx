@@ -65,7 +65,7 @@ import { ClashPanel, FailurePanel, type ClashChoice } from "./transfer-panels";
 
 /**
  * A folder offered above the account's own places, such as the folder open in the other pane
- * of a split view. None are offered yet; the rail lists any it is given first.
+ * of a split view. The rail lists any it is given first.
  */
 export type PinnedPlace = { label: string; path: string };
 
