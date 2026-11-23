@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Bot,
   Cable,
+  Library,
   Palette,
   ScrollText,
   UserRound,
@@ -45,6 +46,12 @@ export const settingsPages = [
     href: "/settings/mcp",
     label: "MCP",
     icon: Bot,
+    section: "Settings",
+  },
+  {
+    href: "/settings/libraries",
+    label: "Libraries",
+    icon: Library,
     section: "Settings",
   },
   {

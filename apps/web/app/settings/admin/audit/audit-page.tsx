@@ -142,7 +142,7 @@ export function AuditPage({ search }: { search: AuditSearch }) {
                       {event.targetLabel || event.targetId ? (
                         <span className="break-all text-muted-foreground">
                           {" "}
-                          · {event.targetLabel ?? event.targetId}
+                          · <bdi>{event.targetLabel ?? event.targetId}</bdi>
                         </span>
                       ) : null}
                     </p>
