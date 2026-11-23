@@ -5,15 +5,27 @@ import { isFsError } from "@nimbus/api/safe-path";
 
 export type ControlSocketError = { kind: "control-socket"; message: string };
 
-/** Whether something accepts connections on the socket at `socket`. */
-function answers(socket: string) {
-  return new Promise<boolean>((resolve) => {
-    const probe = net.connect(socket);
-    probe.once("connect", () => {
-      probe.destroy();
-      resolve(true);
+/**
+ * What connecting to `socket` says about it: something answers, nothing listens any more
+ * (ECONNREFUSED), it is already gone (ENOENT), or it could not tell, such as EACCES.
+ */
+function probe(socket: string) {
+  return new Promise<
+    | { kind: "live" }
+    | { kind: "dead" }
+    | { kind: "gone" }
+    | { kind: "unknown"; code: string }
+  >((resolve) => {
+    const connection = net.connect(socket);
+    connection.once("connect", () => {
+      connection.destroy();
+      resolve({ kind: "live" });
     });
-    probe.once("error", () => resolve(false));
+    connection.once("error", (error: Error & { code?: string }) => {
+      if (error.code === "ECONNREFUSED") resolve({ kind: "dead" });
+      else if (error.code === "ENOENT") resolve({ kind: "gone" });
+      else resolve({ kind: "unknown", code: error.code ?? error.message });
+    });
   });
 }
 
@@ -55,12 +67,23 @@ async function prepare(
     return fail(
       `${socket} exists and is not a socket, so the supervisor did not replace it. Set NIMBUS_SUPERVISOR_SOCKET to a path of its own. Nothing was changed.`,
     );
-  if (await answers(socket))
-    return fail(
-      `Another supervisor answers on ${socket}, so this one did not start. Stop it first, or set NIMBUS_SUPERVISOR_SOCKET elsewhere. Nothing was changed.`,
-    );
-  await rm(socket);
-  return { ok: true, value: undefined };
+  const found = await probe(socket);
+  switch (found.kind) {
+    case "live":
+      return fail(
+        `Another supervisor answers on ${socket}, so this one did not start. Stop it first, or set NIMBUS_SUPERVISOR_SOCKET elsewhere. Nothing was changed.`,
+      );
+    case "unknown":
+      return fail(
+        `The supervisor could not tell whether the socket at ${socket} is still in use (${found.code}), so it left it and did not start. Check who owns it, remove it if nothing uses it, or set NIMBUS_SUPERVISOR_SOCKET elsewhere. Nothing was changed.`,
+      );
+    case "gone":
+      return { ok: true, value: undefined };
+    case "dead":
+      // Only a socket nothing listens on any more: a supervisor killed outright leaves one.
+      await rm(socket, { force: true });
+      return { ok: true, value: undefined };
+  }
 }
 
 export const ControlSocket = { prepare } as const;

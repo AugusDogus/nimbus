@@ -79,3 +79,19 @@ test("refuses a directory others may enter", async () => {
   const prepared = await ControlSocket.prepare(socket);
   expect(prepared.ok).toBe(false);
 });
+
+test("keeps a socket it may not connect to, which says nothing about whether it lives", async () => {
+  await mkdir(path.dirname(socket), { mode: 0o700 });
+  const live = Bun.serve({ unix: socket, fetch: () => new Response("status") });
+  try {
+    // Connecting now fails with EACCES, not ECONNREFUSED: that is no sign it is dead.
+    await chmod(socket, 0o000);
+    const prepared = await ControlSocket.prepare(socket);
+    expect(prepared.ok).toBe(false);
+    if (!prepared.ok) expect(prepared.error.message).toContain("EACCES");
+    expect(existsSync(socket)).toBe(true);
+  } finally {
+    await chmod(socket, 0o600);
+    await live.stop(true);
+  }
+});
