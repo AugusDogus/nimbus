@@ -451,6 +451,8 @@ The new server starts beside the running one, builds its search index, applies p
 
 Set `net.ipv4.tcp_migrate_req=1` for the container, as `compose.yaml` does (`docker run --sysctl net.ipv4.tcp_migrate_req=1`, or on Unraid in **Extra Parameters**). Without it, a connection that arrives in the moment the old server leaves the port can be reset; the log says so once at startup. The control socket lives inside the container, reachable only by root and the user Nimbus runs as; nothing about it listens on the network.
 
+A release whose pending database migrations are not declared safe beside the running server (`apps/web/drizzle/live-safe.json`) is not handed over: the supervisor stops every server, cutting what they still send after `NIMBUS_STOP_SECONDS`, then starts the new release alone. One Nimbus at a time may use a config root: a second server or container on it stops at startup with a message saying so.
+
 Replacing the container, as pulling a new image does, still interrupts Nimbus: connections are refused until the new container is ready, and responses still running when the container stops are cut after `NIMBUS_STOP_SECONDS`, after which players usually resume from where they stopped. Keep the container's stop timeout above that, as `stop_grace_period: 35s` in `compose.yaml` does (`docker run --stop-timeout 35`). A host reboot interrupts Nimbus the same way.
 
 ### Application upgrades
