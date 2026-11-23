@@ -192,12 +192,29 @@ async function videoMaster(
   throw new Error("FFmpeg found no video frame to draw.");
 }
 
+const IMAGE_DEADLINE_SECONDS = 10;
+
 async function imageMaster(file: string): Promise<PosterMaster> {
   const options = {
     limitInputPixels: MAX_INPUT_PIXELS,
     failOn: "error",
   } as const;
-  const metadata = await sharp(file, options).metadata();
+  // Under the render's own deadline. libvips cannot stop it, but the request stops waiting.
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const metadata = await Promise.race([
+    sharp(file, options).metadata(),
+    new Promise<never>((_, reject) => {
+      deadline = setTimeout(
+        () =>
+          reject(
+            new ThumbnailTimeout(
+              "Reading the image's size took over 10 seconds.",
+            ),
+          ),
+        IMAGE_DEADLINE_SECONDS * 1000,
+      );
+    }),
+  ]).finally(() => clearTimeout(deadline));
   // EXIF orientations 5 to 8 turn the image a quarter.
   const turned = (metadata.orientation ?? 1) >= 5;
   const source = turned
@@ -209,7 +226,7 @@ async function imageMaster(file: string): Promise<PosterMaster> {
       .resize({ ...POSTER_MAX, fit: "inside", withoutEnlargement: true })
       .flatten({ background: "#ffffff" })
       .jpeg({ quality: POSTER_QUALITY })
-      .timeout({ seconds: 10 })
+      .timeout({ seconds: IMAGE_DEADLINE_SECONDS })
       .toBuffer({ resolveWithObject: true });
     return {
       jpeg: new Uint8Array(data),
