@@ -23,6 +23,14 @@ export const mcpClients = sqliteTable("nimbus_mcp_client", {
   createdAt: integer("created_at").notNull(),
 });
 
+/**
+ * What a grant authorizes: `mcp`, an MCP client's access to the account's files, or `device`, a
+ * paired device's read-only access to one library (see library-schema.ts). Each resource has its
+ * own token kinds, listings and checks.
+ */
+export const GRANT_RESOURCES = ["mcp", "device"] as const;
+export type GrantResource = (typeof GRANT_RESOURCES)[number];
+
 /** One user's approval of one client: what Settings lists and revokes. */
 export const mcpGrants = sqliteTable(
   "nimbus_mcp_grant",
@@ -35,6 +43,9 @@ export const mcpGrants = sqliteTable(
       .notNull()
       .references(() => mcpClients.clientId, { onDelete: "cascade" }),
     scope: text("scope").notNull(),
+    resource: text("resource", { enum: GRANT_RESOURCES })
+      .notNull()
+      .default("mcp"),
     createdAt: integer("created_at").notNull(),
     lastUsedAt: integer("last_used_at"),
     revokedAt: integer("revoked_at"),
@@ -46,6 +57,11 @@ export const MCP_TOKEN_KINDS = [
   "authorization_code",
   "refresh_token",
   "access_token",
+  /**
+   * A paired device's one token, of a `device` grant. `expiresAt` is its idle deadline, moved
+   * forward by each authorized use; it is never refreshed or rotated.
+   */
+  "device_token",
 ] as const;
 export type McpTokenKind = (typeof MCP_TOKEN_KINDS)[number];
 

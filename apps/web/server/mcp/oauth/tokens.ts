@@ -465,9 +465,10 @@ export async function handleRevoke(ctx: OAuthContext, request: Request) {
     clientId = client.value.clientId;
   }
   const row = await loadToken(ctx.db, token);
+  // Paired devices are not MCP clients: they are disconnected in Settings, Libraries.
   if (
     row &&
-    row.kind !== "authorization_code" &&
+    (row.kind === "access_token" || row.kind === "refresh_token") &&
     (clientId === null || row.clientId === clientId)
   ) {
     await revokeGrant(ctx.db, row.grantId, ctx.now());

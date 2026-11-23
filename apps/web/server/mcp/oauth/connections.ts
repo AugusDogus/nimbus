@@ -30,7 +30,13 @@ export async function listConnections(
     })
     .from(mcpGrants)
     .innerJoin(mcpClients, eq(mcpClients.clientId, mcpGrants.clientId))
-    .where(and(eq(mcpGrants.userId, userId), isNull(mcpGrants.revokedAt)))
+    .where(
+      and(
+        eq(mcpGrants.userId, userId),
+        eq(mcpGrants.resource, "mcp"),
+        isNull(mcpGrants.revokedAt),
+      ),
+    )
     .orderBy(desc(mcpGrants.createdAt));
   return rows.map(({ scope, ...row }) => ({
     ...row,
@@ -52,6 +58,7 @@ export async function revokeConnection(
       and(
         eq(mcpGrants.id, grantId),
         eq(mcpGrants.userId, userId),
+        eq(mcpGrants.resource, "mcp"),
         isNull(mcpGrants.revokedAt),
       ),
     )
@@ -69,7 +76,7 @@ export async function revokeConnection(
 
 /**
  * Disconnect every MCP client of `userId`, as account recovery, password changes and
- * signing out everywhere do. Their tokens stop working because each use checks the grant.
+ * signing out everywhere do. Paired devices are revoked separately (see PairedDevices). Their tokens stop working because each use checks the grant.
  * Returns how many clients were connected.
  */
 export async function revokeUserConnections(
@@ -81,7 +88,13 @@ export async function revokeUserConnections(
   const revoked = await db
     .update(mcpGrants)
     .set({ revokedAt: now })
-    .where(and(eq(mcpGrants.userId, userId), isNull(mcpGrants.revokedAt)))
+    .where(
+      and(
+        eq(mcpGrants.userId, userId),
+        eq(mcpGrants.resource, "mcp"),
+        isNull(mcpGrants.revokedAt),
+      ),
+    )
     .returning({ clientId: mcpGrants.clientId });
   if (revoked.length === 0) return 0;
   const actor = await accountActor(db, userId);
@@ -113,7 +126,7 @@ export async function liveConnectionUser(
     })
     .from(mcpGrants)
     .innerJoin(user, eq(user.id, mcpGrants.userId))
-    .where(eq(mcpGrants.id, grantId))
+    .where(and(eq(mcpGrants.id, grantId), eq(mcpGrants.resource, "mcp")))
     .limit(1);
   return row &&
     row.revokedAt === null &&

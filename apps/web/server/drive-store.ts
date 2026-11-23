@@ -44,6 +44,7 @@ import {
   serverSettings,
   shares,
   trash,
+  libraryItems,
   user,
 } from "./db/schema";
 
@@ -697,6 +698,13 @@ export function createDriveStore(database: Database): DriveStore {
             .where(atOrUnder(table.path, from))
             .run();
         FileRequestRecords.relocate(tx, from, to);
+        // Library catalog rows move too, so a renamed or moved item keeps its id and added date.
+        // Rows left at the vacant destination belong to content removed outside Nimbus.
+        tx.delete(libraryItems).where(atOrUnder(libraryItems.path, to)).run();
+        tx.update(libraryItems)
+          .set({ path: relocated(libraryItems.path, from, to) })
+          .where(atOrUnder(libraryItems.path, from))
+          .run();
       });
     },
     async homeOf(userId) {

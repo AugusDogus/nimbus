@@ -92,6 +92,13 @@
       "when": 1795069230330,
       "tag": "0012_revoked_shares",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1795396799848,
+      "tag": "0013_libraries_and_paired_devices",
+      "breakpoints": true
     }
   ]
 }
