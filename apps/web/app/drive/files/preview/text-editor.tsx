@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { CodeLanguage } from "@/lib/file-kind";
 import { EditLimits } from "@/lib/edit-limits";
+import { LeaveGuard } from "@/lib/leave-guard";
 import { saveText } from "./save-text";
 
 /** The text an edit started from, with the ETag that identifies that version. */
@@ -40,10 +41,7 @@ export default function TextEditor({
   const dirty = text !== base.text;
   useEffect(() => {
     onDirtyChange?.(dirty);
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    addEventListener("beforeunload", warn);
-    return () => removeEventListener("beforeunload", warn);
+    return dirty ? LeaveGuard.hold() : undefined;
   }, [dirty, onDirtyChange]);
   const [status, setStatus] = useState<Status>({ type: "idle" });
   const saving = status.type === "saving";

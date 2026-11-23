@@ -7,8 +7,8 @@ const warn = (event: BeforeUnloadEvent) => {
 
 /**
  * Work that leaving or reloading the page would lose, or leave without a report: running
- * uploads, moves and copies. While any is held the browser asks before the page is left, and
- * signing out asks first (see `busy`). Unsaved editor text has a leave warning of its own.
+ * uploads, moves and copies, and unsaved editor text. While any is held the browser asks before
+ * the page is left, and signing out asks first (see `busy`).
  */
 export const LeaveGuard = {
   /** Hold the page while the work runs; call the returned function when it is done. */
