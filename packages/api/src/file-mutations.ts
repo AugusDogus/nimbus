@@ -57,8 +57,15 @@ function memoryLockStore(): FileLockStore {
   };
 }
 
+/**
+ * Who grants path scopes. On its own, a server grants them from its own `PathLocks`. Under the
+ * supervisor, several servers can run at once during an update, so the supervisor grants them
+ * for all (see `setScopeAuthority`): no two servers change overlapping paths at once.
+ */
+export type ScopeAuthority = Pick<PathLocks, "acquire">;
+
 /** Who is changing what, and the active WebDAV locks. */
-type MutationState = { scopes: PathLocks; locks: FileLockStore };
+type MutationState = { scopes: ScopeAuthority; locks: FileLockStore };
 
 /** Locks never outlive a client that stops refreshing them by more than this. */
 export const maxLockSeconds = 60 * 60;
@@ -100,12 +107,14 @@ function lockProtects(lock: FileLock, path: string) {
 const states = new Map<string, MutationState>();
 /** The store every data root's locks use, once the server installed one. */
 let sharedLocks: FileLockStore | null = null;
+/** The authority every data root's scopes come from, once the server installed one. */
+let sharedScopes: ScopeAuthority | null = null;
 function state() {
   const root = getDataRoot();
   let current = states.get(root);
   if (!current) {
     current = {
-      scopes: createPathLocks(),
+      scopes: sharedScopes ?? createPathLocks(),
       locks: sharedLocks ?? memoryLockStore(),
     };
     states.set(root, current);
@@ -122,6 +131,15 @@ const activeLocks = () => state().locks.active(Date.now());
  */
 export function setFileLockStore(store: FileLockStore | null) {
   sharedLocks = store;
+  states.clear();
+}
+
+/**
+ * Take path scopes from `authority` from now on, instead of this process's own, or from this
+ * process again with null. The server calls it once at startup, before any request.
+ */
+export function setScopeAuthority(authority: ScopeAuthority | null) {
+  sharedScopes = authority;
   states.clear();
 }
 
