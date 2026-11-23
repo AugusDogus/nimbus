@@ -90,22 +90,65 @@ test("a library is created in Settings and a device is paired, listed and discon
     }),
   ]);
 
-  // Settings lists the device, and disconnecting it ends the token at once.
+  // Settings lists the device; it shows the device gone only once the server has disconnected it.
   await page.goto("/settings/libraries");
   const devices = page.getByRole("list", { name: "Paired devices" });
   const row = devices.getByRole("listitem").filter({ hasText: folder });
   await expect(row).toContainText("Media box");
+  // An open dialog hides the page from role queries, so rows are found by markup here.
+  const rows = page
+    .locator('ul[aria-label="Paired devices"] > li')
+    .filter({ hasText: folder });
+  let attempts = 0;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/trpc/libraries.revokeDevice*", async (route) => {
+    attempts += 1;
+    // The first attempt fails; the second is held until the test lets it through.
+    if (attempts === 1) return route.fulfill({ status: 500, body: "" });
+    await held;
+    return route.continue();
+  });
+  const dialog = page.getByRole("alertdialog");
   await row.getByRole("button", { name: "Disconnect" }).click();
-  await page
-    .getByRole("alertdialog")
-    .getByRole("button", { name: "Disconnect" })
-    .click();
+  await dialog.getByRole("button", { name: "Disconnect" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("still connected");
+  await expect(rows).toHaveCount(1);
+  expect((await request.get("/api/library/v1/me", { headers })).status()).toBe(
+    200,
+  );
+  await dialog.getByRole("button", { name: "Disconnect" }).click();
   await expect(
-    devices.getByRole("listitem").filter({ hasText: folder }),
-  ).toHaveCount(0);
+    dialog.getByRole("button", { name: "Disconnecting…" }),
+  ).toBeDisabled();
+  await expect(rows).toHaveCount(1);
+  release();
+  await expect(dialog).toBeHidden();
+  await expect(rows).toHaveCount(0);
   const me = await request.get("/api/library/v1/me", { headers });
   expect(me.status()).toBe(401);
   expect(await me.json()).toMatchObject({ error: { code: "token_revoked" } });
+
+  // Deleting the library: a failed attempt keeps it listed and says so.
+  const libraryRows = page
+    .locator('ul[aria-label="Libraries"] > li')
+    .filter({ hasText: folder });
+  let deletes = 0;
+  await page.route("**/api/trpc/libraries.deleteLibrary*", (route) => {
+    deletes += 1;
+    return deletes === 1
+      ? route.fulfill({ status: 500, body: "" })
+      : route.continue();
+  });
+  await libraryRows.getByRole("button", { name: "Delete" }).click();
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("unchanged");
+  await expect(libraryRows).toHaveCount(1);
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(libraryRows).toHaveCount(0);
 });
 
 test("the pairing page needs a sign-in and returns to the code afterwards", async ({
