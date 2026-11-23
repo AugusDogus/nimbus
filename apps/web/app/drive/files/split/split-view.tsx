@@ -346,6 +346,13 @@ export const SplitController = memo(function SplitController({
           prefs={panePrefs[side]}
           active={active}
           onClose={() => keepOnly(SplitLayout.other(side))}
+          onCollapse={() =>
+            go(
+              { collapsed: side, active: SplitLayout.other(side) },
+              undefined,
+              true,
+            )
+          }
         />
       ),
       failure: (failure) => <PaneFailureView failure={failure} moves={moves} />,
@@ -399,13 +406,6 @@ export const SplitController = memo(function SplitController({
               );
               go({ ratio: next }, undefined, true);
             }}
-            collapse={(side) =>
-              go(
-                { collapsed: side, active: SplitLayout.other(side) },
-                undefined,
-                true,
-              )
-            }
           />
         )}
         <PaneLinks.Provider value={links.right}>

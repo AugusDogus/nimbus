@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { GripVertical } from "lucide-react";
 import {
   useRef,
   useState,
@@ -6,9 +6,7 @@ import {
   type PointerEvent,
   type RefObject,
 } from "react";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { PaneSide } from "../split-layout";
 
 /** The middle catches the divider this close, in pixels, while it is dragged. */
 const snapPx = 16;
@@ -23,7 +21,8 @@ const clamp = (value: number, min: number, max: number) =>
  * The bar between the panes of a split view, as a window splitter: drag it, or focus it and
  * use the arrow keys (Shift for larger steps), Home and End, to share the width out within
  * `min` and `max`; it catches at the middle, and a double-click returns it there. It is the gap
- * between the two pane cards, with a handle on hover or focus whose buttons fold either pane away.
+ * between the two pane cards, with a dotted grip in its middle. Folding a pane away is the pane's
+ * own (see `PaneTools`); a folded pane opens again from its strip (see `CollapsedPane`).
  */
 export function PaneDivider({
   ratio,
@@ -33,7 +32,6 @@ export function PaneDivider({
   controls,
   preview,
   commit,
-  collapse,
 }: {
   /** The left pane's share of the width in percent. */
   ratio: number;
@@ -47,7 +45,6 @@ export function PaneDivider({
   preview: (ratio: number) => void;
   /** Keeps a ratio: in the address and for this browser. */
   commit: (ratio: number) => void;
-  collapse: (side: PaneSide) => void;
 }) {
   const [live, setLive] = useState<number | null>(null);
   // The drag's ratio as of the last event: the release and the capture's loss both end it.
@@ -111,7 +108,7 @@ export function PaneDivider({
   const value = Math.round(shown);
   const dragging = live !== null;
   return (
-    <div className="group/divider relative z-30 shrink-0">
+    <div className="relative z-30 shrink-0">
       <div
         role="separator"
         tabIndex={0}
@@ -123,7 +120,8 @@ export function PaneDivider({
         aria-valuenow={value}
         aria-valuetext={`Left pane ${value}%, right pane ${100 - value}%`}
         data-dragging={dragging ? true : undefined}
-        className="group absolute inset-y-0 -inset-x-1 cursor-col-resize touch-none outline-none pointer-coarse:-inset-x-3"
+        // 16 px to grab with a mouse, 44 px on touch, however thin what is drawn.
+        className="group absolute inset-y-0 -inset-x-1 cursor-col-resize touch-none outline-none pointer-coarse:-inset-x-[18px]"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={end}
@@ -132,48 +130,20 @@ export function PaneDivider({
         onDoubleClick={() => commit(middle)}
         onKeyDown={onKeyDown}
       >
-        {/* The gap itself is the divider: empty at rest, a line when pointed at, focused or dragged. */}
+        {/* A raised chip with a dotted grip, as resizable handles are drawn: hidden at rest, it
+            shows when pointed at, focused (with its ring) or dragged (in the accent colour),
+            and always on touch screens, which cannot point. Slightly wider than the gap, so it
+            sits over the cards' edges. */}
         <div
           className={cn(
-            "absolute inset-y-3 left-1/2 w-0.5 -translate-x-1/2 rounded-full bg-transparent transition-colors duration-150 motion-reduce:transition-none",
-            "group-hover:bg-foreground/15 group-focus-visible:bg-ring group-data-dragging:bg-primary",
+            "absolute left-1/2 top-1/2 flex h-8 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md border bg-card text-muted-foreground shadow-sm transition-opacity duration-150 motion-reduce:transition-none",
+            "opacity-0 group-hover:opacity-100 pointer-coarse:h-10 pointer-coarse:w-6 pointer-coarse:opacity-100",
+            "group-focus-visible:opacity-100 group-focus-visible:ring-2 group-focus-visible:ring-ring group-focus-visible:ring-offset-1 group-focus-visible:ring-offset-background",
+            "group-data-dragging:border-primary group-data-dragging:bg-primary group-data-dragging:text-primary-foreground group-data-dragging:opacity-100",
           )}
-        />
-      </div>
-      {/* Folds either pane away: shown on hover or focus, out of the way of a drag. The middle
-          lets the drag through, so the handle can be held like the gap around it. */}
-      <div
-        className={cn(
-          "pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-full border bg-popover p-0.5 shadow-sm transition-opacity duration-150 motion-reduce:transition-none",
-          dragging
-            ? "opacity-0"
-            : "opacity-0 group-hover/divider:opacity-100 group-has-[:focus-visible]/divider:opacity-100",
-        )}
-      >
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Collapse left pane"
-          title="Collapse left pane"
-          className="touch-hit pointer-events-auto rounded-full"
-          onClick={() => collapse("left")}
         >
-          <ChevronLeft />
-        </Button>
-        <span
-          aria-hidden
-          className="h-3 w-0.5 rounded-full bg-muted-foreground/40"
-        />
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Collapse right pane"
-          title="Collapse right pane"
-          className="touch-hit pointer-events-auto rounded-full"
-          onClick={() => collapse("right")}
-        >
-          <ChevronRight />
-        </Button>
+          <GripVertical className="size-4 pointer-coarse:size-5" />
+        </div>
       </div>
       {/* While dragging, says when the divider has caught at the middle. */}
       {dragging && value === middle && (

@@ -8,6 +8,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -81,13 +82,15 @@ export function PaneFailureView({
 const recessed =
   "bg-[color-mix(in_oklab,var(--background)_45%,var(--sidebar))]";
 
-/** The pane's sort, grouping and view, in one menu. */
+/** The pane's sort, grouping and view, and folding the pane away, in one menu. */
 function PaneViewMenu({
   prefs: { prefs, updatePreferences },
   muted,
+  onCollapse,
 }: {
   prefs: PanePrefs;
   muted: boolean;
+  onCollapse: () => void;
 }) {
   const sort = SortOption.value({
     field: prefs.sortField,
@@ -100,8 +103,8 @@ function PaneViewMenu({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="Sort and view"
-            title="Sort and view"
+            aria-label="Pane options"
+            title="Sort, view and collapse"
             className={cn(
               "touch-hit shrink-0",
               muted && "text-muted-foreground",
@@ -163,6 +166,8 @@ function PaneViewMenu({
             <DropdownMenuRadioItem value="grid">Grid</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={onCollapse}>Collapse pane</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -214,15 +219,18 @@ export function PaneTools({
   prefs,
   active,
   onClose,
+  onCollapse,
 }: {
   prefs: PanePrefs;
   active: boolean;
   /** Closes this pane, keeping the other pane's folder as the page's one folder. */
   onClose: () => void;
+  /** Folds this pane into a strip at its edge, which opens it again. */
+  onCollapse: () => void;
 }) {
   return (
     <>
-      <PaneViewMenu prefs={prefs} muted={!active} />
+      <PaneViewMenu prefs={prefs} muted={!active} onCollapse={onCollapse} />
       <Button
         variant="ghost"
         size="icon-sm"

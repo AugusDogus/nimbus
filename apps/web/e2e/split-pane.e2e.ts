@@ -465,7 +465,7 @@ test.describe("split view on a wide screen", () => {
     expect(await names(`${root}/Projects`)).not.toContain("From New.txt");
   });
 
-  test("the divider resizes, catches at the middle, resets, steps by keyboard and folds a pane away", async ({
+  test("the divider resizes, catches at the middle, resets and steps by keyboard, and a pane folds away from its menu", async ({
     page,
   }) => {
     const { root } = await seed(page);
@@ -507,7 +507,9 @@ test.describe("split view on a wide screen", () => {
     await divider.dblclick();
     await expect(divider).toHaveAttribute("aria-valuenow", "50");
 
-    await page.getByRole("button", { name: "Collapse right pane" }).click();
+    // A pane folds away from its own menu.
+    await rightPane(page).getByRole("button", { name: "Pane options" }).click();
+    await page.getByRole("menuitem", { name: "Collapse pane" }).click();
     await expect(page).toHaveURL(/collapsed=right/);
     await expect(entry(rightPane(page), "2025")).toHaveCount(0);
     await page
