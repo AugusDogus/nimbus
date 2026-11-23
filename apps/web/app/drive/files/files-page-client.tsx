@@ -23,6 +23,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { CodeLoad } from "@/lib/code-load";
 import { trpc } from "@/lib/trpc";
 import { trpcErrorCode } from "@/lib/trpc-error";
 
@@ -61,8 +62,12 @@ import { useFileList } from "./use-file-list";
 import { WebMcpFileTools } from "./webmcp-tools";
 import { useFilePreferences } from "./use-file-preferences";
 
-// Two folders side by side load only when a split view opens.
-const SplitView = lazyComponent(() => import("./split/split-view"));
+// Two folders side by side load only when a split view opens. A load that fails shows the
+// code load notice, such as that Nimbus was updated.
+const SplitView = lazyComponent(
+  () => import("./split/split-view"),
+  <LoadingSkeleton view="list" />,
+);
 
 /** Opens a split view beside `left`, with `right` in the other pane or the remembered folder. */
 function openSplit(
@@ -70,8 +75,9 @@ function openSplit(
   left: string,
   right: string | null,
 ) {
-  void import("./split/open-split").then(({ openSplit }) =>
-    openSplit({ navigate, left, right }),
+  void CodeLoad.load(() => import("./split/open-split")).then(
+    ({ openSplit }) => openSplit({ navigate, left, right }),
+    (error: unknown) => CodeLoad.failed(error),
   );
 }
 

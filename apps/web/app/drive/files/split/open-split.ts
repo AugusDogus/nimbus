@@ -1,4 +1,5 @@
 import type { UseNavigateResult } from "@tanstack/react-router";
+import { CodeLoad } from "@/lib/code-load";
 import { queryClient } from "@/lib/trpc";
 import { fileListQueryOptions } from "../use-file-list";
 import { needsStats, prefsQueryOptions } from "../use-file-preferences";
@@ -32,7 +33,15 @@ export async function openSplit({
   left: string;
   right: string | null;
 }) {
-  const view = import("./split-view");
+  // Starts now, beside the checks below. A load that fails shows the code load notice, and the
+  // page stays as it is.
+  const view = CodeLoad.load(() => import("./split-view")).then(
+    () => true,
+    (error: unknown) => {
+      CodeLoad.failed(error);
+      return false;
+    },
+  );
   const memory = SplitMemory.read();
   const prefs =
     memory.prefs ?? (await queryClient.ensureQueryData(prefsQueryOptions));
@@ -43,7 +52,7 @@ export async function openSplit({
       ? remembered
       : left);
   // The view's code arrives before the address changes, so the page never shows nothing.
-  await view;
+  if (!(await view)) return;
   await navigate({
     href: SplitAddress.href(left, {
       right: folder,
