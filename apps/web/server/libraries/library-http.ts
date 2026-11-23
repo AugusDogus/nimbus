@@ -110,6 +110,12 @@ type DeviceRequest = {
   identify?: () => DeviceAuth;
   /** The rate limit the request counts against. */
   rule?: LibraryThrottleRule;
+  /**
+   * Check access again, as a transfer does (see deviceWatch), once the answer is worked out:
+   * for item `itemId`, or for the whole library when null. Folder grants can be withdrawn while
+   * an answer is worked out without the library itself changing.
+   */
+  watch?: { itemId: string | null };
 };
 
 async function asDevice(
@@ -127,7 +133,39 @@ async function asDevice(
     options.rule ?? "perDevice",
   );
   if (!authorized.ok) return authorized.response;
-  const response = await respond(authorized.device, authorized.scope);
+  const watched = options.watch ?? null;
+  const watch =
+    watched === null
+      ? null
+      : await deviceWatch(
+          ctx,
+          authorized.device,
+          authorized.scope,
+          watched.itemId,
+        );
+  let response: Response;
+  let refused: string | null = null;
+  try {
+    response = await respond(authorized.device, authorized.scope);
+    if (watch !== null && response.status < 400)
+      refused = await watch.allowed();
+  } finally {
+    watch?.done();
+  }
+  if (refused !== null) {
+    await response.body?.cancel();
+    // A whole-library answer is worked out again from the current access, once.
+    if (watched?.itemId === null) {
+      if (attempt === 0) return asDevice(ctx, request, respond, options, 1);
+      return LibraryApiError.response({
+        code: "service_unavailable",
+        message:
+          "Access to this library changed while Nimbus answered. Try again in a moment.",
+        retryAfterSeconds: 1,
+      });
+    }
+    response = itemNotFound();
+  }
   // Synchronous from here on: nothing can change between this check and the answer.
   const still = identify();
   if (!still.ok || still.device.id !== authorized.device.id) {
@@ -236,12 +274,15 @@ const sourceChanged = () =>
  * the chunk check everything the request checked: the device, its library's visible folders and
  * the item. That last, once a second, also catches changes made by other means. Answers sent
  * with an exact length are only checked before they go out.
+ *
+ * With no item (`itemId` null), it watches an answer about the whole library, such as the
+ * listing: any such change refuses it, since the answer was worked out from the access before.
  */
 async function deviceWatch(
   ctx: LibraryContext,
   device: PairedDevice,
   scope: LibraryScope,
-  itemId: string,
+  itemId: string | null,
 ): Promise<BodyWatch> {
   const { transfer, end } = Transfers.begin(device.id, scope.library.id);
   let checkedAt = ctx.now();
@@ -257,12 +298,11 @@ async function deviceWatch(
         ctx,
         scope.library.id,
       );
-      if (
-        !transfer.recheck &&
-        currentEpoch === epoch &&
-        currentVersion === libraryVersion &&
-        ctx.now() - checkedAt < 1000
-      )
+      const changed =
+        transfer.recheck ||
+        currentEpoch !== epoch ||
+        currentVersion !== libraryVersion;
+      if (!changed && (itemId === null || ctx.now() - checkedAt < 1000))
         return null;
       transfer.recheck = false;
       checkedAt = ctx.now();
@@ -273,6 +313,8 @@ async function deviceWatch(
       if (!still.ok) return disconnected;
       const now = await LibraryAccess.forDevice(ctx, still.device);
       if (!now.ok) return disconnected;
+      if (itemId === null)
+        return "Access to the device's library changed, so the answer was worked out again.";
       return LibraryAccess.resolve(ctx, now.value, itemId).ok
         ? null
         : "This file is no longer in the device's library, so the transfer was stopped.";
@@ -285,19 +327,24 @@ const itemEndpoints: Record<string, Endpoint> = {
   item: {
     method: "GET",
     handle: (ctx, request, itemId) =>
-      asDevice(ctx, request, async (_device, scope) => {
-        const opened = await LibraryAccess.open(ctx, scope, itemId);
-        if (!opened.ok) return LibraryApiError.response(opened.error);
-        const { item } = opened.value;
-        const { stats } = opened.value.opened;
-        await opened.value.opened.handle.close();
-        const entry = LibraryListing.entry(ctx, scope, {
-          ...item,
-          version: LibraryCatalog.versionOf(stats),
-          sizeBytes: stats.size,
-        });
-        return entry === null ? itemNotFound() : json(entry);
-      }),
+      asDevice(
+        ctx,
+        request,
+        async (_device, scope) => {
+          const opened = await LibraryAccess.open(ctx, scope, itemId);
+          if (!opened.ok) return LibraryApiError.response(opened.error);
+          const { item } = opened.value;
+          const { stats } = opened.value.opened;
+          await opened.value.opened.handle.close();
+          const entry = LibraryListing.entry(ctx, scope, {
+            ...item,
+            version: LibraryCatalog.versionOf(stats),
+            sizeBytes: stats.size,
+          });
+          return entry === null ? itemNotFound() : json(entry);
+        },
+        { watch: { itemId } },
+      ),
   },
   file: {
     method: "GET",
@@ -513,11 +560,16 @@ const endpoints: Record<string, Endpoint> = {
         return invalid(
           "kinds must be a comma-separated list of video, audio, image, document and other.",
         );
-      return asDevice(ctx, request, async (_device, scope) => {
-        const listing = await LibraryListing.library(ctx, scope, kinds);
-        if (!listing.ok) return LibraryApiError.response(listing.error);
-        return conditional(request, listing.etag, () => json(listing.body));
-      });
+      return asDevice(
+        ctx,
+        request,
+        async (_device, scope) => {
+          const listing = await LibraryListing.library(ctx, scope, kinds);
+          if (!listing.ok) return LibraryApiError.response(listing.error);
+          return conditional(request, listing.etag, () => json(listing.body));
+        },
+        { watch: { itemId: null } },
+      );
     },
   },
 };

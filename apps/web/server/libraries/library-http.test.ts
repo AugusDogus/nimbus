@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { chmod, rename } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { JSONSchema } from "zod/v4/core";
 import { DevicePairing } from "./device-pairing";
 import { Libraries } from "./libraries";
+import { LibraryAccess } from "./library-access";
 import { LibraryCatalog } from "./library-catalog";
 import { LibraryHttp } from "./library-http";
 import {
@@ -486,6 +487,68 @@ test("a folder its owner can no longer share reveals nothing, not even that it c
     });
     expect(after.status).toBe(query ? 200 : 304);
   }
+});
+
+describe("folder access withdrawn while an answer is worked out", () => {
+  async function mapsLibrary() {
+    await t.drive.write("library/maps/Ridge map.pdf");
+    await t.drive.grant("library/maps", "alice", "admin");
+    const garage = await t.drive.grant("library/garage", "alice", "admin");
+    const created = await Libraries.create(
+      t.ctx,
+      await t.drive.access("alice"),
+      false,
+      { title: "Maps", folders: ["library/maps", "library/garage"] },
+    );
+    if (!created.ok) throw new Error(created.error.message);
+    const { token } = await pair(created.value.id, "alice");
+    return { token, garage };
+  }
+
+  test("the listing is worked out again without the folder", async () => {
+    const { token, garage } = await mapsLibrary();
+    LibraryCatalog.resetForTest();
+    let removed = false;
+    const restore = LibraryCatalog.useScanHooksForTest({
+      beforeOpen: async () => {
+        if (removed) return;
+        removed = true;
+        await t.drive.store.removeGrant(garage.id);
+      },
+    });
+    try {
+      const listed = libraryBody.parse(
+        await json(await call("library", { token }), "LibraryResponse"),
+      );
+      expect(removed).toBe(true);
+      expect(listed.items.map((item) => item.name)).toEqual(["Ridge map.pdf"]);
+    } finally {
+      restore();
+    }
+  });
+
+  test("an item is not sent", async () => {
+    const { token, garage } = await mapsLibrary();
+    const listed = libraryBody.parse(
+      await json(await call("library", { token }), "LibraryResponse"),
+    );
+    const id = listed.items.find(
+      (item) => item.name === "Bike repair notes.pdf",
+    )?.id;
+    if (!id) throw new Error("not listed");
+    const open = LibraryAccess.open;
+    const opening = spyOn(LibraryAccess, "open").mockImplementation(
+      async (...args) => {
+        await t.drive.store.removeGrant(garage.id);
+        return open(...args);
+      },
+    );
+    try {
+      await error(await call(`items/${id}`, { token }), 404, "item_not_found");
+    } finally {
+      opening.mockRestore();
+    }
+  });
 });
 
 test("only successful requests keep a device paired", async () => {
