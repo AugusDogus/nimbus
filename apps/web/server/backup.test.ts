@@ -123,3 +123,44 @@ test("remote databases are refused with guidance instead of a partial backup", a
     }),
   ).rejects.toThrow("Backups need a local SQLite database");
 });
+
+test("backups started at once by two servers both complete, neither removing the other's", async () => {
+  // As a new server's backup before its migrations runs beside the old server's scheduled one.
+  const directory = path.join(root, "backups");
+  // Large enough that the first snapshot is still being written when the second starts.
+  const filler = new Database(path.join(root, "db.sqlite"));
+  filler.run("BEGIN");
+  const insert = filler.prepare("INSERT INTO item (body) VALUES (?)");
+  for (let row = 0; row < 300_000; row++)
+    insert.run(`row ${row} ${"x".repeat(100)}`);
+  filler.run("COMMIT");
+  filler.close();
+  const first = Backup.create({
+    databaseUrl,
+    directory,
+    keep: 7,
+    now: Date.UTC(2026, 0, 1),
+  });
+  for (let tries = 0; tries < 200; tries++) {
+    const names = await readdir(directory).catch(() => []);
+    if (names.some((name) => name.endsWith(".partial"))) break;
+    await Bun.sleep(5);
+  }
+  const second = Backup.create({
+    databaseUrl,
+    directory,
+    keep: 7,
+    now: Date.UTC(2026, 0, 2),
+  });
+  const [one, two] = await Promise.allSettled([first, second]);
+  expect(one.status).toBe("fulfilled");
+  expect(two.status).toBe("fulfilled");
+  expect(
+    (await readdir(directory))
+      .filter((name) => name.endsWith(".sqlite"))
+      .sort(),
+  ).toEqual([
+    "nimbus-20260101T000000Z.sqlite",
+    "nimbus-20260102T000000Z.sqlite",
+  ]);
+});

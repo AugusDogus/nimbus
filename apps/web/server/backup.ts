@@ -8,6 +8,7 @@ import {
   stat,
 } from "node:fs/promises";
 import path from "node:path";
+import { ExclusiveFile } from "./exclusive-file";
 import { databaseFile, getConfigRoot, getDatabaseUrl } from "./storage-paths";
 
 /**
@@ -115,10 +116,52 @@ async function create({
     );
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
+  // One backup at a time across every server process: a new server's backup before its
+  // migrations can start while the server it replaces runs its scheduled one.
+  const lock = await holdBackupLock(directory);
+  try {
+    return await createHeld(databaseUrl, directory, keep, now);
+  } finally {
+    lock.release();
+  }
+}
+
+/** How long a backup waits for another process's to finish before it gives up. */
+const backupLockWaitMs = 30 * 60 * 1000;
+
+/**
+ * The backups directory's lock, waited for without blocking the event loop: the lock is tried
+ * every quarter second rather than with SQLite's own busy wait, which would stall the server.
+ */
+async function holdBackupLock(directory: string) {
+  // Beside the directory, so listings of the backups never show it.
+  const file = `${directory}.lock`;
+  const until = Date.now() + backupLockWaitMs;
+  for (;;) {
+    const held = ExclusiveFile.acquire(file);
+    if (held.ok) return held.value;
+    if (held.error.kind === "unavailable")
+      throw new Error(
+        `Nimbus could not lock its backups at ${file} (${held.error.reason}). Earlier backups are unchanged. Check that the config root is writable.`,
+      );
+    if (Date.now() > until)
+      throw new Error(
+        `Another Nimbus server has been backing up the database for over ${backupLockWaitMs / 60_000} minutes, so this backup gave up. Earlier backups are unchanged; it is tried again later.`,
+      );
+    await Bun.sleep(250);
+  }
+}
+
+async function createHeld(
+  databaseUrl: string,
+  directory: string,
+  keep: number,
+  now: number,
+) {
   const name = `nimbus-${stamp(now)}.sqlite`;
   const completed = path.join(directory, name);
   const partial = `${completed}.partial`;
-  // One job runs at a time, so any partial file is left from an interrupted run.
+  // One backup runs at a time, so any partial file is left from an interrupted one.
   for (const leftover of await readdir(directory))
     if (leftover.endsWith(".sqlite.partial"))
       await rm(path.join(directory, leftover), { force: true });
