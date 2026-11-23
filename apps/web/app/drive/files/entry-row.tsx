@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 // Rows mount continuously while scrolling large folders. Their classes never conflict, so they
-// are joined directly instead of through tailwind-merge.
+// are joined directly instead of through `cn`.
 const classes = (...values: (string | false)[]) =>
   values.filter(Boolean).join(" ");
 import { EntryActionsButton, openMenuAt } from "./entry-menu";

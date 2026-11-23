@@ -134,6 +134,31 @@
       },
     },
     {
+      // Fluid Functionalism's components and helpers, as its shadcn registry ships them (see
+      // https://www.fluidfunctionalism.com). They stay as shipped, so a later `shadcn add` updates
+      // them cleanly; these are the only rules they do not meet. Nimbus's own code still must.
+      "files": [
+        "apps/web/components/fluid-hover-highlight.tsx",
+        "apps/web/hooks/use-fluid-hover.ts",
+        "apps/web/hooks/use-touch-primary.tsx",
+        "apps/web/lib/font-weight.ts",
+        "apps/web/lib/icon-context.tsx",
+        "apps/web/lib/key-cap.tsx",
+        "apps/web/lib/omit.ts",
+        "apps/web/lib/shape-context.tsx",
+        "apps/web/lib/size-context.tsx",
+        "apps/web/lib/springs.ts",
+        "apps/web/lib/surface-classes.ts",
+        "apps/web/lib/surface-context.tsx",
+        "apps/web/lib/type-scale.ts",
+      ],
+      "rules": {
+        "typescript/no-unsafe-type-assertion": "off",
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-deprecated": "off",
+      },
+    },
+    {
       // bun-types declares `expect(promise).rejects` and `.resolves` matchers as returning void,
       // but Bun returns a promise that must be awaited for the assertion to count. Every
       // await-thenable finding in tests was one of these.
