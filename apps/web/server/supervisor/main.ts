@@ -116,7 +116,30 @@ async function socketDirectory(): Promise<string | null> {
   return null;
 }
 
-const refused = await socketDirectory();
+/**
+ * Servers it runs share their port with `reusePort`, which the kernel would also allow another
+ * Nimbus of this user to join, such as a second container on the host network: two independent
+ * servers on one database. So the port must be free before the first server starts: a plain
+ * listen, which any socket already on it refuses.
+ */
+function portInUse(): string | null {
+  const port = Number(process.env.PORT ?? "3000");
+  if (!Number.isInteger(port) || port <= 0 || port > 65535)
+    return `PORT must be a port from 1 to 65535 under the supervisor, which keeps one port across restarts; got ${process.env.PORT}.`;
+  try {
+    const probe = Bun.listen({
+      hostname: "0.0.0.0",
+      port,
+      socket: { data: () => undefined },
+    });
+    probe.stop(true);
+    return null;
+  } catch (error) {
+    return `Something already listens on port ${port} (${error instanceof Error ? error.message : String(error)}), possibly another Nimbus. Two servers on one port would serve the same data side by side, so this one did not start. Stop the other one or choose another PORT.`;
+  }
+}
+
+const refused = portInUse() ?? (await socketDirectory());
 if (refused) {
   console.error(`Nimbus did not start: ${refused}`);
   process.exit(1);
