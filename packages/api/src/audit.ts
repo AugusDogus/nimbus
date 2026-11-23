@@ -55,6 +55,12 @@ export const auditActions = [
   "mcp.client_approved",
   "mcp.client_disconnected",
   "mcp.token_failed",
+  "library.created",
+  "library.updated",
+  "library.deleted",
+  "device.pairing_approved",
+  "device.pairing_denied",
+  "device.revoked",
   "app_password.created",
   "app_password.revoked",
   "webdav.auth_failed",
@@ -79,6 +85,8 @@ export type AuditTarget = {
     | "passkey"
     | "backup"
     | "mcp_client"
+    | "library"
+    | "device"
     | "setting";
   id: string;
   label?: string;

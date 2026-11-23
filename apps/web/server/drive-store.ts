@@ -44,6 +44,7 @@ import {
   serverSettings,
   shares,
   trash,
+  libraryFolders,
   libraryItems,
   user,
 } from "./db/schema";
@@ -828,7 +829,8 @@ export function createDriveStore(database: Database): DriveStore {
           | typeof grants
           | typeof shares
           | typeof fileRequests
-          | typeof bookmarks,
+          | typeof bookmarks
+          | typeof libraryFolders,
       ) =>
         database
           .selectDistinct({ path: table.path })
@@ -840,6 +842,7 @@ export function createDriveStore(database: Database): DriveStore {
         links: paths(shares),
         fileRequests: paths(fileRequests),
         bookmarks: paths(bookmarks),
+        libraryFolders: paths(libraryFolders),
       };
     },
     async davProperties(paths) {

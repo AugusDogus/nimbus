@@ -73,6 +73,9 @@ function sharingOver(container: string, shared: SharedPaths) {
       " on it or on a folder above it",
     plural(over(shared.links), "public link", "public links") +
       " on it or on a folder above it",
+    // A library offers its folders to paired devices, which would see the homes too.
+    plural(over(shared.libraryFolders), "library folder", "library folders") +
+      " on it or on a folder above it",
   ].filter((found) => !found.startsWith("0 "));
 }
 
@@ -90,6 +93,8 @@ function recordsWithin(container: string, shared: SharedPaths) {
     plural(within(shared.grants), "sharing grant", "sharing grants") +
       " inside it",
     plural(within(shared.links), "public link", "public links") + " inside it",
+    plural(within(shared.libraryFolders), "library folder", "library folders") +
+      " inside it",
     plural(at(shared.fileRequests), "upload link", "upload links") +
       " on it or inside it",
     plural(at(shared.bookmarks), "bookmark", "bookmarks") +
@@ -427,6 +432,7 @@ async function backfill(store: DriveStore) {
 
 export const Homes = {
   spelling,
+  covers,
   containerPath,
   prepare,
   folderName,

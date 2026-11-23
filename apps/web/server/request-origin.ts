@@ -6,7 +6,10 @@
  * header is not from a browser page, so no browser sent the cookie on anyone's behalf.
  */
 export const RequestOrigin = {
-  fromNimbus(request: Request, allowedOrigins: ReadonlySet<string>) {
+  fromNimbus(
+    request: Pick<Request, "headers">,
+    allowedOrigins: ReadonlySet<string>,
+  ) {
     const site = request.headers.get("sec-fetch-site");
     const from = request.headers.get("origin");
     return site !== null

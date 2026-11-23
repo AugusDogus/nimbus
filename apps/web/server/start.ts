@@ -30,6 +30,7 @@ import { backups, backupsToKeep } from "./backup";
 import { readMcpConfig } from "./mcp/config";
 import { getConfigRoot, requireDataRoot } from "./storage-paths";
 import { ensureFileWatcher } from "./file-watcher";
+import { watchLibraryCatalogs } from "./libraries/library-runtime";
 
 const port = Number(process.env.PORT ?? "3000");
 if (!Number.isInteger(port) || port < 0 || port > 65535) {
@@ -97,6 +98,7 @@ for (const home of await Homes.backfill(store))
   else console.info(`Nimbus created the home folder ${home.path}.`);
 // Live updates and search follow the data root from here on, now that it is known to exist.
 ensureFileWatcher();
+watchLibraryCatalogs();
 const shell = await AppShell.start(securityMode);
 const routes = HttpRoutes.create({ shell, mode: securityMode });
 // Aborted at shutdown, which ends live event streams so the server can drain.

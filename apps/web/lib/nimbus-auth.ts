@@ -13,6 +13,8 @@ import type { Database } from "../server/db/connection";
 import type { MailMessage } from "../server/mail";
 import { createDriveStore } from "../server/drive-store";
 import { revokeUserConnections } from "../server/mcp/oauth/connections";
+import { DEVICE_REVOCATION_REASONS } from "../server/db/library-schema";
+import { PairedDevices } from "../server/libraries/paired-devices";
 import { RateLimiter } from "../server/rate-limit";
 import { finishAuthResponse, nimbusAudit } from "./auth-audit";
 import { nimbusSecurity } from "./auth-security";
@@ -84,8 +86,13 @@ export function createNimbusAuth({
       "Nimbus email is configured but BETTER_AUTH_URL is not set. Set BETTER_AUTH_URL to the public address of this server, such as https://files.example.com, so password reset links point at it. Nimbus did not start; no accounts or settings were changed.",
     );
   const passwordAttempts = PasswordAttempts.create();
-  const disconnectMcpClients = (userId: string, by: string) =>
-    revokeUserConnections(db, userId, Date.now(), by);
+  // The account-security actions that end MCP connections end paired devices too.
+  const disconnectMcpClients = async (userId: string, by: string) => {
+    const reason = DEVICE_REVOCATION_REASONS.find((known) => known === by);
+    if (reason)
+      await PairedDevices.revokeForUser({ db, now: Date.now }, userId, reason);
+    return revokeUserConnections(db, userId, Date.now(), by);
+  };
   // Single sign-on is the only OAuth provider, so every OAuth callback belongs to it.
   // Better Auth may report the templated route ("/callback/:id") rather than the URL.
   const isOidcCallback = (path: string | undefined) =>
@@ -427,6 +434,15 @@ export function createNimbusAuth({
         },
         update: {
           async after(updated, context) {
+            // A disabled account's devices are disconnected, so enabling it again revives none.
+            // Here, not after a route: administrators disable accounts with ban-user and with
+            // update-user, and any later way of setting `banned` comes through here too.
+            if (updated.banned === true)
+              await PairedDevices.revokeForUser(
+                { db, now: Date.now },
+                updated.id,
+                "account_disabled",
+              );
             if (
               context?.path === "/two-factor/verify-totp" &&
               updated.twoFactorEnabled === true

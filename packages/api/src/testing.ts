@@ -255,6 +255,7 @@ export function createTestDriveStore() {
         bookmarks: [...bookmarks.values()]
           .flat()
           .map((bookmark) => bookmark.path),
+        libraryFolders: [],
       };
     },
     async davProperties(paths) {
