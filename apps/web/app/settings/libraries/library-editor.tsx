@@ -20,7 +20,7 @@ type View =
   | { kind: "form" }
   | { kind: "choose" }
   /** New folders reach devices already paired: the owner confirms, seeing their names. */
-  | { kind: "confirm"; message: string };
+  | { kind: "confirm" };
 
 /** Create a library, or change one's title and folders. */
 export function LibraryEditor({
@@ -60,7 +60,7 @@ export function LibraryEditor({
           ? failure.message
           : "Nimbus could not be reached. Nothing was saved; try again.";
       if (trpcErrorCode(failure) === "PRECONDITION_FAILED")
-        setView({ kind: "confirm", message });
+        setView({ kind: "confirm" });
       else {
         setView({ kind: "form" });
         setError(message);
@@ -112,9 +112,20 @@ export function LibraryEditor({
           />
         ) : view.kind === "confirm" ? (
           <div className="space-y-4">
-            <p role="alert" className="text-pretty text-sm">
-              {view.message}
-            </p>
+            <div role="alert" className="space-y-2 text-pretty text-sm">
+              <p>
+                The new folders&apos; files are shared at once with the devices
+                already paired with this library:
+              </p>
+              <ul className="list-disc space-y-1 pl-5">
+                {existing?.devices.map((device) => (
+                  <li key={device.id}>
+                    <bdi>{device.name}</bdi>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-muted-foreground">Nothing is saved yet.</p>
+            </div>
             <DialogFooter>
               <Button
                 variant="outline"
