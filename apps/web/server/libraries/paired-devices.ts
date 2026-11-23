@@ -12,6 +12,7 @@ import { mcpClients, mcpGrants, mcpTokens } from "../db/mcp-schema";
 import { accountActor } from "../mcp/oauth/audit";
 import { hashToken, mintSecret } from "../mcp/oauth/secrets";
 import type { LibraryApiError } from "./library-api-error";
+import { Transfers } from "./transfers";
 import type { LibraryContext } from "./library-context";
 
 /**
@@ -104,6 +105,7 @@ function revokeGrants(
     if (!ended.length) return [];
     const ids = ended.map((row) => row.id);
     for (const id of ids) revokedHere.add(id);
+    Transfers.devicesEnded(ids);
     return tx
       .update(pairedDevices)
       .set({ revokedReason: reason })

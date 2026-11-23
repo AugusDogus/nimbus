@@ -13,6 +13,7 @@ import { serveOpened, type BodyWatch } from "../file-response";
 import { LibraryCatalog } from "./library-catalog";
 import type { LibraryThrottleRule } from "./library-throttle";
 import { MediaTickets } from "./media-tickets";
+import { Transfers } from "./transfers";
 import {
   PairedDevices,
   type DeviceAuth,
@@ -228,26 +229,55 @@ const sourceChanged = () =>
   });
 
 /**
- * What a file body checks between chunks: that this process did not revoke the device, and
- * at most once a second, that the database still has it live, so a revocation by any route ends
- * the body. Bytes already sent cannot be taken back.
+ * What a whole file sent in chunks checks before each chunk. A change this process signals
+ * (see Transfers) is seen at the next chunk: a disconnected device stops at once, and a changed
+ * library, a change of accounts, groups or grants (the access epoch), or a second gone by makes
+ * the chunk check everything the request checked: the device, its library's visible folders and
+ * the item. That last, once a second, also catches changes made by other means. Answers sent
+ * with an exact length are only checked before they go out.
  */
-function deviceWatch(
+async function deviceWatch(
   ctx: LibraryContext,
   device: PairedDevice,
-  done: () => void,
-): BodyWatch {
+  scope: LibraryScope,
+  itemId: string,
+): Promise<BodyWatch> {
+  const { transfer, end } = Transfers.begin(device.id, scope.library.id);
   let checkedAt = ctx.now();
-  const stopped =
+  let epoch = await ctx.drive.accessEpoch();
+  let libraryVersion = scope.library.updatedAt;
+  const disconnected =
     "The device was disconnected from Nimbus, so the transfer was stopped.";
   return {
-    allowed: () => {
-      if (PairedDevices.revokedHere(device.id)) return stopped;
-      if (ctx.now() - checkedAt < 1000) return null;
+    allowed: async () => {
+      if (PairedDevices.revokedHere(device.id)) return disconnected;
+      if (transfer.stopped !== null) return transfer.stopped;
+      const currentEpoch = await ctx.drive.accessEpoch();
+      const currentVersion = LibraryAccess.libraryVersion(
+        ctx,
+        scope.library.id,
+      );
+      if (
+        !transfer.recheck &&
+        currentEpoch === epoch &&
+        currentVersion === libraryVersion &&
+        ctx.now() - checkedAt < 1000
+      )
+        return null;
+      transfer.recheck = false;
       checkedAt = ctx.now();
-      return PairedDevices.byGrant(ctx, device.id).ok ? null : stopped;
+      epoch = currentEpoch;
+      if (currentVersion === null) return disconnected;
+      libraryVersion = currentVersion;
+      const still = PairedDevices.byGrant(ctx, device.id);
+      if (!still.ok) return disconnected;
+      const now = await LibraryAccess.forDevice(ctx, still.device);
+      if (!now.ok) return disconnected;
+      return LibraryAccess.resolve(ctx, now.value, itemId).ok
+        ? null
+        : "This file is no longer in the device's library, so the transfer was stopped.";
     },
-    done,
+    done: end,
   };
 }
 
@@ -351,7 +381,7 @@ const itemEndpoints: Record<string, Endpoint> = {
             filename: path.posix.basename(opened.value.item.path),
             etag: `"${version}"`,
             cacheControl: "private, no-store",
-            watch: deviceWatch(ctx, device, () => undefined),
+            watch: await deviceWatch(ctx, device, scope, itemId),
           });
           if (served.kind === "served") return served.response;
           if (served.kind === "changed") return sourceChanged();

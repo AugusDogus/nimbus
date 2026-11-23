@@ -629,3 +629,105 @@ test("a file with other names outside Nimbus's upload staging is neither listed 
       .status,
   ).toBe(200);
 });
+
+describe("a whole file sent in chunks stops when what allowed it ends", () => {
+  const large = 9 * MiB;
+  /** Start sending Large.mp4 whole, without a range, to a device of `owner`'s library. */
+  async function sending(owner: "owner" | "alice", folders: string[]) {
+    await writeFile(
+      t.drive.absolute("library/kitchen/Large.mp4"),
+      pattern(large),
+    );
+    const created = await Libraries.create(
+      t.ctx,
+      await t.drive.access(owner),
+      false,
+      { title: "Large", folders },
+    );
+    if (!created.ok) throw new Error(created.error.message);
+    const started = DevicePairing.start(t.ctx, "Reader", "203.0.113.40");
+    if (!started.ok) throw new Error(started.error.message);
+    const session = t.signIn(owner);
+    const shown = await DevicePairing.review(
+      t.ctx,
+      session,
+      started.value.pairingCode,
+      "203.0.113.40",
+    );
+    if (!shown.ok) throw new Error(shown.error.message);
+    await DevicePairing.decide(
+      t.ctx,
+      session,
+      {
+        pairingId: shown.value.pairingId,
+        ticket: shown.value.ticket,
+        decision: { kind: "approve", libraryId: created.value.id },
+      },
+      "203.0.113.40",
+    );
+    const polled = DevicePairing.poll(
+      t.ctx,
+      started.value.deviceCode,
+      "203.0.113.40",
+    );
+    if (!polled.ok || polled.value.status !== "approved")
+      throw new Error("not approved");
+    const token = polled.value.token;
+    const id = await idOf(token, "Large.mp4");
+    const minted = await fetch(`${base}/items/${id}/stream`, {
+      method: "POST",
+      headers: auth(token),
+    });
+    const { url } = z.object({ url: z.string() }).parse(await minted.json());
+    const cookie = (minted.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const response = await fetch(`${base}/media/${id}${new URL(url).search}`, {
+      headers: { cookie },
+    });
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("no body");
+    expect((await reader.read()).done).toBe(false);
+    return { libraryId: created.value.id, reader };
+  }
+  const drain = async (reader: ReadableStreamDefaultReader<Uint8Array>) => {
+    let received = 0;
+    return (async () => {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) return "complete";
+        received += chunk.value.byteLength;
+      }
+    })()
+      .catch(() => "stopped")
+      .then((outcome) => ({ outcome, received }));
+  };
+
+  test("when its folder is removed from the library", async () => {
+    const { libraryId: id, reader } = await sending("owner", [
+      "library/kitchen",
+      "library/garage",
+    ]);
+    const updated = await Libraries.update(
+      t.ctx,
+      await t.drive.access("owner"),
+      false,
+      {
+        id,
+        title: "Large",
+        folders: ["library/garage"],
+        acknowledgedDevices: [],
+      },
+    );
+    expect(updated.ok).toBe(true);
+    const result = await drain(reader);
+    expect(result.outcome).toBe("stopped");
+    expect(result.received).toBeLessThan(large);
+  });
+
+  test("when the owner may no longer share the folder", async () => {
+    const grant = await t.drive.grant("library/kitchen", "alice", "admin");
+    const { reader } = await sending("alice", ["library/kitchen"]);
+    await t.drive.store.removeGrant(grant.id);
+    const result = await drain(reader);
+    expect(result.outcome).toBe("stopped");
+  });
+});

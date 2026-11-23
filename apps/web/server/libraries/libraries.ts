@@ -9,6 +9,7 @@ import { isFsError, PathError, resolveSafePath } from "@nimbus/api/safe-path";
 import { libraries, libraryFolders } from "../db/library-schema";
 import type { LibraryContext } from "./library-context";
 import { PairedDevices } from "./paired-devices";
+import { Transfers } from "./transfers";
 
 /** A library as its owner's Settings shows it. */
 export type Library = {
@@ -331,6 +332,7 @@ export const Libraries = {
         )
         .run();
     });
+    Transfers.libraryChanged(library.id);
     recordAudit({
       action: "library.updated",
       actor: auditUser(access.user),
@@ -365,6 +367,7 @@ export const Libraries = {
       access.user,
     );
     ctx.db.delete(libraries).where(eq(libraries.id, library.id)).run();
+    Transfers.libraryDeleted(library.id);
     recordAudit({
       action: "library.deleted",
       actor: auditUser(access.user),

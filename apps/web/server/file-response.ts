@@ -239,7 +239,10 @@ async function respond(
  * end while they are sent: `allowed` returns why the rest may not go out, or null, and `done`
  * runs once when the body ends, however it ends.
  */
-export type BodyWatch = { allowed: () => string | null; done: () => void };
+export type BodyWatch = {
+  allowed: () => string | null | Promise<string | null>;
+  done: () => void;
+};
 
 /**
  * Bytes `start` to `end` of the open file, sent zero-copy from its descriptor, which stays open
@@ -286,7 +289,7 @@ function confirmedBody(
           controller.close();
           return;
         }
-        const refused = watch.allowed();
+        const refused = await watch.allowed();
         if (refused !== null) throw new Error(refused);
         const chunk = new Uint8Array(length);
         const { bytesRead } = await handle.read(chunk, 0, length, position);
@@ -371,7 +374,7 @@ export async function serveOpened(
       // The last checks before the answer is handed off.
       if (FileVersion.of(await handle.stat()) !== FileVersion.of(stats))
         return { kind: "changed" };
-      const refused = watch.allowed();
+      const refused = await watch.allowed();
       if (refused !== null) return { kind: "refused", reason: refused };
       heldDescriptors++;
       handedOff = true;
@@ -402,7 +405,7 @@ export async function serveOpened(
         FileVersion.of(await handle.stat()) !== FileVersion.of(stats)
       )
         return { kind: "changed" };
-      const refused = watch.allowed();
+      const refused = await watch.allowed();
       if (refused !== null) return { kind: "refused", reason: refused };
       return {
         kind: "served",
