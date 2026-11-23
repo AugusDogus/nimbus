@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import type { PinnedPlace } from "./destination-picker/destination-picker";
 import type { TransferResult } from "./transfer-result";
 import type { FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
@@ -74,10 +75,13 @@ export function TransferDialog({
   dialog,
   actions,
   onClose,
+  pinned,
 }: {
   dialog: EntryDialog | null;
   actions: ReturnType<typeof useFileActions>;
   onClose: () => void;
+  /** Places listed first in the picker, such as the other pane's folder in a split view. */
+  pinned?: readonly PinnedPlace[];
 }) {
   if (dialog?.action === "clashes")
     return (
@@ -87,6 +91,7 @@ export function TransferDialog({
         resume={dialog.result}
         actions={actions}
         onClose={onClose}
+        pinned={pinned}
       />
     );
   if (dialog?.action !== "move" && dialog?.action !== "copy") return null;
@@ -96,6 +101,7 @@ export function TransferDialog({
       entries={dialog.entries}
       actions={actions}
       onClose={onClose}
+      pinned={pinned}
     />
   );
 }
