@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import { isWithinPath } from "@nimbus/api/safe-path";
 import type { libraryItems } from "../db/library-schema";
 
 /**
@@ -12,8 +11,9 @@ import type { libraryItems } from "../db/library-schema";
  *   time takes that row back, live again, as when a folder was briefly unavailable.
  * - Otherwise, a file appearing at a new path takes over the row of a file that vanished, in
  *   this pass or an earlier one, when it is the only new file with that size (above zero) and
- *   modification time, that row is the only one that vanished with them, and the row's path
- *   lies inside the folders this scan read: a rename or move made outside Nimbus.
+ *   modification time, that row is the only one that vanished with them, and the row's file is
+ *   known gone (see LibraryCatalog): never one this scan skipped or could not read. A rename or
+ *   move made outside Nimbus.
  * - Otherwise it is a new item.
  *
  * Renames and moves made through Nimbus carry rows along (see DriveStore.movePath). Only files
@@ -59,14 +59,14 @@ function byShape<T extends { sizeBytes: number; modifiedAt: number }>(
 }
 
 /**
- * What to change so library `libraryId`'s rows, tombstones included, match `files`, which the
- * scan found under `folders`.
+ * What to change so library `libraryId`'s rows, tombstones included, match `files`. Only a row
+ * whose path `movable` accepts may pass to a file at another path.
  */
 function plan(
   libraryId: string,
   rows: readonly CatalogRow[],
   files: readonly ScannedFile[],
-  folders: readonly string[],
+  movable: (path: string) => boolean,
   now: number,
 ): CatalogPlan {
   const result: CatalogPlan = { inserts: [], updates: [], tombstones: [] };
@@ -129,7 +129,7 @@ function plan(
       row &&
       rest.length === 0 &&
       newcomers.get(shape)?.length === 1 &&
-      folders.some((folder) => isWithinPath(folder, row.path))
+      movable(row.path)
     ) {
       moved.add(row.id);
       result.updates.push({

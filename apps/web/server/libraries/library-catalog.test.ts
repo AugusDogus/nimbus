@@ -317,6 +317,37 @@ test("a scan whose folders stopped being offered while it ran moves no id out of
   expect(at("library/garage/Notes.md", id)?.id).not.toBe(original?.id ?? "");
 });
 
+for (const [where, swapped] of [
+  ["a library folder", "library/kitchen"],
+  ["a folder inside one", "library/kitchen/Guides"],
+] as const)
+  test(`no id moves out of ${where} replaced while it was read`, async () => {
+    await file(`${swapped}/Notes.md`, "proofing times");
+    const id = await create(["library/kitchen", "library/garage"]);
+    const original = at(`${swapped}/Notes.md`, id);
+    // A file with the same size and times, which must not take the first one's id.
+    await file("library/garage/Twin.md", "proofing times");
+    let replaced = false;
+    const restore = LibraryCatalog.useScanHooksForTest({
+      afterOpen: async (relative) => {
+        if (relative !== swapped || replaced) return;
+        replaced = true;
+        await rename(
+          t.drive.absolute(swapped),
+          t.drive.absolute("library/old"),
+        );
+        await mkdir(t.drive.absolute(swapped));
+      },
+    });
+    try {
+      await reconcile(id);
+    } finally {
+      restore();
+    }
+    expect(replaced).toBe(true);
+    expect(at("library/garage/Twin.md", id)?.id).not.toBe(original?.id ?? "");
+  });
+
 test("a file moved after its tombstone expired is a new item", async () => {
   await file("library/kitchen/Notes.md", "proofing times");
   await create();

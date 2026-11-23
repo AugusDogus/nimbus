@@ -47,8 +47,15 @@ export type CatalogScan =
       kind: "ok";
       /** The files, each marked whether its folder is scanned for the first time. */
       files: Omit<ScannedFile, "firstScan">[];
-      /** Folders that exist, by path, each with the files found under it. */
+      /** Library folders read whole, by path, each with the files found under it. */
       folders: Map<string, string[]>;
+      /** Every folder whose entries were read and confirmed to be where they were reached. */
+      read: Set<string>;
+      /**
+       * Every name found in those folders but not listed as a file: folders, and entries skipped
+       * (hidden, unreadable, links, a file with other names).
+       */
+      unlisted: Set<string>;
     }
   | { kind: "too_large" }
   /** This system cannot tell where an open folder is, so folders cannot be read confined. */
@@ -203,6 +210,8 @@ async function scan(
   let staged: StagedNames | undefined;
   const files: Omit<ScannedFile, "firstScan">[] = [];
   const found = new Map<string, string[]>();
+  const read = new Set<string>();
+  const unlisted = new Set<string>();
   for (const folder of outermost(folders)) {
     try {
       await resolveSafePath(folder);
@@ -220,7 +229,6 @@ async function scan(
       await beforeOpen(relative);
       const opened = openFolder(root, relative);
       if (!opened) continue;
-      if (relative === folder) exists = true;
       try {
         await afterOpen(relative);
         let entries;
@@ -231,10 +239,12 @@ async function scan(
           continue;
         }
         const children: [string, number][] = [];
-        const read: Omit<ScannedFile, "firstScan">[] = [];
+        const listed: Omit<ScannedFile, "firstScan">[] = [];
+        const here: string[] = [];
         for (const entry of entries) {
-          if (entry.name.startsWith(".")) continue;
           const child = `${relative}/${entry.name}`;
+          here.push(child);
+          if (entry.name.startsWith(".")) continue;
           // A name the listing would refuse (see LibraryAccess.reaches) is never counted.
           if (!LibraryAccess.canonical(child)) continue;
           if (entry.isDirectory()) {
@@ -254,7 +264,7 @@ async function scan(
             staged ??= await HardLinks.staged(root);
             if (!HardLinks.offered(stats, staged)) continue;
           }
-          read.push({
+          listed.push({
             path: child,
             version: versionOf(child, stats),
             sizeBytes: stats.size,
@@ -263,8 +273,12 @@ async function scan(
         }
         // A folder moved elsewhere while it was read listed someone else's entries.
         if (!opened.stillThere()) continue;
+        read.add(relative);
+        const kept = new Set(listed.map((entry) => entry.path));
+        for (const name of here) if (!kept.has(name)) unlisted.add(name);
+        if (relative === folder) exists = true;
         pending.push(...children);
-        for (const entry of read) {
+        for (const entry of listed) {
           files.push(entry);
           into.push(entry.path);
           if (files.length > cap) return { kind: "too_large" };
@@ -275,7 +289,7 @@ async function scan(
     }
     if (exists) found.set(folder, into);
   }
-  return { kind: "ok", files, folders: found };
+  return { kind: "ok", files, folders: found, read, unlisted };
 }
 
 /** Library `libraryId`'s live rows, as they stand. */
@@ -293,6 +307,22 @@ const liveRows = (ctx: Pick<LibraryContext, "db">, libraryId: string) =>
 
 const live = (row: { missingSince: number | null }) =>
   row.missingSince === null;
+
+/**
+ * Whether the file a row had at `relative` is known to be gone by this scan: the nearest folder
+ * on its path that was read in full has no unlisted entry by the name that leads to it. Such an
+ * entry is the file itself, skipped, or a folder that was not read (skipped, replaced while it
+ * was read, too deep): either way the file may still be there.
+ */
+function gone(scanned: Extract<CatalogScan, { kind: "ok" }>, relative: string) {
+  for (
+    let name = relative, folder = path.posix.dirname(relative);
+    folder !== name;
+    name = folder, folder = path.posix.dirname(folder)
+  )
+    if (scanned.read.has(folder)) return !scanned.unlisted.has(name);
+  return false;
+}
 
 /**
  * Bring library `libraryId`'s catalog in line with a scan, in one transaction (see
@@ -344,7 +374,8 @@ async function reconcile(
       ...file,
       firstScan: firstScan.has(file.path),
     })),
-    [...scanned.folders.keys()],
+    // Only a row whose file is known gone may pass to another file.
+    (row) => gone(scanned, row),
     now,
   );
   // The count limit covers every tombstone after this pass, the newest kept first.
