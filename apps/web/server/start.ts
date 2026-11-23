@@ -430,6 +430,8 @@ function drain(deadline: number) {
   if (cleanupTimer) clearInterval(cleanupTimer);
   stopCatalogs?.();
   stopFileWatcher();
+  // Give back what the stopped work held, once the search worker has ended.
+  setTimeout(() => Bun.gc(true), 2_000).unref();
   if (supervision.kind === "supervised") {
     const report = () =>
       supervision.send({ kind: "in-flight", count: server.pendingRequests });
