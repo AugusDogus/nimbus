@@ -3,11 +3,7 @@ import { MoonIcon, SunIcon } from "lucide-react";
 import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import type { VsCodeTheme } from "@/lib/vscode-theme";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip } from "@/components/ui/tooltip";
 import { THEME_PREVIEW_RENDER_SPECS } from "./theme-preview-spec";
 
 type ThemeAppearance = "light" | "dark";
@@ -131,21 +127,19 @@ export function ThemeSwatch({
   onSelect: () => void;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            aria-label={`Use ${name} for ${mode} mode`}
-            aria-pressed={selected}
-            disabled={disabled}
-            onClick={onSelect}
-            className={cn(
-              "relative flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:pointer-events-none disabled:opacity-50 sm:size-16",
-              selected && "ring-2 ring-ring",
-            )}
-          />
-        }
+    <Tooltip
+      content={mode === "light" ? "Use for light mode" : "Use for dark mode"}
+    >
+      <button
+        type="button"
+        aria-label={`Use ${name} for ${mode} mode`}
+        aria-pressed={selected}
+        disabled={disabled}
+        onClick={onSelect}
+        className={cn(
+          "relative flex size-14 shrink-0 cursor-pointer items-center justify-center rounded-full p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:pointer-events-none disabled:opacity-50 sm:size-16",
+          selected && "ring-2 ring-ring",
+        )}
       >
         <ThemePreviewCircle colors={colors} mode={mode} />
         {selected && (
@@ -160,10 +154,7 @@ export function ThemeSwatch({
             )}
           </span>
         )}
-      </TooltipTrigger>
-      <TooltipContent>
-        {mode === "light" ? "Use for light mode" : "Use for dark mode"}
-      </TooltipContent>
+      </button>
     </Tooltip>
   );
 }

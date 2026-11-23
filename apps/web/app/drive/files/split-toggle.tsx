@@ -1,11 +1,7 @@
 import type { UseNavigateResult } from "@tanstack/react-router";
 import { Columns2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip } from "@/components/ui/tooltip";
 import { CodeLoad } from "@/lib/code-load";
 import { SplitCode } from "./split-frame";
 
@@ -34,28 +30,21 @@ export function SplitToggle({
   onToggle: () => void;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-compact"
-            aria-label="Split view"
-            data-shape="split-toggle"
-            aria-pressed={open}
-            className="touch-hit text-muted-foreground aria-pressed:bg-accent aria-pressed:text-foreground max-lg:hidden"
-            onClick={onToggle}
-            // Pointed at or focused, it starts loading the split view's code.
-            onPointerEnter={SplitCode.preload}
-            onFocus={SplitCode.preload}
-          />
-        }
+    <Tooltip content={open ? "Close split view" : "Open split view"}>
+      <Button
+        variant="ghost"
+        size="icon-compact"
+        aria-label="Split view"
+        data-shape="split-toggle"
+        aria-pressed={open}
+        className="touch-hit text-muted-foreground aria-pressed:bg-accent aria-pressed:text-foreground max-lg:hidden"
+        onClick={onToggle}
+        // Pointed at or focused, it starts loading the split view's code.
+        onPointerEnter={SplitCode.preload}
+        onFocus={SplitCode.preload}
       >
         <Columns2 className="size-4" />
-      </TooltipTrigger>
-      <TooltipContent>
-        <p>{open ? "Close split view" : "Open split view"}</p>
-      </TooltipContent>
+      </Button>
     </Tooltip>
   );
 }

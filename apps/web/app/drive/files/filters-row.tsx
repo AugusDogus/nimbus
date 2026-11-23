@@ -20,11 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip } from "@/components/ui/tooltip";
 
 import type { UserPreferences } from "@nimbus/api/context";
 import { SortOption } from "./sort-option";
@@ -163,27 +159,20 @@ export function FiltersRow({
         </SelectContent>
       </Select>
 
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Toggle
-              variant="default"
-              size="sm"
-              pressed={prefs.groupByType}
-              onPressedChange={(pressed) =>
-                updatePreferences({ groupByType: pressed })
-              }
-              aria-label="Group files by type"
-              data-shape="group"
-              className="touch-hit hidden md:inline-flex"
-            />
+      <Tooltip content="Group by type">
+        <Toggle
+          variant="default"
+          size="sm"
+          pressed={prefs.groupByType}
+          onPressedChange={(pressed) =>
+            updatePreferences({ groupByType: pressed })
           }
+          aria-label="Group files by type"
+          data-shape="group"
+          className="touch-hit hidden md:inline-flex"
         >
           <Layers className="size-4" />
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>Group by type</p>
-        </TooltipContent>
+        </Toggle>
       </Tooltip>
 
       {/* View toggle is always visible */}
@@ -201,37 +190,23 @@ export function FiltersRow({
         spacing={1}
         className="rounded-lg bg-muted/70 p-1"
       >
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <ToggleGroupItem
-                value="list"
-                aria-label="List view"
-                className="touch-hit size-8 rounded-md px-0 pointer-coarse:w-11 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
-              />
-            }
+        <Tooltip content="List view">
+          <ToggleGroupItem
+            value="list"
+            aria-label="List view"
+            className="touch-hit size-8 rounded-md px-0 pointer-coarse:w-11 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
           >
             <List className="size-4" />
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>List view</p>
-          </TooltipContent>
+          </ToggleGroupItem>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <ToggleGroupItem
-                value="grid"
-                aria-label="Grid view"
-                className="touch-hit size-8 rounded-md px-0 pointer-coarse:w-11 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
-              />
-            }
+        <Tooltip content="Grid view">
+          <ToggleGroupItem
+            value="grid"
+            aria-label="Grid view"
+            className="touch-hit size-8 rounded-md px-0 pointer-coarse:w-11 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
           >
             <Grid2X2 className="size-4" />
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Grid view</p>
-          </TooltipContent>
+          </ToggleGroupItem>
         </Tooltip>
       </ToggleGroup>
     </div>

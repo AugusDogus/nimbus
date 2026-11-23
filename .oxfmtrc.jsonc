@@ -24,6 +24,7 @@
     "apps/web/client/route-tree.gen.ts",
     // Fluid Functionalism's registry files, kept as shipped (see .oxlintrc.jsonc).
     "apps/web/components/ui/button.tsx",
+    "apps/web/components/ui/tooltip.tsx",
     "apps/web/components/fluid-hover-highlight.tsx",
     "apps/web/hooks/use-fluid-hover.ts",
     "apps/web/hooks/use-touch-primary.tsx",
