@@ -483,6 +483,11 @@ describe.skipIf(missing.length > 0)(
           query: "w=1920",
         });
         expect(second.status).toBe(422);
+        // No poster exists for this version, so nothing about it is unchanged.
+        const anything = await call(`items/${id}/poster`, token, {
+          headers: { "if-none-match": "*" },
+        });
+        expect(anything.status).toBe(422);
         expect(spawn).not.toHaveBeenCalled();
       } finally {
         spawn.mockRestore();

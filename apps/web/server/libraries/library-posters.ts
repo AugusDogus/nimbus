@@ -373,18 +373,23 @@ async function respond(
       "Cache-Control": "private, no-cache",
       "X-Content-Type-Options": "nosniff",
     };
-    if (matches(request, etag))
-      return new Response(null, { status: 304, headers: cacheHeaders });
-    const name = cacheName(item, file, width);
     const failedBefore = (known: PosterRecord | null) =>
       known?.version === version &&
       (known.state === "failed" ||
         (known.state === "timed_out" &&
           ctx.now() - known.recordedAt < TIMEOUT_RETRY_MS));
+    const known = recordOf(ctx, item.id);
+    if (failedBefore(known)) return LibraryApiError.response(failed);
+    // Only a version known to have a poster is unchanged; `*` matches nothing before that.
+    if (
+      known?.state === "ready" &&
+      known.version === version &&
+      matches(request, etag)
+    )
+      return new Response(null, { status: 304, headers: cacheHeaders });
+    const name = cacheName(item, file, width);
     let body = await readCached(name);
     if (!body) {
-      if (failedBefore(recordOf(ctx, item.id)))
-        return LibraryApiError.response(failed);
       const drawn = await forDevice(
         device.id,
         request.signal,
