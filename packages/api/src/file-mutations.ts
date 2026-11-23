@@ -203,6 +203,33 @@ export function withMutationPrecondition<T>(
   return preconditions.run(check, operation);
 }
 
+/** The scope a change to drive path `path` holds. */
+const driveScope = (path: string): HeldScope => ({
+  space: "drive",
+  path: lockKey(path),
+});
+/** The scope a change to trash item `id` holds; "" is the whole trash. */
+const trashScope = (id: string): HeldScope => ({ space: "trash", path: id });
+
+/**
+ * Hold `scopes` while `operation` runs, without the WebDAV lock checks a change makes: for work
+ * that settles changes rather than making them, such as recovering a crashed server's
+ * unfinished ones.
+ */
+async function holdScopes<T>(
+  scopes: readonly [HeldScope, ...HeldScope[]],
+  operation: () => Promise<T>,
+): Promise<T> {
+  const release = await state().scopes.acquire(scopes);
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+export const FileMutations = { driveScope, trashScope, holdScopes } as const;
+
 /** What a mutation holds besides the paths it changes. */
 export type MutationScope = {
   /** Subtrees held without a WebDAV lock check, such as a folder in which a free name is chosen. */
@@ -226,13 +253,10 @@ export async function mutateFiles<T>(
   scope: MutationScope = {},
 ): Promise<T> {
   const held: HeldScope[] = [
-    ...[...paths, ...(scope.within ?? [])].map((path) => ({
-      space: "drive",
-      path: lockKey(path),
-    })),
+    ...[...paths, ...(scope.within ?? [])].map(driveScope),
     ...(scope.trash === "all"
-      ? [{ space: "trash", path: "" }]
-      : (scope.trash ?? []).map((id) => ({ space: "trash", path: id }))),
+      ? [trashScope("")]
+      : (scope.trash ?? []).map(trashScope)),
   ];
   const [first, ...rest] = held;
   if (!first)

@@ -86,7 +86,8 @@ export type SharedPaths = {
  * A change whose filesystem step and database step a crash could separate, recorded before its
  * filesystem step and removed with its last step. See `PendingChanges`.
  */
-export type PendingChange = {
+/** A change that touches both the filesystem and the database, as it records itself. */
+export type PendingChangeRecord = {
   id: string;
   /** Which item moved, as `PendingChanges.identityAt` gives it: device, inode and birth time. */
   identity: string;
@@ -94,6 +95,12 @@ export type PendingChange = {
   | { kind: "trash" | "restore"; trashId: string }
   | { kind: "move"; from: string; to: string }
 );
+
+/**
+ * A recorded change as stored: with the server process that recorded it, which the store
+ * stamps (see ServerRun.processId), or null for one recorded before owners were kept.
+ */
+export type PendingChange = PendingChangeRecord & { owner: string | null };
 
 /** Sharing records found at some paths, by kind. */
 export type SharingRecords = {
@@ -218,7 +225,9 @@ export type DriveStore = {
     /** A pending move to settle in the same transaction. */
     settles?: string,
   ): Promise<void>;
-  addPendingChange(change: PendingChange): Promise<void>;
+  addPendingChange(change: PendingChangeRecord): Promise<void>;
+  /** The recorded change `id` as it stands now, or null once it was settled. */
+  getPendingChange(id: string): Promise<PendingChange | null>;
   /**
    * Claim the undo of transfer receipt `receiptId` until `expiresAt`, unless it was claimed
    * already: true when this call claimed it. Claims are shared by every server process, so a

@@ -21,6 +21,8 @@ import type { DriveStore } from "@nimbus/api/drive-store";
 import { restoreItem, trashItem } from "@nimbus/api/file-operations";
 import { FileVersions } from "@nimbus/api/file-versions";
 import { PendingChanges } from "@nimbus/api/pending-changes";
+import { FileMutations, setScopeAuthority } from "@nimbus/api/file-mutations";
+import { createPathLocks } from "@nimbus/api/path-locks";
 import { openDatabase } from "./db/connection";
 import { migrateDatabase } from "./db/migrate-database";
 import { createDriveStore } from "./drive-store";
@@ -81,6 +83,7 @@ describe("changes interrupted by a crash", () => {
           CRASH_DATABASE: database,
           NIMBUS_DATA_ROOT: root,
           CRASH_AT: at,
+          NIMBUS_PROCESS_ID: deadServer,
         },
         stderr: "pipe",
       },
@@ -91,6 +94,9 @@ describe("changes interrupted by a crash", () => {
       output: await new Response(child.stderr).text(),
     }).toMatchObject({ signal: "SIGKILL" });
   }
+
+  /** The server process the crash ends, as the supervisor names it. */
+  const deadServer = "dead-server-0123456789";
 
   const shareWithCarol = () =>
     withStore((store) =>
@@ -357,5 +363,100 @@ describe("changes interrupted by a crash", () => {
           : { content: "new", kept: ["old"] },
       );
     });
+  });
+
+  test("recovery for a dead server leaves another server's change in progress alone", async () => {
+    await shareWithCarol();
+    await crashDuring("trash");
+    // Another server, still running, has recorded moving other.txt to trash and not yet renamed
+    // it: what a crash would also leave.
+    await Bun.write(path.join(root, "other.txt"), "in use");
+    await withStore(async (store) => {
+      const live = await PendingChanges.identityAt(
+        path.join(root, "other.txt"),
+      );
+      await store.addTrash({
+        id: "live-trash",
+        path: "other.txt",
+        deletedBy: "owner",
+        deletedAt: 1,
+        expiresAt: Date.now() + 60_000,
+      });
+      const opened = openDatabase(database);
+      try {
+        opened.sqlite.run(
+          "INSERT INTO nimbus_pending_change (id, kind, trash_id, identity, created_at, owner) VALUES (?, 'trash', 'live-trash', ?, 1, 'live-server-0123456789')",
+          [PendingChanges.trashMarker("live-trash"), live],
+        );
+      } finally {
+        opened.sqlite.close();
+      }
+      const recovered = await PendingChanges.recoverOwned(
+        store,
+        root,
+        deadServer,
+        [],
+        () => undefined,
+      );
+      expect(recovered.map((one) => one.outcome)).toEqual(["undone"]);
+      expect((await getAccess(store, "carol")).can("doc.txt", "read")).toBe(
+        true,
+      );
+      // The live server's trash record and its pending change are untouched.
+      expect((await store.getTrash("live-trash"))?.path).toBe("other.txt");
+      expect(
+        (await store.listPendingChanges()).map((change) => change.owner),
+      ).toEqual(["live-server-0123456789"]);
+    });
+  });
+
+  test("a dead server's change waits for its paths unless a fence still holds them", async () => {
+    await shareWithCarol();
+    await crashDuring("trash");
+    const scopes = createPathLocks();
+    setScopeAuthority(scopes);
+    try {
+      // A live change holds doc.txt, as one could once the dead server's scopes were released.
+      const release = await scopes.acquire([
+        FileMutations.driveScope("doc.txt"),
+      ]);
+      let fenceDone = false;
+      const recovering = withStore((store) =>
+        PendingChanges.recoverOwned(store, root, deadServer, [], () => {
+          fenceDone = true;
+        }),
+      );
+      await Bun.sleep(50);
+      // Nothing fenced it, so recovery waits for the path and re-reads the change after.
+      expect(fenceDone).toBe(true);
+      expect(await readFile(path.join(root, "doc.txt"), "utf8")).toBe("old");
+      release();
+      expect((await recovering).map((one) => one.outcome)).toEqual(["undone"]);
+    } finally {
+      setScopeAuthority(null);
+    }
+    // Fenced: the dead server's scopes are still held for it, so recovery acts without waiting.
+    await crashDuring("trash");
+    const fence = [
+      FileMutations.driveScope(""),
+      FileMutations.trashScope(""),
+    ] as const;
+    const fenced = createPathLocks();
+    setScopeAuthority(fenced);
+    try {
+      await fenced.acquire(fence);
+      const recovered = await withStore((store) =>
+        PendingChanges.recoverOwned(
+          store,
+          root,
+          deadServer,
+          fence,
+          () => undefined,
+        ),
+      );
+      expect(recovered.map((one) => one.outcome)).toEqual(["undone"]);
+    } finally {
+      setScopeAuthority(null);
+    }
   });
 });

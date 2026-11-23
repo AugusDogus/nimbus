@@ -20,6 +20,7 @@ import {
   type PendingChange,
 } from "@nimbus/api/drive-store";
 import { FileVersions } from "@nimbus/api/file-versions";
+import { ServerRun } from "@nimbus/api/server-run";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { Database } from "./db";
 import {
@@ -240,6 +241,33 @@ function relocateVersions(tx: Transaction, from: string, to: string) {
     .set({ path: relocated(fileVersions.path, from, to) })
     .where(atOrUnder(fileVersions.path, from))
     .run();
+}
+
+/** A stored change, checked against the shapes the table allows. */
+function toPendingChange(
+  row: typeof pendingChanges.$inferSelect,
+): PendingChange {
+  if (row.kind === "move" && row.fromPath !== null && row.toPath !== null)
+    return {
+      id: row.id,
+      identity: row.identity,
+      owner: row.owner,
+      kind: "move",
+      from: row.fromPath,
+      to: row.toPath,
+    };
+  if (row.kind !== "move" && row.trashId !== null)
+    return {
+      id: row.id,
+      identity: row.identity,
+      owner: row.owner,
+      kind: row.kind,
+      trashId: row.trashId,
+    };
+  // The table's check constraint rules this out.
+  throw new Error(
+    `Pending change ${row.id} (${row.kind}) is missing its trash id or paths, so Nimbus cannot finish or undo it. Nothing was changed; delete the row from nimbus_pending_change after checking the item by hand.`,
+  );
 }
 
 export function createDriveStore(database: Database): DriveStore {
@@ -675,6 +703,7 @@ export function createDriveStore(database: Database): DriveStore {
         fromPath: change.kind === "move" ? change.from : null,
         toPath: change.kind === "move" ? change.to : null,
         createdAt: Date.now(),
+        owner: ServerRun.processId(),
       });
     },
     async removePendingChange(id) {
@@ -682,32 +711,15 @@ export function createDriveStore(database: Database): DriveStore {
     },
     async listPendingChanges() {
       return (await database.select().from(pendingChanges)).map(
-        (row): PendingChange => {
-          if (
-            row.kind === "move" &&
-            row.fromPath !== null &&
-            row.toPath !== null
-          )
-            return {
-              id: row.id,
-              identity: row.identity,
-              kind: "move",
-              from: row.fromPath,
-              to: row.toPath,
-            };
-          if (row.kind !== "move" && row.trashId !== null)
-            return {
-              id: row.id,
-              identity: row.identity,
-              kind: row.kind,
-              trashId: row.trashId,
-            };
-          // The table's check constraint rules this out.
-          throw new Error(
-            `Pending change ${row.id} (${row.kind}) is missing its trash id or paths, so Nimbus cannot finish or undo it. Nothing was changed; delete the row from nimbus_pending_change after checking the item by hand.`,
-          );
-        },
+        toPendingChange,
       );
+    },
+    async getPendingChange(id) {
+      const [row] = await database
+        .select()
+        .from(pendingChanges)
+        .where(eq(pendingChanges.id, id));
+      return row ? toPendingChange(row) : null;
     },
     async movePath(from, to, settles) {
       database.transaction((tx) => {

@@ -39,7 +39,7 @@ import { watchLibraryCatalogs } from "./libraries/library-runtime";
 import { Transfers } from "./libraries/transfers";
 import { searchIndexed } from "./search-bridge";
 import { GET as readiness } from "./routes/health";
-import { Supervision } from "./supervisor/supervision";
+import { Supervision, type LifecycleMessage } from "./supervisor/supervision";
 import { ServerRun } from "@nimbus/api/server-run";
 import { InstallationLock } from "./installation-lock";
 
@@ -51,20 +51,13 @@ const supervised = Supervision.fromProcess();
 if (!supervised.ok) throw new Error(supervised.error.message);
 const supervision = supervised.value;
 /**
- * Work only one server may do. `active` is the server taking new connections: it scans library
- * catalogs and runs the hourly cleanup. `alone` means no other server runs any more: only then
- * are changes a crash left unfinished recovered, since another server's changes in progress
- * would look the same. A server with no predecessor is both from the start.
+ * Work only one server may do, which `active` starts: the server taking new connections scans
+ * library catalogs and runs the hourly cleanup. A server with no predecessor is active from
+ * the start.
  */
-const roles = {
-  active: Promise.withResolvers<void>(),
-  alone: Promise.withResolvers<void>(),
-};
+const active = Promise.withResolvers<void>();
 const replacing = supervision.kind === "supervised" && supervision.predecessor;
-if (!replacing) {
-  roles.active.resolve();
-  roles.alone.resolve();
-}
+if (!replacing) active.resolve();
 /** Set once this server started to drain; see `drain`. */
 let draining = false;
 
@@ -144,24 +137,15 @@ if (supervision.kind === "supervised") {
   supervision.onTransferSignal(Transfers.apply);
 }
 const store = createDriveStore(db);
-// Changes a crash cut between their filesystem and database steps: before any request, or,
-// beside servers still running, once they are gone.
-const recoverPendingChanges = async () => {
+// Changes a crash cut between their filesystem and database steps. A server that starts with
+// no other on the installation (InstallationLock) recovers all of them before any request:
+// whoever recorded them has died. Beside other servers it recovers nothing at startup; the
+// supervisor asks it to settle each server's changes once that server has exited.
+if (!replacing)
   for (const recovered of await PendingChanges.recover(store, getDataRoot()))
     (recovered.outcome === "unclear" ? console.warn : console.info)(
       PendingChanges.describe(recovered),
     );
-};
-if (replacing)
-  void roles.alone.promise
-    .then(recoverPendingChanges)
-    .catch((error: unknown) =>
-      console.error(
-        "Nimbus could not recover changes a stopped server left unfinished. They are recovered at the next start.",
-        error,
-      ),
-    );
-else await recoverPendingChanges();
 const homesContainer = await Homes.prepare(store, homesPath);
 if (homesContainer.kind === "refused") throw new Error(homesContainer.message);
 if (homesContainer.created)
@@ -170,7 +154,7 @@ for (const home of await Homes.backfill(store))
   if (home.kind === "failed") console.error(home.message);
   else console.info(`Nimbus created the home folder ${home.path}.`);
 let stopCatalogs: (() => void) | null = null;
-void roles.active.promise.then(() => {
+void active.promise.then(() => {
   if (!draining) stopCatalogs = watchLibraryCatalogs();
 });
 const shell = await AppShell.start(
@@ -401,7 +385,7 @@ function cleanup() {
   return pendingCleanup;
 }
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
-void roles.active.promise.then(() => {
+void active.promise.then(() => {
   if (draining) return;
   void cleanup();
   cleanupTimer = setInterval(() => void cleanup(), 60 * 60 * 1000);
@@ -481,6 +465,36 @@ const shutdown = () => drain(Date.now() + 30_000);
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
+/**
+ * Settle what an exited server process left unfinished. Its fence stays up until the changes
+ * inside it are settled, so a failure is retried rather than given up: the paths involved wait.
+ */
+async function settleFor(
+  message: Extract<LifecycleMessage, { kind: "recover" }>,
+): Promise<void> {
+  if (supervision.kind !== "supervised") return;
+  const { send } = supervision;
+  try {
+    for (const recovered of await PendingChanges.recoverOwned(
+      store,
+      getDataRoot(),
+      message.owner,
+      message.fence,
+      () => send({ kind: "fence-done", id: message.id }),
+    ))
+      (recovered.outcome === "unclear" ? console.warn : console.info)(
+        PendingChanges.describe(recovered),
+      );
+  } catch (error) {
+    console.error(
+      `Nimbus could not settle the changes server process ${message.owner} left unfinished, so the items involved stay locked; it tries again in 10 seconds.`,
+      error,
+    );
+    await Bun.sleep(10_000);
+    if (!draining) await settleFor(message);
+  }
+}
+
 if (supervision.kind === "supervised") {
   supervision.onLifecycle((message) => {
     switch (message.kind) {
@@ -488,11 +502,10 @@ if (supervision.kind === "supervised") {
         drain(message.deadline);
         return;
       case "active":
-        roles.active.resolve();
+        active.resolve();
         return;
-      case "alone":
-        roles.active.resolve();
-        roles.alone.resolve();
+      case "recover":
+        void settleFor(message);
         return;
     }
   });

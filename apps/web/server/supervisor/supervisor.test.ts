@@ -9,6 +9,7 @@ import {
 
 type Fake = {
   release: string;
+  processId: string;
   predecessor: boolean;
   previousAssets: string[];
   pid: number;
@@ -40,6 +41,7 @@ function harness(overrides: Partial<SupervisorSettings> = {}) {
     const exited = Promise.withResolvers<number | null>();
     const fake: Fake = {
       release: request.release.name,
+      processId: request.processId,
       predecessor: request.predecessor,
       previousAssets: request.previousAssets,
       pid: 100 + workers.length,
@@ -108,11 +110,11 @@ function harness(overrides: Partial<SupervisorSettings> = {}) {
 }
 
 describe("the supervisor", () => {
-  test("starts one worker that serves alone", async () => {
+  test("starts one worker that serves", async () => {
     const h = harness();
     const first = await h.serving();
     expect(first.predecessor).toBe(false);
-    expect(h.kinds(first)).toEqual(["active", "alone"]);
+    expect(h.kinds(first)).toEqual(["active"]);
     expect(h.supervisor.status()).toMatchObject({
       phase: "serving",
       active: { release: "a", pid: first.pid },
@@ -150,10 +152,15 @@ describe("the supervisor", () => {
     first.say({ kind: "in-flight", count: 3 });
     await Bun.sleep(1);
     expect(h.supervisor.status().draining[0]?.inFlight).toBe(3);
-    // Once the drained worker is gone, the new one runs alone.
+    // Once the drained worker is gone, the new one settles anything it left unfinished.
     first.exit(0);
     await Bun.sleep(1);
-    expect(h.kinds(second)).toEqual(["active", "alone"]);
+    expect(second.sent.at(-1)).toEqual({
+      kind: "recover",
+      id: 1,
+      owner: first.processId,
+      fence: [],
+    });
     expect(h.supervisor.status().draining).toEqual([]);
   });
 
@@ -173,7 +180,8 @@ describe("the supervisor", () => {
     const outcome = await handing;
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.error.kind).toBe("not-ready");
-    expect(h.kinds(first)).toEqual(["active", "alone"]);
+    // The failed candidate may have recorded changes before it died; the active worker settles them.
+    expect(h.kinds(first)).toEqual(["active", "recover"]);
     expect(h.supervisor.status()).toMatchObject({
       active: { release: "a", pid: first.pid },
       starting: null,
@@ -187,7 +195,8 @@ describe("the supervisor", () => {
     const outcome = await h.supervisor.handover("b");
     expect(outcome.ok).toBe(false);
     expect(h.workers[1]?.killed).toEqual(["SIGTERM"]);
-    expect(h.kinds(first)).toEqual(["active", "alone"]);
+    // The failed candidate may have recorded changes before it died; the active worker settles them.
+    expect(h.kinds(first)).toEqual(["active", "recover"]);
   });
 
   test("refuses an unknown release and a second handover while one runs", async () => {
@@ -257,7 +266,7 @@ describe("the supervisor", () => {
     ]);
   });
 
-  test("releases what a worker held when it exits", async () => {
+  test("keeps a dead worker's scopes fenced until the active worker recovered its changes", async () => {
     const h = harness();
     const first = await h.serving();
     await h.handover("b", 1);
@@ -275,10 +284,42 @@ describe("the supervisor", () => {
       scopes: [{ space: "trash", path: "item-1" }],
     });
     await Bun.sleep(1);
-    expect(second.sent.some((m) => m.kind === "scopes-granted")).toBe(false);
     first.exit(1);
     await Bun.sleep(1);
-    expect(second.sent).toContainEqual({ kind: "scopes-granted", id: 1 });
+    // Its change in progress may be half done: nobody else gets its paths yet.
+    expect(second.sent.some((m) => m.kind === "scopes-granted")).toBe(false);
+    expect(second.sent.at(-1)).toEqual({
+      kind: "recover",
+      id: 1,
+      owner: first.processId,
+      fence: [{ space: "trash", path: "" }],
+    });
+    second.say({ kind: "fence-done", id: 1 });
+    await Bun.sleep(1);
+    expect(second.sent.at(-1)).toEqual({ kind: "scopes-granted", id: 1 });
+  });
+
+  test("asks the next active worker again when the one recovering dies first", async () => {
+    const h = harness();
+    const first = await h.serving();
+    await h.handover("b", 1);
+    const second = h.workers[1];
+    if (!second) throw new Error("no second worker");
+    first.exit(1);
+    await Bun.sleep(1);
+    expect(second.sent.at(-1)).toMatchObject({
+      kind: "recover",
+      owner: first.processId,
+    });
+    second.exit(1);
+    const third = await h.started(2);
+    h.ready(third);
+    await Bun.sleep(1);
+    const asked = third.sent.filter((m) => m.kind === "recover");
+    expect(asked.map((m) => (m.kind === "recover" ? m.owner : ""))).toEqual([
+      first.processId,
+      second.processId,
+    ]);
   });
 
   test("passes transfer signals to every other worker", async () => {
@@ -294,7 +335,7 @@ describe("the supervisor", () => {
     expect(second.sent.some((m) => m.kind === "transfer-signal")).toBe(false);
   });
 
-  test("starts a crashed active worker again, waiting for drainers before recovery", async () => {
+  test("starts a crashed active worker again beside the drainers, to settle what it left", async () => {
     const h = harness();
     await h.serving();
     await h.handover("b", 1);
@@ -306,7 +347,7 @@ describe("the supervisor", () => {
     expect(restarted.predecessor).toBe(true);
     h.ready(restarted);
     await Bun.sleep(1);
-    expect(h.kinds(restarted)).toEqual(["active"]);
+    expect(h.kinds(restarted)).toEqual(["active", "recover"]);
     expect(h.supervisor.status().active?.pid).toBe(restarted.pid);
   });
 
@@ -328,9 +369,12 @@ describe("the supervisor", () => {
       active: { release: "b", pid: candidate.pid },
       draining: [],
     });
-    // The dead worker never drains, so the candidate runs alone.
+    // The dead worker never drains; the candidate settles what it left unfinished.
     expect(first.sent.filter((m) => m.kind === "drain")).toEqual([]);
-    expect(h.kinds(candidate)).toEqual(["active", "alone"]);
+    expect(candidate.sent).toEqual([
+      { kind: "active" },
+      { kind: "recover", id: 1, owner: first.processId, fence: [] },
+    ]);
   });
 
   test("when the active worker dies and the candidate then fails, one fallback starts", async () => {

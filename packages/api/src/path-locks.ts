@@ -98,6 +98,13 @@ type Waiter = {
 
 export type Release = () => void;
 
+/** Whether holding `held` also holds `needed`: the same hierarchy, at or above it. */
+export function covers(held: HeldScope, needed: HeldScope) {
+  if (held.space !== needed.space) return false;
+  if (held.path === "" || held.path === needed.path) return true;
+  return needed.path.startsWith(`${held.path}/`);
+}
+
 export function createPathLocks() {
   const active = new Holders();
   /** Scopes of queued requests: a newcomer conflicting with one waits behind it. */

@@ -3,6 +3,8 @@ import { lstat } from "node:fs/promises";
 import path from "node:path";
 import type { DriveStore, PendingChange } from "./drive-store";
 import { isFsError } from "./safe-path";
+import { FileMutations } from "./file-mutations";
+import { covers, type HeldScope } from "./path-locks";
 
 /**
  * Changes that touch both the filesystem and the database cannot commit both at once. Moving
@@ -140,7 +142,11 @@ async function recoverOne(
   return outcome;
 }
 
-/** Finish or undo every change a crash interrupted. Run before serving any request. */
+/**
+ * Finish or undo every recorded change. Only for a server that starts with no other server
+ * running on the installation (see InstallationLock), so every change belongs to a process that
+ * has died. Run before serving any request.
+ */
 async function recover(
   store: DriveStore,
   dataRoot: string,
@@ -152,6 +158,66 @@ async function recover(
       change,
       outcome: await recoverOne(store, dataRoot, change, stat),
     });
+  return recovered;
+}
+
+/** The scopes the change held while it ran, and recovering it holds again. */
+async function scopesOf(
+  store: DriveStore,
+  change: PendingChange,
+): Promise<[HeldScope, ...HeldScope[]]> {
+  if (change.kind === "move")
+    return [
+      FileMutations.driveScope(change.from),
+      FileMutations.driveScope(change.to),
+    ];
+  const item = await store.getTrash(change.trashId);
+  return [
+    FileMutations.trashScope(change.trashId),
+    ...(item ? [FileMutations.driveScope(item.path)] : []),
+  ];
+}
+
+/**
+ * Finish or undo the changes server process `owner` left when it died, while other servers keep
+ * running, and only those: another process's changes in progress look the same as a crash's
+ * leftovers. `fence` is what the dead process held when it died, which the supervisor keeps
+ * held for it until `fenceDone` is called: changes within it are settled first, as nobody else
+ * can reach them. The rest are settled once their own scopes are held. Each change is read again
+ * once nobody else can touch it, and skipped if it was settled meanwhile. If it fails before
+ * the fenced changes are settled, `fenceDone` is not called and the fence stays up.
+ */
+async function recoverOwned(
+  store: DriveStore,
+  dataRoot: string,
+  owner: string,
+  fence: readonly HeldScope[],
+  fenceDone: () => void,
+  stat: StatAt = statAt,
+): Promise<Recovery[]> {
+  const recovered: Recovery[] = [];
+  const settle = async (id: string) => {
+    const change = await store.getPendingChange(id);
+    if (change?.owner === owner)
+      recovered.push({
+        change,
+        outcome: await recoverOne(store, dataRoot, change, stat),
+      });
+  };
+  const outside: PendingChange[] = [];
+  for (const change of await store.listPendingChanges()) {
+    if (change.owner !== owner) continue;
+    const needed = await scopesOf(store, change);
+    if (needed.every((scope) => fence.some((held) => covers(held, scope))))
+      await settle(change.id);
+    else outside.push(change);
+  }
+  // Only once everything inside it is settled: a failure keeps the fence up.
+  fenceDone();
+  for (const change of outside)
+    await FileMutations.holdScopes(await scopesOf(store, change), () =>
+      settle(change.id),
+    );
   return recovered;
 }
 
@@ -194,5 +260,6 @@ export const PendingChanges = {
   trashMarker,
   restoreMarker,
   recover,
+  recoverOwned,
   describe,
 } as const;

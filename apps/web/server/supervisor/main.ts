@@ -69,6 +69,7 @@ const spawn: SpawnWorker = (request, onMessage) => {
       [WorkerEnv.previousAssets]: request.previousAssets.join(":"),
       [ServerRun.env.id]: run.id,
       [ServerRun.env.startedAt]: String(run.startedAt),
+      [ServerRun.env.process]: request.processId,
     },
     stdio: ["ignore", "inherit", "inherit"],
     ipc(value) {

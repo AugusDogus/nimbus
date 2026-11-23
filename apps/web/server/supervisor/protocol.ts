@@ -42,8 +42,17 @@ const supervisorMessage = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("drain"), deadline: z.number() }),
   /** This worker now takes new connections alone: start the work only one worker does. */
   z.object({ kind: z.literal("active") }),
-  /** No other worker runs any more: recover changes a crash may have left unfinished. */
-  z.object({ kind: z.literal("alone") }),
+  /**
+   * Server process `owner` exited: settle the changes it left unfinished (see
+   * PendingChanges.recoverOwned). `fence` is what it held, kept held for it until this worker
+   * answers `fence-done` with the same id.
+   */
+  z.object({
+    kind: z.literal("recover"),
+    id: z.number(),
+    owner: z.string(),
+    fence: z.array(scope),
+  }),
   /** The path scopes asked for as `id` are held for this worker until it releases them. */
   z.object({ kind: z.literal("scopes-granted"), id: z.number() }),
   /** Another worker stopped or rechecks transfers. */
@@ -64,6 +73,8 @@ const workerMessage = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("drained"), forced: z.boolean() }),
   z.object({ kind: z.literal("acquire-scopes"), id: z.number(), scopes }),
   z.object({ kind: z.literal("release-scopes"), id: z.number() }),
+  /** The changes inside recovery `id`'s fence are settled: its scopes may go. */
+  z.object({ kind: z.literal("fence-done"), id: z.number() }),
   z.object({ kind: z.literal("transfer-signal"), signal: transferSignal }),
 ]);
 export type WorkerMessage = z.infer<typeof workerMessage>;
@@ -73,7 +84,7 @@ export const WorkerEnv = {
   protocol: "NIMBUS_SUPERVISOR_PROTOCOL",
   /** The release's name, as the supervisor's status reports it. */
   release: "NIMBUS_RELEASE",
-  /** "1" while other workers still run: work only a lone worker may do waits for `alone`. */
+  /** "1" while other workers still run: startup then recovers nothing; see `recover`. */
   predecessor: "NIMBUS_PREDECESSOR",
   /** Built clients of earlier releases, joined by ":", whose hashed assets stay servable. */
   previousAssets: "NIMBUS_PREVIOUS_ASSETS",

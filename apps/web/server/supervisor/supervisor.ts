@@ -1,5 +1,6 @@
 import {
   createPathLocks,
+  type HeldScope,
   type Release as Unlock,
 } from "@nimbus/api/path-locks";
 import type { ServerRun } from "@nimbus/api/server-run";
@@ -33,7 +34,13 @@ export type WorkerProcess = {
 };
 
 export type SpawnWorker = (
-  request: { release: Release; predecessor: boolean; previousAssets: string[] },
+  request: {
+    release: Release;
+    /** Its name within the run, which the changes it records carry. */
+    processId: string;
+    predecessor: boolean;
+    previousAssets: string[];
+  },
   onMessage: (message: WorkerMessage) => void,
 ) => WorkerProcess;
 
@@ -71,6 +78,7 @@ type Readiness = "ready" | "exited" | "timed out";
 
 type Worker = {
   release: Release;
+  processId: string;
   process: WorkerProcess;
   startedAt: number;
   previousAssets: string[];
@@ -78,8 +86,19 @@ type Worker = {
   ready: Promise<"ready" | "exited">;
   exited: boolean;
   /** Path scopes it holds, by its request id. */
-  grants: Map<number, Unlock>;
-  toldAlone: boolean;
+  grants: Map<number, { scopes: HeldScope[]; unlock: Unlock }>;
+};
+
+/**
+ * The unfinished changes of a server process that exited, for the active worker to settle,
+ * with what that process held, which stays held for it until then.
+ */
+type Recovery = {
+  id: number;
+  owner: string;
+  fence: { scopes: HeldScope[]; unlock: Unlock }[];
+  /** The worker asked to settle it, until it answers or exits. */
+  askedOf: Worker | null;
 };
 
 type Drainer = {
@@ -176,6 +195,9 @@ export function createSupervisor(deps: {
   const { settings, log } = deps;
   const scopes = createPathLocks();
   let state: State = { kind: "idle" };
+  let recoveries: Recovery[] = [];
+  let nextRecovery = 1;
+  let nextProcess = 1;
   let restartDelay = settings.restartMs.initial;
   const iso = (time: number) => new Date(time).toISOString();
   const named = (worker: Worker) =>
@@ -212,8 +234,9 @@ export function createSupervisor(deps: {
     const ready = Promise.withResolvers<"ready" | "exited">();
     // IPC messages arrive asynchronously, so never before `worker` is set.
     let spawned: Worker | null = null;
+    const processId = `${deps.run.id}-${nextProcess++}`;
     const child = deps.spawn(
-      { release, predecessor: live().length > 0, previousAssets },
+      { release, processId, predecessor: live().length > 0, previousAssets },
       (message) => {
         if (!spawned) return;
         if (message.kind === "ready") ready.resolve("ready");
@@ -222,13 +245,13 @@ export function createSupervisor(deps: {
     );
     const worker: Worker = {
       release,
+      processId,
       process: child,
       startedAt: now(),
       previousAssets,
       ready: ready.promise,
       exited: false,
       grants: new Map(),
-      toldAlone: false,
     };
     spawned = worker;
     log(`started ${release.name} as pid ${child.pid}`);
@@ -258,14 +281,24 @@ export function createSupervisor(deps: {
         void scopes.acquire(message.scopes).then((unlock) => {
           // It exited while it waited: nobody holds them.
           if (worker.exited) return unlock();
-          worker.grants.set(message.id, unlock);
+          worker.grants.set(message.id, { scopes: message.scopes, unlock });
           worker.process.send({ kind: "scopes-granted", id: message.id });
         });
         return;
       case "release-scopes":
-        worker.grants.get(message.id)?.();
+        worker.grants.get(message.id)?.unlock();
         worker.grants.delete(message.id);
         return;
+      case "fence-done": {
+        const recovery = recoveries.find(
+          (one) => one.id === message.id && one.askedOf === worker,
+        );
+        if (!recovery) return;
+        for (const held of recovery.fence) held.unlock();
+        recoveries = recoveries.filter((one) => one !== recovery);
+        log(`${named(worker)} settled what ${recovery.owner} left unfinished`);
+        return;
+      }
       case "transfer-signal":
         for (const other of live())
           if (other !== worker)
@@ -279,9 +312,17 @@ export function createSupervisor(deps: {
 
   function onExit(worker: Worker, code: number | null) {
     worker.exited = true;
-    // A worker that exits holds nothing any more, whatever it was doing.
-    for (const unlock of worker.grants.values()) unlock();
+    // What it held stays held, fencing changes it may have left half done, until the active
+    // worker has settled them; a recovery it was asked to settle goes to the next active one.
+    recoveries.push({
+      id: nextRecovery++,
+      owner: worker.processId,
+      fence: [...worker.grants.values()],
+      askedOf: null,
+    });
     worker.grants.clear();
+    for (const recovery of recoveries)
+      if (recovery.askedOf === worker) recovery.askedOf = null;
     const draining = drainersOf(state);
     const drained = draining.find((drainer) => drainer.worker === worker);
     if (drained?.killTimer) clearTimeout(drained.killTimer);
@@ -309,7 +350,7 @@ export function createSupervisor(deps: {
       };
     }
     // A candidate that exits is handled where its readiness is awaited.
-    tellAlone();
+    askToRecover();
   }
 
   function scheduleRestart(
@@ -377,7 +418,7 @@ export function createSupervisor(deps: {
       }
       state = { kind: "serving", active: candidate, draining };
       candidate.process.send({ kind: "active" });
-      tellAlone();
+      askToRecover();
       return { kind: "promoted", replaced };
     }
     const reason =
@@ -391,7 +432,7 @@ export function createSupervisor(deps: {
         active: after.active,
         draining: after.draining,
       };
-      tellAlone();
+      askToRecover();
       return { kind: "failed", reason };
     }
     if (after.kind === "starting" && after.candidate === candidate) {
@@ -430,12 +471,20 @@ export function createSupervisor(deps: {
     return readiness;
   }
 
-  /** Tell the active worker once when it runs alone: crash recovery may start. */
-  function tellAlone() {
-    if (state.kind !== "serving" || state.draining.length) return;
-    if (state.active.toldAlone) return;
-    state.active.toldAlone = true;
-    state.active.process.send({ kind: "alone" });
+  /** Ask the active worker to settle what exited workers left, each recovery once. */
+  function askToRecover() {
+    if (state.kind !== "serving") return;
+    const { active } = state;
+    for (const recovery of recoveries) {
+      if (recovery.askedOf) continue;
+      recovery.askedOf = active;
+      active.process.send({
+        kind: "recover",
+        id: recovery.id,
+        owner: recovery.owner,
+        fence: recovery.fence.flatMap((held) => held.scopes),
+      });
+    }
   }
 
   /** Bring a drainer's deadline forward to `deadline`, never back. */
@@ -507,7 +556,7 @@ export function createSupervisor(deps: {
       ) {
         state = { kind: "serving", active: candidate, draining: [] };
         candidate.process.send({ kind: "active" });
-        tellAlone();
+        askToRecover();
         return { ok: true, value: undefined };
       }
       state = { kind: "idle" };

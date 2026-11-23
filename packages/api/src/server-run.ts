@@ -20,6 +20,8 @@ export type ServerRun = {
 const env = {
   id: "NIMBUS_RUN_ID",
   startedAt: "NIMBUS_RUN_STARTED_AT",
+  /** This server process within the run: the supervisor names each one it starts. */
+  process: "NIMBUS_PROCESS_ID",
 } as const;
 
 export type ServerRunError = { kind: "invalid-run"; message: string };
@@ -61,6 +63,21 @@ function fromEnvironment(
  */
 const loaded = fromEnvironment(process.env);
 
+/**
+ * This server process, as the supervisor named it, or a name of its own. Changes it records
+ * for crash recovery carry it, so another process recovers them only once this one is known to
+ * have died.
+ */
+const processName = (() => {
+  const named = process.env[env.process];
+  if (named === undefined) return `process-${randomUUID()}`;
+  if (!/^[\w-]{16,128}$/.test(named))
+    throw new Error(
+      `${env.process} must be 16 to 128 letters, digits, dashes or underscores, as the supervisor sets it; got ${named}. Unset it to run on its own.`,
+    );
+  return named;
+})();
+
 export const ServerRun = {
   env,
   fromEnvironment,
@@ -72,4 +89,6 @@ export const ServerRun = {
     if (!loaded.ok) throw new Error(loaded.error.message);
     return loaded.run;
   },
+  /** This server process's name within the run. */
+  processId: () => processName,
 } as const;

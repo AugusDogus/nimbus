@@ -199,6 +199,11 @@ export const pendingChanges = sqliteTable(
     /** The item's device and inode, so recovery never acts on other content found there. */
     identity: text("identity").notNull(),
     createdAt: integer("created_at").notNull(),
+    /**
+     * The server process that recorded it (see ServerRun.processId): another process recovers it
+     * only once that one is known to have died. Null for changes recorded before this was kept.
+     */
+    owner: text("owner"),
   },
   () => [
     check(

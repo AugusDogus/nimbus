@@ -12,7 +12,7 @@ import {
 /** What the supervisor tells a worker to do with its own lifetime. */
 export type LifecycleMessage = Extract<
   SupervisorMessage,
-  { kind: "drain" | "active" | "alone" }
+  { kind: "drain" | "active" | "recover" }
 >;
 
 /** How this server was started: on its own, or as one of the supervisor's workers. */
@@ -27,7 +27,7 @@ export type Supervision =
       send: (message: WorkerMessage) => void;
       /** Path scopes granted by the supervisor, shared with every other worker. */
       scopes: ScopeAuthority;
-      /** Hear drain, active and alone. Messages that arrive before a listener wait for it. */
+      /** Hear drain, active and recover. Messages that arrive before a listener wait for it. */
       onLifecycle: (listener: (message: LifecycleMessage) => void) => void;
       /** Hear transfer signals other workers raised. */
       onTransferSignal: (listener: (signal: TransferSignal) => void) => void;

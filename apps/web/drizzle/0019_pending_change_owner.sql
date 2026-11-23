@@ -1,0 +1,1 @@
+ALTER TABLE `nimbus_pending_change` ADD `owner` text;

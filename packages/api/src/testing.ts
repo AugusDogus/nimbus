@@ -12,6 +12,7 @@ import type {
   TrashItem,
 } from "./drive-store";
 import { isWithinPath } from "./safe-path";
+import { ServerRun } from "./server-run";
 import { createTestFileRequestStore } from "./file-request-testing";
 import { createTestFileVersionStore } from "./file-versions-testing";
 import { FileVersions } from "./file-versions";
@@ -367,7 +368,10 @@ export function createTestDriveStore() {
       await versions.removeAt(path);
     },
     async addPendingChange(change) {
-      pending.set(change.id, change);
+      pending.set(change.id, { ...change, owner: ServerRun.processId() });
+    },
+    async getPendingChange(id) {
+      return pending.get(id) ?? null;
     },
     async claimUndo(receiptId, expiresAt, now = Date.now()) {
       for (const [id, until] of undone) if (until <= now) undone.delete(id);
@@ -445,6 +449,7 @@ export function createTestDriveStore() {
     properties,
     homes,
     homeContainers,
+    pending,
   };
 }
 
