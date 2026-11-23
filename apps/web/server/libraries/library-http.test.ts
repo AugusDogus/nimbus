@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, rename, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rename, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { JSONSchema } from "zod/v4/core";
@@ -625,4 +625,25 @@ describe("revocation while a request is in flight", () => {
       "Bike repair notes.pdf",
     );
   });
+});
+
+test("an unreadable folder inside a library is skipped, not a failure", async () => {
+  await t.drive.write("library/kitchen/Locked/Inside.md");
+  await t.drive.write("library/kitchen/Sealed/Inside.md");
+  // Listable but not searchable, and not even listable.
+  await chmod(t.drive.absolute("library/kitchen/Locked"), 0o644);
+  await chmod(t.drive.absolute("library/kitchen/Sealed"), 0o000);
+  try {
+    const { token } = await pair();
+    const response = await call("library", { token });
+    expect(response.status).toBe(200);
+    const names = libraryBody
+      .parse(await response.json())
+      .items.map((item) => item.name);
+    expect(names).toContain("Trail map.pdf");
+    expect(names).not.toContain("Inside.md");
+  } finally {
+    await chmod(t.drive.absolute("library/kitchen/Locked"), 0o755);
+    await chmod(t.drive.absolute("library/kitchen/Sealed"), 0o755);
+  }
 });
