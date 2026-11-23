@@ -71,6 +71,14 @@ export const PageBootstrap = {
         location: signInPath(pathname + search),
       };
     }
+    // Settings show their Administration pages to administrators, as their skeleton does.
+    if (kind === "settings")
+      return {
+        kind: "page",
+        data: { session, me: await caller.access.me() },
+        requests: [],
+        folder: false,
+      };
     if (kind !== "files")
       return { kind: "page", data: { session }, requests: [], folder: false };
     const [prefs, me] = await Promise.all([

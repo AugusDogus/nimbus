@@ -52,8 +52,7 @@ import { trpcErrorCode } from "@/lib/trpc-error";
 
 import { AppSidebar } from "./files/app-sidebar";
 import { SearchBox } from "./search/search-box";
-import { PageSurface } from "@/components/page-surface";
-import { cn } from "@/lib/utils";
+import { PageLayout } from "@/components/page-layout";
 import { HeaderToolsSlot } from "./files/header-tools";
 import { HiddenFileInput, NewFolderDialog } from "./files/new-content-ui";
 import { useFileActions } from "./files/use-file-actions";
@@ -178,19 +177,13 @@ export function FilesShell({ children }: FilesShellProps) {
           newContent={newContent}
         />
       </AppFrame.SidebarBody>
-      {/* From 768 px, three columns: search keeps to the middle one, centred over the page.
-          The sides share one minimum, room for the split view toggle and the account menu, so
-          the search stays put whichever page adds a tool. */}
-      <header
-        className={cn(
-          PageSurface.header,
-          "sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 px-4 md:grid md:grid-cols-[minmax(5.5rem,1fr)_minmax(0,36rem)_minmax(5.5rem,1fr)] md:gap-4 md:px-6",
-        )}
-      >
-        {/* On phones the toggle and logo sit 44 px apart, so their touch areas do not overlap. */}
-        <div className="flex shrink-0 items-center gap-2 max-md:pointer-coarse:gap-3.5 md:gap-4">
+      <header data-shape="header" className={PageLayout.filesHeader}>
+        <div className={PageLayout.filesHeaderStart}>
           {/* Desktop: sidebar trigger */}
-          <SidebarTrigger className="touch-hit size-8 shrink-0 text-muted-foreground" />
+          <SidebarTrigger
+            data-shape="sidebar-trigger"
+            className={PageLayout.sidebarTrigger}
+          />
 
           {/* Mobile: brand logo */}
           <Link
@@ -198,13 +191,13 @@ export function FilesShell({ children }: FilesShellProps) {
             className="touch-hit shrink-0 md:hidden"
             aria-label="Nimbus home"
           >
-            <NimbusLogo className="size-7" />
+            <NimbusLogo className={PageLayout.logo} />
           </Link>
         </div>
 
         <SearchBox />
 
-        <div className="flex shrink-0 items-center gap-1 md:justify-self-end md:gap-3">
+        <div className={PageLayout.filesHeaderEnd}>
           <span ref={setToolsSlot} className="contents" />
           {session ? (
             <DropdownMenu>
@@ -213,15 +206,14 @@ export function FilesShell({ children }: FilesShellProps) {
                   <Button
                     variant="ghost"
                     aria-label="Account menu"
-                    className="touch-hit relative size-9 rounded-full"
+                    data-shape="account"
+                    className={PageLayout.account}
                   />
                 }
               >
                 <Avatar>
-                  <AvatarFallback className="bg-secondary text-secondary-foreground">
-                    {session.user.name?.charAt(0).toUpperCase() ||
-                      session.user.email?.charAt(0).toUpperCase() ||
-                      "U"}
+                  <AvatarFallback className={PageLayout.avatarFallback}>
+                    {PageLayout.initial(session.user)}
                   </AvatarFallback>
                 </Avatar>
               </DropdownMenuTrigger>
@@ -294,13 +286,7 @@ export function FilesShell({ children }: FilesShellProps) {
       </AlertDialog>
       <div
         data-slot={FolderPath.isShownAt(pathname) ? undefined : "page-card"}
-        // A folder lays out its own card, or one per pane; other pages sit on one card here.
-        className={cn(
-          "flex-1 overflow-x-clip px-4 pb-24 pt-6",
-          FolderPath.isShownAt(pathname)
-            ? "md:flex md:min-h-0 md:flex-col md:p-0"
-            : cn(PageSurface.card, "md:px-6 md:pb-6 lg:px-8 lg:pt-8"),
-        )}
+        className={PageLayout.filesContent(FolderPath.isShownAt(pathname))}
         onDragOver={(event) => {
           if (
             canWrite &&

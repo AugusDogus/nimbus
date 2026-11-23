@@ -2,6 +2,7 @@
 // See public/licenses/t3-code/NOTICE.
 import { Link } from "@/components/link";
 import { usePathname } from "@/hooks/use-pathname";
+import type { ReactElement } from "react";
 import {
   ArrowLeft,
   Bot,
@@ -68,11 +69,21 @@ export const settingsPages = [
   },
 ] as const;
 
-export function SettingsSidebar({ isAdmin }: { isAdmin: boolean }) {
-  const pathname = usePathname();
-  const { setOpenMobile } = useSidebar();
-  const closeNavigation = () => setOpenMobile(false);
+type SettingsHref = (typeof settingsPages)[number]["href"];
 
+/**
+ * Settings' navigation in the sidebar. `link` renders each place's link, or, in the skeleton the
+ * server sends before the app runs, what stands in for it, so both have the same parts.
+ */
+function SettingsNav({
+  isAdmin,
+  current,
+  link,
+}: {
+  isAdmin: boolean;
+  current: string | null;
+  link: (href: SettingsHref | "/", current: boolean) => ReactElement;
+}) {
   return (
     <>
       <SidebarContent className="gap-4 pt-4">
@@ -91,18 +102,11 @@ export function SettingsSidebar({ isAdmin }: { isAdmin: boolean }) {
                     .map((page) => (
                       <SidebarMenuItem key={page.href}>
                         <SidebarMenuButton
-                          isActive={pathname === page.href}
+                          isActive={current === page.href}
                           tooltip={page.label}
-                          className="h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto"
-                          render={
-                            <Link
-                              to={page.href}
-                              aria-current={
-                                pathname === page.href ? "page" : undefined
-                              }
-                              onClick={closeNavigation}
-                            />
-                          }
+                          data-shape={`settings-nav-${page.href}`}
+                          className={itemClass}
+                          render={link(page.href, current === page.href)}
                         >
                           <page.icon strokeWidth={1.7} />
                           <span>{page.label}</span>
@@ -120,8 +124,9 @@ export function SettingsSidebar({ isAdmin }: { isAdmin: boolean }) {
           <SidebarMenuItem>
             <SidebarMenuButton
               tooltip="Back to files"
-              className="h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto"
-              render={<Link to="/" onClick={closeNavigation} />}
+              data-shape="settings-nav-back"
+              className={itemClass}
+              render={link("/", false)}
             >
               <ArrowLeft strokeWidth={1.7} />
               <span>Back to files</span>
@@ -130,5 +135,39 @@ export function SettingsSidebar({ isAdmin }: { isAdmin: boolean }) {
         </SidebarMenu>
       </SidebarFooter>
     </>
+  );
+}
+
+const itemClass =
+  "h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto";
+
+export function SettingsSidebar({ isAdmin }: { isAdmin: boolean }) {
+  const pathname = usePathname();
+  const { setOpenMobile } = useSidebar();
+  return (
+    <SettingsNav
+      isAdmin={isAdmin}
+      current={pathname}
+      link={(href, current) => (
+        <Link
+          to={href}
+          aria-current={current ? "page" : undefined}
+          onClick={() => setOpenMobile(false)}
+        />
+      )}
+    />
+  );
+}
+
+/** Settings' navigation as a page's skeleton shows it: the same parts, not yet links. */
+export function SettingsSidebarPlaceholder({
+  isAdmin,
+  current,
+}: {
+  isAdmin: boolean;
+  current: string | null;
+}) {
+  return (
+    <SettingsNav isAdmin={isAdmin} current={current} link={() => <div />} />
   );
 }

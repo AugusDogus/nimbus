@@ -2,6 +2,7 @@ import { Link } from "@/components/link";
 import { useQuery } from "@tanstack/react-query";
 import { trpcClient } from "@/lib/trpc";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { EntrySkeleton } from "./files/loading-skeleton";
 import { TransferDialog } from "./files/entry-dialogs";
 import { EntriesView } from "./files/entries-view";
 import {
@@ -87,7 +88,7 @@ export function LibraryPage({
           {active.error.message}
         </p>
       ) : active.isPending ? (
-        <p>Loading files…</p>
+        <EntrySkeleton view="list" titled={false} />
       ) : entries.length ? (
         <EntriesView
           view="list"

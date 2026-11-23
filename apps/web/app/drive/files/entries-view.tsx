@@ -35,6 +35,7 @@ import { DropTarget } from "./drop-target";
 import type { FileDrag } from "./use-file-drag";
 import { useGridTrack } from "./use-grid-track";
 import { useVirtualRows } from "./use-virtual-rows";
+import { EntryShape } from "./entry-shape";
 
 // Dialogs open on demand; keep them out of the page's first load.
 const SharingDialog = lazyComponent(async () => ({
@@ -641,15 +642,13 @@ export function EntriesView({
                 <div
                   key={`header:${row.title}`}
                   role="row"
+                  data-shape="section-title"
                   aria-rowindex={
                     entriesBefore(rowIndex) + headersBefore(rowIndex) + 1
                   }
                   style={position}
                 >
-                  <h2
-                    role="columnheader"
-                    className="px-3 text-balance text-xs font-medium text-muted-foreground"
-                  >
+                  <h2 role="columnheader" className={EntryShape.title}>
                     {row.title}
                   </h2>
                 </div>

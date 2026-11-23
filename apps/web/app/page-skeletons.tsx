@@ -1,214 +1,238 @@
-import { Clock, HardDrive, Star, Trash2, Users } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import type { UserPreferences } from "@nimbus/api/context";
+import { Search } from "lucide-react";
+import type { ReactNode } from "react";
+import { AppFrame } from "@/components/app-frame";
 import { NimbusLogo } from "@/components/nimbus-logo";
-import { NimbusWordmark } from "@/components/nimbus-wordmark";
-import { PageSurface } from "@/components/page-surface";
+import { PageLayout } from "@/components/page-layout";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { LoadingSkeleton } from "./drive/files/loading-skeleton";
+import { AppSidebarPlaceholder } from "./drive/files/app-sidebar";
+import { FiltersRow } from "./drive/files/filters-row";
+import { FolderCard } from "./drive/files/folder-card";
+import { EntrySkeleton } from "./drive/files/loading-skeleton";
+import type { NavPlace } from "./drive/files/nav-place";
+import { SplitToggle } from "./drive/files/split-toggle";
+import { SearchField } from "./drive/search/search-field";
+import {
+  TrashIntro,
+  TrashShape,
+  TrashSkeleton,
+} from "./drive/trash/trash-shape";
+import {
+  SettingsSidebarPlaceholder,
+  settingsPages,
+} from "./settings/settings-sidebar";
 
 /**
  * What a page shows before its code runs. The server sends one of these inside `#root`; the app
- * replaces it once the first route has its code and data. Each uses the classes of the layout
- * it stands in for, so nothing moves when the app takes over, and CSS alone adapts it to the
- * viewport. These are pure components: the server renders them once at startup.
+ * replaces it once the first route has its code and data. Each is built from the parts the page
+ * itself uses (the frame, the sidebar's parts, the header's, the folder card, the sort and view
+ * controls) so nothing moves when the app takes over, and CSS alone adapts it to the viewport.
+ * They are pure components, rendered by the server for what it knows of the page.
  */
 
-const sidebarStyle: CSSProperties = {
-  "--sidebar-width": "16rem",
-  "--sidebar-width-icon": "4rem",
-};
+const bar = "motion-reduce:animate-none";
+const nothing = () => undefined;
 
-const navItems = [
-  { icon: HardDrive, label: "Files" },
-  { icon: Users, label: "Shared" },
-  { icon: Clock, label: "Recent" },
-  { icon: Star, label: "Starred" },
-];
+/** Who is signed in, as far as the skeleton shows it. */
+export type SkeletonAccount = { initial: string; isAdmin: boolean };
 
-/** The inset sidebar layout of signed-in pages, as `SidebarProvider` and `Sidebar` render it. */
-function SidebarFrame({
-  sidebar,
-  children,
-}: {
-  sidebar: ReactNode;
-  children: ReactNode;
-}) {
+function AccountButton({ initial }: { initial: string }) {
   return (
-    <div
-      data-slot="sidebar-wrapper"
-      style={sidebarStyle}
-      className="group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full surface-grain h-dvh min-h-0 overflow-hidden"
+    <Button
+      variant="ghost"
+      tabIndex={-1}
+      data-shape="account"
+      className={PageLayout.account}
     >
-      <div
-        className="group peer text-sidebar-foreground hidden md:block"
-        data-state="expanded"
-        data-collapsible=""
-        data-variant="inset"
-        data-side="left"
-        data-slot="sidebar"
-      >
-        <div className="relative w-(--sidebar-width) bg-transparent" />
-        <div className="fixed inset-y-0 left-0 z-10 hidden h-svh w-(--sidebar-width) p-2 md:flex">
-          <div
-            data-sidebar="sidebar"
-            className="bg-sidebar flex h-full w-full flex-col"
-          >
-            <div className="flex h-16 flex-col justify-center gap-2 p-2 px-3">
-              <div className="flex h-12 items-center gap-3 rounded-xl px-2 text-foreground">
-                <NimbusLogo className="size-8 shrink-0" />
-                <NimbusWordmark />
-              </div>
-            </div>
-            {sidebar}
-          </div>
-        </div>
-      </div>
-      <main
-        data-slot="sidebar-inset"
-        className="bg-background relative flex w-full flex-1 flex-col md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] md:overflow-hidden md:bg-none md:[scrollbar-gutter:auto] md:peer-data-[variant=inset]:bg-transparent"
-      >
-        {children}
-      </main>
-    </div>
+      <Avatar>
+        <AvatarFallback className={PageLayout.avatarFallback}>
+          {initial}
+        </AvatarFallback>
+      </Avatar>
+    </Button>
   );
 }
 
-function NavLabel({ icon: Icon, label }: (typeof navItems)[number]) {
+/** A title's line, such as a page's, still to come. */
+function PendingTitle() {
   return (
-    <div className="flex h-10 w-full items-center gap-3 overflow-hidden rounded-xl p-2 px-3 text-left text-sm [&>svg]:size-4 [&>svg]:shrink-0">
-      <Icon strokeWidth={1.7} />
-      <span className="truncate">{label}</span>
+    <div
+      data-shape="page-title"
+      className={cn(PageLayout.title, "flex h-8 items-center")}
+    >
+      <Skeleton className={cn("h-6 w-36", bar)} />
     </div>
   );
 }
 
 /**
- * The file browser before it loads: sidebar and header, and for a folder its toolbar and
- * placeholder entries. Other file pages, such as Trash, keep their content area empty.
+ * What a files page other than a folder shows first: Trash its own items, Recent and Starred a
+ * list of entries, search its title, and Shared, whose tabs come with the page, nothing yet.
  */
-export function FilesSkeleton({ view }: { view: "list" | "grid" | null }) {
+export type FilesPageSkeleton = "trash" | "library" | "search" | "shared";
+
+/**
+ * A files page before it loads: the sidebar and header, and for a folder its card, with the
+ * sort and view controls as the account set them, and placeholder entries. Other files pages
+ * show their card with what they start with (see `FilesPageSkeleton`).
+ */
+export function FilesSkeleton({
+  account,
+  place,
+  page,
+}: {
+  account: SkeletonAccount;
+  place: NavPlace | null;
+  page:
+    | { kind: "folder"; prefs: UserPreferences }
+    | { kind: "page"; shows: FilesPageSkeleton };
+}) {
+  const folder = page.kind === "folder";
   return (
-    <SidebarFrame
+    <AppFrame.Layout
+      brand={<AppFrame.BrandPlaceholder />}
       sidebar={
-        <>
-          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-3 pt-4">
-            <div className="flex justify-center">
-              <div className="h-12 w-full rounded-full bg-create" />
-            </div>
-            <div className="flex w-full min-w-0 flex-col gap-1">
-              {navItems.map((item) => (
-                <NavLabel key={item.label} {...item} />
-              ))}
-            </div>
-          </div>
-          <div className="flex flex-col gap-3 p-2 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-4">
-            <div className="flex w-full min-w-0 flex-row items-center justify-between gap-1">
-              <div className="min-w-0 flex-1">
-                <NavLabel icon={Trash2} label="Trash" />
-              </div>
-              <Skeleton className="size-10 shrink-0 rounded-xl" />
-            </div>
-          </div>
-        </>
-      }
-    >
-      <header
-        className={cn(
-          PageSurface.header,
-          "sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 px-4 md:grid md:grid-cols-[minmax(5.5rem,1fr)_minmax(0,36rem)_minmax(5.5rem,1fr)] md:gap-4 md:px-6",
-        )}
-      >
-        <div className="flex shrink-0 items-center gap-2 max-md:pointer-coarse:gap-3.5 md:gap-4">
-          <Skeleton className="size-8 shrink-0" />
-          <NimbusLogo className="size-7 shrink-0 md:hidden" />
-        </div>
-        <div className="relative min-w-0 flex-1 md:w-full">
-          <div className="h-9 rounded-lg border border-transparent bg-muted/70 pointer-coarse:h-11 md:h-10 md:border-border/80 md:bg-card md:pointer-coarse:h-11 max-md:dark:bg-sidebar/70" />
-        </div>
-        <div className="flex shrink-0 items-center gap-1 md:justify-self-end md:gap-3">
-          <Skeleton className="size-9 rounded-full" />
-        </div>
-      </header>
-      {view ? (
-        <div className="flex-1 overflow-x-clip px-4 pb-24 pt-6 md:flex md:min-h-0 md:flex-col md:p-0">
-          <FolderPlaceholder view={view} />
-        </div>
-      ) : (
-        <div
-          className={cn(
-            "flex-1 overflow-x-clip px-4 pb-24 pt-6",
-            PageSurface.card,
-            "md:px-6 md:pb-6 lg:px-8 lg:pt-8",
-          )}
+        <AppSidebarPlaceholder
+          place={place}
+          offersNew={folder}
+          isAdmin={account.isAdmin}
         />
-      )}
-    </SidebarFrame>
-  );
-}
-
-function FolderPlaceholder({ view }: { view: "list" | "grid" }) {
-  return (
-    <section
-      className={cn(
-        "relative md:flex md:min-h-0 md:min-w-0 md:flex-1 md:flex-col md:overflow-hidden",
-        PageSurface.raisedFromTablet,
-      )}
-    >
-      <div className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-border/70 bg-background px-4 py-3 md:relative md:top-auto md:m-0 md:flex md:h-14 md:shrink-0 md:border-border/60 md:bg-card md:bg-none md:px-2 md:pl-4 md:py-0 lg:pl-2">
-        <div className="flex shrink-0 items-center gap-2 px-2 max-lg:hidden">
-          <Skeleton className="size-4 rounded" />
-          <Skeleton className="mr-1 size-4 rounded" />
-        </div>
-        <div className="flex h-10 min-w-0 items-center gap-2 overflow-hidden md:flex-1">
-          <Skeleton className="h-6 w-28 max-w-[38vw]" />
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          <Skeleton className="size-8 rounded md:hidden" />
-          <Skeleton className="size-8 rounded md:hidden" />
-          <div className="hidden items-center gap-2 md:flex">
-            <Skeleton className="h-8 w-36 rounded" />
-            <Skeleton className="size-8 rounded" />
-            <Skeleton className="h-8 w-16 rounded" />
-          </div>
-        </div>
-      </div>
-      <div className="md:min-h-0 md:flex-1 md:overflow-hidden md:p-4">
-        <LoadingSkeleton view={view} />
-      </div>
-    </section>
-  );
-}
-
-/** Settings before they load: the sidebar frame, the breadcrumb header and a section outline. */
-export function SettingsSkeleton() {
-  return (
-    <SidebarFrame
-      sidebar={
-        <div className="flex min-h-0 flex-1 flex-col gap-2 px-3 pt-4">
-          {Array.from({ length: 4 }, (_, index) => (
-            <Skeleton key={index} className="h-10 w-full rounded-xl" />
-          ))}
-        </div>
       }
     >
-      <header
-        className={cn(
-          PageSurface.header,
-          "sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 px-4 md:px-6",
-        )}
-      >
-        <Skeleton className="size-8 shrink-0" />
-        <Skeleton className="h-4 w-40" />
+      <header data-shape="header" className={PageLayout.filesHeader}>
+        <div className={PageLayout.filesHeaderStart}>
+          <SidebarTrigger
+            tabIndex={-1}
+            data-shape="sidebar-trigger"
+            className={PageLayout.sidebarTrigger}
+          />
+          <NimbusLogo className={cn(PageLayout.logo, "shrink-0 md:hidden")} />
+        </div>
+        <div className={SearchField.form}>
+          <Search className={SearchField.icon} />
+          <Input
+            readOnly
+            tabIndex={-1}
+            placeholder={SearchField.placeholder}
+            data-shape="search"
+            className={SearchField.input}
+          />
+        </div>
+        <div className={PageLayout.filesHeaderEnd}>
+          {folder && <SplitToggle open={false} onToggle={nothing} />}
+          <AccountButton initial={account.initial} />
+        </div>
       </header>
-      <div className={cn("flex-1", PageSurface.card)}>
-        <div className="mx-auto w-full max-w-4xl px-4 py-6 md:px-6 lg:px-8 lg:py-8">
-          <div className="space-y-8">
-            <Skeleton className="h-8 w-40" />
-            <Skeleton className="h-48 w-full rounded-xl" />
+      <div
+        data-slot={folder ? undefined : "page-card"}
+        className={PageLayout.filesContent(folder)}
+      >
+        {page.kind === "folder" ? (
+          <FolderCard
+            pane={null}
+            attachToolbar={nothing}
+            moves={{ back: null, up: null }}
+            breadcrumbs={
+              <div className="flex h-5 items-center sm:h-6">
+                <Skeleton className={cn("h-4 w-32 max-w-[38vw]", bar)} />
+              </div>
+            }
+            tools={
+              <FiltersRow
+                prefs={page.prefs}
+                view={page.prefs.view}
+                updatePreferences={nothing}
+              />
+            }
+            body={<EntrySkeleton view={page.prefs.view} />}
+          />
+        ) : page.shows === "trash" ? (
+          <div className="space-y-6">
+            <div className={TrashShape.header}>
+              <TrashIntro />
+              <Button variant="outline" disabled tabIndex={-1}>
+                {TrashShape.emptyLabel}
+              </Button>
+            </div>
+            <TrashSkeleton />
           </div>
+        ) : page.shows === "library" ? (
+          <div className="space-y-6">
+            <PendingTitle />
+            <EntrySkeleton view="list" titled={false} />
+          </div>
+        ) : (
+          page.shows === "search" && <PendingTitle />
+        )}
+      </div>
+    </AppFrame.Layout>
+  );
+}
+
+/**
+ * Settings before they load: the sidebar, the breadcrumb header with the page's name, and the
+ * page's title.
+ */
+export function SettingsSkeleton({
+  account,
+  path,
+}: {
+  account: SkeletonAccount;
+  path: string;
+}) {
+  const page = settingsPages.find((each) => each.href === path);
+  const trail: ReactNode = (
+    <Breadcrumb data-shape="settings-trail">
+      <BreadcrumbList>
+        <BreadcrumbItem>Settings</BreadcrumbItem>
+        {page?.section === "Administration" && (
+          <>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>Administration</BreadcrumbItem>
+          </>
+        )}
+        <BreadcrumbSeparator />
+        <BreadcrumbItem>
+          <BreadcrumbPage>{page?.label ?? "Settings"}</BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  );
+  return (
+    <AppFrame.Layout
+      brand={<AppFrame.BrandPlaceholder />}
+      sidebar={
+        <SettingsSidebarPlaceholder
+          isAdmin={account.isAdmin}
+          current={page?.href ?? null}
+        />
+      }
+    >
+      <header data-shape="header" className={PageLayout.settingsHeader}>
+        <SidebarTrigger
+          tabIndex={-1}
+          data-shape="sidebar-trigger"
+          className={PageLayout.sidebarTrigger}
+        />
+        {trail}
+      </header>
+      <div data-slot="page-card" className={PageLayout.settingsContent}>
+        <div className={PageLayout.settingsColumn}>
+          <PendingTitle />
         </div>
       </div>
-    </SidebarFrame>
+    </AppFrame.Layout>
   );
 }

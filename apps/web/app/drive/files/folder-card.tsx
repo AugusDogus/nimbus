@@ -77,6 +77,7 @@ export function FolderCard({
     >
       <div
         ref={attachToolbar}
+        data-shape="folder-toolbar"
         className={cn(
           // The selection bar covers this row and takes its colour (`bg-inherit`), so it is solid.
           "z-10 items-center gap-1 border-b",
@@ -95,6 +96,7 @@ export function FolderCard({
             variant="ghost"
             size="icon-sm"
             aria-label="Back"
+            data-shape="back"
             title="Back"
             disabled={!moves.back}
             onClick={() => moves.back?.()}
@@ -106,6 +108,7 @@ export function FolderCard({
             variant="ghost"
             size="icon-sm"
             aria-label="Up one level"
+            data-shape="up"
             title="Up one level"
             disabled={!moves.up}
             onClick={() => moves.up?.()}
@@ -115,6 +118,7 @@ export function FolderCard({
           </Button>
         </div>
         <div
+          data-shape="crumbs"
           className={cn(
             "min-w-0 overflow-hidden md:flex-1",
             pane

@@ -41,6 +41,7 @@ export function SplitToggle({
             variant="ghost"
             size="icon-sm"
             aria-label="Split view"
+            data-shape="split-toggle"
             aria-pressed={open}
             className="touch-hit text-muted-foreground aria-pressed:bg-accent aria-pressed:text-foreground max-lg:hidden"
             onClick={onToggle}

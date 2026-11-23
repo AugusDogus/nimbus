@@ -15,6 +15,7 @@ import { EntryActionsButton, openMenuAt } from "./entry-menu";
 import { EntryThumbnail } from "./entry-thumbnail";
 import { FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
+import { EntryShape } from "./entry-shape";
 
 type DragProps = {
   draggable: boolean;
@@ -132,7 +133,7 @@ export const EntryRow = memo(function EntryRow({
   const content = (
     <>
       {view === "list" ? (
-        <span className="relative flex size-5 shrink-0 items-center justify-center">
+        <span className={EntryShape.listIcon}>
           <Icon
             className={classes(
               "size-5 text-muted-foreground transition-opacity duration-150",
@@ -160,21 +161,19 @@ export const EntryRow = memo(function EntryRow({
                 )}
               />
             }
-            className="min-h-0 w-full flex-1 bg-muted/40"
+            className={EntryShape.cardPicture}
           />
         </>
       )}
       {view === "grid" ? (
-        // The name's area always holds two lines, a one-line name centred in it, so every card's
-        // picture keeps the same height whatever its name. Longer names truncate after two lines,
-        // and names without spaces break anywhere.
-        <span className="mx-3 my-2 flex h-10 shrink-0 items-center justify-center">
+        // Longer names truncate after two lines, and names without spaces break anywhere.
+        <span className={EntryShape.cardName}>
           <span className="line-clamp-2 min-w-0 text-center text-sm leading-5 [overflow-wrap:anywhere]">
             {renderName ? renderName(entry) : entry.name}
           </span>
         </span>
       ) : (
-        <span className="min-w-0 truncate text-sm">
+        <span className={EntryShape.listName}>
           {renderName ? renderName(entry) : entry.name}
         </span>
       )}
@@ -190,10 +189,8 @@ export const EntryRow = memo(function EntryRow({
           ? "refused"
           : undefined,
     className: classes(
-      "w-full rounded-lg text-left [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-ring",
-      view === "list"
-        ? "flex h-12 items-center gap-3 py-3 pl-3 pr-12"
-        : "relative flex h-full flex-col overflow-hidden border",
+      EntryShape.entry,
+      view === "list" ? EntryShape.listRow : EntryShape.card,
       // Background states are exclusive, so no class merging is needed.
       selected || dropState === "allowed"
         ? "bg-accent"

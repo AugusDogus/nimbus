@@ -139,6 +139,7 @@ export function FiltersRow({
       >
         <SelectTrigger
           aria-label="Sort files"
+          data-shape="sort"
           size="sm"
           // In a narrow pane of a split view the order shows as its icon alone, leaving the
           // breadcrumb room; the page itself is no container, so this never applies there.
@@ -173,6 +174,7 @@ export function FiltersRow({
                 updatePreferences({ groupByType: pressed })
               }
               aria-label="Group files by type"
+              data-shape="group"
               className="touch-hit hidden md:inline-flex"
             />
           }
@@ -187,6 +189,7 @@ export function FiltersRow({
       {/* View toggle is always visible */}
       <ToggleGroup
         aria-label="File view"
+        data-shape="view"
         value={[view]}
         onValueChange={([value]) => {
           if (value === "grid" || value === "list") {

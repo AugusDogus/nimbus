@@ -8,10 +8,14 @@ const subscribe = (onChange: () => void) => {
   return () => window.removeEventListener("resize", onChange);
 };
 
-/** Whether the viewport is narrower than the `md` breakpoint, right from the first render. */
+/**
+ * Whether the viewport is narrower than the `md` breakpoint, right from the first render. Markup
+ * rendered on the server, such as a page's skeleton, takes the wide layout, which CSS adapts.
+ */
 export function useIsMobile() {
   return React.useSyncExternalStore(
     subscribe,
     () => window.innerWidth < MOBILE_BREAKPOINT,
+    () => false,
   );
 }

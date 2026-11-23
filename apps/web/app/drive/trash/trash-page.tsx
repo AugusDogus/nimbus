@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
+import { TrashIntro, TrashShape, TrashSkeleton } from "./trash-shape";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -72,14 +73,8 @@ export function TrashPage() {
   };
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-balance text-2xl font-semibold">Trash</h1>
-          <p className="text-pretty mt-2 text-sm text-muted-foreground">
-            Items are kept for 30 days. Restoring an item brings back its share
-            links and direct permissions.
-          </p>
-        </div>
+      <div className={TrashShape.header}>
+        <TrashIntro />
         {/* Always in place, so the title beside it never narrows when items arrive; there is
             nothing to empty while they load, or once Trash is empty. */}
         <Button
@@ -92,7 +87,7 @@ export function TrashPage() {
             })
           }
         >
-          Empty trash
+          {TrashShape.emptyLabel}
         </Button>
       </div>
       {(error || trash.error) && (
@@ -101,16 +96,16 @@ export function TrashPage() {
         </p>
       )}
       {trash.isPending ? (
-        <p>Loading trash…</p>
+        <TrashSkeleton />
       ) : trash.data?.length === 0 ? (
         <p className="text-pretty text-muted-foreground">Trash is empty.</p>
       ) : (
-        <ul className="divide-y rounded-lg border">
+        <ul className={TrashShape.list}>
           {trash.data?.map((item) => (
-            <li key={item.id} className="flex flex-wrap items-center gap-3 p-4">
-              <div className="min-w-0 flex-1 basis-60">
-                <p className="truncate text-sm font-medium">{item.path}</p>
-                <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+            <li key={item.id} data-trash-item className={TrashShape.item}>
+              <div className={TrashShape.itemText}>
+                <p className={TrashShape.path}>{item.path}</p>
+                <p className={TrashShape.dates}>
                   Deleted {new Date(item.deletedAt).toLocaleDateString()} ·
                   Expires {new Date(item.expiresAt).toLocaleDateString()}
                 </p>

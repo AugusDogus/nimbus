@@ -1,9 +1,113 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { entryGeometry } from "./entry-layout";
+import { EntryShape } from "./entry-shape";
+
+const bar = "motion-reduce:animate-none";
+
+/** How many placeholder entries a listing shows: more than fit, so the listing looks full. */
+const placeholders = { list: 12, grid: 18 } as const;
 
 /**
- * Placeholder entries while a folder's listing loads. After `delayMs`, so a listing that arrives
- * quickly never flashes them.
+ * The listing's grid without JavaScript, so the page's skeleton can lay it out before the app
+ * runs: as many columns as fit at `minWidth`, each card `aspect` of its width in height, rounded
+ * to the pixel as `EntryLayout.gridTrack` rounds it.
+ */
+const grid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: `repeat(auto-fill, minmax(${entryGeometry.grid.minWidth}px, 1fr))`,
+  gap: entryGeometry.grid.gap,
+};
+const cardCell: CSSProperties = { containerType: "inline-size" };
+const card: CSSProperties = {
+  height: `round(nearest, calc(100cqw * ${entryGeometry.grid.aspect}), 1px)`,
+};
+
+/**
+ * A listing before it arrives: a section title, where it has one, and placeholder entries, each
+ * where the listing will put its own. It takes its shape from `EntryShape` and its sizes from
+ * `entryGeometry`, as the listing does.
+ */
+export function EntrySkeleton({
+  view,
+  titled = true,
+}: {
+  view: "list" | "grid";
+  /** Whether the listing's first section has a title, as a folder's does. */
+  titled?: boolean;
+}) {
+  return (
+    <div aria-hidden data-entry-skeleton={view}>
+      {titled && (
+        <div
+          data-shape="section-title"
+          style={{
+            height: entryGeometry.header.height,
+            marginBottom: entryGeometry.header.gap,
+          }}
+          className={cn(EntryShape.title, "flex items-center")}
+        >
+          <Skeleton className={cn("h-3 w-12", bar)} />
+        </div>
+      )}
+      {view === "list" ? (
+        <div className="flex flex-col" style={{ gap: entryGeometry.list.gap }}>
+          {Array.from({ length: placeholders.list }, (_, index) => (
+            <div
+              key={index}
+              data-entry-placeholder
+              className="relative"
+              style={{ height: entryGeometry.list.height }}
+            >
+              <div className={cn(EntryShape.entry, EntryShape.listRow)}>
+                <span className={EntryShape.listIcon}>
+                  <Skeleton className={cn("size-5 rounded", bar)} />
+                </span>
+                <Skeleton className={cn("h-4 w-full max-w-64", bar)} />
+              </div>
+              <Skeleton
+                className={cn(
+                  EntryShape.actions,
+                  "size-8 md:pointer-fine:invisible",
+                  bar,
+                )}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={grid}>
+          {Array.from({ length: placeholders.grid }, (_, index) => (
+            <div key={index} style={cardCell}>
+              <div
+                data-entry-placeholder
+                style={card}
+                className={cn(EntryShape.entry, EntryShape.card, "bg-muted/30")}
+              >
+                <div
+                  className={cn(
+                    EntryShape.cardPicture,
+                    "flex items-center justify-center",
+                  )}
+                >
+                  <Skeleton className={cn("size-10 rounded", bar)} />
+                </div>
+                <div className={EntryShape.cardName}>
+                  <Skeleton className={cn("h-3.5 w-3/4", bar)} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The placeholder listing while a folder's listing loads in the app, after `delayMs`, so a
+ * listing that arrives quickly never flashes it.
  */
 export function LoadingSkeleton({
   view,
@@ -18,40 +122,5 @@ export function LoadingSkeleton({
     const timer = setTimeout(() => setDue(true), delayMs);
     return () => clearTimeout(timer);
   }, [due, delayMs]);
-  if (!due) return null;
-  if (view === "grid") {
-    // The grid's own rule (see `EntryLayout.gridTrack`): landscape cards at least 160 px wide.
-    return (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <div
-            key={i}
-            className="flex aspect-[4/3] flex-col overflow-hidden rounded-lg border"
-          >
-            <div className="flex min-h-0 flex-1 items-center justify-center bg-muted/40">
-              <Skeleton className="size-10 rounded" />
-            </div>
-            <div className="flex h-9 shrink-0 items-center justify-center px-3">
-              <Skeleton className="h-3 w-3/4" />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div
-          key={i}
-          className="group/entry flex min-h-12 cursor-default items-center gap-4 rounded-lg px-4 py-3"
-        >
-          <Skeleton className="size-6 shrink-0 rounded" />
-          <Skeleton className="h-4 flex-1" />
-          <Skeleton className="size-8 shrink-0 rounded md:hidden" />
-        </div>
-      ))}
-    </div>
-  );
+  return due ? <EntrySkeleton view={view} /> : null;
 }

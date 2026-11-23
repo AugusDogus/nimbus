@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { TransferCode } from "./transfer-code";
 import {
   useEffect,
@@ -41,6 +42,7 @@ import { FileEntry } from "./types";
 import type { EntryDialog } from "./entry-dialogs";
 import { MoveUp } from "./move-up";
 import type { useFileActions } from "./use-file-actions";
+import { EntryShape } from "./entry-shape";
 
 type MenuItem = {
   label: string;
@@ -287,7 +289,10 @@ export function EntryActionsButton({
       tabIndex={tabbable ? 0 : -1}
       // Shown only on hover where there is a mouse; touch screens of every width keep it visible,
       // with a 44 px target centered where the smaller button sits.
-      className="absolute right-2 top-2 shrink-0 text-muted-foreground pointer-coarse:right-0.5 pointer-coarse:top-0.5 pointer-coarse:size-11 md:pointer-fine:opacity-0 md:pointer-fine:group-hover/entry:opacity-100 md:pointer-fine:group-focus-within/entry:opacity-100 md:pointer-fine:data-[state=open]:opacity-100"
+      className={cn(
+        EntryShape.actions,
+        "text-muted-foreground md:pointer-fine:opacity-0 md:pointer-fine:group-hover/entry:opacity-100 md:pointer-fine:group-focus-within/entry:opacity-100 md:pointer-fine:data-[state=open]:opacity-100",
+      )}
       onClick={(event) => {
         event.stopPropagation();
         onOpen(event);
