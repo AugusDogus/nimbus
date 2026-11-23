@@ -123,11 +123,15 @@ function plan(
     }
     arrived.push(file);
   }
-  // Returns at the same path go first; what is left may be renames and moves.
-  const gone = byShape([
-    ...tombstones.filter((tombstone) => !revived.has(tombstone.id)),
-    ...vanished,
-  ]);
+  // Returns at the same path go first; what is left may be renames and moves. Only rows whose
+  // files are known gone from what the scan sees count, also for uniqueness: a row in a folder
+  // the device cannot see never changes what happens to one it can.
+  const gone = byShape(
+    [
+      ...tombstones.filter((tombstone) => !revived.has(tombstone.id)),
+      ...vanished,
+    ].filter((row) => movable(row.path)),
+  );
   const newcomers = byShape(arrived);
   const moved = new Set<string>();
   for (const file of arrived) {
@@ -137,8 +141,7 @@ function plan(
     if (
       shape !== null &&
       row !== undefined &&
-      newcomers.get(shape)?.length === 1 &&
-      movable(row.path)
+      newcomers.get(shape)?.length === 1
     ) {
       moved.add(row.id);
       result.moves.push({ id: row.id, path: file.path, version: file.version });

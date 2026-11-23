@@ -334,6 +334,24 @@ test("a scan whose folders stopped being offered while it ran moves no id out of
   expect(at("library/garage/Notes.md", id)?.id).not.toBe(original?.id ?? "");
 });
 
+test("a file left in a folder no longer offered does not change a visible rename", async () => {
+  await file("library/kitchen/Notes.md", "proofing times");
+  await file("library/garage/Notes copy.md", "proofing times");
+  const id = await create(["library/kitchen", "library/garage"]);
+  const original = at("library/kitchen/Notes.md", id);
+  // The garage's copy, with the same size and times, stays behind as a row the device cannot see.
+  await withdrawGarage(id);
+  await reconcile(id);
+  await rename(
+    t.drive.absolute("library/kitchen/Notes.md"),
+    t.drive.absolute("library/kitchen/Proofing notes.md"),
+  );
+  await reconcile(id);
+  expect(at("library/kitchen/Proofing notes.md", id)?.id).toBe(
+    original?.id ?? "",
+  );
+});
+
 test("a scan overtaken by a folder joining the library is discarded, not committed over a fuller one", async () => {
   await file("library/kitchen/Notes.md", "proofing times");
   await file("library/garage/Chain.md", "chain lube");
