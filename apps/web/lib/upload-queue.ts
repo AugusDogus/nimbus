@@ -61,6 +61,11 @@ type Options = {
   onUploaded?: (request: UploadRequest) => void;
   /** Runs when the last running upload ends, with the outcome of everything since the last idle. */
   onIdle?: (summary: UploadSummary) => void;
+  /**
+   * Holds the page while uploads are planned, queued or running, since leaving would end them
+   * (see `LeaveGuard`); returns the function that lets go.
+   */
+  hold?: () => () => void;
 };
 
 const emptySummary: UploadSummary = {
@@ -101,6 +106,7 @@ export function createUploadQueue({
   publishIntervalMs = 100,
   onUploaded,
   onIdle,
+  hold = () => () => undefined,
 }: Options) {
   let items: UploadItem[] = [];
   const index = new Map<number, number>();
@@ -126,8 +132,16 @@ export function createUploadQueue({
   let timer: ReturnType<typeof setTimeout> | null = null;
   const listeners = new Set<() => void>();
 
+  /** Lets go of the page once nothing is queued or running. */
+  let release: (() => void) | undefined;
   const publish = () => {
     timer = null;
+    // Queued uploads start while fewer than `concurrency` run, so none is queued while none runs.
+    if (running.size > 0) release ??= hold();
+    else {
+      release?.();
+      release = undefined;
+    }
     for (const listener of listeners) listener();
   };
   const schedule = (immediate = false) => {
@@ -222,6 +236,19 @@ export function createUploadQueue({
       return () => listeners.delete(listener);
     },
     getSnapshot: current,
+    /**
+     * Holds the page while `plan` decides what to upload, such as while it lists the target
+     * folder: leaving then would drop uploads that were chosen but not queued yet. Uploads it
+     * queues hold the page from the moment they are queued, before this lets go.
+     */
+    async prepare<T>(plan: () => Promise<T>): Promise<T> {
+      const planning = hold();
+      try {
+        return await plan();
+      } finally {
+        planning();
+      }
+    },
     enqueue(requests: readonly UploadRequest[]) {
       for (const request of requests) {
         const id = nextId++;
@@ -280,6 +307,8 @@ export function createUploadQueue({
       for (const handle of running.values()) void handle.abort();
       running.clear();
       listeners.clear();
+      release?.();
+      release = undefined;
     },
   };
 }

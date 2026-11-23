@@ -1,15 +1,9 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TRPCClientError } from "@trpc/client";
 import { CodeLoad } from "@/lib/code-load";
 import { toast } from "@/lib/toast";
 import { coalesce } from "@/lib/coalesce";
-import { useLeaveWarning } from "@/lib/use-file-drop-guard";
+import { LeaveGuard } from "@/lib/leave-guard";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { fetchFileList } from "./file-list";
 import type { ClashChoice, EntryKind, UploadClash } from "./upload-plan";
@@ -179,6 +173,8 @@ export function useUploadQueue() {
     const created = createUploadQueue({
       transport: tusTransport,
       onUploaded: refresh,
+      // Leaving the page ends running uploads, so ask first while any are planned, queued or sending.
+      hold: LeaveGuard.hold,
       onIdle(summary) {
         announce(summary);
         // Failures stay listed for retry. A fully successful batch leaves nothing to show.
@@ -189,16 +185,6 @@ export function useUploadQueue() {
   });
   const [prompt, setPrompt] = useState<ClashPrompt | null>(null);
   useEffect(() => () => queue.dispose(), [queue]);
-  // Leaving the page ends running uploads, so ask first while any are queued or sending.
-  const busy = useSyncExternalStore(
-    queue.subscribe,
-    () => {
-      const { queued, active } = queue.getSnapshot().summary;
-      return queued + active > 0;
-    },
-    () => false,
-  );
-  useLeaveWarning(busy);
 
   /** Ask about each clash in turn, unless the user applies one choice to the rest. */
   const decide = useCallback(async (clashes: readonly UploadClash[]) => {
@@ -248,27 +234,29 @@ export function useUploadQueue() {
           `${plural(upload.skipped.length, "item")} could not be read and will not upload, starting with “${upload.skipped[0]}”.`,
         );
       try {
-        // Planning code loads with the first upload, keeping it out of every page's initial bundle.
-        const [{ UploadPlan }, existing] = await Promise.all([
-          CodeLoad.load(() => import("./upload-plan")),
-          existingNames(target.path),
-        ]);
-        const clashes = UploadPlan.clashes(upload, existing);
-        const choices = clashes.length
-          ? await decide(clashes)
-          : new Map<string, ClashChoice>();
-        if (!choices) return;
-        const { requests, folders } = UploadPlan.plan(
-          upload,
-          existing,
-          choices,
-          target,
-        );
-        if (folders.length) {
-          await createFolders(target.path, folders);
-          refresh();
-        }
-        queue.enqueue(requests);
+        await queue.prepare(async () => {
+          // Planning code loads with the first upload, keeping it out of every page's initial bundle.
+          const [{ UploadPlan }, existing] = await Promise.all([
+            CodeLoad.load(() => import("./upload-plan")),
+            existingNames(target.path),
+          ]);
+          const clashes = UploadPlan.clashes(upload, existing);
+          const choices = clashes.length
+            ? await decide(clashes)
+            : new Map<string, ClashChoice>();
+          if (!choices) return;
+          const { requests, folders } = UploadPlan.plan(
+            upload,
+            existing,
+            choices,
+            target,
+          );
+          if (folders.length) {
+            await createFolders(target.path, folders);
+            refresh();
+          }
+          queue.enqueue(requests);
+        });
       } catch (error) {
         toast.error(
           `The upload could not start. ${error instanceof Error ? error.message : "Check your connection and try again."} Nothing was uploaded.`,

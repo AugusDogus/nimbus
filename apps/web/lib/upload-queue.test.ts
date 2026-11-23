@@ -158,6 +158,70 @@ describe("upload queue", () => {
     expect(performance.now() - started).toBeLessThan(100);
   });
 
+  it("holds the page from choosing uploads until the last one ends, with no moment free between", async () => {
+    const fake = fakeTransport();
+    let holds = 0;
+    const holdsSeen: number[] = [];
+    const queue = createUploadQueue({
+      transport: fake.transport,
+      hold: () => {
+        holds++;
+        let released = false;
+        return () => {
+          if (!released) holds--;
+          released = true;
+        };
+      },
+    });
+    expect(holds).toBe(0);
+    const planned = Promise.withResolvers<void>();
+    const preparing = queue.prepare(async () => {
+      await planned.promise;
+      queue.enqueue([request("a"), request("b")]);
+      holdsSeen.push(holds);
+    });
+    // While the uploads are planned, such as while the folder's names are fetched.
+    expect(holds).toBe(1);
+    planned.resolve();
+    await preparing;
+    // The queued uploads held the page before planning let go of it.
+    expect(holdsSeen).toEqual([2]);
+    expect(holds).toBe(1);
+    fake.started[0]?.succeed();
+    expect(holds).toBe(1);
+    fake.started[1]?.fail("offline");
+    expect(holds).toBe(0);
+
+    // Retrying holds again, and cancelling lets go.
+    queue.retryFailed();
+    expect(holds).toBe(1);
+    await queue.cancelAll();
+    expect(holds).toBe(0);
+  });
+
+  it("lets go of the page when planning fails or queues nothing, and when it is disposed", async () => {
+    let holds = 0;
+    const queue = createUploadQueue({
+      transport: fakeTransport().transport,
+      hold: () => {
+        holds++;
+        return () => holds--;
+      },
+    });
+    await queue.prepare(async () => undefined);
+    expect(holds).toBe(0);
+    await expect(
+      queue.prepare(async () => {
+        throw new Error("The folder could not be listed.");
+      }),
+    ).rejects.toThrow("The folder could not be listed.");
+    expect(holds).toBe(0);
+    queue.enqueue([request("a")]);
+    expect(holds).toBe(1);
+    queue.dispose();
+    expect(holds).toBe(0);
+  });
+
   it("runs 50,000 uploads in time linear in their number", async () => {
     let publications = 0;
     const done = Promise.withResolvers<UploadSummary>();
