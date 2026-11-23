@@ -495,7 +495,7 @@ test("empties trash in one step after confirmation", async ({
   expect(await rpc.trash.list.query()).toEqual([]);
   await expect(
     page.getByRole("button", { name: "Empty trash", exact: true }),
-  ).toHaveCount(0);
+  ).toBeDisabled();
 });
 
 test("Tab reaches an entry on screen after scrolling a long folder", async ({

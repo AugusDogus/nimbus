@@ -80,20 +80,20 @@ export function TrashPage() {
             links and direct permissions.
           </p>
         </div>
-        {trash.data && trash.data.length > 0 && (
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() =>
-              setDeleting({
-                kind: "all",
-                ids: trash.data.map((item) => item.id),
-              })
-            }
-          >
-            Empty trash
-          </Button>
-        )}
+        {/* Always in place, so the title beside it never narrows when items arrive; there is
+            nothing to empty while they load, or once Trash is empty. */}
+        <Button
+          variant="outline"
+          disabled={busy || !trash.data?.length}
+          onClick={() =>
+            setDeleting({
+              kind: "all",
+              ids: (trash.data ?? []).map((item) => item.id),
+            })
+          }
+        >
+          Empty trash
+        </Button>
       </div>
       {(error || trash.error) && (
         <p role="alert" className="text-pretty text-sm text-destructive">
