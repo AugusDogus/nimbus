@@ -1,12 +1,33 @@
-/** Fixed geometry, in CSS pixels, shared by the layout math and the rendered rows. */
+/** Geometry, in CSS pixels, shared by the layout math and the rendered rows. */
 export const entryGeometry = {
   list: { height: 48, gap: 4 },
-  grid: { height: 168, gap: 12 },
+  /**
+   * Cards are at least `minWidth` wide and as many fit as the listing's width allows; their
+   * height is `aspect` of their width, so they stay landscape at every width.
+   */
+  grid: { minWidth: 160, gap: 12, aspect: 3 / 4 },
   header: { height: 16, gap: 12 },
   sectionGap: 24,
 } as const;
 
 export type EntrySection<T> = { title: string; entries: readonly T[] };
+
+/** How entries lay out across a row: how many per row, and how tall each row is. */
+export type EntryTrack = { columns: number; height: number };
+
+/** The list's track: one entry per row. */
+const listTrack: EntryTrack = { columns: 1, height: entryGeometry.list.height };
+
+/** The grid's track for a listing `width` pixels wide: fewer columns, never thinner cards. */
+function gridTrack(width: number): EntryTrack {
+  const { minWidth, gap, aspect } = entryGeometry.grid;
+  const columns = Math.max(1, Math.floor((width + gap) / (minWidth + gap)));
+  const cardWidth = (width - (columns - 1) * gap) / columns;
+  return {
+    columns,
+    height: Math.round(Math.max(minWidth, cardWidth) * aspect),
+  };
+}
 
 /** A positioned row: a section title, or a run of consecutive entries (one in list view). */
 export type LayoutRow =
@@ -32,10 +53,13 @@ export type EntryLayout<T> = {
 function build<T>(
   sections: readonly EntrySection<T>[],
   view: "list" | "grid",
-  columns: number,
+  track: EntryTrack,
 ): EntryLayout<T> {
-  const perRow = view === "grid" ? Math.max(1, columns) : 1;
-  const item = entryGeometry[view];
+  const perRow = view === "grid" ? Math.max(1, track.columns) : 1;
+  const item = {
+    height: track.height,
+    gap: view === "grid" ? entryGeometry.grid.gap : entryGeometry.list.gap,
+  };
   const rows: LayoutRow[] = [];
   const entries: T[] = [];
   let top = 0;
@@ -102,4 +126,10 @@ function rangeAt<T>(layout: EntryLayout<T>, top: number, bottom: number) {
   return { start, end };
 }
 
-export const EntryLayout = { build, rowOf, rangeAt } as const;
+export const EntryLayout = {
+  build,
+  rowOf,
+  rangeAt,
+  listTrack,
+  gridTrack,
+} as const;

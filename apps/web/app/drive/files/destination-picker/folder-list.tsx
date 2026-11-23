@@ -57,7 +57,12 @@ export function FolderList({
   stale?: boolean;
 }) {
   const layout = useMemo(
-    () => EntryLayout.build([{ title: "", entries: rows }], "list", 1),
+    () =>
+      EntryLayout.build(
+        [{ title: "", entries: rows }],
+        "list",
+        EntryLayout.listTrack,
+      ),
     [rows],
   );
   const names = useMemo(() => rows.map((row) => row.name), [rows]);

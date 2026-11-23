@@ -20,31 +20,22 @@ export function LoadingSkeleton({
   }, [due, delayMs]);
   if (!due) return null;
   if (view === "grid") {
+    // The grid's own rule (see `EntryLayout.gridTrack`): landscape cards at least 160 px wide.
     return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-        {Array.from({ length: 12 }).map((_, i) =>
-          i % 2 === 0 ? (
-            <div
-              key={i}
-              className="group/entry relative flex cursor-default flex-col rounded-xl border bg-card"
-            >
-              <div className="flex h-20 items-center justify-center rounded-t-xl bg-muted sm:h-28">
-                <Skeleton className="size-8 rounded sm:size-10" />
-              </div>
-              <div className="border-t p-2 sm:p-3">
-                <Skeleton className="h-3 w-5/6 sm:h-4" />
-              </div>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+        {Array.from({ length: 12 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex aspect-[4/3] flex-col overflow-hidden rounded-lg border"
+          >
+            <div className="flex min-h-0 flex-1 items-center justify-center bg-muted/40">
+              <Skeleton className="size-10 rounded" />
             </div>
-          ) : (
-            <div
-              key={i}
-              className="group/entry relative flex flex-col items-center justify-center gap-2 rounded-xl border bg-muted/50 p-3 sm:gap-3 sm:p-4"
-            >
-              <Skeleton className="size-10 rounded-full sm:size-12" />
-              <Skeleton className="h-3 w-full sm:h-4" />
+            <div className="flex h-9 shrink-0 items-center justify-center px-3">
+              <Skeleton className="h-3 w-3/4" />
             </div>
-          ),
-        )}
+          </div>
+        ))}
       </div>
     );
   }

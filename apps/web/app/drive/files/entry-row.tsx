@@ -146,30 +146,38 @@ export const EntryRow = memo(function EntryRow({
         </span>
       ) : (
         <>
-          <span className="absolute left-2 top-2">{check}</span>
-          {/* The thumbnail box has a fixed size, so the windowed grid keeps fixed row heights. */}
+          <span className="absolute left-2 top-2 z-10">{check}</span>
+          {/* The picture takes the card's height less the name's, which the grid row fixes, so
+              loading or failing never moves anything. A thumbnail fills it; an icon sits in it. */}
           <EntryThumbnail
             entry={entry}
+            fill
             fallback={
               <Icon
                 className={classes(
-                  "size-12 shrink-0 text-muted-foreground",
+                  "size-10 shrink-0 text-muted-foreground",
                   entry.type === "dir" && "fill-muted",
                 )}
               />
             }
-            className="h-20 w-full"
+            className="min-h-0 w-full flex-1 bg-muted/40"
           />
         </>
       )}
-      <span
-        className={classes(
-          "min-w-0 truncate text-sm",
-          view === "grid" && "w-full text-center",
-        )}
-      >
-        {renderName ? renderName(entry) : entry.name}
-      </span>
+      {view === "grid" ? (
+        // The name's area always holds two lines, a one-line name centred in it, so every card's
+        // picture keeps the same height whatever its name. Longer names truncate after two lines,
+        // and names without spaces break anywhere.
+        <span className="mx-3 my-2 flex h-10 shrink-0 items-center justify-center">
+          <span className="line-clamp-2 min-w-0 text-center text-sm leading-5 [overflow-wrap:anywhere]">
+            {renderName ? renderName(entry) : entry.name}
+          </span>
+        </span>
+      ) : (
+        <span className="min-w-0 truncate text-sm">
+          {renderName ? renderName(entry) : entry.name}
+        </span>
+      )}
     </>
   );
   const common = {
@@ -185,7 +193,7 @@ export const EntryRow = memo(function EntryRow({
       "w-full rounded-lg text-left [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-ring",
       view === "list"
         ? "flex h-12 items-center gap-3 py-3 pl-3 pr-12"
-        : "relative flex h-42 flex-col items-center justify-center gap-3 border px-4 pb-4 pt-10",
+        : "relative flex h-full flex-col overflow-hidden border",
       // Background states are exclusive, so no class merging is needed.
       selected || dropState === "allowed"
         ? "bg-accent"

@@ -31,11 +31,14 @@ export function EntryThumbnail({
   share,
   fallback,
   className,
+  fill = false,
 }: {
   entry: ThumbnailEntry;
   share?: string;
   fallback: ReactNode;
   className?: string;
+  /** Crops the image to fill the box, as a grid card's picture does; otherwise it fits whole. */
+  fill?: boolean;
 }) {
   const src = thumbnailSrc(entry, share);
   const [failed, setFailed] = useState<string | null>(null);
@@ -62,7 +65,9 @@ export function EntryThumbnail({
           ref={(image) => {
             if (image?.complete && image.naturalWidth === 0) setFailed(src);
           }}
-          className="size-full object-contain"
+          className={
+            fill ? "size-full object-cover" : "size-full object-contain"
+          }
         />
       )}
     </span>

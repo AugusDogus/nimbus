@@ -12,7 +12,7 @@ describe("entry layout", () => {
         { title: "Files", entries: entries("f", 3) },
       ],
       "list",
-      1,
+      EntryLayout.listTrack,
     );
     expect(
       layout.rows.map((row) => (row.kind === "header" ? row.title : row.start)),
@@ -38,12 +38,12 @@ describe("entry layout", () => {
         { title: "", entries: entries("f", 7) },
       ],
       "grid",
-      3,
+      { columns: 3, height: 120 },
     );
     expect(layout.rows).toEqual([
-      { kind: "entries", start: 0, count: 3, top: 0, height: 168 },
-      { kind: "entries", start: 3, count: 3, top: 180, height: 168 },
-      { kind: "entries", start: 6, count: 1, top: 360, height: 168 },
+      { kind: "entries", start: 0, count: 3, top: 0, height: 120 },
+      { kind: "entries", start: 3, count: 3, top: 132, height: 120 },
+      { kind: "entries", start: 6, count: 1, top: 264, height: 120 },
     ]);
     expect(EntryLayout.rowOf(layout, 6)).toBe(2);
   });
@@ -52,7 +52,7 @@ describe("entry layout", () => {
     const layout = EntryLayout.build(
       [{ title: "", entries: entries("f", 50_000) }],
       "list",
-      1,
+      EntryLayout.listTrack,
     );
     expect(EntryLayout.rangeAt(layout, 0, 100)).toEqual({ start: 0, end: 2 });
     expect(EntryLayout.rangeAt(layout, 52 * 1000 + 10, 52 * 1000 + 60)).toEqual(
@@ -72,11 +72,25 @@ describe("entry layout", () => {
         { title: "Files", entries: entries("f", 49_000) },
       ],
       "grid",
-      6,
+      { columns: 6, height: 135 },
     );
     expect(layout.rows.length).toBe(
       2 + Math.ceil(1000 / 6) + Math.ceil(49_000 / 6),
     );
     expect(performance.now() - started).toBeLessThan(50);
+  });
+
+  it("fits as many landscape cards as the width allows, and drops columns instead of thinning them", () => {
+    // A phone, a narrow pane, a half pane at 1680 px and a full listing.
+    expect(EntryLayout.gridTrack(358)).toEqual({ columns: 2, height: 130 });
+    expect(EntryLayout.gridTrack(440)).toEqual({ columns: 2, height: 161 });
+    expect(EntryLayout.gridTrack(680)).toEqual({ columns: 4, height: 121 });
+    expect(EntryLayout.gridTrack(1376)).toEqual({ columns: 8, height: 121 });
+    for (let width = 100; width <= 2400; width += 7) {
+      const { columns, height } = EntryLayout.gridTrack(width);
+      const card = (width - (columns - 1) * 12) / columns;
+      expect(height).toBeLessThanOrEqual(Math.max(160, card));
+      if (width >= 160) expect(card).toBeGreaterThanOrEqual(160);
+    }
   });
 });

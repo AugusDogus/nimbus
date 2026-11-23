@@ -33,7 +33,7 @@ import type { useFileActions } from "./use-file-actions";
 import { DragHint } from "./drag-hint";
 import { DropTarget } from "./drop-target";
 import type { FileDrag } from "./use-file-drag";
-import { useGridColumns } from "./use-grid-columns";
+import { useGridTrack } from "./use-grid-track";
 import { useVirtualRows } from "./use-virtual-rows";
 
 // Dialogs open on demand; keep them out of the page's first load.
@@ -112,10 +112,13 @@ export function EntriesView({
   const keyboardHint = useId();
   const isMobile = useIsMobile();
   const canDrag = useFinePointer();
-  const columns = useGridColumns();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const gridTrack = useGridTrack(containerRef, view === "grid");
+  const { columns, height } =
+    view === "grid" ? gridTrack : EntryLayout.listTrack;
   const layout = useMemo(
-    () => EntryLayout.build(sections, view, view === "grid" ? columns : 1),
-    [sections, view, columns],
+    () => EntryLayout.build(sections, view, { columns, height }),
+    [sections, view, columns, height],
   );
   const order = useMemo(
     () => Selection.order(layout.entries.map((entry) => entry.path)),
@@ -151,7 +154,6 @@ export function EntriesView({
   const focusIndex =
     focusPath === null ? -1 : (order.index.get(focusPath) ?? -1);
 
-  const containerRef = useRef<HTMLDivElement>(null);
   const fallbackToolbar = useRef<HTMLElement>(null);
   const virtual = useVirtualRows({
     layout,
