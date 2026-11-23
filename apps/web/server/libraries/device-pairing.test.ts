@@ -168,6 +168,9 @@ describe("start", () => {
       "Media\u2069box",
       "Media\u200bbox",
       "Line\u2028break",
+      "Media box\n",
+      "\ufeffMedia box",
+      " Media box\t",
       "x".repeat(81),
       42,
     ])

@@ -98,8 +98,15 @@ const invalidRequest = (message: string): LibraryApiError => ({
 
 /** The device name a device supplied, trimmed, or the error explaining what it must be. */
 function parseDeviceName(value: unknown): ApiResult<string> {
-  const name = typeof value === "string" ? value.normalize("NFC").trim() : "";
-  if (!name || [...name].length > 80 || !deviceNamePattern.test(name))
+  // Checked as sent, before trimming, which would quietly drop a BOM or a trailing line break.
+  const raw = typeof value === "string" ? value : "";
+  const name = raw.normalize("NFC").trim();
+  if (
+    !name ||
+    [...name].length > 80 ||
+    !deviceNamePattern.test(raw) ||
+    !deviceNamePattern.test(name)
+  )
     return {
       ok: false,
       error: invalidRequest(
