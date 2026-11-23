@@ -67,6 +67,10 @@ test.describe("split view on a wide screen", () => {
       new RegExp(`right=${encodeURIComponent(`${root}/Projects`)}`),
     );
     await expect(entry(rightPane(page), "Client Alpha")).toBeVisible();
+    // A wide screen has room for both panes beside the open sidebar.
+    await expect(
+      page.locator('[data-slot="sidebar"][data-state]'),
+    ).toHaveAttribute("data-state", "expanded");
 
     await rightPane(page).getByRole("button", { name: "Up one level" }).click();
     await entry(rightPane(page), "Archive").click();
@@ -100,13 +104,92 @@ test.describe("split view on a wide screen", () => {
     ).toBeDisabled();
     await expect(leftPane(page).getByText("1 selected")).toBeVisible();
 
+    // Closing a pane keeps the other one's folder. The selection bar covers the pane's header.
     await entry(rightPane(page), "Client Alpha").click();
-    await rightPane(page)
-      .getByRole("button", { name: "Show only this pane" })
+    await leftPane(page)
+      .getByRole("button", { name: "Clear selection" })
+      .click();
+    await leftPane(page)
+      .getByRole("button", { name: "Close this pane" })
       .click();
     await expect(page).toHaveURL(`/browse/${root}/Projects/Client%20Alpha`);
     await expect(page.locator("[data-pane]")).toHaveCount(0);
     await expect(page.getByText("This folder is empty")).toBeVisible();
+  });
+
+  test("names the active pane, not only colours it", async ({ page }) => {
+    const { root } = await seed(page);
+    await page.goto(splitHref(root));
+    await expect(entry(rightPane(page), "2025")).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Left pane (active)", exact: true }),
+    ).toHaveAttribute("aria-current", "true");
+    const right = page.getByRole("region", { name: "Right pane", exact: true });
+    await expect(right).toBeVisible();
+    await expect(right).not.toHaveAttribute("aria-current", /.*/);
+
+    await entry(rightPane(page), "2025").click({
+      modifiers: ["ControlOrMeta"],
+    });
+    await expect(
+      page.getByRole("region", { name: "Right pane (active)", exact: true }),
+    ).toHaveAttribute("aria-current", "true");
+    await expect(
+      page.getByRole("region", { name: "Left pane", exact: true }),
+    ).toBeVisible();
+  });
+
+  test("folds the sidebar when only that makes room for both panes, and opens it when the split closes", async ({
+    page,
+  }) => {
+    const { root } = await seed(page);
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await page.goto(`/browse/${root}/Projects`);
+    await expect(entry(page.locator("main"), "Client Alpha")).toBeVisible();
+    const sidebar = page.locator('[data-slot="sidebar"][data-state]');
+    await expect(sidebar).toHaveAttribute("data-state", "expanded");
+    const toggle = page.getByRole("button", { name: "Split view" });
+
+    await toggle.click();
+    await expect(sidebar).toHaveAttribute("data-state", "collapsed");
+    await expect(page.locator("[data-pane]")).toHaveCount(2);
+    await expect(entry(rightPane(page), "Client Alpha")).toBeVisible();
+    // Opening the drive root in a pane keeps the split, and the sidebar folded.
+    await leftPane(page).getByRole("link", { name: "Files" }).click();
+    await expect(page).toHaveURL(/\/\?right=/);
+    await expect(page.locator("[data-pane]")).toHaveCount(2);
+    await expect(sidebar).toHaveAttribute("data-state", "collapsed");
+
+    await toggle.click();
+    await expect(page.locator("[data-pane]")).toHaveCount(0);
+    await expect(sidebar).toHaveAttribute("data-state", "expanded");
+  });
+
+  test("searching from a split view keeps it: a folder opened from the results goes to the active pane", async ({
+    page,
+  }) => {
+    const { root } = await seed(page);
+    await page.goto(splitHref(root, "right"));
+    await expect(entry(rightPane(page), "2025")).toBeVisible();
+    const box = page.getByRole("combobox", { name: "Search files" });
+    const result = page.locator(`[data-entry-name="${root}"]`);
+    // New folders reach the search index asynchronously.
+    await expect(async () => {
+      await box.fill(root);
+      await box.press("Enter");
+      await expect(result).toBeVisible({ timeout: 2_000 });
+    }).toPass();
+    await expect(page).toHaveURL(/\/search\?.*left=/);
+    await expect(
+      page.getByText("Folders open in the right pane of your split view."),
+    ).toBeVisible();
+
+    await result.click();
+    await expect(page).toHaveURL(
+      `/browse/${root}/Projects?right=${encodeURIComponent(root)}&active=right&ratio=50`,
+    );
+    await expect(entry(rightPane(page), "Archive")).toBeVisible();
+    await expect(entry(leftPane(page), "Client Alpha")).toBeVisible();
   });
 
   test("restores both panes on reload and with Back and Forward", async ({

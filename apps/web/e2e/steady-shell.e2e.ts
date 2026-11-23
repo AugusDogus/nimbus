@@ -113,6 +113,41 @@ test("New hides in the frame that leaving a folder shows the next page", async (
   ).toEqual([]);
 });
 
+test("opening and closing a split view leaves the header where it was", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Phones show one folder at a time.");
+  const folder = `steady-${randomUUID()}`;
+  await (await client(context)).files.createFolder.mutate({ name: folder });
+  await page.goto(`/browse/${folder}`);
+  await expect(page.getByText("This folder is empty")).toBeVisible();
+  // Every control in the header, where it is.
+  const controls = () =>
+    page.locator('[data-slot="sidebar-inset"] > header').evaluate((header) =>
+      [...header.querySelectorAll("button, input")].map((control) => {
+        const box = control.getBoundingClientRect();
+        return [
+          control.getAttribute("aria-label") ?? control.tagName,
+          box.x,
+          box.y,
+          box.width,
+          box.height,
+        ];
+      }),
+    );
+  const before = await controls();
+  const toggle = page.getByRole("button", { name: "Split view" });
+  await toggle.click();
+  await expect(page.locator("[data-pane]")).toHaveCount(2);
+  // The page area no longer keeps room for a scrollbar; the header must not take it.
+  expect(await controls()).toEqual(before);
+  await toggle.click();
+  await expect(page.locator("[data-pane]")).toHaveCount(0);
+  expect(await controls()).toEqual(before);
+});
+
 test("a page that scrolls is as wide as one that does not", async ({
   page,
   context,
