@@ -12,6 +12,8 @@ import { existsSync } from "node:fs";
 import { chmod, lstat, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { ServerRun } from "@nimbus/api/server-run";
+import { InstallationLock } from "../installation-lock";
+import { getConfigRoot } from "../storage-paths";
 import { PROTOCOL_VERSION, Protocol, WorkerEnv } from "./protocol";
 import { parseSettings } from "./settings";
 import { createSupervisor, type Release, type SpawnWorker } from "./supervisor";
@@ -137,6 +139,15 @@ function portInUse(): string | null {
   } catch (error) {
     return `Something already listens on port ${port} (${error instanceof Error ? error.message : String(error)}), possibly another Nimbus. Two servers on one port would serve the same data side by side, so this one did not start. Stop the other one or choose another PORT.`;
   }
+}
+
+// One supervisor per installation, for its whole life; see InstallationLock.
+const configRoot = getConfigRoot();
+await mkdir(configRoot, { recursive: true });
+const installation = InstallationLock.acquire(configRoot);
+if (!installation.ok) {
+  console.error(installation.error.message);
+  process.exit(1);
 }
 
 const refused = portInUse() ?? (await socketDirectory());

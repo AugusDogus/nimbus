@@ -482,6 +482,28 @@ describe.skipIf(!built)("handover with real servers", () => {
     expect(after.status).toBe(401);
   }, 60_000);
 
+  test("a second supervisor on the same installation refuses to start, even on another port", async () => {
+    const second = Bun.spawn([process.execPath, "server/supervisor/main.ts"], {
+      cwd: web,
+      env: {
+        ...process.env,
+        NODE_ENV: "production",
+        PORT: String(await freePort()),
+        BETTER_AUTH_URL: origin,
+        BETTER_AUTH_SECRET: secret,
+        NIMBUS_DATA_ROOT: path.join(root, "data"),
+        NIMBUS_CONFIG_ROOT: path.join(root, "config"),
+        NIMBUS_SUPERVISOR_SOCKET: path.join(root, "control-2", "control.sock"),
+      },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    expect(await second.exited).toBe(1);
+    expect(await new Response(second.stderr).text()).toContain(
+      "Another Nimbus server is using this installation",
+    );
+    expect((await status()).phase).toBe("serving");
+  }, 60_000);
+
   test("a stop drains every server and exits", async () => {
     supervisor.kill("SIGTERM");
     expect(await supervisor.exited).toBe(0);

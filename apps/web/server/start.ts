@@ -41,6 +41,7 @@ import { searchIndexed } from "./search-bridge";
 import { GET as readiness } from "./routes/health";
 import { Supervision } from "./supervisor/supervision";
 import { ServerRun } from "@nimbus/api/server-run";
+import { InstallationLock } from "./installation-lock";
 
 const startedAt = performance.now();
 // The run starts now, before any link or receipt is issued, and a bad one stops startup.
@@ -110,6 +111,14 @@ const securityMode = {
 const commonHeaders = SecurityHeaders.common(securityMode);
 backupsToKeep();
 requireDataRoot();
+// On its own, this server holds the installation for its lifetime; the supervisor holds it for
+// every server it runs.
+const installation =
+  supervision.kind === "standalone"
+    ? InstallationLock.acquire(getConfigRoot())
+    : null;
+if (installation && !installation.ok)
+  throw new Error(installation.error.message);
 DatabaseFiles.requireWritable(client, databasePath);
 // Live updates and search follow the data root from here on, now that it is known to exist.
 ensureFileWatcher();

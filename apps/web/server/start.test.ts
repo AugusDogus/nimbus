@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { InstallationLock } from "./installation-lock";
 import { ServerChild } from "./server-child-testing";
 
 let workspace: string;
@@ -85,4 +86,19 @@ test("a signed-out page request to the server's internal http address is redirec
       expect(response.headers.get("location")).toBe("/login");
     },
   );
+});
+
+test("a second server on one installation stops with a message naming it", async () => {
+  // Two servers on one database and data root would each recover the other's changes in
+  // progress as a crash's leftovers.
+  await mkdir(path.join(workspace, "config"));
+  const held = InstallationLock.acquire(path.join(workspace, "config"));
+  if (!held.ok) throw new Error(held.error.message);
+  try {
+    expect<unknown>(await start({})).toEqual(
+      refused("Another Nimbus server is using this installation"),
+    );
+  } finally {
+    held.value.release();
+  }
 });
