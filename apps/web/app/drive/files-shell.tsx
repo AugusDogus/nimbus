@@ -52,6 +52,7 @@ import { trpcErrorCode } from "@/lib/trpc-error";
 
 import { AppSidebar } from "./files/app-sidebar";
 import { SearchBox } from "./search/search-box";
+import { HeaderToolsSlot } from "./files/header-tools";
 import { HiddenFileInput, NewFolderDialog } from "./files/new-content-ui";
 import { useFileActions } from "./files/use-file-actions";
 import { useFilePreferences } from "./files/use-file-preferences";
@@ -151,6 +152,8 @@ export function FilesShell({ children }: FilesShellProps) {
     enabled: isAuthed,
   });
 
+  const [toolsSlot, setToolsSlot] = useState<HTMLElement | null>(null);
+
   // Single new-content instance shared by sidebar (desktop) and FAB (mobile)
   const [fabDrawerOpen, setFabDrawerOpen] = useState(false);
   const creatable = canWrite && offersNew;
@@ -173,9 +176,12 @@ export function FilesShell({ children }: FilesShellProps) {
           newContent={newContent}
         />
       </AppFrame.SidebarBody>
-      <header className="surface-grain sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-background px-4 md:gap-4 md:px-6">
+      {/* From 768 px, three columns: search keeps to the middle one, centred over the page.
+          The sides share one minimum, room for the split view toggle and the account menu, so
+          the search stays put whichever page adds a tool. */}
+      <header className="surface-grain sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 border-b border-border/40 bg-background px-4 md:grid md:grid-cols-[minmax(5.5rem,1fr)_minmax(0,36rem)_minmax(5.5rem,1fr)] md:gap-4 md:px-6">
         {/* On phones the toggle and logo sit 44 px apart, so their touch areas do not overlap. */}
-        <div className="flex min-w-0 flex-1 items-center gap-2 max-md:pointer-coarse:gap-3.5 md:gap-4">
+        <div className="flex shrink-0 items-center gap-2 max-md:pointer-coarse:gap-3.5 md:gap-4">
           {/* Desktop: sidebar trigger */}
           <SidebarTrigger className="touch-hit size-8 shrink-0 text-muted-foreground" />
 
@@ -187,12 +193,12 @@ export function FilesShell({ children }: FilesShellProps) {
           >
             <NimbusLogo className="size-7" />
           </Link>
-
-          {/* Search bar -- always visible */}
-          <SearchBox />
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 md:gap-3">
+        <SearchBox />
+
+        <div className="flex shrink-0 items-center gap-1 md:justify-self-end md:gap-3">
+          <span ref={setToolsSlot} className="contents" />
           {session ? (
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -297,7 +303,9 @@ export function FilesShell({ children }: FilesShellProps) {
             void collectDrop(event.dataTransfer).then(uploadFiles);
         }}
       >
-        {children}
+        <HeaderToolsSlot.Provider value={toolsSlot}>
+          {children}
+        </HeaderToolsSlot.Provider>
       </div>
 
       {/* Mobile FAB for New actions */}

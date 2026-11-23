@@ -1,10 +1,6 @@
 import { MoveUp } from "./move-up";
-import { Columns2, Folder, HardDrive } from "lucide-react";
-import {
-  useNavigate,
-  useRouteContext,
-  type UseNavigateResult,
-} from "@tanstack/react-router";
+import { Folder, HardDrive } from "lucide-react";
+import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import {
   useEffect,
   useMemo,
@@ -17,13 +13,6 @@ import { useQuery } from "@tanstack/react-query";
 
 import type { UserPreferences } from "@nimbus/api/context";
 import { lazyComponent } from "@/components/lazy-component";
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { CodeLoad } from "@/lib/code-load";
 import { trpc } from "@/lib/trpc";
 import { trpcErrorCode } from "@/lib/trpc-error";
 
@@ -43,6 +32,7 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import type { DropTarget } from "./drop-target";
 import { usePaneHref } from "./pane-links";
 import {
+  SplitLayout,
   useSplitLayout,
   type OtherPane,
   type PaneSide,
@@ -61,6 +51,9 @@ import { collectDrop } from "@/lib/upload-sources";
 import { useFileList } from "./use-file-list";
 import { WebMcpFileTools } from "./webmcp-tools";
 import { useFilePreferences } from "./use-file-preferences";
+import { openSplit, SplitToggle } from "./split-toggle";
+import { HeaderTools } from "./header-tools";
+import { fileHref } from "./types";
 
 // Two folders side by side load only when a split view opens. A load that fails shows the
 // code load notice, such as that Nimbus was updated.
@@ -68,18 +61,6 @@ const SplitView = lazyComponent(
   () => import("./split/split-view"),
   <LoadingSkeleton view="list" />,
 );
-
-/** Opens a split view beside `left`, with `right` in the other pane or the remembered folder. */
-function openSplit(
-  navigate: UseNavigateResult<string>,
-  left: string,
-  right: string | null,
-) {
-  void CodeLoad.load(() => import("./split/open-split")).then(
-    ({ openSplit }) => openSplit({ navigate, left, right }),
-    (error: unknown) => CodeLoad.failed(error),
-  );
-}
 
 export function FilesPageClient() {
   const left = useFolderPath();
@@ -92,8 +73,27 @@ export function FilesPageClient() {
     }),
     [navigate, left],
   );
-  if (layout) return <SplitView left={left} layout={layout} />;
-  return <FolderPane path={left} pane={null} other={null} split={split} />;
+  return (
+    <>
+      <HeaderTools>
+        <SplitToggle
+          open={layout !== null}
+          onToggle={() =>
+            layout
+              ? void navigate({
+                  href: fileHref(SplitLayout.activePath(left, layout)),
+                })
+              : openSplit(navigate, left, null)
+          }
+        />
+      </HeaderTools>
+      {layout ? (
+        <SplitView left={left} layout={layout} />
+      ) : (
+        <FolderPane path={left} pane={null} other={null} split={split} />
+      )}
+    </>
+  );
 }
 
 /** A pane's sort, grouping and view, and how to change them. */
@@ -432,38 +432,8 @@ export function FolderPane({
           {breadcrumbs}
         </div>
         {filters}
-        <SplitToggle split={split} />
       </div>
       {body}
     </>
-  );
-}
-
-/** Opens a split view beside this folder, or closes the one open, from the folder's toolbar. */
-function SplitToggle({ split }: { split: SplitControl }) {
-  if (split.kind === "none") return null;
-  const open = split.kind === "open";
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Split view"
-            aria-pressed={open}
-            // Two panes need about 1024 px; below that the folder's name needs the room. A split
-            // link on a narrower screen shows one folder and offers the other as a destination.
-            className="touch-hit max-lg:hidden"
-            onClick={() => (open ? split.close() : split.open(null))}
-          />
-        }
-      >
-        <Columns2 className="size-4" />
-      </TooltipTrigger>
-      <TooltipContent>
-        <p>{open ? "Close split view" : "Open split view"}</p>
-      </TooltipContent>
-    </Tooltip>
   );
 }
