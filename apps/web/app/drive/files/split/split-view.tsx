@@ -377,7 +377,7 @@ export const SplitController = memo(function SplitController({
       key={side}
       side={side}
       label={labelOf(paths[side])}
-      onReopen={() => go({ collapsed: null }, undefined, true)}
+      onExpand={() => go({ collapsed: null }, undefined, true)}
     />
   );
   const rest =

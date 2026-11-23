@@ -465,7 +465,7 @@ test.describe("split view on a wide screen", () => {
     expect(await names(`${root}/Projects`)).not.toContain("From New.txt");
   });
 
-  test("the divider resizes, catches at the middle, resets and steps by keyboard, and a pane folds away from its menu", async ({
+  test("the divider resizes, catches at the middle, resets and steps by keyboard, and a pane folds away and opens again", async ({
     page,
   }) => {
     const { root } = await seed(page);
@@ -507,16 +507,26 @@ test.describe("split view on a wide screen", () => {
     await divider.dblclick();
     await expect(divider).toHaveAttribute("aria-valuenow", "50");
 
-    // A pane folds away from its own menu.
+    // A pane folds away from its own menu, into a strip that opens it again anywhere.
     await rightPane(page).getByRole("button", { name: "Pane options" }).click();
     await page.getByRole("menuitem", { name: "Collapse pane" }).click();
     await expect(page).toHaveURL(/collapsed=right/);
     await expect(entry(rightPane(page), "2025")).toHaveCount(0);
-    await page
-      .getByRole("button", { name: `Reopen right pane: Archive` })
-      .click();
+    const strip = page.getByRole("button", { name: "Expand Archive" });
+    const box = await strip.boundingBox();
+    if (!box) throw new Error("The folded pane has no strip to press.");
+    // Low on the strip, far from where an icon used to be: the whole strip is the button.
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.8);
     // The folded pane kept its folder.
     await expect(entry(rightPane(page), "2025")).toBeVisible();
+    await expect(page).not.toHaveURL(/collapsed=/);
+    // The keyboard does the same.
+    await leftPane(page).getByRole("button", { name: "Pane options" }).click();
+    await page.getByRole("menuitem", { name: "Collapse pane" }).click();
+    await expect(page).toHaveURL(/collapsed=left/);
+    await page.getByRole("button", { name: "Expand Projects" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(entry(leftPane(page), "Client Alpha")).toBeVisible();
     await expect(page).not.toHaveURL(/collapsed=/);
   });
 

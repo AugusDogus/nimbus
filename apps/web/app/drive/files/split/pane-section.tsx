@@ -1,9 +1,4 @@
-import {
-  PanelLeftOpen,
-  PanelRightOpen,
-  SlidersHorizontal,
-  X,
-} from "lucide-react";
+import { SlidersHorizontal, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -245,43 +240,42 @@ export function PaneTools({
   );
 }
 
-/** A pane folded away: a narrow card that names its folder and opens it again. */
+/**
+ * A pane folded away: a narrow strip at its edge that names its folder. The whole strip is one
+ * button, and pressing it anywhere opens the pane again; hovering tints it, as it does the
+ * page's other controls. Folding is in the pane's own menu (see `PaneTools`).
+ */
 export function CollapsedPane({
   side,
   label,
-  onReopen,
+  onExpand,
 }: {
   side: PaneSide;
   label: string;
-  onReopen: () => void;
+  onExpand: () => void;
 }) {
-  const Icon = side === "left" ? PanelLeftOpen : PanelRightOpen;
   return (
     <section
       data-pane={side}
       data-collapsed
       aria-label={`${sideName[side]} pane (collapsed)`}
-      className={cn(
-        "flex min-h-0 flex-col items-center gap-3 rounded-xl py-3 ring-1 ring-border/60 dark:ring-white/[0.05]",
-        recessed,
-      )}
+      className="flex min-h-0"
     >
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={`Reopen ${side} pane: ${label}`}
-        title={`Reopen ${label}`}
-        onClick={onReopen}
-        className="touch-hit"
+      <button
+        type="button"
+        aria-label={`Expand ${label}`}
+        title={`Expand ${label}`}
+        onClick={onExpand}
+        className={cn(
+          "flex min-h-0 w-full cursor-pointer flex-col items-center rounded-xl py-4 text-muted-foreground ring-1 ring-border/60 outline-none transition-colors duration-150 motion-reduce:transition-none dark:ring-white/[0.05]",
+          recessed,
+          "hover:bg-accent hover:text-foreground active:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring",
+        )}
       >
-        <Icon className="size-4" />
-      </Button>
-      <span
-        aria-hidden
-        className="min-h-0 truncate text-xs font-medium text-muted-foreground [writing-mode:vertical-rl]"
-      >
-        {label}
-      </span>
+        <span className="min-h-0 truncate text-xs font-medium [writing-mode:vertical-rl]">
+          {label}
+        </span>
+      </button>
     </section>
   );
 }
