@@ -36,14 +36,22 @@ const logFailure = (error: unknown) =>
 
 /**
  * Keep library catalogs in step with the drive: reconcile them now, again whenever the file
- * watcher reports a change inside one, and on the search index's reconcile interval.
+ * watcher reports a change inside one, and on the search index's reconcile interval. Returns
+ * what stops it, for a server that hands the catalogs over to a newer one.
  */
 export function watchLibraryCatalogs() {
   const ctx = libraryRuntime();
   void LibraryCatalog.reconcileAll(ctx).catch(logFailure);
-  subscribeFileEvents((event) => LibraryCatalog.noteChange(ctx, event.path));
-  setInterval(
+  const unsubscribe = subscribeFileEvents((event) =>
+    LibraryCatalog.noteChange(ctx, event.path),
+  );
+  const timer = setInterval(
     () => void LibraryCatalog.reconcileAll(ctx).catch(logFailure),
     reconcileIntervalMs(),
-  ).unref();
+  );
+  timer.unref();
+  return () => {
+    unsubscribe();
+    clearInterval(timer);
+  };
 }

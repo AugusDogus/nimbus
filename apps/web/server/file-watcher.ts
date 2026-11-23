@@ -4,11 +4,19 @@ import {
   ensureSearchIndex,
   notifySearchChange,
   requestSearchRescan,
+  stopSearchIndex,
 } from "./search-bridge";
 import { reconcileIntervalMs } from "./search-protocol";
 import { startFileWatch, type FileWatchHandle } from "./watch.worker";
 
 let watching: FileWatchHandle | null = null;
+
+/** Stop watching the drive for good, as a draining server does. Search stops with it. */
+export const stopFileWatcher = () => {
+  watching?.close();
+  watching = null;
+  stopSearchIndex();
+};
 
 export const ensureFileWatcher = () => {
   if (watching) return;

@@ -82,6 +82,10 @@ export function createSearchBridge(options: SearchBridgeOptions) {
   /** Searches in flight per caller. */
   const inFlight = new Map<string, number>();
   let searching = 0;
+  /** Settles once the first full index is built, so a supervised server listens only after. */
+  const firstIndex = Promise.withResolvers<void>();
+  /** Set once the server stopped searching for good, as a draining server does. */
+  let stopped = false;
 
   /** Forget a pending request: it was answered, failed, timed out or cancelled. */
   const settle = (state: BridgeState, id: number) => {
@@ -125,6 +129,7 @@ export function createSearchBridge(options: SearchBridgeOptions) {
           return;
         }
         case "indexed":
+          firstIndex.resolve();
           console.info(
             `Nimbus search indexed ${message.entries} items in ${message.elapsedMs} ms (${message.reason})${message.longestPauseMs === null ? "" : `, longest pause ${message.longestPauseMs} ms`}.`,
           );
@@ -162,7 +167,15 @@ export function createSearchBridge(options: SearchBridgeOptions) {
     return state;
   }
 
-  const bridge = () => (running ??= start());
+  const bridge = () => {
+    if (stopped)
+      throw new TRPCError({
+        code: "SERVICE_UNAVAILABLE",
+        message:
+          "This Nimbus server is handing over to a newer one and no longer searches. Search again.",
+      });
+    return (running ??= start());
+  };
 
   /** Register a request the worker answers by id; it fails after `timeoutMs`. */
   function track(
@@ -254,6 +267,24 @@ export function createSearchBridge(options: SearchBridgeOptions) {
     service,
     /** Start the worker now, so it indexes before the first search. */
     start: () => void bridge(),
+    /** Resolves once the index has been built for the first time. */
+    indexed: firstIndex.promise,
+    /** End the index and its worker for good, freeing their memory; searches then fail. */
+    stop() {
+      stopped = true;
+      const state = running;
+      running = null;
+      if (!state) return;
+      for (const id of [...state.pending.keys()])
+        settle(state, id)?.reject(
+          new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message:
+              "This Nimbus server is handing over to a newer one. Search again.",
+          }),
+        );
+      state.worker.terminate();
+    },
     /** The watcher lost events, so walk the drive again to catch up. */
     rescan: () => running?.worker.postMessage({ type: "rescan" }),
     /** Forward a watcher event so the index re-checks that path on disk. */
@@ -286,6 +317,12 @@ export function ensureSearchIndex(
   server.start();
   provideSearchService(server.service);
 }
+
+/** Resolves once the drive index has been built for the first time since startup. */
+export const searchIndexed = () => server.indexed;
+
+/** End the drive index for good, as a draining server does. */
+export const stopSearchIndex = () => server.stop();
 
 /** The watcher lost events, so walk the drive again to catch up. */
 export function requestSearchRescan() {
