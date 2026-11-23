@@ -228,7 +228,16 @@ async function holdScopes<T>(
   }
 }
 
-export const FileMutations = { driveScope, trashScope, holdScopes } as const;
+/** Wait for `scopes` and hold them until the release is called, for locks held across calls. */
+const acquireScopes = (scopes: readonly [HeldScope, ...HeldScope[]]) =>
+  state().scopes.acquire(scopes);
+
+export const FileMutations = {
+  driveScope,
+  trashScope,
+  holdScopes,
+  acquireScopes,
+} as const;
 
 /** What a mutation holds besides the paths it changes. */
 export type MutationScope = {

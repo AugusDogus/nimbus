@@ -18,6 +18,7 @@ import {
   uploaderAddress,
 } from "@/server/file-request-access";
 import { httpDriveStore, httpError } from "@/server/http-files";
+import { UploadLocks } from "@/server/upload-locks";
 import { tusFailure } from "@/server/tus-failure";
 import {
   createUploadFinisher,
@@ -112,6 +113,8 @@ async function getServer() {
   server = new Server({
     path: "/api/file-request/upload",
     datastore: store,
+    // Shared with every server process, so two never write one upload at once.
+    locker: UploadLocks.locker(),
     relativeLocation: true,
     maxSize: fileRequestMaxBytes,
     async onIncomingRequest(request, id) {

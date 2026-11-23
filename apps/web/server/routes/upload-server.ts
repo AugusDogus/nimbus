@@ -4,6 +4,7 @@ import type { Access } from "@nimbus/api/access";
 import type { ContentDrive } from "@nimbus/api/file-versions";
 import { requireExisting, safePath } from "@nimbus/api/file-operations";
 import { createUploadFinisher } from "@/server/upload-publish";
+import { UploadLocks } from "@/server/upload-locks";
 import type { UploadStore } from "@/server/upload-store";
 import { commitUpload, UploadMetadata } from "./upload-commit";
 
@@ -52,6 +53,8 @@ export function createUploadServer({
   return new Server({
     path: "/api/upload",
     datastore: store,
+    // Shared with every server process, so two never write one upload at once.
+    locker: UploadLocks.locker(),
     relativeLocation: true,
     async onIncomingRequest(request, id) {
       try {

@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { UploadLocks } from "./upload-locks";
 import path from "node:path";
 import { TRPCError } from "@trpc/server";
 import { getDataRoot } from "@nimbus/api/data-root";
@@ -198,14 +199,21 @@ export async function publishUpload({
 
 /**
  * Runs each upload's publish step at most once at a time, since tus completion
- * (PATCH) and recovery (HEAD) can race. Shared by both tus servers.
+ * (PATCH) and recovery (HEAD) can race, also on two server processes during an update: it
+ * holds the upload's lock (UploadLocks), which no PATCH writes without, and publishes only an
+ * upload that is complete and not yet published. Shared by both tus servers.
  */
 export function createUploadFinisher(store: UploadStore) {
   const pending = new Map<string, Promise<void>>();
   const finish = async (id: string, publish: () => Promise<void>) => {
     const existing = pending.get(id);
     if (existing) return existing;
-    const task = publish();
+    const task = UploadLocks.hold(id, async () => {
+      if (await store.isFinished(id)) return;
+      const staged = await store.getUpload(id);
+      if (staged.size === undefined || staged.offset !== staged.size) return;
+      await publish();
+    });
     pending.set(id, task);
     try {
       await task;
@@ -219,7 +227,7 @@ export function createUploadFinisher(store: UploadStore) {
      * A fully received upload whose publish failed would otherwise look
      * finished to a resuming client, which would then report success for a
      * file that is not in the drive. On HEAD, publish it now, or throw so the
-     * client retries.
+     * client retries. `publish` must publish through `finish`.
      */
     async recover(
       request: Request,
@@ -230,8 +238,9 @@ export function createUploadFinisher(store: UploadStore) {
     ) {
       if (request.method !== "HEAD" || (await store.isFinished(id))) return;
       const staged = await store.getUpload(id);
+      // `publish` goes through `finish` itself, which holds the lock and checks again.
       if (staged.size !== undefined && staged.offset === staged.size)
-        await finish(id, () => publish(staged.metadata));
+        await publish(staged.metadata);
     },
   };
 }
