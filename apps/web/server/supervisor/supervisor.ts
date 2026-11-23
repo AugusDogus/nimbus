@@ -4,7 +4,11 @@ import {
   type Release as Unlock,
 } from "@nimbus/api/path-locks";
 import type { ServerRun } from "@nimbus/api/server-run";
-import type { SupervisorMessage, WorkerMessage } from "./protocol";
+import {
+  NEEDS_FULL_RESTART_EXIT,
+  type SupervisorMessage,
+  type WorkerMessage,
+} from "./protocol";
 
 /**
  * Owns the container's lifetime and replaces the Nimbus server it runs (a worker) without
@@ -68,7 +72,11 @@ type Drain = {
   since: number;
   deadline: number;
   /** Why the deadline is what it is. */
-  deadlineReason: "drain timeout" | "drain limit" | "container stop";
+  deadlineReason:
+    | "drain timeout"
+    | "drain limit"
+    | "container stop"
+    | "full restart";
   /** Responses still being sent, as it last reported. */
   inFlight: number | null;
 };
@@ -87,6 +95,8 @@ type Worker = {
   exited: boolean;
   /** Path scopes it holds, by its request id. */
   grants: Map<number, { scopes: HeldScope[]; unlock: Unlock }>;
+  /** Why it asked for a full restart instead of a handover, if it did. */
+  fullRestart: string | null;
 };
 
 /**
@@ -140,6 +150,11 @@ type State =
       draining: Drainer[];
       timer: ReturnType<typeof setTimeout>;
     }
+  /**
+   * A release that cannot run beside the others is about to start: every worker drains within
+   * the stop time first.
+   */
+  | { kind: "full-restart"; draining: Drainer[] }
   | { kind: "stopping"; draining: Drainer[] };
 
 export type HandoverError =
@@ -154,6 +169,8 @@ export type HandoverReport = {
   readyMs: number;
   /** The replaced worker, now draining, and when it must have finished; null if it had died. */
   draining: { pid: number; deadline: string } | null;
+  /** Why every server stopped first instead of a handover, or null for a handover. */
+  fullRestart: string | null;
 };
 
 export type SupervisorStatus = {
@@ -211,6 +228,7 @@ export function createSupervisor(deps: {
     switch (current.kind) {
       case "idle":
       case "restarting":
+      case "full-restart":
       case "stopping":
         return drainers;
       case "starting":
@@ -252,6 +270,7 @@ export function createSupervisor(deps: {
       ready: ready.promise,
       exited: false,
       grants: new Map(),
+      fullRestart: null,
     };
     spawned = worker;
     log(`started ${release.name} as pid ${child.pid}`);
@@ -272,6 +291,9 @@ export function createSupervisor(deps: {
         if (drainer) drainer.drain.inFlight = message.count;
         return;
       }
+      case "needs-full-restart":
+        worker.fullRestart = message.reason;
+        return;
       case "drained":
         log(
           `${named(worker)} drained${message.forced ? " at its deadline, cutting the responses still being sent" : ", every response finished"}`,
@@ -312,6 +334,9 @@ export function createSupervisor(deps: {
 
   function onExit(worker: Worker, code: number | null) {
     worker.exited = true;
+    if (code === NEEDS_FULL_RESTART_EXIT && worker.fullRestart === null)
+      worker.fullRestart =
+        "it reported that its pending migrations are not safe beside an older server";
     // What it held stays held, fencing changes it may have left half done, until the active
     // worker has settled them; a recovery it was asked to settle goes to the next active one.
     recoveries.push({
@@ -522,6 +547,77 @@ export function createSupervisor(deps: {
     clearTimeout(timer);
   }
 
+  /**
+   * Stop every worker within the stop time, then start `release` alone, as a release whose
+   * migrations cannot run beside older servers needs. Responses still running are cut.
+   */
+  async function fullRestart(
+    release: Release,
+    reason: string,
+    started: number,
+  ): Promise<Outcome<HandoverReport, HandoverError>> {
+    if (state.kind !== "serving")
+      return busy("The supervisor's state changed meanwhile; try again.");
+    const previous = state.active;
+    log(
+      `${release.name} needs a full restart (${reason}): stopping every server within ${settings.stopMs} ms, then starting it alone`,
+    );
+    const deadline = now() + settings.stopMs;
+    const workers = live();
+    const drainers = workers.map(
+      (worker) =>
+        drainersOf(state).find((drainer) => drainer.worker === worker) ?? {
+          worker,
+          killTimer: null,
+          drain: {
+            reason: `full restart for ${release.name}`,
+            since: now(),
+            deadline: Number.POSITIVE_INFINITY,
+            deadlineReason: "full restart" as const,
+            inFlight: null,
+          },
+        },
+    );
+    state = { kind: "full-restart", draining: drainers };
+    for (const drainer of drainers) drain(drainer, deadline, "full restart");
+    await Promise.all(
+      workers.map((worker) =>
+        reap(worker, settings.stopMs + settings.killGraceMs),
+      ),
+    );
+    if (state.kind !== "full-restart")
+      return busy("The container is stopping, so nothing new starts.");
+    const candidate = spawn(release, previous.previousAssets);
+    state = {
+      kind: "starting",
+      candidate,
+      fallback: {
+        release: previous.release,
+        previousAssets: previous.previousAssets,
+      },
+      draining: [],
+    };
+    const outcome = await promote(candidate);
+    if (outcome.kind !== "promoted")
+      return {
+        ok: false,
+        error: {
+          kind: "not-ready",
+          message: `${release.name} did not start after a full restart (${outcome.kind === "failed" ? outcome.reason : "the container is stopping"}). ${previous.release.name} is started again; the new worker's log above names the failing step.`,
+        },
+      };
+    return {
+      ok: true,
+      value: {
+        from: previous.release.name,
+        to: release.name,
+        readyMs: now() - started,
+        draining: null,
+        fullRestart: reason,
+      },
+    };
+  }
+
   const busy = (message: string) => ({
     ok: false as const,
     error: { kind: "busy" as const, message },
@@ -630,9 +726,12 @@ export function createSupervisor(deps: {
                 pid: outcome.replaced.worker.process.pid,
                 deadline: iso(outcome.replaced.drain.deadline),
               },
+              fullRestart: null,
             },
           };
         case "failed":
+          if (candidate.fullRestart !== null)
+            return fullRestart(release, candidate.fullRestart, started);
           log(`handover to ${release.name} abandoned: ${outcome.reason}`);
           return {
             ok: false,

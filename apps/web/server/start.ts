@@ -42,6 +42,8 @@ import { GET as readiness } from "./routes/health";
 import { Supervision, type LifecycleMessage } from "./supervisor/supervision";
 import { ServerRun } from "@nimbus/api/server-run";
 import { InstallationLock } from "./installation-lock";
+import { MigrationGate } from "./db/migration-gate";
+import { NEEDS_FULL_RESTART_EXIT } from "./supervisor/protocol";
 import { GuessBudgets } from "./guess-budgets";
 
 const startedAt = performance.now();
@@ -114,6 +116,18 @@ const installation =
 if (installation && !installation.ok)
   throw new Error(installation.error.message);
 DatabaseFiles.requireWritable(client, databasePath);
+// Beside an older server, only migrations the release declares safe beside it may run; any
+// other means a full restart, which the supervisor makes instead of this handover.
+if (replacing) {
+  const gate = MigrationGate.check(client);
+  if (gate.kind === "full-restart" && supervision.kind === "supervised") {
+    console.info(
+      `Nimbus needs a full restart rather than one without downtime: ${gate.reason}. Nothing was migrated; the supervisor stops every server and starts this one alone.`,
+    );
+    supervision.send({ kind: "needs-full-restart", reason: gate.reason });
+    process.exit(NEEDS_FULL_RESTART_EXIT);
+  }
+}
 // Live updates and search follow the data root from here on, now that it is known to exist.
 ensureFileWatcher();
 // A supervised server takes over with search complete, and migrates only then, so a server it

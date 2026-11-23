@@ -1,0 +1,11 @@
+{
+  "$comment": "Migrations safe to apply while an older server still serves the same database, as a restart without downtime does: additive only (new tables, nullable or defaulted columns, indexes). A pending migration not listed here makes the supervisor stop every server and start the new one alone. See server/db/migration-gate.ts.",
+  "safeBesideOlderServer": [
+    "0016_durable_undo_and_upload_claims",
+    "0017_media_ticket_counter",
+    "0018_dav_locks",
+    "0019_pending_change_owner",
+    "0020_mcp_upload_reservations",
+    "0021_guess_budgets"
+  ]
+}

@@ -457,6 +457,58 @@ describe("the supervisor", () => {
     expect(h.workers[1]?.killed).toEqual([]);
   });
 
+  test("a release whose migrations are not safe beside the old server gets a full restart", async () => {
+    const h = harness();
+    const first = await h.serving();
+    const handing = h.supervisor.handover("b");
+    const candidate = await h.started(1);
+    candidate.say({
+      kind: "needs-full-restart",
+      reason: "its migration 0022_rename is not declared safe",
+    });
+    candidate.exit(0);
+    await Bun.sleep(1);
+    // Every running worker stops, within the stop time, before the new release starts alone.
+    expect(first.sent.at(-1)).toEqual({
+      kind: "drain",
+      deadline: h.now() + settings.stopMs,
+    });
+    expect(h.workers).toHaveLength(2);
+    first.exit(0);
+    const fresh = await h.started(2);
+    expect(fresh.release).toBe("b");
+    expect(fresh.predecessor).toBe(false);
+    h.ready(fresh);
+    const outcome = await handing;
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok)
+      expect(outcome.value).toMatchObject({
+        from: "a",
+        to: "b",
+        draining: null,
+        fullRestart: "its migration 0022_rename is not declared safe",
+      });
+    expect(h.supervisor.status()).toMatchObject({
+      phase: "serving",
+      active: { pid: fresh.pid },
+      draining: [],
+    });
+  });
+
+  test("a candidate that exits with the full-restart code gets one even if its message was lost", async () => {
+    const h = harness();
+    const first = await h.serving();
+    const handing = h.supervisor.handover("b");
+    (await h.started(1)).exit(75);
+    await Bun.sleep(1);
+    first.exit(0);
+    const fresh = await h.started(2);
+    expect(fresh.predecessor).toBe(false);
+    h.ready(fresh);
+    const outcome = await handing;
+    expect(outcome.ok && outcome.value.fullRestart).toContain("migrations");
+  });
+
   test("stops by draining every worker within the stop time", async () => {
     const h = harness();
     const first = await h.serving();

@@ -73,11 +73,19 @@ const workerMessage = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("drained"), forced: z.boolean() }),
   z.object({ kind: z.literal("acquire-scopes"), id: z.number(), scopes }),
   z.object({ kind: z.literal("release-scopes"), id: z.number() }),
+  /**
+   * Its pending migrations are not safe beside an older server (see MigrationGate), so it did
+   * not apply them and exits: the supervisor stops every server and starts it alone instead.
+   */
+  z.object({ kind: z.literal("needs-full-restart"), reason: z.string() }),
   /** The changes inside recovery `id`'s fence are settled: its scopes may go. */
   z.object({ kind: z.literal("fence-done"), id: z.number() }),
   z.object({ kind: z.literal("transfer-signal"), signal: transferSignal }),
 ]);
 export type WorkerMessage = z.infer<typeof workerMessage>;
+
+/** The exit code of a worker that needs a full restart, in case its message was not delivered. */
+export const NEEDS_FULL_RESTART_EXIT = 75;
 
 /** Variables the supervisor sets for every worker it starts. */
 export const WorkerEnv = {
