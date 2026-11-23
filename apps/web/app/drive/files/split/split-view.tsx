@@ -16,7 +16,6 @@ import { trpc } from "@/lib/trpc";
 import { collectDrop } from "@/lib/upload-sources";
 import { BreadcrumbTrail } from "../breadcrumb-trail";
 import { capabilitiesQueryOptions } from "../capabilities";
-import { DragHint } from "../drag-hint";
 import { TransferDialog } from "../entry-dialogs";
 import {
   FolderPane,
@@ -52,10 +51,12 @@ import {
 } from "./pane-section";
 import { SplitAddress } from "./split-address";
 import { SplitMemory } from "./split-memory";
+import { usePageArea } from "./split-page";
 
 /** Narrowest useful pane, in pixels. */
 const minPaneWidth = 420;
-const dividerWidth = 12;
+/** The gap between the two pane cards, which is the divider. */
+const dividerWidth = 8;
 /** Below this width of the page's content area the panes do not fit side by side. */
 const minSideBySide = 900;
 
@@ -216,11 +217,13 @@ export default function SplitView({
     left: {
       path: layout.right,
       label: labelOf(layout.right),
+      side: "right",
       writable: capabilities.right.data?.canWrite === true,
     },
     right: {
       path: left,
       label: labelOf(left),
+      side: "left",
       writable: capabilities.left.data?.canWrite === true,
     },
   };
@@ -254,6 +257,10 @@ export default function SplitView({
   const frameRef = useRef<HTMLDivElement>(null);
   const box = useContentBox(frameRef);
   const sideBySide = box !== null && box.width >= minSideBySide;
+  usePageArea(frameRef, sideBySide);
+  // Which pane a drag is over: that pane says where the drag would drop.
+  const [dragOver, setDragOver] = useState<PaneSide | null>(null);
+  if (drag.state.status !== "dragging" && dragOver !== null) setDragOver(null);
   const usable = box ? box.width - dividerWidth : 0;
   const bound =
     usable > 0
@@ -274,24 +281,14 @@ export default function SplitView({
     [activate],
   );
 
-  const links = useMemo<Record<PaneSide, PaneLinks>>(() => {
-    // A folder opened in a pane makes that pane active and leaves the other as it is.
-    const paneLinks = (side: PaneSide): PaneLinks => {
-      const leftFor = (path: string) => (side === "left" ? path : left);
-      const layoutFor = (path: string): SplitLayout =>
-        side === "left"
-          ? { ...layout, active: "left" }
-          : { ...layout, right: path, active: "right" };
-      return {
-        to: (path) => ({
-          left: leftFor(path),
-          search: SplitAddress.search(layoutFor(path)),
-        }),
-        href: (path) => SplitAddress.href(leftFor(path), layoutFor(path)),
-      };
-    };
-    return { left: paneLinks("left"), right: paneLinks("right") };
-  }, [left, layout]);
+  // A folder opened in a pane makes that pane active and leaves the other as it is.
+  const links = useMemo<Record<PaneSide, PaneLinks>>(
+    () => ({
+      left: SplitAddress.paneLinks({ left, layout }, "left"),
+      right: SplitAddress.paneLinks({ left, layout }, "right"),
+    }),
+    [left, layout],
+  );
 
   const controlFor = (side: PaneSide): SplitControl => ({
     kind: "open",
@@ -328,7 +325,9 @@ export default function SplitView({
     active: layout.active === side,
     drag,
     moves: movesFor(side),
-    onOnly: () => keepOnly(side),
+    onClose: () => keepOnly(SplitLayout.other(side)),
+    dragOver: dragOver === side,
+    onDragOver: () => setDragOver(side),
     onActivate: () => activate(side),
   });
 
@@ -365,6 +364,8 @@ export default function SplitView({
           style={{
             height: box.height,
             gridTemplateColumns: columns(ratio, layout.collapsed),
+            // A folded pane's card keeps the gap the divider leaves.
+            columnGap: layout.collapsed ? dividerWidth : 0,
           }}
         >
           {pane("left")}
@@ -413,7 +414,6 @@ export default function SplitView({
           </PaneLinks.Provider>
         </div>
       )}
-      {sideBySide && <DragHint drag={drag} />}
       {sideBySide && drag.state.status === "moving" && (
         <p role="status" className="sr-only">
           {drag.state.operation === "copy" ? "Copying" : "Moving"}{" "}

@@ -195,3 +195,31 @@
   [data-slot="toast"] {
   pointer-events: none;
 }
+
+/* While two panes show side by side (see `usePageArea`), the page area gives its surface up to
+   the pane cards, which sit on the window's own tint with the header above them. It never
+   scrolls then, so it keeps no room for a scrollbar; the header takes that room into its padding,
+   so nothing in it moves. Outside any layer, so it outranks the area's own utilities. */
+[data-slot="sidebar-inset"][data-split],
+[data-slot="sidebar-inset"][data-split] > header {
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  border-color: transparent;
+}
+[data-slot="sidebar-inset"][data-split] {
+  scrollbar-gutter: auto;
+}
+[data-slot="sidebar-inset"][data-split] > header {
+  padding-right: calc(1.5rem + var(--split-gutter, 0px));
+}
+/* On the window's tint the search field needs a surface of its own. */
+[data-slot="sidebar-inset"][data-split] > header [role="search"] input {
+  background-color: var(--card);
+}
+[data-slot="sidebar-inset"][data-split]
+  > header
+  [role="search"]
+  input:not(:focus-visible) {
+  box-shadow: 0 0 0 1px var(--border);
+}

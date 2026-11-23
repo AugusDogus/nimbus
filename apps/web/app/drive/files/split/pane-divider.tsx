@@ -22,8 +22,8 @@ const clamp = (value: number, min: number, max: number) =>
 /**
  * The bar between the panes of a split view, as a window splitter: drag it, or focus it and
  * use the arrow keys (Shift for larger steps), Home and End, to share the width out within
- * `min` and `max`; it catches at the middle, and a double-click returns it there. Its buttons
- * fold either pane away.
+ * `min` and `max`; it catches at the middle, and a double-click returns it there. It is the gap
+ * between the two pane cards, with a handle on hover or focus whose buttons fold either pane away.
  */
 export function PaneDivider({
   ratio,
@@ -109,8 +109,9 @@ export function PaneDivider({
   };
 
   const value = Math.round(shown);
+  const dragging = live !== null;
   return (
-    <div className="relative z-30 w-3 shrink-0">
+    <div className="group/divider relative z-30 shrink-0">
       <div
         role="separator"
         tabIndex={0}
@@ -121,7 +122,7 @@ export function PaneDivider({
         aria-valuemax={max}
         aria-valuenow={value}
         aria-valuetext={`Left pane ${value}%, right pane ${100 - value}%`}
-        data-dragging={live === null ? undefined : true}
+        data-dragging={dragging ? true : undefined}
         className="group absolute inset-y-0 -inset-x-1 cursor-col-resize touch-none outline-none pointer-coarse:-inset-x-3"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -131,36 +132,55 @@ export function PaneDivider({
         onDoubleClick={() => commit(middle)}
         onKeyDown={onKeyDown}
       >
+        {/* The gap itself is the divider: empty at rest, a line when pointed at, focused or dragged. */}
         <div
           className={cn(
-            "mx-auto h-full w-px bg-border transition-colors",
-            "group-hover:w-0.5 group-hover:bg-primary/50 group-focus-visible:w-0.5 group-focus-visible:bg-primary group-data-dragging:w-0.5 group-data-dragging:bg-primary",
+            "absolute inset-y-3 left-1/2 w-0.5 -translate-x-1/2 rounded-full bg-transparent transition-colors duration-150 motion-reduce:transition-none",
+            "group-hover:bg-foreground/15 group-focus-visible:bg-ring group-data-dragging:bg-primary",
           )}
         />
       </div>
-      {/* Level with the panes' toolbars, clear of the bar people drag and double-click. */}
-      <div className="absolute left-1/2 top-2.5 flex -translate-x-1/2 flex-col gap-0.5">
+      {/* Folds either pane away: shown on hover or focus, out of the way of a drag. The middle
+          lets the drag through, so the handle can be held like the gap around it. */}
+      <div
+        className={cn(
+          "pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 rounded-full border bg-popover p-0.5 shadow-sm transition-opacity duration-150 motion-reduce:transition-none",
+          dragging
+            ? "opacity-0"
+            : "opacity-0 group-hover/divider:opacity-100 group-has-[:focus-visible]/divider:opacity-100",
+        )}
+      >
         <Button
-          variant="outline"
+          variant="ghost"
           size="icon-xs"
           aria-label="Collapse left pane"
           title="Collapse left pane"
-          className="touch-hit rounded-full bg-background shadow-sm"
+          className="touch-hit pointer-events-auto rounded-full"
           onClick={() => collapse("left")}
         >
           <ChevronLeft />
         </Button>
+        <span
+          aria-hidden
+          className="h-3 w-0.5 rounded-full bg-muted-foreground/40"
+        />
         <Button
-          variant="outline"
+          variant="ghost"
           size="icon-xs"
           aria-label="Collapse right pane"
           title="Collapse right pane"
-          className="touch-hit rounded-full bg-background shadow-sm"
+          className="touch-hit pointer-events-auto rounded-full"
           onClick={() => collapse("right")}
         >
           <ChevronRight />
         </Button>
       </div>
+      {/* While dragging, says when the divider has caught at the middle. */}
+      {dragging && value === middle && (
+        <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[3.75rem] whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs font-medium tabular-nums text-background shadow-sm">
+          50 / 50
+        </span>
+      )}
     </div>
   );
 }

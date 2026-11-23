@@ -24,7 +24,13 @@ export type SplitLayout = {
  * The other pane's folder, offered as a destination for the selection: in the selection bar, the
  * move and copy picker, and the item menus. `writable` is false until its permissions arrive.
  */
-export type OtherPane = { path: string; label: string; writable: boolean };
+export type OtherPane = {
+  path: string;
+  label: string;
+  writable: boolean;
+  /** Where the other pane is, for arrows that point at it. */
+  side: PaneSide;
+};
 
 /**
  * What a listing offers for split view: nothing, on pages that are not a folder; opening one,
@@ -103,6 +109,7 @@ export const SplitLayout = {
   pathOf,
   activePath,
   other,
+  folderOf,
 } as const;
 
 /** The split view the address holds on a folder page, or null for one folder. */

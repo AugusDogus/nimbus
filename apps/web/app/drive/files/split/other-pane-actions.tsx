@@ -1,7 +1,13 @@
-import { ArrowLeftRight, CopyPlus } from "lucide-react";
+import { ArrowLeft, ArrowRight, CopyPlus, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropTarget } from "../drop-target";
-import type { OtherPaneActionsProps } from "../selection-bar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { MenuAction, OtherPaneActionsProps } from "../selection-bar";
 
 /** The renderer the split view puts in `OtherPaneActionsSlot`. */
 export const renderOtherPaneActions = (props: OtherPaneActionsProps) => (
@@ -10,13 +16,42 @@ export const renderOtherPaneActions = (props: OtherPaneActionsProps) => (
 
 /**
  * Move or copy the selection straight into the other pane's folder, without the picker: offered
- * with a split view, and disabled with the reason where that folder cannot take it.
+ * with a split view, and disabled with the reason where that folder cannot take it. In a pane,
+ * also the menu of the selection's less frequent actions.
  */
+/** In a pane's narrower bar, the selection's less frequent actions. Last in the bar. */
+function MoreActions({ items }: { items: readonly MenuAction[] }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="More actions"
+            title="More actions"
+            className="touch-hit order-last"
+          />
+        }
+      >
+        <MoreHorizontal className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        {items.map((item) => (
+          <DropdownMenuItem key={item.label} onClick={item.run}>
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function OtherPaneActions({
   targets,
   other,
   canMove,
-  labelled,
+  more,
   actions,
 }: OtherPaneActionsProps) {
   const target = { path: other.path, writable: other.writable };
@@ -32,7 +67,13 @@ export function OtherPaneActions({
           {
             operation: "move" as const,
             label: `Move to ${other.label}`,
-            icon: <ArrowLeftRight className="size-4" />,
+            // Points at the other pane.
+            icon:
+              other.side === "right" ? (
+                <ArrowRight className="size-4" />
+              ) : (
+                <ArrowLeft className="size-4" />
+              ),
             run: () => void actions.moveEntries(targets, other.path),
           },
         ]
@@ -44,7 +85,8 @@ export function OtherPaneActions({
       run: () => void actions.copyEntries(targets, other.path),
     },
   ];
-  return items.map((item) => {
+  const labelled = more !== null;
+  const buttons = items.map((item) => {
     const reason = refusal(item.operation);
     return (
       <Button
@@ -60,7 +102,7 @@ export function OtherPaneActions({
         <span
           className={
             labelled
-              ? "sr-only @2xl:not-sr-only @2xl:max-w-40 @2xl:truncate"
+              ? "sr-only @md:not-sr-only @md:max-w-40 @md:truncate"
               : "sr-only"
           }
         >
@@ -69,4 +111,10 @@ export function OtherPaneActions({
       </Button>
     );
   });
+  return (
+    <>
+      {buttons}
+      {more && <MoreActions items={more} />}
+    </>
+  );
 }
