@@ -11,7 +11,7 @@ import { LibraryPosters } from "./library-posters";
 import { LibraryThrottle } from "./library-throttle";
 import path from "node:path";
 import { serveOpened, type BodyWatch } from "../file-response";
-import { LibraryCatalog } from "./library-catalog";
+import { LibraryCatalog, type OpenedSource } from "./library-catalog";
 import type { LibraryThrottleRule } from "./library-throttle";
 import { MediaTickets } from "./media-tickets";
 import { Transfers } from "./transfers";
@@ -141,7 +141,9 @@ async function asDevice(
           ctx,
           authorized.device,
           authorized.scope,
-          watched.itemId,
+          watched.itemId === null
+            ? { kind: "library" }
+            : { kind: "item", itemId: watched.itemId },
         );
   let response: Response;
   let refused: string | null = null;
@@ -268,21 +270,30 @@ const sourceChanged = () =>
   });
 
 /**
+ * What a watched answer is about, and so what a full check requires: for the whole library
+ * (such as the listing), that nothing changed, since the answer was worked out from the access
+ * before; for an item, that the device still reaches it; for a file being sent, that the item
+ * still names the file opened for it (`source`, once known), as an id can pass to another file
+ * when its own leaves while the descriptor keeps reading the first.
+ */
+type WatchedAnswer =
+  | { kind: "library" }
+  | { kind: "item"; itemId: string }
+  | { kind: "source"; itemId: string; source: () => OpenedSource | null };
+
+/**
  * What a whole file sent in chunks checks before each chunk. A change this process signals
  * (see Transfers) is seen at the next chunk: a disconnected device stops at once, and a changed
  * library, a change of accounts, groups or grants (the access epoch), or a second gone by makes
  * the chunk check everything the request checked: the device, its library's visible folders and
- * the item. That last, once a second, also catches changes made by other means. Answers sent
- * with an exact length are only checked before they go out.
- *
- * With no item (`itemId` null), it watches an answer about the whole library, such as the
- * listing: any such change refuses it, since the answer was worked out from the access before.
+ * what is watched (`WatchedAnswer`). That last, once a second, also catches changes made by
+ * other means. Answers sent with an exact length are only checked before they go out.
  */
 async function deviceWatch(
   ctx: LibraryContext,
   device: PairedDevice,
   scope: LibraryScope,
-  itemId: string | null,
+  watched: WatchedAnswer,
 ): Promise<BodyWatch> {
   const { transfer, end } = Transfers.begin(device.id, scope.library.id);
   let checkedAt = ctx.now();
@@ -302,7 +313,10 @@ async function deviceWatch(
         transfer.recheck ||
         currentEpoch !== epoch ||
         currentVersion !== libraryVersion;
-      if (!changed && (itemId === null || ctx.now() - checkedAt < 1000))
+      if (
+        !changed &&
+        (watched.kind === "library" || ctx.now() - checkedAt < 1000)
+      )
         return null;
       transfer.recheck = false;
       checkedAt = ctx.now();
@@ -313,14 +327,39 @@ async function deviceWatch(
       if (!still.ok) return disconnected;
       const now = await LibraryAccess.forDevice(ctx, still.device);
       if (!now.ok) return disconnected;
-      if (itemId === null)
-        return "Access to the device's library changed, so the answer was worked out again.";
-      return LibraryAccess.resolve(ctx, now.value, itemId).ok
-        ? null
-        : "This file is no longer in the device's library, so the transfer was stopped.";
+      switch (watched.kind) {
+        case "library":
+          return "Access to the device's library changed, so the answer was worked out again.";
+        case "item":
+          return LibraryAccess.resolve(ctx, now.value, watched.itemId).ok
+            ? null
+            : gone;
+        case "source":
+          return sameSource(ctx, now.value, watched.itemId, watched.source())
+            ? null
+            : gone;
+      }
     },
     done: end,
   };
+}
+
+const gone =
+  "This file is no longer in the device's library, so the transfer was stopped.";
+
+/** Whether item `itemId` still reaches `scope` as the file `source` that was opened for it. */
+function sameSource(
+  ctx: LibraryContext,
+  scope: LibraryScope,
+  itemId: string,
+  source: OpenedSource | null,
+) {
+  const resolved = LibraryAccess.resolve(ctx, scope, itemId);
+  return (
+    source !== null &&
+    resolved.ok &&
+    LibraryCatalog.names(resolved.value, source)
+  );
 }
 
 const itemEndpoints: Record<string, Endpoint> = {
@@ -426,9 +465,14 @@ const itemEndpoints: Record<string, Endpoint> = {
         async (device, scope) => {
           // Drawing can take a while: access removed meanwhile ends the answer as it ends a
           // transfer, checked once the poster is ready and before it is released.
-          const watch = await deviceWatch(ctx, device, scope, itemId);
+          let source: OpenedSource | null = null;
+          const watch = await deviceWatch(ctx, device, scope, {
+            kind: "source",
+            itemId,
+            source: () => source,
+          });
           try {
-            const response = await LibraryPosters.respond(
+            const answer = await LibraryPosters.respond(
               ctx,
               request,
               device,
@@ -436,7 +480,14 @@ const itemEndpoints: Record<string, Endpoint> = {
               itemId,
               width,
             );
-            if (response.status >= 400 || (await watch.allowed()) === null)
+            const { response } = answer;
+            source = answer.source;
+            // The id may have passed to another file while the first one's poster was drawn.
+            if (
+              response.status >= 400 ||
+              ((await watch.allowed()) === null &&
+                sameSource(ctx, scope, itemId, source))
+            )
               return response;
             await response.body?.cancel();
             return itemNotFound();
@@ -475,7 +526,11 @@ const itemEndpoints: Record<string, Endpoint> = {
             filename: path.posix.basename(opened.value.item.path),
             etag: `"${version}"`,
             cacheControl: "private, no-store",
-            watch: await deviceWatch(ctx, device, scope, itemId),
+            watch: await deviceWatch(ctx, device, scope, {
+              kind: "source",
+              itemId,
+              source: () => LibraryCatalog.sourceOf(opened.value.item, stats),
+            }),
           });
           if (served.kind === "served") return served.response;
           if (served.kind === "changed") return sourceChanged();

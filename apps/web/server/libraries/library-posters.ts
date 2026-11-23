@@ -28,7 +28,7 @@ import {
   type LibraryScope,
 } from "./library-access";
 import { LibraryApiError } from "./library-api-error";
-import { LibraryCatalog } from "./library-catalog";
+import { LibraryCatalog, type OpenedSource } from "./library-catalog";
 import type { LibraryContext } from "./library-context";
 
 /**
@@ -435,7 +435,10 @@ function matches(request: Request, etag: string) {
   );
 }
 
-/** The poster of item `itemId` at `width` for a device whose request has been authorized. */
+/**
+ * The poster of item `itemId` at `width` for a device whose request has been authorized, and
+ * the file it was drawn from, for the caller to check once more before releasing it.
+ */
 async function respond(
   ctx: Pick<LibraryContext, "db" | "now">,
   request: Request,
@@ -443,11 +446,27 @@ async function respond(
   scope: LibraryScope,
   itemId: string,
   width: PosterWidth,
-): Promise<Response> {
+): Promise<{ response: Response; source: OpenedSource | null }> {
   // Opened first, so an item whose file is gone or became a link answers as an unknown id does.
   const opened = await LibraryAccess.open(ctx, scope, itemId);
-  if (!opened.ok) return LibraryApiError.response(opened.error);
+  if (!opened.ok)
+    return { response: LibraryApiError.response(opened.error), source: null };
   const { item, opened: file } = opened.value;
+  return {
+    response: await answerFor(ctx, request, device, item, file, width),
+    source: LibraryCatalog.sourceOf(item, file.stats),
+  };
+}
+
+/** The poster of the opened `item` at `width`. Closes the file. */
+async function answerFor(
+  ctx: Pick<LibraryContext, "db" | "now">,
+  request: Request,
+  device: { id: string },
+  item: LibraryItem,
+  file: OpenedDriveFile,
+  width: PosterWidth,
+): Promise<Response> {
   try {
     const source = drawable(path.posix.basename(item.path));
     if (source === null) return LibraryApiError.response(notAvailable);

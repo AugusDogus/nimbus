@@ -6,10 +6,14 @@ import {
   rename,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
+import path from "node:path";
 import type { Server } from "bun";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
+import { libraryItems } from "../db/library-schema";
 import { DevicePairing } from "./device-pairing";
 import { Libraries } from "./libraries";
 import { LibraryCatalog } from "./library-catalog";
@@ -651,12 +655,18 @@ test("a file with other names outside Nimbus's upload staging is neither listed 
 
 describe("a whole file sent in chunks stops when what allowed it ends", () => {
   const large = 9 * MiB;
-  /** Start sending Large.mp4 whole, without a range, to a device of `owner`'s library. */
-  async function sending(owner: "owner" | "alice", folders: string[]) {
-    await writeFile(
-      t.drive.absolute("library/kitchen/Large.mp4"),
-      pattern(large),
-    );
+  const sentAt = new Date(Date.UTC(2026, 3, 2, 8, 15));
+  /** Start sending Large.mp4 (at `file`) whole, without a range, to a device of `owner`'s library. */
+  async function sending(
+    owner: "owner" | "alice",
+    folders: string[],
+    file = "library/kitchen/Large.mp4",
+  ) {
+    await mkdir(t.drive.absolute(path.posix.dirname(file)), {
+      recursive: true,
+    });
+    await writeFile(t.drive.absolute(file), pattern(large));
+    await utimes(t.drive.absolute(file), sentAt, sentAt);
     const created = await Libraries.create(
       t.ctx,
       await t.drive.access(owner),
@@ -707,6 +717,18 @@ describe("a whole file sent in chunks stops when what allowed it ends", () => {
     expect((await reader.read()).done).toBe(false);
     return { libraryId: created.value.id, reader };
   }
+  const rowOf = (library: string, file: string) =>
+    t.drive.db
+      .select()
+      .from(libraryItems)
+      .where(
+        and(
+          eq(libraryItems.libraryId, library),
+          eq(libraryItems.path, file),
+          isNull(libraryItems.missingSince),
+        ),
+      )
+      .get();
   const drain = async (reader: ReadableStreamDefaultReader<Uint8Array>) => {
     let received = 0;
     return (async () => {
@@ -737,6 +759,31 @@ describe("a whole file sent in chunks stops when what allowed it ends", () => {
       },
     );
     expect(updated.ok).toBe(true);
+    const result = await drain(reader);
+    expect(result.outcome).toBe("stopped");
+    expect(result.received).toBeLessThan(large);
+  });
+
+  test("when its folder moves out and its id passes to another file", async () => {
+    const { libraryId: id, reader } = await sending(
+      "owner",
+      ["library/kitchen"],
+      "library/kitchen/Big/Large.mp4",
+    );
+    const before = rowOf(id, "library/kitchen/Big/Large.mp4");
+    await rename(
+      t.drive.absolute("library/kitchen/Big"),
+      t.drive.absolute("library/away"),
+    );
+    // Another file with the same size and times takes the id over.
+    await writeFile(
+      t.drive.absolute("library/kitchen/Twin.mp4"),
+      pattern(large),
+    );
+    await utimes(t.drive.absolute("library/kitchen/Twin.mp4"), sentAt, sentAt);
+    await LibraryCatalog.refreshLibrary(t.ctx, id);
+    expect(rowOf(id, "library/kitchen/Twin.mp4")?.id).toBe(before?.id ?? "");
+    t.advance(1001);
     const result = await drain(reader);
     expect(result.outcome).toBe("stopped");
     expect(result.received).toBeLessThan(large);

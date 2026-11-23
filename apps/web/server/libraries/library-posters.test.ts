@@ -7,7 +7,14 @@ import {
   spyOn,
   test,
 } from "bun:test";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  rename,
+  rm,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -592,6 +599,50 @@ describe.skipIf(missing.length > 0)(
       } finally {
         drawing.mockRestore();
       }
+    });
+
+    test("a poster drawn for a file whose id passed to another file meanwhile is never released", async () => {
+      const when = new Date(Date.UTC(2026, 3, 2, 8, 15));
+      await utimes(
+        t.drive.absolute("library/kitchen/Maps/Trail map.pdf"),
+        when,
+        when,
+      );
+      const token = await pair();
+      const id = await idOf(token, "Trail map.pdf");
+      const draw = PosterRender.master;
+      const drawing = spyOn(PosterRender, "master").mockImplementation(
+        async (...args) => {
+          // The folder moves out of the library and a file with the same size and times
+          // takes the id over, while this drawing still reads the first file.
+          await rename(
+            t.drive.absolute("library/kitchen/Maps"),
+            t.drive.absolute("library/away"),
+          );
+          await writeFile(
+            t.drive.absolute("library/kitchen/Trail copy.pdf"),
+            pdf(),
+          );
+          await utimes(
+            t.drive.absolute("library/kitchen/Trail copy.pdf"),
+            when,
+            when,
+          );
+          await LibraryCatalog.refreshLibrary(t.ctx, libraryId);
+          return draw(...args);
+        },
+      );
+      try {
+        const answer = await refusal(await call(`items/${id}/poster`, token));
+        expect(drawing).toHaveBeenCalled();
+        expect(answer.status).toBe(404);
+      } finally {
+        drawing.mockRestore();
+      }
+      const moved = (await listing(token)).items.find(
+        (item) => item.name === "Trail copy.pdf",
+      );
+      expect(moved?.id).toBe(id);
     });
 
     test("a drawing everyone left is stopped and leaves no record", async () => {

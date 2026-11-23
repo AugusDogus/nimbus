@@ -69,6 +69,24 @@ const versionOf = (
     .digest("base64url")
     .slice(0, 22)}`;
 
+/**
+ * The file a request opened for an item: its path, and the versions that name it, the
+ * catalog's at the time and the opened file's own (the catalog may not have seen an edit yet).
+ */
+export type OpenedSource = { path: string; versions: readonly string[] };
+
+const sourceOf = (
+  item: LibraryItem,
+  stats: { size: number; mtimeMs: number; ctimeMs: number },
+): OpenedSource => ({
+  path: item.path,
+  versions: [item.version, versionOf(item.path, stats)],
+});
+
+/** Whether catalog row `item` still names `source`, rather than a file its id moved to since. */
+const names = (item: LibraryItem, source: OpenedSource) =>
+  item.path === source.path && source.versions.includes(item.version);
+
 /** `folders` without any that lie inside another, so overlapping folders list a file once. */
 const outermost = (folders: readonly string[]) =>
   folders.filter(
@@ -461,6 +479,8 @@ export const LibraryCatalog = {
   scan,
   reconcile,
   versionOf,
+  sourceOf,
+  names,
 
   /**
    * The catalog of library `libraryId` over `target`, reconciled first when the disk may have
