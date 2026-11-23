@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -139,6 +139,10 @@ function RenameDialog({
 }) {
   const [name, setName] = useState(entry.name);
   const { busy, error, submit } = useSubmit(onClose);
+  // Only the field's first focus selects the name without its extension. Focus can come back
+  // after the person started, such as when the menu that opened the dialog returns it late, and
+  // must not narrow what they selected, or the extension would be typed twice.
+  const stemSelected = useRef(false);
   return (
     <Dialog
       open
@@ -172,6 +176,8 @@ function RenameDialog({
               onChange={(event) => setName(event.target.value)}
               autoComplete="off"
               onFocus={(event) => {
+                if (stemSelected.current) return;
+                stemSelected.current = true;
                 const dot =
                   entry.type === "file"
                     ? event.target.value.lastIndexOf(".")

@@ -147,6 +147,32 @@ test("navigates with arrows, type-ahead, select all, rename, and the shortcut sh
   await expect(page.getByRole("dialog", { name: "renamed.txt" })).toBeVisible();
 });
 
+test("keeps what is selected in the rename field when focus comes back to it", async ({
+  page,
+}) => {
+  const { folder } = await folderWithFiles(["a.txt", "b.txt"]);
+  await page.goto(`/browse/${folder}`);
+  await entry(page, "b.txt").focus();
+  await page.keyboard.press("F2");
+  const rename = page.getByRole("dialog", { name: "Rename" });
+  const field = rename.getByLabel("Name");
+  await expect(field).toBeFocused();
+  await page.keyboard.press(`${mod}+a`);
+  // Focus can leave and come back while the dialog opens, such as when the menu that opened it
+  // hands focus back late. It must not narrow the selection to the name without its extension.
+  await field.evaluate((input) => {
+    if (!(input instanceof HTMLInputElement)) return;
+    input.blur();
+    input.focus();
+  });
+  await page.keyboard.type("a.txt");
+  await expect(field).toHaveValue("a.txt");
+  await rename.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect(rename.getByRole("alert")).toContainText(
+    "An item with that name already exists.",
+  );
+});
+
 test("copies a file into another folder and beside itself", async ({
   page,
   context,
