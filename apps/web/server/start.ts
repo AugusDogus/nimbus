@@ -443,13 +443,20 @@ function drain(deadline: number) {
 
 let finishing: Promise<void> | null = null;
 function finish(forced: boolean) {
+  // Past the deadline nothing more is waited for, not even cleanup still running.
+  if (forced) {
+    if (supervision.kind === "supervised")
+      supervision.send({ kind: "drained", forced });
+    client.close();
+    process.exit(1);
+  }
   finishing ??= (async () => {
     await pendingCleanup;
     await flushAudit();
     client.close();
     if (supervision.kind === "supervised")
-      supervision.send({ kind: "drained", forced });
-    process.exit(forced ? 1 : 0);
+      supervision.send({ kind: "drained", forced: false });
+    process.exit(0);
   })().catch((error: unknown) => {
     console.error("Nimbus shutdown failed.", error);
     process.exit(1);
