@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { queryClient, trpc, trpcClient } from "@/lib/trpc";
+import { trpcErrorCode } from "@/lib/trpc-error";
 import type { Library as LibraryRecord } from "@/server/libraries/libraries";
 import type { PairedDeviceListing } from "@/server/libraries/paired-devices";
 import type { WaitingPairing } from "@/server/libraries/device-pairing";
@@ -43,6 +44,18 @@ const formatDate = (milliseconds: number) =>
 const count = (value: number, one: string, many: string) =>
   `${value} ${value === 1 ? one : many}`;
 
+/** What a failed confirmation leaves as it was, said plainly. */
+function stillThere(action: Confirming) {
+  switch (action.kind) {
+    case "delete":
+      return "Nimbus could not delete the library, so it and its paired devices are unchanged. Check your connection and try again.";
+    case "cancel":
+      return "Nimbus could not cancel the pairing, so the approval still stands. Check your connection and try again.";
+    case "disconnect":
+      return "Nimbus could not disconnect the device, so it is still connected. Check your connection and try again.";
+  }
+}
+
 const refresh = () =>
   queryClient.invalidateQueries(trpc.libraries.settings.queryFilter());
 
@@ -72,14 +85,19 @@ export function LibrariesSettings({
         await trpcClient.libraries.revokeDevice.mutate({
           id: action.device.id,
         });
-      setConfirming(null);
+      // The dialog closes, and the row goes, only once the server confirmed and the list is
+      // read again: the page never shows a device gone that may still be connected.
       await refresh();
+      setConfirming(null);
     } catch (failure) {
+      // A refusal the server explains (such as "already disconnected") is shown as it is;
+      // anything else means nothing is known to have changed.
       setError(
-        failure instanceof Error && failure.message
+        trpcErrorCode(failure) !== undefined && failure instanceof Error
           ? failure.message
-          : "Nimbus could not be reached. Nothing was changed; try again.",
+          : stillThere(action),
       );
+      await refresh().catch(() => undefined);
     } finally {
       setBusy(false);
     }
@@ -326,10 +344,16 @@ export function LibrariesSettings({
               }}
             >
               {confirming?.kind === "delete"
-                ? "Delete"
+                ? busy
+                  ? "Deleting…"
+                  : "Delete"
                 : confirming?.kind === "cancel"
-                  ? "Cancel pairing"
-                  : "Disconnect"}
+                  ? busy
+                    ? "Cancelling…"
+                    : "Cancel pairing"
+                  : busy
+                    ? "Disconnecting…"
+                    : "Disconnect"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
