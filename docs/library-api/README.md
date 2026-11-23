@@ -36,12 +36,11 @@ Send it as `Authorization: Bearer <token>` on every other endpoint. Store it in 
 | `GET /library` | `{ library, items, generatedAt }`; optional `?kinds=video,document` |
 | `GET /items/{id}` | One item, as the library lists it |
 | `GET`, `HEAD /items/{id}/file` | The file's bytes, see [Files](#files) |
+| `GET`, `HEAD /items/{id}/poster?w=` | A JPEG poster, see [Posters](#posters) |
 | `POST /items/{id}/stream` | `{ url, expiresAt }` and a cookie: a media address, see [Media addresses](#media-addresses) |
 | `GET`, `HEAD /media/{id}?ticket=...` | The file's bytes for a media address and its cookie, without the token |
 
-`GET /library` answers with `Cache-Control: private, no-cache` and an `ETag`; send `If-None-Match` to get `304 Not Modified` when nothing changed. Every other answer is `private, no-store`.
-
-Planned for a later version, in this API's style: a preview image.
+`GET /library` and posters answer with `Cache-Control: private, no-cache` and an `ETag`; send `If-None-Match` to get `304 Not Modified` when nothing changed. Every other answer is `private, no-store`.
 
 ## The library
 
@@ -59,7 +58,7 @@ Each item has:
 | `path` | The file's path below that folder: its real names joined with `/`, no leading slash, such as `Guides/Trail map.pdf`, or just its name at the top of the folder. Nothing at or above a library folder is shown. |
 | `addedAt` | When the file joined the library; see [Identity](#identity). It never changes afterwards, also when the file is edited. |
 | `sizeBytes`, `version` | Size, and an opaque value that changes whenever the content may have changed. |
-| `poster` | `null` for now. |
+| `poster` | `{ url, width, height }`, or `null` when the item has no poster; see [Posters](#posters). |
 
 ### Identity
 
@@ -73,6 +72,21 @@ Ids and added dates survive renames and moves made through Nimbus, and a folder 
 ## Files
 
 `GET /items/{id}/file` sends the file's bytes with the token, for clients that can send an Authorization header. It answers as a file download does: the item's `contentType`, `Content-Length`, `Accept-Ranges: bytes`, a single byte range (`bytes=0-1`, `bytes=1000-`, `bytes=-500`) as `206` with an exact `Content-Range`, `416` with `Content-Range: bytes */<size>` for a range past the end, `HEAD`, and `If-Range`. The `ETag` is the item's `version`, quoted, and the answer is `Cache-Control: private, no-cache`. An id that is unknown, from another library, of a file that went missing, or of a file the device can no longer see all answer the same `404 item_not_found`. Every answer, whole or ranged, goes out with its exact length and is checked immediately before it is sent; a disconnect, a library change or a file change applies from the next request.
+
+## Posters
+
+Videos, PDFs and images have a poster: a JPEG of a frame a few seconds into the video, of the PDF's first page, or of the image, each in its own shape. The item's `poster` gives:
+
+- `url`: the poster's path on this server, `/api/library/v1/items/{id}/poster`. Fetch it with the token, adding `?w=400`, `?w=800` or `?w=1920` for the width in pixels. Any other number rounds to the nearest of those (halfway rounds up), and without `w` the poster is 800 pixels wide. A poster is never larger than its source: a 640-pixel video gives a 640-pixel poster at `w=800`. A page has no pixels of its own and is drawn at the width asked for.
+- `width` and `height`: the source's size, so a client can lay the item out before the poster loads. For a video, its frame as displayed; for an image, its size once its orientation applies; for a PDF, its first page in points (1/72 inch). They are `null` until the item's first poster has been drawn, then filled in: the listing never decodes a file, so asking for any poster of an item is what fills them in. Lay such an item out at a default shape and adjust when the poster arrives.
+
+`poster` is `null` for audio, other files, documents that are not PDFs, video and image formats Nimbus cannot decode (such as AVI or HEIC), on a server without the decoders, and once a version of the file could not be drawn.
+
+The poster answer has `Content-Type: image/jpeg`, an exact `Content-Length`, an `ETag` that changes with the item's `version` and the width, `Cache-Control: private, no-cache` and `X-Content-Type-Options: nosniff`; send `If-None-Match` for `304`. `HEAD` gives the same headers.
+
+- **The first request may take a moment.** An item's first poster is drawn when it is asked for, then kept until the file changes, so later requests, at any width, are quick. A client may ask for all the posters of a screen at once: each device has up to four drawn at a time, the rest wait their turn (up to 64), and requests for the same poster share one drawing.
+- **Busy.** When the server is drawing too many posters to queue more, it answers `429 rate_limited` with `Retry-After`; ask again then.
+- **Failures.** A file that cannot be drawn answers `422 poster_failed`, and so does every later request until the file changes; its `poster` becomes `null`. A drawing that runs out of time answers `poster_failed` too, and is tried once more after ten minutes. An item without a poster answers `404 poster_not_available`. An id the device cannot reach answers `404 item_not_found`, as everywhere else.
 
 ## Media addresses
 
@@ -94,10 +108,10 @@ Every failure is JSON `{ "error": { "code": "...", "message": "..." } }`, with a
 | 400 | `invalid_request` |
 | 401 | `authorization_required`, `token_invalid`, `token_revoked` |
 | 403 | `forbidden_origin` (a web page on another site sent the request), `stream_invalid`, `stream_expired` |
-| 404 | `not_found`, `item_not_found` |
+| 404 | `not_found`, `item_not_found`, `poster_not_available` |
 | 405 | `method_not_allowed` |
 | 409 | `stream_source_changed` |
-| 422 | `library_too_large` |
+| 422 | `library_too_large`, `poster_failed` |
 | 429 | `rate_limited`, `slow_down` |
 | 503 | `library_unavailable` (the owner can no longer share any of the library's folders), `service_unavailable` |
 
@@ -111,6 +125,7 @@ Every failure is JSON `{ "error": { "code": "...", "message": "..." } }`, with a
 | Requests with a token | 120 per minute per device |
 | Minting media addresses | 10 per minute per device |
 | File and media byte requests (each range one) | 300 per minute per device |
+| Poster requests | 300 per minute per device; four drawn at once per device |
 
 ## What a device can reach
 

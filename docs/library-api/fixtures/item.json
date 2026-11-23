@@ -8,5 +8,9 @@
   "addedAt": "2026-11-12T10:00:00.000Z",
   "sizeBytes": 245760,
   "version": "v1_exampleVersion0002",
-  "poster": null
+  "poster": {
+    "url": "/api/library/v1/items/itm_exampleTrailMap001/poster",
+    "width": 612,
+    "height": 792
+  }
 }

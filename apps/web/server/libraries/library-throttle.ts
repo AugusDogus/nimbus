@@ -22,6 +22,8 @@ const rules = {
   mintPerDevice: { limit: 10, windowMs: 60_000 },
   /** File and media byte requests (each range one) per paired device. */
   mediaPerDevice: { limit: 300, windowMs: 60_000 },
+  /** Poster requests per paired device. */
+  posterPerDevice: { limit: 300, windowMs: 60_000 },
 } as const;
 
 export type LibraryThrottleRule = keyof typeof rules;

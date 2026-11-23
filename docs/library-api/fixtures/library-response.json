@@ -11,7 +11,11 @@
       "addedAt": "2026-11-15T12:00:00.000Z",
       "sizeBytes": 387973120,
       "version": "v1_exampleVersion0001",
-      "poster": null
+      "poster": {
+        "url": "/api/library/v1/items/itm_exampleSourdough01/poster",
+        "width": 1920,
+        "height": 1080
+      }
     },
     {
       "id": "itm_exampleTrailMap001",
@@ -23,7 +27,11 @@
       "addedAt": "2026-11-12T10:00:00.000Z",
       "sizeBytes": 245760,
       "version": "v1_exampleVersion0002",
-      "poster": null
+      "poster": {
+        "url": "/api/library/v1/items/itm_exampleTrailMap001/poster",
+        "width": 612,
+        "height": 792
+      }
     },
     {
       "id": "itm_exampleBikeNotes01",

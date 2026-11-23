@@ -7,6 +7,7 @@ import { LibraryAccess, type LibraryScope } from "./library-access";
 import { LibraryApiError, noStore } from "./library-api-error";
 import type { LibraryContext } from "./library-context";
 import { LibraryListing } from "./library-listing";
+import { LibraryPosters } from "./library-posters";
 import { LibraryThrottle } from "./library-throttle";
 import path from "node:path";
 import { serveOpened, type BodyWatch } from "../file-response";
@@ -290,7 +291,7 @@ const itemEndpoints: Record<string, Endpoint> = {
         const { item } = opened.value;
         const { stats } = opened.value.opened;
         await opened.value.opened.handle.close();
-        const entry = LibraryListing.entry(scope, {
+        const entry = LibraryListing.entry(ctx, scope, {
           ...item,
           version: LibraryCatalog.versionOf(stats),
           sizeBytes: stats.size,
@@ -356,6 +357,25 @@ const itemEndpoints: Record<string, Endpoint> = {
         { rule: "mintPerDevice" },
       ),
   },
+  poster: {
+    method: "GET",
+    async handle(ctx, request, itemId) {
+      const width = LibraryPosters.parseWidth(
+        new URL(request.url).searchParams.get("w"),
+      );
+      if (width === null)
+        return invalid(
+          "w must be a width in pixels, such as 400, 800 or 1920.",
+        );
+      return asDevice(
+        ctx,
+        request,
+        (device, scope) =>
+          LibraryPosters.respond(ctx, request, device, scope, itemId, width),
+        { rule: "posterPerDevice" },
+      );
+    },
+  },
   media: {
     method: "GET",
     async handle(ctx, request, itemId) {
@@ -415,7 +435,7 @@ function route(endpoint: string): { found: Endpoint; itemId: string } | null {
     first === "items"
       ? rest === undefined
         ? "item"
-        : rest === "file" || rest === "stream"
+        : rest === "file" || rest === "stream" || rest === "poster"
           ? rest
           : null
       : first === "media" && rest === undefined

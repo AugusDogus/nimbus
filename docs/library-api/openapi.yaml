@@ -187,6 +187,78 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/Error"
+  /items/{id}/poster:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+      - name: w
+        in: query
+        required: false
+        description: >-
+          The poster's width: 400, 800 or 1920 pixels. Any other number rounds to the nearest of
+          those (halfway rounds up); without it, 800.
+        schema:
+          type: integer
+          minimum: 0
+    get:
+      operationId: getItemPoster
+      summary: The item's poster, as a JPEG
+      description: >-
+        A frame a few seconds into a video, the first page of a PDF, or a scaled copy of an
+        image, in its own shape. At most `w` pixels wide, never larger than its source; a page
+        is drawn at `w`. `Content-Length` is exact; the `ETag` changes with the item's version
+        and the width. Private, no-cache: revalidate with If-None-Match. The first request for
+        an item may take a moment while it is drawn; later ones are served from a cache.
+      parameters:
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: The poster.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`item_not_found`, or `poster_not_available` for an item that has no poster."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: "`poster_failed`: this version of the file could not be drawn. It is tried again once the file changes."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Error"
+    head:
+      operationId: headItemPoster
+      summary: The poster's headers
+      responses:
+        "200":
+          description: The headers a GET would answer with, without the body.
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /items/{id}/stream:
     parameters:
       - $ref: "#/components/parameters/ItemId"
@@ -570,8 +642,33 @@ components:
           pattern: ^[A-Za-z0-9_-]{8,128}$
           description: Opaque; changes whenever the file's content may have changed.
         poster:
-          type: "null"
-          description: Reserved for a later version.
+          oneOf:
+            - $ref: "#/components/schemas/Poster"
+            - type: "null"
+          description: >-
+            The item's poster, or null when it has none: its kind has no poster (audio, other,
+            documents that are not PDFs), the server cannot draw it, or this version of the file
+            could not be drawn.
+    Poster:
+      type: object
+      additionalProperties: false
+      required: [url, width, height]
+      properties:
+        url:
+          type: string
+          pattern: ^/api/library/v1/items/itm_[A-Za-z0-9_-]{10,64}/poster$
+          description: The poster endpoint's path on this server. Add `?w=400`, `?w=800` or `?w=1920`.
+        width:
+          type: [integer, "null"]
+          minimum: 1
+          description: >-
+            The source's width in pixels (a video frame's display size, an image's size once its
+            orientation applies, a page's size in points), for laying out before the poster loads.
+            Null until the item's first poster has been drawn; ask for one to learn it.
+        height:
+          type: [integer, "null"]
+          minimum: 1
+          description: The source's height, as `width`. Null exactly when `width` is.
     MediaAddress:
       type: object
       additionalProperties: false
@@ -604,11 +701,13 @@ components:
                 - forbidden_origin
                 - not_found
                 - item_not_found
+                - poster_not_available
                 - method_not_allowed
                 - stream_invalid
                 - stream_expired
                 - stream_source_changed
                 - library_too_large
+                - poster_failed
                 - rate_limited
                 - slow_down
                 - library_unavailable

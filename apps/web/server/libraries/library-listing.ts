@@ -12,10 +12,16 @@ import {
 } from "./library-access";
 import { LibraryCatalog, MAX_LIBRARY_ITEMS } from "./library-catalog";
 import type { LibraryContext } from "./library-context";
+import {
+  LibraryPosters,
+  type ListedPoster,
+  type PosterRecord,
+} from "./library-posters";
 
 /**
  * GET /library: the library as one flat list, newest first, in the shape of
- * docs/library-api/openapi.yaml. Posters are null until a later slice fills them.
+ * docs/library-api/openapi.yaml. Posters come from what earlier poster requests recorded: the
+ * listing never decodes anything.
  */
 export type ListedItem = {
   id: string;
@@ -30,7 +36,7 @@ export type ListedItem = {
   addedAt: string;
   sizeBytes: number;
   version: string;
-  poster: null;
+  poster: ListedPoster | null;
 };
 
 export type LibraryBody = {
@@ -67,6 +73,7 @@ function placeOf(
 function listed(
   folders: readonly string[],
   item: LibraryItem,
+  poster: PosterRecord | undefined,
 ): ListedItem | null {
   const place = placeOf(folders, item.path);
   if (place === null) return null;
@@ -82,7 +89,10 @@ function listed(
     addedAt: new Date(item.addedAt).toISOString(),
     sizeBytes: item.sizeBytes,
     version: item.version,
-    poster: null,
+    poster: LibraryPosters.listed(
+      { id: item.id, name, version: item.version },
+      poster,
+    ),
   };
 }
 
@@ -101,8 +111,11 @@ export type LibraryListingResult =
 
 export const LibraryListing = {
   /** One item as the listing shows it, as `scope` sees it, or null when no folder holds it. */
-  entry: (scope: LibraryScope, item: LibraryItem) =>
-    listed(scope.folders, item),
+  entry: (
+    ctx: Pick<LibraryContext, "db">,
+    scope: LibraryScope,
+    item: LibraryItem,
+  ) => listed(scope.folders, item, LibraryPosters.knownFor(ctx, item.id)),
 
   /** The scope's library, only items of `kinds` when given. */
   async library(
@@ -142,11 +155,12 @@ export const LibraryListing = {
           message: `This library has more than ${MAX_LIBRARY_ITEMS.toLocaleString("en")} files. Ask its owner to choose fewer folders in Nimbus Settings, Libraries.`,
         },
       };
+    const posters = LibraryPosters.known(ctx, scope.library.id);
     const items = catalog.items
       .filter((item) => LibraryAccess.reaches(scope, item.path))
       .sort(newestFirst)
       .flatMap((item) => {
-        const entry = listed(scope.folders, item);
+        const entry = listed(scope.folders, item, posters.get(item.id));
         return entry === null ? [] : [entry];
       })
       .filter((item) => kinds === null || kinds.includes(item.kind));
