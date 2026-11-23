@@ -11,6 +11,7 @@ Files stay on your filesystem. Accounts, permissions, links, and preferences are
 ## Features
 
 - Browse folders in list or grid views with sorting, breadcrumbs, and live updates.
+- Open two folders side by side in split view to drag, move, or copy items between them. Hold Ctrl (Option on macOS) while dragging to copy. Press `|` in a listing to open or close it and `\` to switch panes.
 - Upload files with resumable transfers, create folders, rename, move, download, and restore deleted items.
 - Keep earlier versions of replaced files, and download or restore them.
 - Install Nimbus as an app from supporting browsers.
