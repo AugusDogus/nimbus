@@ -19,12 +19,14 @@ export async function openLibraryTest() {
   LibraryCatalog.resetForTest();
   let now = Date.UTC(2026, 10, 15, 12);
   let session: BrowserSession | null = null;
+  let run = 1;
   const ctx: LibraryContext = {
     db: drive.db,
     drive: drive.store,
     origin: { kind: "configured", origin: testOrigin },
     secret: "test-secret-that-is-at-least-32-characters-long",
     now: () => now,
+    run: () => `test-run-${run}`,
     getSession: async () => session,
   };
   return {
@@ -34,6 +36,10 @@ export async function openLibraryTest() {
       now += ms;
     },
     now: () => now,
+    /** Start another run of the server, as a restart would. */
+    restart() {
+      run++;
+    },
     signIn(
       id: TestAccount,
       impersonatedBy: string | null = null,

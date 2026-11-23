@@ -1,0 +1,1 @@
+ALTER TABLE `nimbus_paired_device` ADD `media_tickets_minted` integer DEFAULT 0 NOT NULL;

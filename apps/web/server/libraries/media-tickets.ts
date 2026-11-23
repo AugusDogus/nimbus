@@ -4,7 +4,9 @@ import {
   randomBytes,
   timingSafeEqual,
 } from "node:crypto";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
+import { pairedDevices } from "../db/schema";
 import { hashToken } from "../mcp/oauth/secrets";
 import type { LibraryApiError } from "./library-api-error";
 import type { LibraryContext } from "./library-context";
@@ -15,14 +17,18 @@ import { PairedDevices, type PairedDevice } from "./paired-devices";
  * media players that cannot attach one to their requests. Minting returns two separate secrets:
  *
  * - a ticket, carried in the URL's query string: claims (session, device, item, file version,
- *   expiry) sealed with an HMAC, so a forged or altered ticket is recognized without a lookup;
- * - a cookie, a random 256-bit value stored only as a hash in the ticket's session.
+ *   expiry, server run, the device's mint number and the cookie's hash) sealed with an HMAC, so
+ *   a forged or altered ticket is recognized without a lookup;
+ * - a cookie, a random 256-bit value that exists in plain text only on the client; the ticket
+ *   holds its hash.
  *
- * A request needs both: a URL copied from a log is useless alone, and a cookie names one session
- * of one item. Sessions live in this process's memory: a restart ends every one, and their
- * tickets then answer `stream_expired`, so the client mints again. Each device keeps at most
- * `MAX_TICKETS_PER_DEVICE` sessions (minting replaces its oldest). There is no limit on answers
- * sent at once: a media player holds several ranges open while it buffers.
+ * A request needs both: a URL copied from a log is useless alone, and a cookie belongs to one
+ * ticket of one item. Nothing about a ticket is kept in memory, so every server process accepts
+ * it, also the next one during an update. A ticket ends with the run of the server that minted
+ * it (see ServerRun): after a restart it answers `stream_expired`, and the client mints again.
+ * Each device's mints are numbered in the database, and only its newest
+ * `MAX_TICKETS_PER_DEVICE` are accepted (minting replaces its oldest). There is no limit on
+ * answers sent at once: a media player holds several ranges open while it buffers.
  */
 
 export const MAX_TICKETS_PER_DEVICE = 4;
@@ -31,36 +37,37 @@ export const DEFAULT_TICKET_MS = 4 * 60 * 60 * 1000;
 /** The longest any ticket lasts. */
 export const MAX_TICKET_MS = 8 * 60 * 60 * 1000;
 
-type Session = {
-  id: string;
-  deviceId: string;
-  itemId: string;
-  version: string;
-  expiresAt: number;
-  cookieHash: string;
-};
-
 export type MediaGrant = {
   device: PairedDevice;
-  session: Pick<Session, "id" | "itemId" | "version" | "expiresAt">;
+  session: { id: string; itemId: string; version: string; expiresAt: number };
 };
 
 export type MediaCheck =
   | { ok: true; grant: MediaGrant }
   | { ok: false; error: LibraryApiError };
 
-const sessions = new Map<string, Session>();
-/** Each device's sessions, oldest first. */
-const byDevice = new Map<string, string[]>();
-
 const claims = z.object({
-  v: z.literal(1),
+  v: z.literal(2),
   sid: z.string().min(1).max(64),
   dev: z.string().min(1).max(200),
   itm: z.string().min(1).max(100),
   ver: z.string().min(1).max(128),
   exp: z.number().int(),
+  /** The run of the server that minted it. */
+  run: z.string().min(1).max(64),
+  /** The device's mint number for this ticket. */
+  seq: z.number().int().positive(),
+  /** The cookie's hash: only that cookie opens it. */
+  ckh: z.string().min(1).max(128),
 });
+
+/** How many media addresses the device has minted; 0 for one that never minted any. */
+const minted = (ctx: Pick<LibraryContext, "db">, deviceId: string) =>
+  ctx.db
+    .select({ minted: pairedDevices.mediaTicketsMinted })
+    .from(pairedDevices)
+    .where(eq(pairedDevices.grantId, deviceId))
+    .get()?.minted ?? 0;
 
 const mac = (secret: string, payload: string) =>
   createHmac(
@@ -112,17 +119,6 @@ function cookie(request: Request, name: string) {
   return null;
 }
 
-/** Forget sessions that expired, and devices without sessions. */
-function prune(now: number) {
-  for (const [id, session] of sessions)
-    if (session.expiresAt <= now) sessions.delete(id);
-  for (const [deviceId, ids] of byDevice) {
-    const kept = ids.filter((id) => sessions.has(id));
-    if (kept.length) byDevice.set(deviceId, kept);
-    else byDevice.delete(deviceId);
-  }
-}
-
 export const MediaTickets = {
   /**
    * A new ticket and cookie for `device` to fetch version `version` of item `itemId`. They last
@@ -130,14 +126,13 @@ export const MediaTickets = {
    * hours, and never past the device's idle deadline.
    */
   mint(
-    ctx: Pick<LibraryContext, "now" | "secret" | "origin">,
+    ctx: Pick<LibraryContext, "db" | "now" | "secret" | "origin" | "run">,
     device: PairedDevice,
     itemId: string,
     version: string,
     durationMs: number | null,
   ) {
     const now = ctx.now();
-    prune(now);
     const lifetime =
       durationMs === null
         ? DEFAULT_TICKET_MS
@@ -145,28 +140,31 @@ export const MediaTickets = {
     const expiresAt = Math.min(now + lifetime, device.idleDeadline);
     const id = randomBytes(16).toString("base64url");
     const secret = randomBytes(32).toString("base64url");
-    sessions.set(id, {
-      id,
-      deviceId: device.id,
-      itemId,
-      version,
-      expiresAt,
-      cookieHash: hashToken(secret),
-    });
-    const ids = [...(byDevice.get(device.id) ?? []), id];
-    while (ids.length > MAX_TICKETS_PER_DEVICE) {
-      const oldest = ids.shift();
-      if (oldest !== undefined) sessions.delete(oldest);
-    }
-    byDevice.set(device.id, ids);
+    // Numbered in the database, so every server process counts the same mints.
+    const seq =
+      ctx.db
+        .update(pairedDevices)
+        .set({
+          mediaTicketsMinted: sql`${pairedDevices.mediaTicketsMinted} + 1`,
+        })
+        .where(eq(pairedDevices.grantId, device.id))
+        .returning({ minted: pairedDevices.mediaTicketsMinted })
+        .get()?.minted ?? null;
+    if (seq === null)
+      throw new Error(
+        `Paired device ${device.id} has no device record, so no media address was made for it. Pair the device again.`,
+      );
     const payload = Buffer.from(
       JSON.stringify({
-        v: 1,
+        v: 2,
         sid: id,
         dev: device.id,
         itm: itemId,
         ver: version,
         exp: expiresAt,
+        run: ctx.run(),
+        seq,
+        ckh: hashToken(secret),
       } satisfies z.infer<typeof claims>),
     ).toString("base64url");
     const secure = isSecure(ctx);
@@ -188,11 +186,11 @@ export const MediaTickets = {
   /**
    * Whether `request`, for item `itemId`, carries a valid ticket and its cookie. Checked in this
    * order, so nothing is trusted before it is authenticated: the ticket's seal, then the device
-   * it names (a revoked device answers 401 even when the ticket also expired), then expiry and
-   * the session, then the cookie.
+   * it names (a revoked device answers 401 even when the ticket also expired), then expiry, the
+   * server run and whether a newer mint replaced it, then the cookie.
    */
   check(
-    ctx: Pick<LibraryContext, "db" | "now" | "secret" | "origin">,
+    ctx: Pick<LibraryContext, "db" | "now" | "secret" | "origin" | "run">,
     request: Request,
     itemId: string,
   ): MediaCheck {
@@ -217,25 +215,30 @@ export const MediaTickets = {
     const device = PairedDevices.byGrant(ctx, parsed.data.dev);
     if (!device.ok) return device;
     const now = ctx.now();
-    const session = sessions.get(parsed.data.sid);
-    // Gone when it expired, was replaced by newer ones, or the server restarted since.
-    if (parsed.data.exp <= now || !session || session.expiresAt <= now)
-      return expired();
-    const secret = cookie(request, cookieName(isSecure(ctx), session.id));
+    const { sid, exp, run, seq, ckh, ver } = parsed.data;
+    // Gone when it expired, the server restarted since, or newer ones replaced it.
     if (
-      secret === null ||
-      hashToken(secret) !== session.cookieHash ||
-      session.deviceId !== device.device.id ||
-      session.itemId !== itemId ||
-      session.version !== parsed.data.ver
+      exp <= now ||
+      run !== ctx.run() ||
+      seq <= minted(ctx, device.device.id) - MAX_TICKETS_PER_DEVICE
+    )
+      return expired();
+    const secret = cookie(request, cookieName(isSecure(ctx), sid));
+    const presentedHash =
+      secret === null ? null : Buffer.from(hashToken(secret));
+    const sealedHash = Buffer.from(ckh);
+    if (
+      presentedHash === null ||
+      presentedHash.length !== sealedHash.length ||
+      !timingSafeEqual(presentedHash, sealedHash)
     )
       return invalid();
-    return { ok: true, grant: { device: device.device, session } };
-  },
-
-  /** Forget every session, as a restart would. */
-  resetForTest() {
-    sessions.clear();
-    byDevice.clear();
+    return {
+      ok: true,
+      grant: {
+        device: device.device,
+        session: { id: sid, itemId, version: ver, expiresAt: exp },
+      },
+    };
   },
 } as const;

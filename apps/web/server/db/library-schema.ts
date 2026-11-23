@@ -180,6 +180,11 @@ export const pairedDevices = sqliteTable(
     deviceName: text("device_name").notNull(),
     /** Why the grant was revoked, when a device action revoked it. */
     revokedReason: text("revoked_reason", { enum: DEVICE_REVOCATION_REASONS }),
+    /**
+     * Media addresses minted for the device so far. Each address carries its number, and only
+     * the newest `MAX_TICKETS_PER_DEVICE` are accepted (see MediaTickets).
+     */
+    mediaTicketsMinted: integer("media_tickets_minted").notNull().default(0),
   },
   (table) => [index("nimbus_paired_device_library").on(table.libraryId)],
 );

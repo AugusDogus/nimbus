@@ -24,6 +24,8 @@ export type LibraryContext = {
   /** Signs the pairing page's review tickets. Never logged. */
   secret: string;
   now: () => number;
+  /** This run of the server (see ServerRun); media addresses end with it. */
+  run: () => string;
   getSession: (headers: Headers) => Promise<BrowserSession | null>;
 };
 

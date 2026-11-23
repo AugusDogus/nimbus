@@ -19,7 +19,7 @@ import { Libraries } from "./libraries";
 import { LibraryCatalog } from "./library-catalog";
 import { LibraryHttp } from "./library-http";
 import { openLibraryTest, type LibraryTest } from "./library-testing";
-import { MediaTickets, MAX_TICKETS_PER_DEVICE } from "./media-tickets";
+import { MAX_TICKETS_PER_DEVICE } from "./media-tickets";
 import { PairedDevices } from "./paired-devices";
 import { Transfers } from "./transfers";
 
@@ -42,7 +42,6 @@ let paired = 0;
 
 beforeEach(async () => {
   t = await openLibraryTest();
-  MediaTickets.resetForTest();
   await t.drive.write("library/kitchen/Guides/Pattern.mp4");
   await writeFile(
     t.drive.absolute("library/kitchen/Guides/Pattern.mp4"),
@@ -79,7 +78,6 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await server.stop(true);
-  MediaTickets.resetForTest();
   await t.close();
 });
 
@@ -434,15 +432,52 @@ describe("media addresses", () => {
       later.push(await mint(token, id));
     const replaced = await media(minted);
     expect(await errorCode(replaced)).toBe("stream_expired");
+    for (const kept of later)
+      expect((await media(kept, { range: "bytes=0-0" })).status).toBe(206);
     const [newest] = later.slice(-1);
     if (!newest) throw new Error("no ticket");
-    MediaTickets.resetForTest();
+    t.restart();
     const restarted = await media(newest);
     expect(restarted.status).toBe(403);
     expect(await errorCode(restarted)).toBe("stream_expired");
     const fresh = await mint(token, id);
     t.advance(4 * 60 * 60 * 1000 + 1);
     expect(await errorCode(await media(fresh))).toBe("stream_expired");
+  });
+
+  test("keep working on the next server of the same run, as during an update", async () => {
+    const { token } = await pair();
+    const id = await idOf(token, "Pattern.mp4");
+    const minted = await mint(token, id);
+    // The next server shares only the database, the secret and the run with the first.
+    const next = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const forwarded = new Request(request, {
+          headers: new Headers(request.headers),
+        });
+        forwarded.headers.set("x-nimbus-client-ip", "192.0.2.81");
+        return LibraryHttp.handle(
+          { ...t.ctx },
+          forwarded,
+          decodeURIComponent(
+            new URL(request.url).pathname.slice("/api/library/v1/".length),
+          ),
+        );
+      },
+    });
+    try {
+      const answer = await fetch(
+        minted.url.replace(`:${server.port}/`, `:${next.port}/`),
+        { headers: { cookie: minted.cookie, range: "bytes=0-9" } },
+      );
+      expect(answer.status).toBe(206);
+      expect(new Uint8Array(await answer.arrayBuffer())).toEqual(
+        expected(0, 9),
+      );
+    } finally {
+      await next.stop(true);
+    }
   });
 
   test("a changed, replaced or moved file is never served under an old ticket", async () => {

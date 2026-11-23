@@ -1,4 +1,5 @@
 import { subscribeFileEvents } from "@nimbus/api/file-events";
+import { ServerRun } from "@nimbus/api/server-run";
 import { auth } from "@/lib/auth";
 import { db } from "../db";
 import { reconcileIntervalMs } from "../search-protocol";
@@ -14,6 +15,7 @@ export function libraryRuntime(): LibraryContext {
     origin: PairingOrigin.read(),
     secret: process.env.BETTER_AUTH_SECRET ?? "",
     now: Date.now,
+    run: () => ServerRun.current().id,
     getSession: async (headers) => {
       const session = await auth.api.getSession({ headers });
       return session
