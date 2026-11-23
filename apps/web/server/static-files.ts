@@ -119,6 +119,39 @@ export const StaticFiles = {
     return loaded;
   },
 
+  /**
+   * `files` with the hashed assets of the earlier builds at `earlier` that it lacks, so a page
+   * opened before an update still loads its lazy chunks from the new server. Only `assets/`:
+   * those names are content-addressed, so an earlier file never stands in for a current one.
+   * An earlier build that cannot be read is skipped, with the reason.
+   */
+  async withEarlierAssets(
+    files: StaticFiles,
+    earlier: readonly string[],
+  ): Promise<{
+    files: StaticFiles;
+    skipped: { root: string; reason: string }[];
+  }> {
+    const merged: StaticFiles = new Map(files);
+    const skipped: { root: string; reason: string }[] = [];
+    for (const root of earlier) {
+      let loaded: StaticFiles;
+      try {
+        loaded = await StaticFiles.load(root, []);
+      } catch (error) {
+        skipped.push({
+          root,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+      for (const [name, file] of loaded)
+        if (name.startsWith("/assets/") && !merged.has(name))
+          merged.set(name, file);
+    }
+    return { files: merged, skipped };
+  },
+
   /** The response for `file`: the smallest accepted encoding, or 304 when the client has it. */
   respond(file: StaticFile, request: Request): Response {
     const { br, gzip } = accepted(request.headers.get("accept-encoding"));

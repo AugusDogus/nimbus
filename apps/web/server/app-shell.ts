@@ -110,7 +110,7 @@ function compose(
 const stylesheetTags = (html: string) =>
   html.match(/<link rel="stylesheet"[^>]*>/g)?.join("") ?? "";
 
-async function production(): Promise<AppShell> {
+async function production(earlierBuilds: string[]): Promise<AppShell> {
   const index = `${dist}index.html`;
   try {
     await access(index);
@@ -130,11 +130,19 @@ async function production(): Promise<AppShell> {
   );
   const manifest: unknown = await Bun.file(`${dist}.vite/manifest.json`).json();
   const preloads = RoutePreloads.fromManifest(manifest, await routeFiles());
-  const files = await StaticFiles.load(dist, [
+  const own = await StaticFiles.load(dist, [
     "index.html",
     ...publicPages.map((name) => `${name}.html`),
     ".vite/manifest.json",
   ]);
+  const { files, skipped } = await StaticFiles.withEarlierAssets(
+    own,
+    earlierBuilds,
+  );
+  for (const build of skipped)
+    console.warn(
+      `Nimbus could not keep serving the assets of the earlier build at ${build.root} (${build.reason}). Pages opened before the update load in full at their next navigation.`,
+    );
   const styles = stylesheetTags(template);
   const build =
     /<script type="module"[^>]*\ssrc="([^"]+)"/.exec(template)?.[1] ?? null;
@@ -221,9 +229,16 @@ async function development(vite: string): Promise<AppShell> {
 }
 
 export const AppShell = {
-  /** The shell for this process: the built client, or Vite at `NIMBUS_VITE_ORIGIN` in development. */
-  async start(mode: { development: boolean }): Promise<AppShell> {
-    if (!mode.development) return production();
+  /**
+   * The shell for this process: the built client, or Vite at `NIMBUS_VITE_ORIGIN` in development.
+   * A built client also serves the hashed assets of `earlierBuilds`, the built clients of the
+   * releases an update replaced (see StaticFiles.withEarlierAssets).
+   */
+  async start(
+    mode: { development: boolean },
+    earlierBuilds: string[] = [],
+  ): Promise<AppShell> {
+    if (!mode.development) return production(earlierBuilds);
     const vite = process.env.NIMBUS_VITE_ORIGIN;
     if (!vite)
       throw new Error(
