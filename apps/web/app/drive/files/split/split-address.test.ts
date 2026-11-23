@@ -2,6 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { SplitLayout } from "../split-layout";
 import { SplitAddress } from "./split-address";
 
+const fail = (): never => {
+  throw new Error("Expected a split layout.");
+};
+
 describe("writing a split view into the address", () => {
   it("writes the params back, spelling the drive root as a slash", () => {
     const layout = SplitLayout.parse({
@@ -58,4 +62,21 @@ describe("writing a split view into the address", () => {
     ).toBe("/browse/Guides?right=Archive&active=left&ratio=50");
   });
 
+  it("reads a split view from a folder page, or from search results that carry one", () => {
+    const params = { right: "Archive", active: "right", ratio: "40" };
+    const layout = SplitLayout.parse(params) ?? fail();
+    expect(
+      SplitAddress.carried("/browse/Projects", "Projects", params),
+    ).toEqual({ left: "Projects", layout });
+    expect(SplitAddress.carried("/search", "", { ...params, q: "notes" })).toBe(
+      null,
+    );
+    expect(
+      SplitAddress.carried("/search", "", {
+        q: "notes",
+        ...SplitAddress.carry({ left: "", layout }),
+      }),
+    ).toEqual({ left: "", layout });
+    expect(SplitAddress.carried("/recent", "", params)).toBe(null);
+  });
 });

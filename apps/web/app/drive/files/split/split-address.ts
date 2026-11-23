@@ -1,3 +1,7 @@
+import { useSearch } from "@tanstack/react-router";
+import { useMemo } from "react";
+import { usePathname } from "@/hooks/use-pathname";
+import { FolderPath, useFolderPath } from "../folder-path";
 import type { PaneLinks } from "../pane-links";
 import { SplitLayout, type PaneSide } from "../split-layout";
 import type { SplitSearch } from "../split-search";
@@ -54,6 +58,44 @@ function paneLinks(split: CarriedSplit, side: PaneSide): PaneLinks {
   };
 }
 
+/**
+ * The split view a page shows or carries: a folder page's own, or the one search results keep
+ * (`left` and the split params; see `carry`). Null for none.
+ */
+function carried(
+  pathname: string,
+  folder: string,
+  params: Record<string, unknown>,
+): CarriedSplit | null {
+  const layout = SplitLayout.parse(params);
+  if (!layout) return null;
+  if (FolderPath.isShownAt(pathname)) return { left: folder, layout };
+  const left =
+    pathname === "/search" && typeof params.left === "string"
+      ? SplitLayout.folderOf(params.left)
+      : null;
+  return left === null ? null : { left, layout };
+}
+
+/** The split view the window shows or carries now, for code outside React. */
+function here(): CarriedSplit | null {
+  const { pathname, search: query } = window.location;
+  const folder = FolderPath.fromSplat(
+    decodeURIComponent(pathname.replace(/^\/browse\/?/, "")),
+  );
+  return carried(
+    pathname,
+    folder,
+    Object.fromEntries(new URLSearchParams(query)),
+  );
+}
+
+/** The params search results keep a split view in. */
+const carry = (split: CarriedSplit): { left: string } & SplitSearch => ({
+  left: split.left || "/",
+  ...search(split.layout),
+});
+
 /** Writes split views into addresses; `SplitLayout.parse` reads them back. */
 export const SplitAddress = {
   search,
@@ -61,4 +103,18 @@ export const SplitAddress = {
   showIn,
   openInActive,
   paneLinks,
+  carried,
+  here,
+  carry,
 } as const;
+
+/** The split view this page shows or carries (see `SplitAddress.carried`). */
+export function useCarriedSplit(): CarriedSplit | null {
+  const params: Record<string, unknown> = useSearch({ strict: false });
+  const pathname = usePathname();
+  const folder = useFolderPath();
+  return useMemo(
+    () => SplitAddress.carried(pathname, folder, params),
+    [pathname, folder, params],
+  );
+}

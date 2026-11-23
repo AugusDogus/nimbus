@@ -3,11 +3,17 @@ import { useNavigate } from "@tanstack/react-router";
 import { useId, useRef, useState } from "react";
 import { lazyComponent } from "@/components/lazy-component";
 import { Input } from "@/components/ui/input";
+import { CodeLoad } from "@/lib/code-load";
 
 // The header ships a plain search form. Suggestions load on first focus and
 // attach to this same input, so nothing remounts and focus is never lost.
 const Suggestions = lazyComponent(() => import("./search-suggestions"));
 
+/**
+ * The header's search field. In a split view, and on results searched from one, the split stays:
+ * results carry it, and a folder opened from them or from the suggestions opens in the active
+ * pane (see `SplitAddress`).
+ */
 export function SearchBox() {
   const navigate = useNavigate();
   const input = useRef<HTMLInputElement>(null);
@@ -22,8 +28,22 @@ export function SearchBox() {
         if (event.target !== event.currentTarget) return;
         event.preventDefault();
         const query = new FormData(event.currentTarget).get("q");
-        if (typeof query === "string" && query.trim())
-          void navigate({ to: "/search", search: { q: query.trim() } });
+        if (typeof query !== "string" || !query.trim()) return;
+        const q = query.trim();
+        // Only an address with a right-hand folder can hold a split view to carry.
+        if (!new URLSearchParams(location.search).has("right"))
+          void navigate({ to: "/search", search: { q } });
+        else
+          void CodeLoad.load(() => import("../files/split/split-address")).then(
+            ({ SplitAddress }) => {
+              const split = SplitAddress.here();
+              void navigate({
+                to: "/search",
+                search: { q, ...(split && SplitAddress.carry(split)) },
+              });
+            },
+            (error: unknown) => CodeLoad.failed(error),
+          );
       }}
     >
       <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

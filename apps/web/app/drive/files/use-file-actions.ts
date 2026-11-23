@@ -11,7 +11,7 @@ import { BulkResult } from "./bulk-result";
 import type { TransferOperation, TransferResult } from "./transfer-result";
 import { DropTarget } from "./drop-target";
 import { TransferCode } from "./transfer-code";
-import { fileHref, FileEntry } from "./types";
+import { FileEntry } from "./types";
 
 function invalidateFileQueries() {
   void queryClient.invalidateQueries({ queryKey: ["files.list"] });
@@ -252,7 +252,8 @@ export function useFileActions({
           TransferReport.show([result, ...also], {
             refresh: invalidateFileQueries,
             hold: LeaveGuard.hold,
-            open: (folder) => void navigate({ href: fileHref(folder) }),
+            open: (folder) =>
+              void navigate({ href: TransferReport.folderHref(folder) }),
             // Opens the picker at the clashes, when the page is shown with no dialog open.
             choose: clashes.current
               ? (earlier) => clashes.current?.(earlier) ?? false

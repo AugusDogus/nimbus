@@ -12,6 +12,10 @@ import {
 } from "../files/use-entry-dialog";
 import { useFileActions } from "../files/use-file-actions";
 import { useFileDrag } from "../files/use-file-drag";
+import { FolderLink } from "../files/folder-link";
+import { PaneLinks } from "../files/pane-links";
+import { SplitLayout } from "../files/split-layout";
+import { SplitAddress, useCarriedSplit } from "../files/split/split-address";
 import { Highlighted, parentLabel } from "./highlight";
 import { useSearch, type SearchResultEntry } from "./use-search";
 import { DriveRoot } from "@nimbus/api/drive-root";
@@ -73,100 +77,127 @@ export function SearchResultsPage({ query }: { query: string }) {
         ].filter((section) => section.entries.length > 0);
   }, [search.entries]);
   const total = search.total;
+  // Searched from a split view: folders opened from here go to its active pane.
+  const split = useCarriedSplit();
+  const links = useMemo(
+    () => (split ? SplitAddress.paneLinks(split, split.layout.active) : null),
+    [split],
+  );
   return (
-    <div className="space-y-6">
-      <h1 className="text-balance text-2xl font-semibold">{title}</h1>
-      <TransferDialog
-        dialog={dialog}
-        actions={actions}
-        onClose={() => onDialog(null)}
-      />
-      {(search.pending || !search.settled) &&
-      query &&
-      !search.entries.length &&
-      !search.problem ? (
-        <p>Loading files…</p>
-      ) : search.entries.length ? (
-        <EntriesView
-          view="list"
-          sections={sections}
-          actions={actions}
-          drag={drag}
-          restoreKey={`search:${query}`}
-          label={title}
-          renderName={renderName}
+    <PaneLinks.Provider value={links}>
+      <div className="space-y-6">
+        <div className="space-y-1">
+          <h1 className="text-balance text-2xl font-semibold">{title}</h1>
+          {split && (
+            <p className="text-pretty text-sm text-muted-foreground">
+              Folders open in the {split.layout.active} pane of your split view.{" "}
+              <FolderLink
+                path={SplitLayout.activePath(split.left, split.layout)}
+                className="font-medium text-foreground underline-offset-4 hover:underline"
+              >
+                Back to split view
+              </FolderLink>
+            </p>
+          )}
+        </div>
+        <TransferDialog
           dialog={dialog}
-          onDialog={onDialog}
+          actions={actions}
+          onClose={() => onDialog(null)}
         />
-      ) : search.problem ? null : (
-        <div className="space-y-3 rounded-lg border p-8 text-center">
-          <p className="text-pretty text-muted-foreground">
-            No matching files. Try a different filename.
-          </p>
-          <Link to="/" className={buttonVariants({ variant: "outline" })}>
-            Open {DriveRoot.label}
-          </Link>
-        </div>
-      )}
-      {/* Said even when the rebuilt list is empty. */}
-      {search.restarted && (
-        <p role="status" className="text-pretty text-sm text-muted-foreground">
-          The results changed while you were looking through them, so the list
-          was rebuilt from the top.
-        </p>
-      )}
-      {/* Results already shown stay; the problem is said below them, calmly when a moment fixes it. */}
-      {search.problem && (
-        <div className="flex flex-wrap items-center gap-3">
-          <p
-            role={search.problem.kind === "failed" ? "alert" : "status"}
-            className={cn(
-              "text-pretty text-sm",
-              search.problem.kind === "failed"
-                ? "text-destructive"
-                : "text-muted-foreground",
-            )}
-          >
-            {search.problem.message}
-          </p>
-          <Button variant="outline" size="sm" onClick={search.retry}>
-            Search again
-          </Button>
-        </div>
-      )}
-      {!search.complete && (
-        <p role="status" className="text-pretty text-sm text-muted-foreground">
-          Nimbus is still indexing your drive after starting. Some matches may
-          be missing; search again in a minute.
-        </p>
-      )}
-      {total && search.entries.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3">
+        {(search.pending || !search.settled) &&
+        query &&
+        !search.entries.length &&
+        !search.problem ? (
+          <p>Loading files…</p>
+        ) : search.entries.length ? (
+          <EntriesView
+            view="list"
+            sections={sections}
+            actions={actions}
+            drag={drag}
+            restoreKey={`search:${query}`}
+            label={title}
+            renderName={renderName}
+            dialog={dialog}
+            onDialog={onDialog}
+          />
+        ) : search.problem ? null : (
+          <div className="space-y-3 rounded-lg border p-8 text-center">
+            <p className="text-pretty text-muted-foreground">
+              No matching files. Try a different filename.
+            </p>
+            <Link to="/" className={buttonVariants({ variant: "outline" })}>
+              Open {DriveRoot.label}
+            </Link>
+          </div>
+        )}
+        {/* Said even when the rebuilt list is empty. */}
+        {search.restarted && (
           <p
             role="status"
             className="text-pretty text-sm text-muted-foreground"
           >
-            {search.more
-              ? `Showing ${count.format(search.entries.length)} of ${count.format(total.count)}${total.exact ? "" : " or more"} matches.`
-              : `${count.format(search.entries.length)} ${search.entries.length === 1 ? "match" : "matches"}.`}
+            The results changed while you were looking through them, so the list
+            was rebuilt from the top.
           </p>
-          {search.more && (
-            <Button
-              variant="outline"
-              size="sm"
-              // Keyboard focus stays on the button while the next page loads.
-              focusableWhenDisabled
-              className="aria-disabled:opacity-50"
-              disabled={!total.exact || search.loadingMore}
-              onClick={search.loadMore}
+        )}
+        {/* Results already shown stay; the problem is said below them, calmly when a moment fixes it. */}
+        {search.problem && (
+          <div className="flex flex-wrap items-center gap-3">
+            <p
+              role={search.problem.kind === "failed" ? "alert" : "status"}
+              className={cn(
+                "text-pretty text-sm",
+                search.problem.kind === "failed"
+                  ? "text-destructive"
+                  : "text-muted-foreground",
+              )}
             >
-              {search.loadingMore
-                ? "Loading…"
-                : `Show ${count.format(Math.min(PAGE, total.count - search.entries.length))} more`}
+              {search.problem.message}
+            </p>
+            <Button variant="outline" size="sm" onClick={search.retry}>
+              Search again
             </Button>
-          )}
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+        {!search.complete && (
+          <p
+            role="status"
+            className="text-pretty text-sm text-muted-foreground"
+          >
+            Nimbus is still indexing your drive after starting. Some matches may
+            be missing; search again in a minute.
+          </p>
+        )}
+        {total && search.entries.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            <p
+              role="status"
+              className="text-pretty text-sm text-muted-foreground"
+            >
+              {search.more
+                ? `Showing ${count.format(search.entries.length)} of ${count.format(total.count)}${total.exact ? "" : " or more"} matches.`
+                : `${count.format(search.entries.length)} ${search.entries.length === 1 ? "match" : "matches"}.`}
+            </p>
+            {search.more && (
+              <Button
+                variant="outline"
+                size="sm"
+                // Keyboard focus stays on the button while the next page loads.
+                focusableWhenDisabled
+                className="aria-disabled:opacity-50"
+                disabled={!total.exact || search.loadingMore}
+                onClick={search.loadMore}
+              >
+                {search.loadingMore
+                  ? "Loading…"
+                  : `Show ${count.format(Math.min(PAGE, total.count - search.entries.length))} more`}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </PaneLinks.Provider>
   );
 }

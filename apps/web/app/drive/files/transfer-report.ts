@@ -6,7 +6,9 @@ import { RecentDestinations } from "./destination-picker/recent-destinations";
 import type { TransferResult } from "./transfer-result";
 import { TransferDetails, type DetailSection } from "./transfer-details";
 import { TransferUndo } from "./transfer-undo";
-import type { FileEntry } from "./types";
+import { fileHref, type FileEntry } from "./types";
+import { FolderPath } from "./folder-path";
+import { SplitAddress } from "./split/split-address";
 
 /**
  * What Nimbus says and offers after a move or copy: a summary toast with Undo, Open folder and
@@ -402,8 +404,20 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
   else toast.error(summary.message, options);
 }
 
+/**
+ * Where "Open folder" goes: the active pane of the split view the window shows, which stays
+ * split, or otherwise the folder as the page's one folder.
+ */
+function folderHref(folder: string): string {
+  const split = SplitAddress.here();
+  return split && FolderPath.isShownAt(window.location.pathname)
+    ? SplitAddress.openInActive(split, folder)
+    : fileHref(folder);
+}
+
 export const TransferReport = {
   describe,
+  folderHref,
   describeAll,
   sections,
   merge,
