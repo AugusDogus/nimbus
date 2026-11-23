@@ -179,6 +179,20 @@ export const LibraryAccess = {
   confined,
   dataPath,
 
+  /**
+   * When library `libraryId`'s title or folders last changed, read synchronously, or null when
+   * it is gone: an answer worked out for one version must not go out under another.
+   */
+  libraryVersion(ctx: Pick<LibraryContext, "db">, libraryId: string) {
+    return (
+      ctx.db
+        .select({ updatedAt: libraries.updatedAt })
+        .from(libraries)
+        .where(eq(libraries.id, libraryId))
+        .get()?.updatedAt ?? null
+    );
+  },
+
   /** The catalog `scope` sees: everything a device may observe derives from it alone. */
   catalogTarget: (scope: LibraryScope): CatalogTarget => ({
     folders: scope.folders,

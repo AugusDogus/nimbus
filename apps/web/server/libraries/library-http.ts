@@ -88,17 +88,48 @@ const address = (request: Request) =>
 
 /**
  * Answer a bearer request with `respond`, given its paired device and library scope, or with
- * the response refusing it. Only a successful answer (a 304 included) counts as use of the
- * device, sliding its 30-day idle deadline.
+ * the response refusing it. Working out an answer can take a while (a library may be scanned),
+ * so the device and its library are checked again, synchronously, just before answering: once
+ * a Disconnect, a library change or any other revocation has returned, no answer it ends goes
+ * out, also from a request that was already under way. A library changed meanwhile is answered
+ * afresh, once. Only a successful answer (a 304 included) counts as use of the device, sliding
+ * its 30-day idle deadline.
  */
 async function asDevice(
   ctx: LibraryContext,
   request: Request,
   respond: (device: PairedDevice, scope: LibraryScope) => Promise<Response>,
+  attempt = 0,
 ): Promise<Response> {
   const authorized = await authorize(ctx, request);
   if (!authorized.ok) return authorized.response;
   const response = await respond(authorized.device, authorized.scope);
+  // Synchronous from here on: nothing can change between this check and the answer.
+  const still = PairedDevices.authenticate(ctx, request);
+  if (!still.ok || still.device.id !== authorized.device.id) {
+    await response.body?.cancel();
+    return LibraryApiError.response(
+      still.ok
+        ? {
+            code: "token_revoked",
+            message: "This device was disconnected from Nimbus. Pair it again.",
+          }
+        : still.error,
+    );
+  }
+  if (
+    LibraryAccess.libraryVersion(ctx, authorized.scope.library.id) !==
+    authorized.scope.library.updatedAt
+  ) {
+    await response.body?.cancel();
+    if (attempt === 0) return asDevice(ctx, request, respond, 1);
+    return LibraryApiError.response({
+      code: "service_unavailable",
+      message:
+        "This library was changed while Nimbus answered. Try again in a moment.",
+      retryAfterSeconds: 1,
+    });
+  }
   if (response.status < 400) PairedDevices.touch(ctx, authorized.device);
   return response;
 }
