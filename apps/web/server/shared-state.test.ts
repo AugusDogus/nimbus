@@ -17,6 +17,7 @@ import { DavLockStore } from "./dav-lock-store";
 import { GuessBudgets } from "./guess-budgets";
 import { LinkPasswordAttempts } from "./link-password-attempts";
 import { UploadClaims } from "./mcp/upload-claims";
+import { PasswordAttempts } from "../lib/password-attempts";
 
 /**
  * During an update the supervisor runs two servers side by side on one database. Each test
@@ -340,6 +341,34 @@ describe("password guess budgets", () => {
     expect(next.codes.spend("account:123456", 91_000, 2_000)).toBe(true);
     // Once it could no longer be valid, it is forgotten.
     expect(old.codes.spend("account:123456", 200_000, 95_000)).toBe(true);
+  });
+
+  test("an address an account signed in from stays exempt on the next server, up to its 20 latest", () => {
+    const rule = { limit: 1, windowMs: 60_000 };
+    GuessBudgets.keepIn(servers[0].db);
+    const before = PasswordAttempts.create({ rule });
+    before.succeeded("Owner@example.test", "192.0.2.1");
+    for (let address = 2; address <= 21; address++)
+      before.succeeded("owner@example.test", `192.0.2.${address}`);
+    // The next server, with nothing in memory from the first; a guesser spent the budget.
+    GuessBudgets.keepIn(servers[1].db);
+    const after = PasswordAttempts.create({ rule });
+    expect(
+      after.admit("owner@example.test", "198.51.100.9", 1_000).allowed,
+    ).toBe(true);
+    expect(
+      after.admit("owner@example.test", "198.51.100.9", 1_000).allowed,
+    ).toBe(false);
+    expect(after.admit("owner@example.test", "192.0.2.21", 1_000).allowed).toBe(
+      true,
+    );
+    expect(after.admit("OWNER@example.test", "192.0.2.2", 1_000).allowed).toBe(
+      true,
+    );
+    // The oldest of 21 is no longer known.
+    expect(after.admit("owner@example.test", "192.0.2.1", 1_000).allowed).toBe(
+      false,
+    );
   });
 
   test("an account's password budget is counted once for every server", () => {

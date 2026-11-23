@@ -7,6 +7,7 @@
     "0019_pending_change_owner",
     "0020_mcp_upload_reservations",
     "0021_guess_budgets",
-    "0022_mcp_upload_claim_owner"
+    "0022_mcp_upload_claim_owner",
+    "0023_known_addresses"
   ]
 }

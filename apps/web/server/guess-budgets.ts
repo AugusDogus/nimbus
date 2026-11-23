@@ -1,6 +1,11 @@
-import { and, eq, lte } from "drizzle-orm";
+import { and, desc, eq, lte, max, notInArray } from "drizzle-orm";
 import type { Database } from "./db/connection";
-import { authRateLimits, guessBudgets, spentCodes } from "./db/schema";
+import {
+  authRateLimits,
+  guessBudgets,
+  knownAddresses,
+  spentCodes,
+} from "./db/schema";
 import {
   RateLimiter,
   type RateLimitDecision,
@@ -30,10 +35,17 @@ export type SpentCodes = {
   unspend(key: string): void;
 };
 
+/** Addresses each account proved it knows its password from, its latest `keep` of them. */
+export type KnownAddresses = {
+  has(account: string, address: string): boolean;
+  remember(account: string, address: string, keep: number): void;
+};
+
 type Backend = {
   limiter(name: string, rule: RateLimitRule): RateLimiter;
   auth: AuthRateLimitStorage;
   codes: SpentCodes;
+  known: KnownAddresses;
 };
 
 /** One GCRA step, as RateLimiter decides it: the next arrival time, and whether it fits. */
@@ -172,6 +184,81 @@ function durable(db: Database): Backend {
         db.delete(spentCodes).where(eq(spentCodes.key, key)).run();
       },
     },
+    known: {
+      has(account, address) {
+        return (
+          db
+            .select({ used: knownAddresses.used })
+            .from(knownAddresses)
+            .where(
+              and(
+                eq(knownAddresses.account, account),
+                eq(knownAddresses.address, address),
+              ),
+            )
+            .get() !== undefined
+        );
+      },
+      remember(account, address, keep) {
+        db.transaction((tx) => {
+          const latest =
+            tx
+              .select({ used: max(knownAddresses.used) })
+              .from(knownAddresses)
+              .where(eq(knownAddresses.account, account))
+              .get()?.used ?? 0;
+          // Newer than any other, also within one millisecond.
+          const used = Math.max(Date.now(), latest + 1);
+          tx.insert(knownAddresses)
+            .values({ account, address, used })
+            .onConflictDoUpdate({
+              target: [knownAddresses.account, knownAddresses.address],
+              set: { used },
+            })
+            .run();
+          const kept = tx
+            .select({ address: knownAddresses.address })
+            .from(knownAddresses)
+            .where(eq(knownAddresses.account, account))
+            .orderBy(desc(knownAddresses.used))
+            .limit(keep)
+            .all()
+            .map((row) => row.address);
+          tx.delete(knownAddresses)
+            .where(
+              and(
+                eq(knownAddresses.account, account),
+                notInArray(knownAddresses.address, kept),
+              ),
+            )
+            .run();
+        });
+      },
+    },
+  };
+}
+
+/** Known addresses in this process's memory, for at most `maxAccounts` accounts. */
+function memoryKnown(maxAccounts = 50_000): KnownAddresses {
+  /** Per account, its known addresses in least recently used order. */
+  const known = new Map<string, Set<string>>();
+  return {
+    has: (account, address) => known.get(account)?.has(address) ?? false,
+    remember(account, address, keep) {
+      const addresses = known.get(account) ?? new Set<string>();
+      addresses.delete(address);
+      addresses.add(address);
+      for (const oldest of addresses) {
+        if (addresses.size <= keep) break;
+        addresses.delete(oldest);
+      }
+      known.delete(account);
+      known.set(account, addresses);
+      for (const oldest of known.keys()) {
+        if (known.size <= maxAccounts) break;
+        known.delete(oldest);
+      }
+    },
   };
 }
 
@@ -244,6 +331,16 @@ export const GuessBudgets = {
     const local = memoryAuth();
     return {
       consume: (key, rule) => (installed?.auth ?? local).consume(key, rule),
+    };
+  },
+  /** Known addresses, kept as `limiter` keeps its budgets. */
+  knownAddresses(): KnownAddresses {
+    const local = memoryKnown();
+    return {
+      has: (account, address) =>
+        (installed?.known ?? local).has(account, address),
+      remember: (account, address, keep) =>
+        (installed?.known ?? local).remember(account, address, keep),
     };
   },
   /** One-time codes, kept as `limiter` keeps its budgets. */

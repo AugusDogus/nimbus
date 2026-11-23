@@ -280,6 +280,21 @@ export const guessBudgets = sqliteTable(
   ],
 );
 
+/**
+ * Addresses each account signed in from with its password, its latest few (see
+ * PasswordAttempts): they stay exempt from the account's password budget on every server.
+ * `used` orders them, newest highest.
+ */
+export const knownAddresses = sqliteTable(
+  "nimbus_known_address",
+  {
+    account: text("account").notNull(),
+    address: text("address").notNull(),
+    used: integer("used").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.account, table.address] })],
+);
+
 /** Better Auth's request limits (sign-in among them), per key, in fixed windows. */
 export const authRateLimits = sqliteTable(
   "nimbus_auth_rate_limit",
