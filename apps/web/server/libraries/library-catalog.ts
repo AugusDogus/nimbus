@@ -262,11 +262,20 @@ async function reconcile(
       .filter(([folder]) => unscanned.has(folder))
       .flatMap(([, files]) => files),
   );
-  const rows = ctx.db
+  const all = ctx.db
     .select()
     .from(libraryItems)
     .where(eq(libraryItems.libraryId, libraryId))
     .all();
+  // Expired tombstones go before anything is matched, so none is ever taken back.
+  const expired = all
+    .filter(
+      (row) =>
+        row.missingSince !== null &&
+        row.missingSince < now - TOMBSTONE_RETENTION_MS,
+    )
+    .map((row) => row.id);
+  const rows = all.filter((row) => !expired.includes(row.id));
   const plan = CatalogIdentity.plan(
     libraryId,
     rows,
@@ -276,20 +285,27 @@ async function reconcile(
     })),
     now,
   );
-  const prunable = rows
-    .filter((row) => !live(row) && !plan.updates.some((u) => u.id === row.id))
-    .sort((a, b) => (b.missingSince ?? 0) - (a.missingSince ?? 0));
-  const pruned = [
-    ...prunable.filter(
-      (row) => (row.missingSince ?? 0) < now - TOMBSTONE_RETENTION_MS,
-    ),
-    ...prunable.slice(MAX_TOMBSTONES),
-  ].map((row) => row.id);
+  // The count limit covers every tombstone after this pass, the newest kept first.
+  const revived = new Set(
+    plan.updates
+      .filter((update) => update.set.missingSince === null)
+      .map((update) => update.id),
+  );
+  const tombstones = [
+    ...plan.tombstones,
+    ...rows
+      .filter((row) => !live(row) && !revived.has(row.id))
+      .sort((a, b) => (b.missingSince ?? 0) - (a.missingSince ?? 0))
+      .map((row) => row.id),
+  ];
+  const overflow = new Set(tombstones.slice(MAX_TOMBSTONES));
+  const pruned = [...expired, ...overflow];
+  const vanished = plan.tombstones.length;
+  plan.tombstones = plan.tombstones.filter((id) => !overflow.has(id));
   const scannedFolders = [...scanned.folders.keys()].filter((folder) =>
     unscanned.has(folder),
   );
-  const changed =
-    plan.inserts.length + plan.updates.length + plan.tombstones.length > 0;
+  const changed = plan.inserts.length + plan.updates.length + vanished > 0;
   // Synchronous, so the transaction commits exactly these statements.
   const committed = ctx.db.transaction((tx) => {
     // Deleted while it was being scanned: its catalog went with it.
@@ -301,7 +317,7 @@ async function reconcile(
         .get()
     )
       return false;
-    const removed = [...new Set(pruned)];
+    const removed = pruned;
     for (let start = 0; start < removed.length; start += 500)
       tx.delete(libraryItems)
         .where(inArray(libraryItems.id, removed.slice(start, start + 500)))

@@ -334,3 +334,45 @@ test("renaming a library does not make its folders count as never scanned", asyn
   await reconcile();
   expect(at("library/kitchen/Arrived later.md")?.addedAt).toBe(t.now());
 });
+
+test("a file returning after its tombstone expired is a new item", async () => {
+  await file("library/kitchen/Notes.md", "notes");
+  await create();
+  const first = at("library/kitchen/Notes.md");
+  await rm(t.drive.absolute("library/kitchen/Notes.md"));
+  await reconcile();
+  // No scan for longer than tombstones are kept, then the same file is back.
+  t.advance(TOMBSTONE_RETENTION_MS + DAY);
+  await file("library/kitchen/Notes.md", "notes");
+  await reconcile();
+  expect(at("library/kitchen/Notes.md")?.id).not.toBe(first?.id ?? "");
+  expect(rows()).toHaveLength(1);
+});
+
+test("the tombstone limit counts the files that vanished in the same pass", async () => {
+  for (let index = 0; index < 20; index++)
+    await file(`library/kitchen/Batch/${index}.md`, `${index}`);
+  await create();
+  t.drive.db
+    .insert(libraryItems)
+    .values(
+      Array.from({ length: MAX_TOMBSTONES - 10 }, (_, index) => ({
+        id: `itm_oldtombstone${String(index).padStart(6, "0")}`,
+        libraryId,
+        path: `library/kitchen/old-${index}.md`,
+        addedAt: 0,
+        version: "v1_aaaaaaaa",
+        sizeBytes: 1,
+        modifiedAt: 0,
+        missingSince: t.now() - 1000 - index,
+      })),
+    )
+    .run();
+  await rm(t.drive.absolute("library/kitchen/Batch"), { recursive: true });
+  await reconcile();
+  expect(rows().filter((row) => row.missingSince !== null)).toHaveLength(
+    MAX_TOMBSTONES,
+  );
+  // The newest are kept.
+  expect(rows().filter((row) => row.missingSince === t.now())).toHaveLength(20);
+});
