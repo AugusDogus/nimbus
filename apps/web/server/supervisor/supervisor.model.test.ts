@@ -167,12 +167,17 @@ async function runSequence(seed: number) {
     run: { id: "run-0123456789abcdef", startedAt: 1 },
     spawn,
     settings,
-    release: (name) =>
-      name === null || name === "a"
-        ? (releases.a ?? null)
-        : name === "b" && !releaseBGone
-          ? (releases.b ?? null)
-          : null,
+    release: (name) => {
+      const found =
+        name === null || name === "a"
+          ? releases.a
+          : name === "b" && !releaseBGone
+            ? releases.b
+            : undefined;
+      return found
+        ? { ok: true, release: found }
+        : { ok: false, reason: `there is no release ${name}` };
+    },
     distOf: (release) => `${release.root}/apps/web/dist`,
     log: () => undefined,
     clock,

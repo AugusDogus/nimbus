@@ -72,7 +72,12 @@ function harness(
     run: { id: "run-0123456789abcdef", startedAt: 1 },
     spawn,
     settings: { ...settings, ...overrides },
-    release: (name) => (name === null ? releases.a : releases[name]) ?? null,
+    release: (name) => {
+      const found = name === null ? releases.a : releases[name];
+      return found
+        ? { ok: true, release: found }
+        : { ok: false, reason: `there is no release ${name}` };
+    },
     distOf: (release) => `${release.root}/apps/web/dist`,
     log: (line) => void lines.push(line),
     clock: { now: () => clock, after: realClock.after },

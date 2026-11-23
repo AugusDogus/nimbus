@@ -246,8 +246,13 @@ export function createSupervisor(deps: {
   run: ServerRun;
   spawn: SpawnWorker;
   settings: SupervisorSettings;
-  /** The release a handover names, or null when there is none by that name. */
-  release: (name: string | null) => Release | null;
+  /**
+   * The release a handover names, the one serving when `name` is null at the first start, or why
+   * it may not start.
+   */
+  release: (
+    name: string | null,
+  ) => { ok: true; release: Release } | { ok: false; reason: string };
   /** The built client of `release`, so the next release can serve its hashed assets. */
   distOf: (release: Release) => string;
   log: (line: string) => void;
@@ -762,15 +767,16 @@ export function createSupervisor(deps: {
   return {
     /** Start the first worker and wait until it serves; an error value if it never does. */
     start(): Promise<Outcome<void, HandoverError>> {
-      const release = deps.release(null);
-      if (!release)
+      const found = deps.release(null);
+      if (!found.ok)
         return Promise.resolve({
           ok: false,
           error: {
             kind: "unknown-release",
-            message: "The supervisor found no release to run.",
+            message: `The supervisor has no release it may run: ${found.reason}.`,
           },
         });
+      const { release } = found;
       if (state.kind !== "idle")
         return Promise.resolve(busy("The supervisor already started."));
       return new Promise((settle) => {
@@ -796,15 +802,19 @@ export function createSupervisor(deps: {
           ),
         );
       const previous = current.active;
-      const release = name === null ? previous.release : deps.release(name);
-      if (!release)
+      const found =
+        name === null
+          ? { ok: true as const, release: previous.release }
+          : deps.release(name);
+      if (!found.ok)
         return Promise.resolve({
           ok: false,
           error: {
             kind: "unknown-release",
-            message: `There is no release named ${name}. Nothing was changed; ${previous.release.name} keeps serving.`,
+            message: `Release ${name} may not start: ${found.reason}. Nothing was changed; ${previous.release.name} keeps serving.`,
           },
         });
+      const { release } = found;
       const previousAssets =
         release.root === previous.release.root
           ? previous.previousAssets

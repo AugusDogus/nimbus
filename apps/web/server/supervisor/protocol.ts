@@ -16,9 +16,11 @@ import { z } from "zod";
  * passes on the signals that stop transfers to paired devices.
  *
  * The supervisor ships in the image and workers may come from newer releases, so both name the
- * protocol version they speak, and a worker refuses to run under another.
+ * protocol version they speak: a worker refuses to run under another, and the supervisor starts
+ * no release whose `apps/web/release.json` names another (see ReleaseDirectory). Version 2
+ * replaced `alone` and `fence-done` with `recover`, `fence-release` and `recovered`.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 const scope = z.object({ space: z.string().min(1), path: z.string() });
 const scopes = z.tuple([scope], scope);

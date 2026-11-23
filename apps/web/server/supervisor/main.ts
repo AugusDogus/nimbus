@@ -8,13 +8,13 @@
  * over to a fresh server of the same release. SIGTERM and SIGINT drain every server within
  * NIMBUS_STOP_SECONDS and exit, as a container stop needs.
  */
-import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { ServerRun } from "@nimbus/api/server-run";
 import { InstallationLock } from "../installation-lock";
 import { getConfigRoot } from "../storage-paths";
 import { ControlSocket } from "./control-socket";
+import { ReleaseDirectory } from "./release-directory";
 import { PROTOCOL_VERSION, Protocol, WorkerEnv } from "./protocol";
 import { parseSettings } from "./settings";
 import { createSupervisor, type Release, type SpawnWorker } from "./supervisor";
@@ -49,13 +49,19 @@ const builtIn: Release = {
   root: path.resolve(import.meta.dir, "../../../.."),
 };
 
-function release(name: string | null): Release | null {
-  if (name === null || name === builtIn.name) return builtIn;
-  if (!releasesDir || !/^[\w][\w.-]{0,63}$/.test(name)) return null;
-  const root = path.join(releasesDir, name);
-  return existsSync(path.join(root, "apps/web/server/start.ts"))
-    ? { name, root }
-    : null;
+function release(
+  name: string | null,
+): { ok: true; release: Release } | { ok: false; reason: string } {
+  if (name === null || name === builtIn.name) {
+    const checked = ReleaseDirectory.check(builtIn.root);
+    return checked.ok ? { ok: true, release: builtIn } : checked;
+  }
+  if (!releasesDir)
+    return {
+      ok: false,
+      reason: "there is no NIMBUS_RELEASES_DIR to find releases in",
+    };
+  return ReleaseDirectory.resolve(releasesDir, name);
 }
 
 const spawn: SpawnWorker = (request, onMessage) => {
