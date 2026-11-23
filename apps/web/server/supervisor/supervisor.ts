@@ -50,8 +50,6 @@ export type SupervisorSettings = {
   restartMs: { initial: number; max: number };
 };
 
-type ReadyMessage = Extract<WorkerMessage, { kind: "ready" }>;
-
 type Drain = {
   /** Why it drains, for the status. */
   reason: string;
@@ -63,19 +61,57 @@ type Drain = {
   inFlight: number | null;
 };
 
+/** How a new worker's startup ended. */
+type Readiness = "ready" | "exited" | "timed out";
+
 type Worker = {
   release: Release;
   process: WorkerProcess;
   startedAt: number;
   previousAssets: string[];
-  /** Settles with its ready message, or null when it exited first. */
-  ready: Promise<ReadyMessage | null>;
-  exitCode: number | null | undefined;
+  /** Settles once it reported ready, or exited first. */
+  ready: Promise<"ready" | "exited">;
+  exited: boolean;
   /** Path scopes it holds, by its request id. */
   grants: Map<number, Unlock>;
-  drain: Drain | null;
   toldAlone: boolean;
 };
+
+type Drainer = { worker: Worker; drain: Drain };
+
+/**
+ * What the supervisor is doing. Every live worker is in exactly one place: the active one, the
+ * candidate getting ready, or a drainer; a worker that exited is in none.
+ */
+type State =
+  | { kind: "idle" }
+  /**
+   * A worker is getting ready with nobody serving new connections: the first start or a restart.
+   * If it fails, `fallback` starts after a wait: the release that last served.
+   */
+  | {
+      kind: "starting";
+      candidate: Worker;
+      fallback: { release: Release; previousAssets: string[] };
+      draining: Drainer[];
+    }
+  | { kind: "serving"; active: Worker; draining: Drainer[] }
+  /** The active worker serves while the candidate that replaces it gets ready. */
+  | {
+      kind: "handing-over";
+      active: Worker;
+      candidate: Worker;
+      draining: Drainer[];
+    }
+  /** The active worker died; another starts after `timer`. */
+  | {
+      kind: "restarting";
+      release: Release;
+      previousAssets: string[];
+      draining: Drainer[];
+      timer: ReturnType<typeof setTimeout>;
+    }
+  | { kind: "stopping"; draining: Drainer[] };
 
 export type HandoverError =
   | { kind: "busy"; message: string }
@@ -87,13 +123,13 @@ export type HandoverReport = {
   to: string;
   /** From starting the new worker to its ready message, which it sends once listening. */
   readyMs: number;
-  /** The replaced worker, now draining, and when it must have finished. */
-  draining: { pid: number; deadline: string };
+  /** The replaced worker, now draining, and when it must have finished; null if it had died. */
+  draining: { pid: number; deadline: string } | null;
 };
 
 export type SupervisorStatus = {
   run: ServerRun;
-  phase: "starting" | "serving" | "stopping";
+  phase: State["kind"];
   active: { release: string; pid: number; since: string } | null;
   starting: { release: string; pid: number; since: string } | null;
   draining: {
@@ -109,6 +145,12 @@ export type SupervisorStatus = {
 
 type Outcome<T, E> = { ok: true; value: T } | { ok: false; error: E };
 
+/** How waiting for a candidate ended, as the state machine left it. */
+type Promotion =
+  | { kind: "promoted"; replaced: Drainer | null }
+  | { kind: "failed"; reason: string }
+  | { kind: "stopping" };
+
 export function createSupervisor(deps: {
   run: ServerRun;
   spawn: SpawnWorker;
@@ -123,26 +165,49 @@ export function createSupervisor(deps: {
   const now = deps.now ?? Date.now;
   const { settings, log } = deps;
   const scopes = createPathLocks();
-  let phase: SupervisorStatus["phase"] = "starting";
-  let active: Worker | null = null;
-  let next: Worker | null = null;
-  let draining: Worker[] = [];
-  let restartTimer: ReturnType<typeof setTimeout> | null = null;
+  let state: State = { kind: "idle" };
   let restartDelay = settings.restartMs.initial;
   const iso = (time: number) => new Date(time).toISOString();
-  const live = () =>
-    [active, next, ...draining].filter(
-      (worker): worker is Worker => worker !== null,
-    );
+  const named = (worker: Worker) =>
+    `${worker.release.name} (pid ${worker.process.pid})`;
+
+  const drainersOf = (current: State): Drainer[] =>
+    current.kind === "idle" ? [] : current.draining;
+  /** Every live worker, wherever the state keeps it. */
+  function live(current: State = state): Worker[] {
+    const drainers = drainersOf(current).map((drainer) => drainer.worker);
+    switch (current.kind) {
+      case "idle":
+      case "restarting":
+      case "stopping":
+        return drainers;
+      case "starting":
+        return [current.candidate, ...drainers];
+      case "serving":
+        return [current.active, ...drainers];
+      case "handing-over":
+        return [current.active, current.candidate, ...drainers];
+    }
+  }
+  const withDraining = (draining: Drainer[]): State => {
+    switch (state.kind) {
+      case "idle":
+        return state;
+      default:
+        return { ...state, draining };
+    }
+  };
 
   function spawn(release: Release, previousAssets: string[]): Worker {
-    const ready = Promise.withResolvers<ReadyMessage | null>();
+    const ready = Promise.withResolvers<"ready" | "exited">();
     // IPC messages arrive asynchronously, so never before `worker` is set.
     let spawned: Worker | null = null;
     const child = deps.spawn(
       { release, predecessor: live().length > 0, previousAssets },
       (message) => {
-        if (spawned) onMessage(spawned, message, ready.resolve);
+        if (!spawned) return;
+        if (message.kind === "ready") ready.resolve("ready");
+        else onMessage(spawned, message);
       },
     );
     const worker: Worker = {
@@ -151,15 +216,14 @@ export function createSupervisor(deps: {
       startedAt: now(),
       previousAssets,
       ready: ready.promise,
-      exitCode: undefined,
+      exited: false,
       grants: new Map(),
-      drain: null,
       toldAlone: false,
     };
     spawned = worker;
-    log(`started ${release.name} as pid ${worker.process.pid}`);
-    void worker.process.exited.then((code) => {
-      ready.resolve(null);
+    log(`started ${release.name} as pid ${child.pid}`);
+    void child.exited.then((code) => {
+      ready.resolve("exited");
       onExit(worker, code);
     });
     return worker;
@@ -167,25 +231,23 @@ export function createSupervisor(deps: {
 
   function onMessage(
     worker: Worker,
-    message: WorkerMessage,
-    ready: (message: ReadyMessage) => void,
+    message: Exclude<WorkerMessage, { kind: "ready" }>,
   ) {
     switch (message.kind) {
-      case "ready":
-        ready(message);
+      case "in-flight": {
+        const drainer = drainersOf(state).find((d) => d.worker === worker);
+        if (drainer) drainer.drain.inFlight = message.count;
         return;
-      case "in-flight":
-        if (worker.drain) worker.drain.inFlight = message.count;
-        return;
+      }
       case "drained":
         log(
-          `${worker.release.name} (pid ${worker.process.pid}) drained${message.forced ? " at its deadline, cutting the responses still being sent" : ", every response finished"}`,
+          `${named(worker)} drained${message.forced ? " at its deadline, cutting the responses still being sent" : ", every response finished"}`,
         );
         return;
       case "acquire-scopes":
         void scopes.acquire(message.scopes).then((unlock) => {
           // It exited while it waited: nobody holds them.
-          if (worker.exitCode !== undefined) return unlock();
+          if (worker.exited) return unlock();
           worker.grants.set(message.id, unlock);
           worker.process.send({ kind: "scopes-granted", id: message.id });
         });
@@ -206,72 +268,183 @@ export function createSupervisor(deps: {
   }
 
   function onExit(worker: Worker, code: number | null) {
-    worker.exitCode = code;
+    worker.exited = true;
     // A worker that exits holds nothing any more, whatever it was doing.
     for (const unlock of worker.grants.values()) unlock();
     worker.grants.clear();
-    if (draining.includes(worker)) {
-      draining = draining.filter((other) => other !== worker);
+    const draining = drainersOf(state);
+    if (draining.some((drainer) => drainer.worker === worker)) {
+      state = withDraining(draining.filter((d) => d.worker !== worker));
+      log(`${named(worker)} exited after draining, code ${code}`);
+    } else if (state.kind === "serving" && state.active === worker) {
       log(
-        `${worker.release.name} (pid ${worker.process.pid}) exited after draining, code ${code}`,
+        `${named(worker)} exited with code ${code} while serving; starting it again in ${restartDelay} ms. Requests are refused until it is ready.`,
       );
-    } else if (worker === active && phase === "serving") {
-      active = null;
+      scheduleRestart(worker.release, worker.previousAssets, state.draining);
+    } else if (state.kind === "handing-over" && state.active === worker) {
+      // The candidate already getting ready takes over; nothing else starts unless it fails.
       log(
-        `${worker.release.name} (pid ${worker.process.pid}) exited with code ${code} while serving; starting it again in ${restartDelay} ms. Requests are refused until it is ready.`,
+        `${named(worker)} exited with code ${code} during a handover; ${named(state.candidate)} takes over once ready. Requests are refused until then.`,
       );
-      scheduleRestart(worker.release, worker.previousAssets);
+      state = {
+        kind: "starting",
+        candidate: state.candidate,
+        fallback: {
+          release: worker.release,
+          previousAssets: worker.previousAssets,
+        },
+        draining: state.draining,
+      };
     }
+    // A candidate that exits is handled where its readiness is awaited.
     tellAlone();
   }
 
-  function scheduleRestart(release: Release, previousAssets: string[]) {
+  function scheduleRestart(
+    release: Release,
+    previousAssets: string[],
+    draining: Drainer[],
+  ) {
     const delay = restartDelay;
     restartDelay = Math.min(restartDelay * 2, settings.restartMs.max);
-    restartTimer = setTimeout(() => {
-      restartTimer = null;
-      if (phase !== "serving" || active) return;
-      const worker = spawn(release, previousAssets);
-      active = worker;
-      void worker.ready.then((ready) => {
-        if (!ready || active !== worker) return;
-        restartDelay = settings.restartMs.initial;
-        log(`${release.name} (pid ${worker.process.pid}) is serving again`);
-        worker.process.send({ kind: "active" });
-        tellAlone();
+    const timer = setTimeout(() => {
+      if (state.kind !== "restarting" || state.timer !== timer) return;
+      const candidate = spawn(release, previousAssets);
+      state = {
+        kind: "starting",
+        candidate,
+        fallback: { release, previousAssets },
+        draining: state.draining,
+      };
+      void promote(candidate, null).then((outcome) => {
+        if (outcome.kind === "promoted") {
+          restartDelay = settings.restartMs.initial;
+          log(`${named(candidate)} is serving again`);
+        }
       });
     }, delay);
+    state = { kind: "restarting", release, previousAssets, draining, timer };
+  }
+
+  /**
+   * Wait for `candidate` to get ready, then make it the active worker: the one it replaces, if
+   * that one still lives, drains. If it never gets ready, the active worker keeps serving, or,
+   * when there is none, another starts after a wait.
+   */
+  async function promote(
+    candidate: Worker,
+    timeoutMs: number | null,
+  ): Promise<Promotion> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const readiness: Readiness = await Promise.race([
+      candidate.ready,
+      ...(timeoutMs === null
+        ? []
+        : [
+            new Promise<"timed out">((resolve) => {
+              timer = setTimeout(() => resolve("timed out"), timeoutMs);
+            }),
+          ]),
+    ]);
+    clearTimeout(timer);
+    const current = state;
+    const mine =
+      (current.kind === "handing-over" || current.kind === "starting") &&
+      current.candidate === candidate;
+    if (readiness === "ready" && mine) {
+      let replaced: Drainer | null = null;
+      let draining = current.draining;
+      if (current.kind === "handing-over") {
+        if (draining.length >= settings.maxDraining) {
+          const [oldest] = draining;
+          if (oldest) drain(oldest, now(), "drain limit");
+        }
+        replaced = {
+          worker: current.active,
+          drain: {
+            reason: `replaced by ${candidate.release.name} at ${iso(now())}`,
+            since: now(),
+            deadline: now() + settings.drainMs,
+            deadlineReason: "drain timeout",
+            inFlight: null,
+          },
+        };
+        current.active.process.send({
+          kind: "drain",
+          deadline: replaced.drain.deadline,
+        });
+        draining = [...draining, replaced];
+      }
+      state = { kind: "serving", active: candidate, draining };
+      candidate.process.send({ kind: "active" });
+      tellAlone();
+      return { kind: "promoted", replaced };
+    }
+    if (!candidate.exited) {
+      candidate.process.kill("SIGTERM");
+      await reap(candidate, 5_000);
+    }
+    const reason =
+      readiness === "timed out"
+        ? `it was not ready within ${Math.round((timeoutMs ?? 0) / 1000)} seconds`
+        : "it exited before it was ready";
+    const after = state;
+    if (after.kind === "handing-over" && after.candidate === candidate) {
+      state = {
+        kind: "serving",
+        active: after.active,
+        draining: after.draining,
+      };
+      tellAlone();
+      return { kind: "failed", reason };
+    }
+    if (after.kind === "starting" && after.candidate === candidate) {
+      log(
+        `${named(candidate)} did not start (${reason}); trying again in ${restartDelay} ms`,
+      );
+      scheduleRestart(
+        after.fallback.release,
+        after.fallback.previousAssets,
+        after.draining,
+      );
+      return { kind: "failed", reason };
+    }
+    return after.kind === "stopping"
+      ? { kind: "stopping" }
+      : { kind: "failed", reason };
   }
 
   /** Tell the active worker once when it runs alone: crash recovery may start. */
   function tellAlone() {
-    if (!active || active.toldAlone || next || draining.length) return;
-    active.toldAlone = true;
-    active.process.send({ kind: "alone" });
+    if (state.kind !== "serving" || state.draining.length) return;
+    if (state.active.toldAlone) return;
+    state.active.toldAlone = true;
+    state.active.process.send({ kind: "alone" });
   }
 
-  /** Make `worker` drain until `deadline`, or sooner if it already drains to an earlier one. */
+  /** Bring a drainer's deadline forward to `deadline`, never back. */
   function drain(
-    worker: Worker,
-    reason: string,
+    drainer: Drainer,
     deadline: number,
     deadlineReason: Drain["deadlineReason"],
   ) {
-    if (worker.drain && worker.drain.deadline <= deadline) return;
-    worker.drain = worker.drain
-      ? { ...worker.drain, deadline, deadlineReason }
-      : { reason, since: now(), deadline, deadlineReason, inFlight: null };
-    worker.process.send({ kind: "drain", deadline });
+    if (drainer.drain.deadline <= deadline) return;
+    drainer.drain = { ...drainer.drain, deadline, deadlineReason };
+    drainer.worker.process.send({ kind: "drain", deadline });
   }
 
-  /** Stop `worker` and wait for it, killing it if it outlasts `graceMs`. */
+  /** Wait for `worker` to exit, killing it if it outlasts `graceMs`. */
   async function reap(worker: Worker, graceMs: number) {
-    if (worker.exitCode !== undefined) return worker.exitCode;
+    if (worker.exited) return;
     const timer = setTimeout(() => worker.process.kill("SIGKILL"), graceMs);
-    const code = await worker.process.exited;
+    await worker.process.exited;
     clearTimeout(timer);
-    return code;
   }
+
+  const busy = (message: string) => ({
+    ok: false as const,
+    error: { kind: "busy" as const, message },
+  });
 
   return {
     /** Start the first worker and wait until it serves; an error value if it never does. */
@@ -285,23 +458,34 @@ export function createSupervisor(deps: {
             message: "The supervisor found no release to run.",
           },
         };
-      const worker = spawn(release, []);
-      active = worker;
-      const ready = await worker.ready;
-      if (!ready) {
-        active = null;
-        return {
-          ok: false,
-          error: {
-            kind: "not-ready",
-            message: `Nimbus (${release.name}) exited before it was ready, so the container stops. Its log above names the failing step.`,
-          },
-        };
+      if (state.kind !== "idle") return busy("The supervisor already started.");
+      const candidate = spawn(release, []);
+      state = {
+        kind: "starting",
+        candidate,
+        fallback: { release, previousAssets: [] },
+        draining: [],
+      };
+      const ready = await candidate.ready;
+      const current = state;
+      if (
+        ready === "ready" &&
+        current.kind === "starting" &&
+        current.candidate === candidate
+      ) {
+        state = { kind: "serving", active: candidate, draining: [] };
+        candidate.process.send({ kind: "active" });
+        tellAlone();
+        return { ok: true, value: undefined };
       }
-      phase = "serving";
-      worker.process.send({ kind: "active" });
-      tellAlone();
-      return { ok: true, value: undefined };
+      state = { kind: "idle" };
+      return {
+        ok: false,
+        error: {
+          kind: "not-ready",
+          message: `Nimbus (${release.name}) exited before it was ready, so the container stops. Its log above names the failing step.`,
+        },
+      };
     },
 
     /**
@@ -311,29 +495,25 @@ export function createSupervisor(deps: {
     async handover(
       name: string | null,
     ): Promise<Outcome<HandoverReport, HandoverError>> {
-      if (phase !== "serving" || !active || next)
-        return {
-          ok: false,
-          error: {
-            kind: "busy",
-            message:
-              phase === "stopping"
-                ? "The container is stopping, so nothing new starts."
-                : next
-                  ? `A handover to ${next.release.name} is under way; try again once it finished.`
-                  : "Nimbus is not serving yet; try again once it is.",
-          },
-        };
-      const release = name === null ? active.release : deps.release(name);
+      const current = state;
+      if (current.kind !== "serving")
+        return busy(
+          current.kind === "stopping"
+            ? "The container is stopping, so nothing new starts."
+            : current.kind === "handing-over"
+              ? `A handover to ${current.candidate.release.name} is under way; try again once it finished.`
+              : "Nimbus is not serving yet; try again once it is.",
+        );
+      const previous = current.active;
+      const release = name === null ? previous.release : deps.release(name);
       if (!release)
         return {
           ok: false,
           error: {
             kind: "unknown-release",
-            message: `There is no release named ${name}. Nothing was changed; ${active.release.name} keeps serving.`,
+            message: `There is no release named ${name}. Nothing was changed; ${previous.release.name} keeps serving.`,
           },
         };
-      const previous = active;
       const started = now();
       const candidate = spawn(
         release,
@@ -344,75 +524,69 @@ export function createSupervisor(deps: {
               2,
             ),
       );
-      next = candidate;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const ready = await Promise.race([
-        candidate.ready,
-        new Promise<"timeout">((resolve) => {
-          timer = setTimeout(() => resolve("timeout"), settings.readyTimeoutMs);
-        }),
-      ]);
-      clearTimeout(timer);
-      if (ready === null || ready === "timeout") {
-        candidate.process.kill("SIGTERM");
-        await reap(candidate, 5_000);
-        next = null;
-        const reason =
-          ready === null
-            ? "it exited before it was ready"
-            : `it was not ready within ${Math.round(settings.readyTimeoutMs / 1000)} seconds`;
-        log(
-          `handover to ${release.name} abandoned: ${reason}; ${previous.release.name} keeps serving`,
-        );
-        tellAlone();
-        return {
-          ok: false,
-          error: {
-            kind: "not-ready",
-            message: `${release.name} did not take over because ${reason}. ${previous.release.name} kept serving throughout; the new worker's log above names the failing step.`,
-          },
-        };
-      }
-      // The next worker is listening. The old one leaves the port, keeping what it is sending.
-      next = null;
-      active = candidate;
-      if (draining.length >= settings.maxDraining) {
-        const [oldest] = draining;
-        if (oldest)
-          drain(oldest, oldest.drain?.reason ?? "", now(), "drain limit");
-      }
-      const deadline = now() + settings.drainMs;
-      drain(
-        previous,
-        `replaced by ${release.name} at ${iso(now())}`,
-        deadline,
-        "drain timeout",
-      );
-      draining = [...draining, previous];
-      candidate.process.send({ kind: "active" });
-      log(
-        `${release.name} (pid ${candidate.process.pid}) took over from ${previous.release.name} (pid ${previous.process.pid}) in ${now() - started} ms`,
-      );
-      return {
-        ok: true,
-        value: {
-          from: previous.release.name,
-          to: release.name,
-          readyMs: now() - started,
-          draining: { pid: previous.process.pid, deadline: iso(deadline) },
-        },
+      state = {
+        kind: "handing-over",
+        active: previous,
+        candidate,
+        draining: current.draining,
       };
+      const outcome = await promote(candidate, settings.readyTimeoutMs);
+      switch (outcome.kind) {
+        case "promoted":
+          log(
+            `${named(candidate)} took over from ${named(previous)} in ${now() - started} ms`,
+          );
+          return {
+            ok: true,
+            value: {
+              from: previous.release.name,
+              to: release.name,
+              readyMs: now() - started,
+              draining: outcome.replaced && {
+                pid: outcome.replaced.worker.process.pid,
+                deadline: iso(outcome.replaced.drain.deadline),
+              },
+            },
+          };
+        case "failed":
+          log(`handover to ${release.name} abandoned: ${outcome.reason}`);
+          return {
+            ok: false,
+            error: {
+              kind: "not-ready",
+              message: previous.exited
+                ? `${release.name} did not take over because ${outcome.reason}, and ${previous.release.name} had stopped meanwhile, so it is being started again. The new worker's log above names the failing step.`
+                : `${release.name} did not take over because ${outcome.reason}. ${previous.release.name} kept serving throughout; the new worker's log above names the failing step.`,
+            },
+          };
+        case "stopping":
+          return busy("The container is stopping, so nothing new starts.");
+      }
     },
 
     /** Drain every worker within the stop time and wait for them, as a container stop needs. */
     async stop() {
-      if (phase === "stopping") return;
-      phase = "stopping";
-      if (restartTimer) clearTimeout(restartTimer);
+      if (state.kind === "stopping") return;
+      if (state.kind === "restarting") clearTimeout(state.timer);
       const deadline = now() + settings.stopMs;
       const workers = live();
-      for (const worker of workers)
-        drain(worker, "the container is stopping", deadline, "container stop");
+      const draining = drainersOf(state);
+      const drainers = workers.map(
+        (worker) =>
+          draining.find((drainer) => drainer.worker === worker) ?? {
+            worker,
+            drain: {
+              reason: "the container is stopping",
+              since: now(),
+              deadline: Number.POSITIVE_INFINITY,
+              deadlineReason: "container stop" as const,
+              inFlight: null,
+            },
+          },
+      );
+      state = { kind: "stopping", draining: drainers };
+      for (const drainer of drainers)
+        drain(drainer, deadline, "container stop");
       await Promise.all(
         workers.map((worker) => reap(worker, settings.stopMs + 5_000)),
       );
@@ -425,26 +599,27 @@ export function createSupervisor(deps: {
           pid: worker.process.pid,
           since: iso(worker.startedAt),
         };
+      const current = state;
       return {
         run: deps.run,
-        phase,
-        active: brief(active),
-        starting: brief(next),
-        draining: draining.flatMap((worker) =>
-          worker.drain
-            ? [
-                {
-                  release: worker.release.name,
-                  pid: worker.process.pid,
-                  reason: worker.drain.reason,
-                  since: iso(worker.drain.since),
-                  deadline: iso(worker.drain.deadline),
-                  deadlineReason: worker.drain.deadlineReason,
-                  inFlight: worker.drain.inFlight,
-                },
-              ]
-            : [],
-        ),
+        phase: current.kind,
+        active:
+          current.kind === "serving" || current.kind === "handing-over"
+            ? brief(current.active)
+            : null,
+        starting:
+          current.kind === "starting" || current.kind === "handing-over"
+            ? brief(current.candidate)
+            : null,
+        draining: drainersOf(current).map(({ worker, drain }) => ({
+          release: worker.release.name,
+          pid: worker.process.pid,
+          reason: drain.reason,
+          since: iso(drain.since),
+          deadline: iso(drain.deadline),
+          deadlineReason: drain.deadlineReason,
+          inFlight: drain.inFlight,
+        })),
       };
     },
   };

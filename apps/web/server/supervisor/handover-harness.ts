@@ -384,7 +384,7 @@ const Report = z.object({
   from: z.string(),
   to: z.string(),
   readyMs: z.number(),
-  draining: z.object({ pid: z.number(), deadline: z.string() }),
+  draining: z.object({ pid: z.number(), deadline: z.string() }).nullable(),
 });
 type Report = z.infer<typeof Report>;
 const Status = z.object({
@@ -433,7 +433,7 @@ for (let i = 0; i < handovers; i++) {
   const report = await handover(release);
   reports.push(report);
   console.info(
-    `handover ${i + 1} to ${release ?? "a fresh server"}: ${typeof report === "string" ? report : `ready in ${Math.round(report.readyMs)} ms; pid ${report.draining.pid} drains`} [${Math.round(performance.now() - started)} ms round trip]`,
+    `handover ${i + 1} to ${release ?? "a fresh server"}: ${typeof report === "string" ? report : `ready in ${Math.round(report.readyMs)} ms; ${report.draining ? `pid ${report.draining.pid} drains` : "nothing to drain"}`} [${Math.round(performance.now() - started)} ms round trip]`,
   );
   await Bun.sleep(intervalMs);
 }

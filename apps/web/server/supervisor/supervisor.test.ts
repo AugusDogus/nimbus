@@ -309,6 +309,66 @@ describe("the supervisor", () => {
     expect(h.supervisor.status().active?.pid).toBe(restarted.pid);
   });
 
+  test("when the active worker dies during a handover, the candidate takes over and nothing else starts", async () => {
+    const h = harness();
+    const first = await h.serving();
+    const handing = h.supervisor.handover("b");
+    const candidate = await h.started(1);
+    first.exit(1);
+    // Longer than the restart wait: no fallback may start while the candidate gets ready.
+    await Bun.sleep(60);
+    expect(h.workers).toHaveLength(2);
+    h.ready(candidate);
+    const outcome = await handing;
+    expect(outcome.ok).toBe(true);
+    await Bun.sleep(1);
+    expect(h.supervisor.status()).toMatchObject({
+      phase: "serving",
+      active: { release: "b", pid: candidate.pid },
+      draining: [],
+    });
+    // The dead worker never drains, so the candidate runs alone.
+    expect(first.sent.filter((m) => m.kind === "drain")).toEqual([]);
+    expect(h.kinds(candidate)).toEqual(["active", "alone"]);
+  });
+
+  test("when the active worker dies and the candidate then fails, one fallback starts", async () => {
+    const h = harness();
+    const first = await h.serving();
+    const handing = h.supervisor.handover("b");
+    const candidate = await h.started(1);
+    first.exit(1);
+    await Bun.sleep(5);
+    candidate.exit(1);
+    expect((await handing).ok).toBe(false);
+    const fallback = await h.started(2);
+    expect(fallback.release).toBe("a");
+    expect(fallback.predecessor).toBe(false);
+    h.ready(fallback);
+    await Bun.sleep(1);
+    expect(h.supervisor.status()).toMatchObject({
+      phase: "serving",
+      active: { pid: fallback.pid },
+    });
+    await Bun.sleep(60);
+    expect(h.workers).toHaveLength(3);
+  });
+
+  test("a crashed worker that never gets ready is started again, never two at once", async () => {
+    const h = harness();
+    const first = await h.serving();
+    first.exit(1);
+    const second = await h.started(1);
+    second.exit(1);
+    const third = await h.started(2);
+    expect(h.workers).toHaveLength(3);
+    h.ready(third);
+    await Bun.sleep(1);
+    expect(h.supervisor.status().active?.pid).toBe(third.pid);
+    await Bun.sleep(100);
+    expect(h.workers).toHaveLength(3);
+  });
+
   test("stops by draining every worker within the stop time", async () => {
     const h = harness();
     const first = await h.serving();
