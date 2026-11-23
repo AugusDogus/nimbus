@@ -277,6 +277,46 @@ test("no match is made out of or into a folder outside the visible set", async (
   );
 });
 
+test("a scan whose folders stopped being offered while it ran moves no id out of them", async () => {
+  await file("library/kitchen/Notes.md", "proofing times");
+  const id = await create(["library/kitchen", "library/garage"]);
+  const original = at("library/kitchen/Notes.md", id);
+  await rename(
+    t.drive.absolute("library/kitchen/Notes.md"),
+    t.drive.absolute("library/away.md"),
+  );
+  await reconcile(id);
+  let narrowed = false;
+  const restore = LibraryCatalog.useScanHooksForTest({
+    beforeOpen: async (relative) => {
+      if (relative !== "library/garage" || narrowed) return;
+      narrowed = true;
+      // The kitchen leaves the library after it was read, and the file arrives in the garage.
+      await Libraries.update(t.ctx, await t.drive.access("owner"), false, {
+        id,
+        title: "Kitchen",
+        folders: ["library/garage"],
+        acknowledgedDevices: [],
+      });
+      await rename(
+        t.drive.absolute("library/away.md"),
+        t.drive.absolute("library/garage/Notes.md"),
+      );
+    },
+  });
+  LibraryCatalog.resetForTest();
+  try {
+    await LibraryCatalog.items(t.ctx, id, {
+      folders: ["library/kitchen", "library/garage"],
+    });
+  } finally {
+    restore();
+  }
+  expect(narrowed).toBe(true);
+  await reconcile(id);
+  expect(at("library/garage/Notes.md", id)?.id).not.toBe(original?.id ?? "");
+});
+
 test("a file moved after its tombstone expired is a new item", async () => {
   await file("library/kitchen/Notes.md", "proofing times");
   await create();

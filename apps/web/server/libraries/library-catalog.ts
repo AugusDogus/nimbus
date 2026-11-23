@@ -278,6 +278,19 @@ async function scan(
   return { kind: "ok", files, folders: found };
 }
 
+/** Library `libraryId`'s live rows, as they stand. */
+const liveRows = (ctx: Pick<LibraryContext, "db">, libraryId: string) =>
+  ctx.db
+    .select()
+    .from(libraryItems)
+    .where(
+      and(
+        eq(libraryItems.libraryId, libraryId),
+        isNull(libraryItems.missingSince),
+      ),
+    )
+    .all();
+
 const live = (row: { missingSince: number | null }) =>
   row.missingSince === null;
 
@@ -405,16 +418,7 @@ async function reconcile(
     return true;
   });
   if (!committed) return [];
-  return ctx.db
-    .select()
-    .from(libraryItems)
-    .where(
-      and(
-        eq(libraryItems.libraryId, libraryId),
-        isNull(libraryItems.missingSince),
-      ),
-    )
-    .all();
+  return liveRows(ctx, libraryId);
 }
 
 type Cached = {
@@ -439,7 +443,7 @@ let settleTimer: ReturnType<typeof setTimeout> | null = null;
 const keyOf = (target: CatalogTarget) => target.folders.join("\0");
 
 async function refresh(
-  ctx: Pick<LibraryContext, "db" | "now">,
+  ctx: Pick<LibraryContext, "db" | "now" | "drive">,
   libraryId: string,
   target: CatalogTarget,
 ): Promise<Cached> {
@@ -450,6 +454,22 @@ async function refresh(
   const work = (async (): Promise<Cached> => {
     const before = changes.get(libraryId) ?? 0;
     const scanned = await scan(target.folders);
+    // A folder that stopped being offered while the scan ran must not lend its rows to files
+    // found elsewhere: such a scan is discarded, and the next look scans again. Checked just
+    // before reconciling, which commits without waiting on anything.
+    const offered = (await LibraryAccess.targetOf(ctx, libraryId)).folders;
+    if (
+      scanned.kind === "ok" &&
+      !target.folders.every((folder) =>
+        offered.some((current) => isWithinPath(current, folder)),
+      )
+    )
+      return {
+        folders: key,
+        scannedAt: ctx.now(),
+        dirty: true,
+        result: { kind: "ok", items: liveRows(ctx, libraryId) },
+      };
     const entry: Cached = {
       folders: key,
       scannedAt: ctx.now(),
@@ -488,7 +508,7 @@ export const LibraryCatalog = {
    * counted or dated into the library's change time.
    */
   async items(
-    ctx: Pick<LibraryContext, "db" | "now">,
+    ctx: Pick<LibraryContext, "db" | "now" | "drive">,
     libraryId: string,
     target: CatalogTarget,
   ) {
