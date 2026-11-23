@@ -10,6 +10,7 @@ import { createPathLocks } from "@nimbus/api/path-locks";
 import { createTestDriveStore } from "@nimbus/api/testing";
 import { createUploadServer } from "./routes/upload-server";
 import { createUploadFinisher } from "./upload-publish";
+import { UploadLocks } from "./upload-locks";
 import { UploadStore } from "./upload-store";
 
 /**
@@ -94,4 +95,45 @@ test("publishing waits for a PATCH another server is still writing", async () =>
   await writing.unlock();
   await finishing;
   expect(published).toBe(true);
+});
+
+test("a lock held for a HEAD handler that never takes it is let go", async () => {
+  const id = "0123456789abcdef0123456789abcdef";
+  // As when `onIncomingRequest` fails after recovery: tus never asks for the lock.
+  await UploadLocks.holdThroughHandler(
+    new Request("http://localhost/api/upload", { method: "HEAD" }),
+    id,
+    async () => undefined,
+  );
+  const next = (await lockerOf(server())).newLock(id);
+  await next.lock(new AbortController().signal, async () => undefined);
+  await next.unlock();
+});
+
+test("the HEAD handler of the same request takes the lock over without waiting", async () => {
+  const id = "0123456789abcdef0123456789abcdef";
+  const request = new Request("http://localhost/api/upload", {
+    method: "HEAD",
+  });
+  await UploadLocks.holdThroughHandler(request, id, async () => undefined);
+  const tus = server();
+  const handler = (
+    typeof tus.options.locker === "function"
+      ? await tus.options.locker(request)
+      : await tus.options.locker
+  ).newLock(id);
+  await handler.lock(new AbortController().signal, async () => undefined);
+  // Another request waits until that handler is done.
+  let other = false;
+  const waiting = (await lockerOf(tus)).newLock(id);
+  const taking = waiting
+    .lock(new AbortController().signal, async () => undefined)
+    .then(() => {
+      other = true;
+    });
+  await Bun.sleep(30);
+  expect(other).toBe(false);
+  await handler.unlock();
+  await taking;
+  await waiting.unlock();
 });

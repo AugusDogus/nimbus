@@ -15,6 +15,7 @@ import { createTestFileRequestStore } from "@nimbus/api/file-request-testing";
 import { createTestFileVersionStore } from "@nimbus/api/file-versions-testing";
 import { Staging } from "@nimbus/api/staging";
 import { cleanExpiredData } from "./maintenance";
+import { UploadLocks } from "./upload-locks";
 
 const day = 24 * 60 * 60 * 1000;
 const now = Date.now();
@@ -110,6 +111,28 @@ test("retention preserves active upload metadata and ignores symbolic links", as
   ]);
   expect(await readdir(path.join(root, ".nimbus/cache/thumbnails"))).toEqual([
     "recent.webp",
+  ]);
+});
+
+test("retention waits for a request writing an upload, then keeps it if it was written meanwhile", async () => {
+  const id = "0123456789abcdef0123456789abcdef";
+  await storedFile(`uploads/${id}`, 2 * day);
+  await storedFile(`uploads/${id}.json`, 2 * day);
+  // A PATCH resumed just before retention runs holds the upload's lock while it writes.
+  const { promise: written, resolve: write } = Promise.withResolvers<void>();
+  const patch = UploadLocks.hold(id, async () => {
+    await written;
+    const touched = new Date();
+    await utimes(path.join(root, ".nimbus/uploads", id), touched, touched);
+  });
+  const cleaning = cleanExpiredData(store, root, now);
+  await Bun.sleep(50);
+  write();
+  await patch;
+  await cleaning;
+  expect((await readdir(path.join(root, ".nimbus/uploads"))).sort()).toEqual([
+    id,
+    `${id}.json`,
   ]);
 });
 

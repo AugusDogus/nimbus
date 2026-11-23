@@ -56,60 +56,59 @@ async function getServer() {
   if (server) return server;
   const store = await uploadStaging();
   const finisher = createUploadFinisher(store);
-  /** Publish once, however many requests race to finish the same upload. */
-  const publish = (
+  /** Publish upload `id`; the caller holds its lock (see createUploadFinisher). */
+  const publish = async (
     request: Request,
     id: string,
     filename: string | null | undefined,
-  ) =>
-    finisher.finish(id, async () => {
-      const { request: fileRequest } = await reservedUpload(request, id);
-      // Hold the request's folder while publishing. If the folder moved before the
-      // lock was held, hold its new location and check again.
-      for (let folder = fileRequest.path; ;) {
-        const outcome = await mutateFiles(
-          [],
-          { userId: fileRequest.createdBy },
-          async (): Promise<
-            { kind: "published" } | { kind: "moved"; to: string }
-          > => {
-            // Re-check inside the lock: the owner may have lost access meanwhile.
-            const { request: current, owner } = await activeFileRequest({
-              id: fileRequest.id,
-            });
-            if (current.path !== folder)
-              return { kind: "moved", to: current.path };
-            const result = await publishUpload({
-              store,
-              drive: httpDriveStore,
-              uploadId: id,
-              filename: fileNameSchema.parse(filename),
-              folder: current.path,
-              conflict: { kind: "keep-both" },
-              credentials: { userId: owner.user.id },
-              requireWrite: (relative) => {
-                if (!owner.can(relative, "write"))
-                  throw new TRPCError({
-                    code: "NOT_FOUND",
-                    message: "This upload link is no longer available.",
-                  });
-              },
-            });
-            // Also after a crash between publishing and recording it, so the ledger always
-            // counts a published file. Recording a finished upload again changes nothing.
-            await httpDriveStore.fileRequests.finishUpload(
-              id,
-              result.path ?? fileNameSchema.parse(filename),
-              Date.now(),
-            );
-            return { kind: "published" };
-          },
-          { within: [folder] },
-        );
-        if (outcome.kind === "published") return;
-        folder = outcome.to;
-      }
-    });
+  ) => {
+    const { request: fileRequest } = await reservedUpload(request, id);
+    // Hold the request's folder while publishing. If the folder moved before the
+    // lock was held, hold its new location and check again.
+    for (let folder = fileRequest.path; ;) {
+      const outcome = await mutateFiles(
+        [],
+        { userId: fileRequest.createdBy },
+        async (): Promise<
+          { kind: "published" } | { kind: "moved"; to: string }
+        > => {
+          // Re-check inside the lock: the owner may have lost access meanwhile.
+          const { request: current, owner } = await activeFileRequest({
+            id: fileRequest.id,
+          });
+          if (current.path !== folder)
+            return { kind: "moved", to: current.path };
+          const result = await publishUpload({
+            store,
+            drive: httpDriveStore,
+            uploadId: id,
+            filename: fileNameSchema.parse(filename),
+            folder: current.path,
+            conflict: { kind: "keep-both" },
+            credentials: { userId: owner.user.id },
+            requireWrite: (relative) => {
+              if (!owner.can(relative, "write"))
+                throw new TRPCError({
+                  code: "NOT_FOUND",
+                  message: "This upload link is no longer available.",
+                });
+            },
+          });
+          // Also after a crash between publishing and recording it, so the ledger always
+          // counts a published file. Recording a finished upload again changes nothing.
+          await httpDriveStore.fileRequests.finishUpload(
+            id,
+            result.path ?? fileNameSchema.parse(filename),
+            Date.now(),
+          );
+          return { kind: "published" };
+        },
+        { within: [folder] },
+      );
+      if (outcome.kind === "published") return;
+      folder = outcome.to;
+    }
+  };
   server = new Server({
     path: "/api/file-request/upload",
     datastore: store,
@@ -121,11 +120,11 @@ async function getServer() {
       if (request.method === "POST" || request.method === "OPTIONS") return;
       try {
         await reservedUpload(request, id);
+        if (request.method === "HEAD")
+          await recordPublishedUpload(store, httpDriveStore.fileRequests, id);
         await finisher.recover(request, id, (metadata) =>
           publish(request, id, metadata?.filename),
         );
-        if (request.method === "HEAD")
-          await recordPublishedUpload(store, httpDriveStore.fileRequests, id);
       } catch (error) {
         throw tusFailure(error);
       }
@@ -217,7 +216,9 @@ async function getServer() {
     },
     async onUploadFinish(request, upload) {
       try {
-        await publish(request, upload.id, upload.metadata?.filename);
+        await finisher.finish(upload.id, (metadata) =>
+          publish(request, upload.id, metadata?.filename),
+        );
       } catch (error) {
         throw tusFailure(error);
       }

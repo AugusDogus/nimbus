@@ -9,6 +9,7 @@ import { mutateFiles } from "@nimbus/api/file-mutations";
 import { PendingChanges } from "@nimbus/api/pending-changes";
 import { isFsError } from "@nimbus/api/safe-path";
 import { getConfigRoot } from "./storage-paths";
+import { UploadLocks } from "./upload-locks";
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -41,21 +42,40 @@ async function cleanFiles(
     filenames.push(path.join(directory, entry.name));
     groups.set(key, filenames);
   }
-  for (const filenames of groups.values()) {
-    let expired = true;
-    for (const filename of filenames) {
-      try {
-        const details = await lstat(filename);
-        if (!details.isFile() || details.mtimeMs >= cutoff) expired = false;
-      } catch (error) {
-        if (!isFsError(error, "ENOENT")) throw error;
-      }
-    }
-    // tus updates the data file during PATCH, while its metadata can be much older.
-    // Retain the entire upload until every companion file has been inactive for a day.
-    if (expired)
+  for (const [key, filenames] of groups) {
+    if (!(await allExpired(filenames, cutoff))) continue;
+    if (!groupUploads) {
       for (const filename of filenames) await rm(filename, { force: true });
+      continue;
+    }
+    // A request may resume the upload between listing and deleting, here or on another server
+    // during an update: decide again holding its lock, which every tus request writes under,
+    // over every file the upload may have by now.
+    const companions = ["", ".json", ".done", ".done.tmp"].map((suffix) =>
+      path.join(directory, key + suffix),
+    );
+    await UploadLocks.hold(key, async () => {
+      if (!(await allExpired(companions, cutoff))) return;
+      for (const filename of companions) await rm(filename, { force: true });
+    });
   }
+}
+
+/**
+ * Whether every one of `filenames` that exists is a file untouched since `cutoff`. tus updates
+ * the data file during PATCH, while its metadata can be much older, so an upload is retained
+ * until every companion file has been inactive for a day.
+ */
+async function allExpired(filenames: string[], cutoff: number) {
+  for (const filename of filenames) {
+    try {
+      const details = await lstat(filename);
+      if (!details.isFile() || details.mtimeMs >= cutoff) return false;
+    } catch (error) {
+      if (!isFsError(error, "ENOENT")) throw error;
+    }
+  }
+  return true;
 }
 
 export async function cleanExpiredData(

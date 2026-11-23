@@ -204,16 +204,21 @@ export async function publishUpload({
  * upload that is complete and not yet published. Shared by both tus servers.
  */
 export function createUploadFinisher(store: UploadStore) {
+  type Publish = (
+    metadata: Record<string, string | null> | undefined,
+  ) => Promise<void>;
+  /** Publish `id` if it is complete and unpublished; the caller holds its lock. */
+  const publishIfComplete = async (id: string, publish: Publish) => {
+    if (await store.isFinished(id)) return;
+    const staged = await store.getUpload(id);
+    if (staged.size === undefined || staged.offset !== staged.size) return;
+    await publish(staged.metadata);
+  };
   const pending = new Map<string, Promise<void>>();
-  const finish = async (id: string, publish: () => Promise<void>) => {
+  const finish = async (id: string, publish: Publish) => {
     const existing = pending.get(id);
     if (existing) return existing;
-    const task = UploadLocks.hold(id, async () => {
-      if (await store.isFinished(id)) return;
-      const staged = await store.getUpload(id);
-      if (staged.size === undefined || staged.offset !== staged.size) return;
-      await publish();
-    });
+    const task = UploadLocks.hold(id, () => publishIfComplete(id, publish));
     pending.set(id, task);
     try {
       await task;
@@ -227,20 +232,17 @@ export function createUploadFinisher(store: UploadStore) {
      * A fully received upload whose publish failed would otherwise look
      * finished to a resuming client, which would then report success for a
      * file that is not in the drive. On HEAD, publish it now, or throw so the
-     * client retries. `publish` must publish through `finish`.
+     * client retries. Call it last in `onIncomingRequest`.
+     *
+     * The lock stays held into the HEAD handler (UploadLocks.holdThroughHandler), so the offset
+     * it reports is the one checked here: bytes another server writes meanwhile wait for it.
+     * `publish` publishes without taking the lock, which this already holds.
      */
-    async recover(
-      request: Request,
-      id: string,
-      publish: (
-        metadata: Record<string, string | null> | undefined,
-      ) => Promise<void>,
-    ) {
-      if (request.method !== "HEAD" || (await store.isFinished(id))) return;
-      const staged = await store.getUpload(id);
-      // `publish` goes through `finish` itself, which holds the lock and checks again.
-      if (staged.size !== undefined && staged.offset === staged.size)
-        await publish(staged.metadata);
+    async recover(request: Request, id: string, publish: Publish) {
+      if (request.method !== "HEAD") return;
+      await UploadLocks.holdThroughHandler(request, id, () =>
+        publishIfComplete(id, publish),
+      );
     },
   };
 }

@@ -34,21 +34,21 @@ export function createUploadServer({
   fail: (error: unknown) => TusFailure;
 }) {
   const finisher = createUploadFinisher(store);
-  const finish = (
+  /** Publish upload `id`; the caller holds its lock (see createUploadFinisher). */
+  const publish = async (
     request: Request,
     id: string,
     metadata: Record<string, string | null> | undefined,
-  ) =>
-    finisher.finish(id, async () => {
-      const parsed = UploadMetadata.safeParse(present(metadata));
-      if (!parsed.success)
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "This upload's stored details are invalid. Start a new upload.",
-        });
-      await commitUpload(store, drive, id, parsed.data, () => access(request));
-    });
+  ) => {
+    const parsed = UploadMetadata.safeParse(present(metadata));
+    if (!parsed.success)
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          "This upload's stored details are invalid. Start a new upload.",
+      });
+    await commitUpload(store, drive, id, parsed.data, () => access(request));
+  };
 
   return new Server({
     path: "/api/upload",
@@ -75,7 +75,7 @@ export function createUploadServer({
         const target = await safePath(upload.metadata?.targetPath ?? "");
         current.require(target.relative, "write");
         await finisher.recover(request, id, (metadata) =>
-          finish(request, id, metadata),
+          publish(request, id, metadata),
         );
       } catch (error) {
         throw fail(error);
@@ -117,7 +117,9 @@ export function createUploadServer({
     },
     async onUploadFinish(request, upload) {
       try {
-        await finish(request, upload.id, upload.metadata);
+        await finisher.finish(upload.id, (metadata) =>
+          publish(request, upload.id, metadata),
+        );
       } catch (error) {
         throw fail(error);
       }

@@ -5,6 +5,8 @@ import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
 import { isApiError } from "@nimbus/api/safe-path";
 import { createTestDriveStore } from "@nimbus/api/testing";
+import { Readable } from "node:stream";
+import { UploadLocks } from "@/server/upload-locks";
 import { UploadStore } from "@/server/upload-store";
 import { createUploadServer } from "./upload-server";
 import { forgetFileMutationsForTest } from "@nimbus/api/file-mutations";
@@ -15,6 +17,24 @@ describe("signed-in tus uploads", () => {
   let root: string;
   let previousRoot: string | undefined;
   let server: ReturnType<typeof createUploadServer>;
+  /** Run once by the `remaining`th next read of an upload, before that read returns. */
+  let interleave: {
+    remaining: number;
+    run: (id: string) => Promise<void>;
+  } | null = null;
+
+  /** A store whose reads can let another server's request run in between, as during an update. */
+  class InterleavedStore extends UploadStore {
+    override async getUpload(id: string) {
+      const read = await super.getUpload(id);
+      if (interleave && --interleave.remaining === 0) {
+        const { run } = interleave;
+        interleave = null;
+        await run(id);
+      }
+      return read;
+    }
+  }
 
   const send = (
     method: string,
@@ -38,7 +58,9 @@ describe("signed-in tus uploads", () => {
     await mkdir(path.join(root, "docs"));
     const memory = createTestDriveStore();
     server = createUploadServer({
-      store: new UploadStore({ directory: path.join(root, ".nimbus/uploads") }),
+      store: new InterleavedStore({
+        directory: path.join(root, ".nimbus/uploads"),
+      }),
       drive: memory.store,
       access: () => getAccess(memory.store, "user-1"),
       fail: (error) => ({
@@ -132,5 +154,55 @@ describe("signed-in tus uploads", () => {
     expect(await readFile(path.join(root, "docs/a.txt"), "utf8")).toBe("hello");
     expect((await send("HEAD", url)).status).toBe(200);
     expect(await readdir(path.join(root, "docs"))).toEqual(["a.txt"]);
+  });
+
+  it("never reports a complete upload that is not published, though another server finishes its bytes during HEAD", async () => {
+    const created = await send("POST", "http://localhost/api/upload", {
+      "Upload-Length": "5",
+      "Upload-Metadata": `filename ${base64("late.txt")},targetPath ${base64("docs")}`,
+    });
+    const location = created.headers.get("location");
+    if (!location)
+      throw new Error("The tus server did not return an upload location.");
+    const url = new URL(location, "http://localhost/api/upload/").href;
+    const patched = await send(
+      "PATCH",
+      url,
+      {
+        "Upload-Offset": "0",
+        "Content-Type": "application/offset+octet-stream",
+      },
+      "hel",
+    );
+    expect(patched.status).toBe(204);
+
+    // Right after HEAD's recovery has read the upload (its second read, after the owner
+    // check), a PATCH on the server being replaced writes the last bytes under the upload's
+    // lock, and that server stops before it publishes.
+    let lastBytes: Promise<void> = Promise.resolve();
+    interleave = {
+      remaining: 2,
+      run: async (staged) => {
+        lastBytes = UploadLocks.hold(staged, async () => {
+          await server.datastore.write(
+            Readable.from([Buffer.from("lo")]),
+            staged,
+            3,
+          );
+        });
+        await Bun.sleep(50);
+      },
+    };
+    const resumed = await send("HEAD", url);
+    await lastBytes;
+    expect(resumed.status).toBe(200);
+    // HEAD decided on 3 bytes under the lock and the client sends the rest again, or it saw
+    // all 5 and published them first: never 5 with nothing in the drive.
+    expect(resumed.headers.get("upload-offset")).toBe("3");
+    const again = await send("HEAD", url);
+    expect(again.headers.get("upload-offset")).toBe("5");
+    expect(await readFile(path.join(root, "docs/late.txt"), "utf8")).toBe(
+      "hello",
+    );
   });
 });
