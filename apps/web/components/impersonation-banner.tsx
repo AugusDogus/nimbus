@@ -100,7 +100,7 @@ export default function ImpersonationBanner({ email }: { email: string }) {
         Everything you do is recorded under your name.
       </p>
       <Button
-        size="sm"
+        size="compact"
         className="w-full bg-amber-950 text-amber-50 hover:bg-amber-950/90 sm:w-auto"
         disabled={busy}
         onClick={() => {

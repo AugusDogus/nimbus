@@ -45,7 +45,7 @@ export function PendingButton({
     <span
       aria-hidden
       className={cn(
-        buttonVariants({ variant, size: "sm" }),
+        buttonVariants({ variant, size: "compact" }),
         "pointer-events-none animate-pulse border-transparent bg-accent text-transparent shadow-none hover:bg-accent dark:bg-accent",
         bar,
       )}
@@ -69,7 +69,7 @@ export function TrashSkeleton() {
               <Skeleton className={cn("h-3 w-56 max-w-full", bar)} />
             </div>
           </div>
-          <PendingButton label="Restore" variant="outline" />
+          <PendingButton label="Restore" variant="tertiary" />
           <PendingButton label="Delete permanently" variant="ghost" />
         </li>
       ))}

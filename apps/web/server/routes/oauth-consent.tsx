@@ -124,7 +124,7 @@ function ConsentCard({ view, email }: { view: ReadyView; email?: string }) {
                     type="submit"
                     name="decision"
                     value="deny"
-                    variant="outline"
+                    variant="tertiary"
                   >
                     Cancel
                   </Button>

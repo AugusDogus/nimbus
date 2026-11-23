@@ -31,6 +31,12 @@ export const PageLayout = {
   logo: "size-7",
   account: "touch-hit relative size-9 rounded-full",
   avatarFallback: "bg-secondary text-secondary-foreground",
+  /**
+   * A primary button in the create colour, such as New. Fluid Functionalism's button paints its
+   * fill on an inner layer from `--btn-bg`, so this sets that variable there, at rest and on hover.
+   */
+  createButton:
+    "text-create-foreground [&>span:first-child]:[--btn-bg:var(--create)] hover:[&>span:first-child]:[--btn-bg:color-mix(in_oklab,var(--create)_90%,var(--foreground))]",
   /** The letter the account menu shows: the name's first, else the email's. */
   initial: (user: { name?: string | null; email?: string | null }) =>
     user.name?.charAt(0).toUpperCase() ||

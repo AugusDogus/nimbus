@@ -255,7 +255,7 @@ function RenameDialog({
           </div>
           <DialogFooter>
             <Button
-              variant="outline"
+              variant="tertiary"
               type="button"
               disabled={busy}
               onClick={onClose}

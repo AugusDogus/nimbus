@@ -78,7 +78,7 @@ export function TrashPage() {
         {/* Always in place, so the title beside it never narrows when items arrive; there is
             nothing to empty while they load, or once Trash is empty. */}
         <Button
-          variant="outline"
+          variant="tertiary"
           disabled={busy || !trash.data?.length}
           onClick={() =>
             setDeleting({
@@ -111,8 +111,8 @@ export function TrashPage() {
                 </p>
               </div>
               <Button
-                variant="outline"
-                size="sm"
+                variant="tertiary"
+                size="compact"
                 disabled={busy}
                 onClick={() =>
                   void perform(() =>
@@ -124,7 +124,7 @@ export function TrashPage() {
               </Button>
               <Button
                 variant="ghost"
-                size="sm"
+                size="compact"
                 disabled={busy}
                 onClick={() => setDeleting({ kind: "item", id: item.id })}
               >

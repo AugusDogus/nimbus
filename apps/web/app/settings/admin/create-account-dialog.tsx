@@ -132,7 +132,7 @@ export function CreateAccountDialog({ onClose }: { onClose: () => void }) {
           <DialogFooter>
             <Button
               type="button"
-              variant="outline"
+              variant="tertiary"
               disabled={busy}
               onClick={onClose}
             >

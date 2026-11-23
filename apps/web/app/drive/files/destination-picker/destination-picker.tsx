@@ -724,13 +724,13 @@ export function DestinationPicker({
           {trpcErrorCode(listing.error) === "NOT_FOUND"
             ? "This folder no longer exists."
             : listing.error.message}{" "}
-          <Button
-            variant="link"
-            className="h-auto p-0"
+          <button
+            type="button"
+            className="font-medium text-primary underline-offset-4 hover:underline"
             onClick={() => go({ kind: "folder", path: top })}
           >
             Go to {DriveRoot.label}
-          </Button>
+          </button>
         </Notice>
       );
     if (!listing.data) return <Notice>Loading folders…</Notice>;
@@ -798,12 +798,12 @@ export function DestinationPicker({
             <Button
               key={place.key}
               variant={place.active ? "secondary" : "ghost"}
-              size="sm"
+              size="compact"
               aria-current={place.active ? "page" : undefined}
               onClick={place.open}
-              className="touch-hit shrink-0 gap-1.5"
+              leadingIcon={place.icon}
+              className="touch-hit shrink-0"
             >
-              <place.icon aria-hidden="true" className="size-4" />
               {place.label}
             </Button>
           ))}
@@ -820,9 +820,9 @@ export function DestinationPicker({
               variant={place.active ? "secondary" : "ghost"}
               aria-current={place.active ? "page" : undefined}
               onClick={place.open}
-              className="justify-start gap-2"
+              leadingIcon={place.icon}
+              className="justify-start"
             >
-              <place.icon aria-hidden="true" className="size-4" />
               <span className="truncate">{place.label}</span>
             </Button>
           ))}
@@ -834,7 +834,7 @@ export function DestinationPicker({
           <div className="flex items-center gap-1 border-b px-2 py-1.5">
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="icon-compact"
               aria-label="Back"
               disabled={history.length === 0 || busy}
               onClick={back}
@@ -844,7 +844,7 @@ export function DestinationPicker({
             </Button>
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="icon-compact"
               ref={upRef}
               aria-label="Up one folder"
               aria-keyshortcuts="Alt+ArrowUp"
@@ -863,14 +863,14 @@ export function DestinationPicker({
             </div>
             <Button
               variant="ghost"
-              size="sm"
+              size="compact"
               disabled={!canCreate}
               onClick={() =>
                 setCreating({ kind: "naming", error: null, busy: false })
               }
               className="touch-hit shrink-0 gap-1.5"
+              leadingIcon={FolderPlus}
             >
-              <FolderPlus aria-hidden="true" className="size-4" />
               <span className="max-sm:sr-only">New folder</span>
             </Button>
           </div>
@@ -915,7 +915,7 @@ export function DestinationPicker({
           </p>
         )}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="outline" disabled={busy} onClick={onClose}>
+          <Button variant="tertiary" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -927,7 +927,9 @@ export function DestinationPicker({
                 ? undefined
                 : `${verb.title} to “${nameOf(browsed)}”`
             }
-            className="min-w-0 max-w-full sm:max-w-96"
+            // The button keeps its label on one line and never narrower than it; its label's
+            // layers may shrink here so the folder's name can shorten instead.
+            className="min-w-0 max-w-full sm:max-w-96 [&>span:last-child]:min-w-0 [&>span:last-child]:max-w-full [&>span:last-child>span]:min-w-0 [&>span:last-child>span]:overflow-hidden"
           >
             {busy ? (
               verb.working

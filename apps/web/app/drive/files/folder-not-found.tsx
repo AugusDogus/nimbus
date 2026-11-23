@@ -1,5 +1,5 @@
 import { Link } from "@/components/link";
-import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { DriveRoot } from "@nimbus/api/drive-root";
 
 export function FolderNotFound() {
@@ -10,9 +10,7 @@ export function FolderNotFound() {
         This folder may have moved or been deleted. Open your drive to find it
         again.
       </p>
-      <Link to="/" className={buttonVariants()}>
-        Open {DriveRoot.label}
-      </Link>
+      <Button render={<Link to="/" />}>Open {DriveRoot.label}</Button>
     </div>
   );
 }

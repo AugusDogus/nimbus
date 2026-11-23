@@ -194,8 +194,8 @@ export function HomeSharingSettings({
                   {entry.label}
                 </span>
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant="tertiary"
+                  size="compact"
                   disabled={busy}
                   aria-label={`Remove: ${entry.label}`}
                   onClick={() =>
@@ -212,8 +212,8 @@ export function HomeSharingSettings({
           </ul>
           {found.length > 1 && (
             <Button
-              variant="outline"
-              size="sm"
+              variant="tertiary"
+              size="compact"
               disabled={busy}
               onClick={() =>
                 onConfirm({

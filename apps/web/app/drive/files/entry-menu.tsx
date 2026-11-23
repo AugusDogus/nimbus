@@ -277,7 +277,7 @@ export function EntryActionsButton({
   return (
     <Button
       variant="ghost"
-      size="icon-sm"
+      size="icon-compact"
       aria-label={
         count > 1
           ? `Actions for ${count.toLocaleString()} selected items`

@@ -218,7 +218,7 @@ export function McpSettings({ state }: { state: McpSettingsState }) {
                     </div>
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="compact"
                       onClick={() => {
                         setError(null);
                         setRevoking(connection);

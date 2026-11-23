@@ -117,7 +117,6 @@ export function AppSidebar({
             <DropdownMenuTrigger
               render={
                 <Button
-                  size="lg"
                   aria-label="New"
                   title="New"
                   disabled={!canWrite}
@@ -271,12 +270,7 @@ export function AppSidebarPlaceholder({
     <>
       <SidebarContent className={parts.content}>
         <div className={parts.newPlace(offersNew)}>
-          <Button
-            size="lg"
-            tabIndex={-1}
-            data-shape="new"
-            className={parts.newButton}
-          >
+          <Button tabIndex={-1} data-shape="new" className={parts.newButton}>
             <NewLabel />
           </Button>
         </div>

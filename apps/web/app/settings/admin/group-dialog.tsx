@@ -142,7 +142,7 @@ export function GroupDialog({
           <DialogFooter>
             <Button
               type="button"
-              variant="outline"
+              variant="tertiary"
               disabled={busy}
               onClick={onClose}
             >

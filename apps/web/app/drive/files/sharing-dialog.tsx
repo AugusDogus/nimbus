@@ -228,8 +228,8 @@ export function SharingDialog({
                   · {grant.permission}
                 </span>
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant="tertiary"
+                  size="compact"
                   disabled={busy}
                   onClick={() =>
                     void perform(() =>
@@ -305,7 +305,7 @@ export function SharingDialog({
                 />
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="tertiary"
                   onClick={() =>
                     void perform(async () => {
                       await navigator.clipboard.writeText(link);
@@ -327,7 +327,7 @@ export function SharingDialog({
               </p>
               <Button
                 type="button"
-                variant="outline"
+                variant="tertiary"
                 onClick={() => setRequesting(true)}
               >
                 Request files

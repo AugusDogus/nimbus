@@ -38,8 +38,8 @@ export function SessionSettings({ sessions }: { sessions: SessionSummary[] }) {
       action={
         others > 0 ? (
           <Button
-            size="sm"
-            variant="outline"
+            size="compact"
+            variant="tertiary"
             onClick={() => {
               setError(null);
               setPending({ kind: "others" });
@@ -93,7 +93,7 @@ export function SessionSettings({ sessions }: { sessions: SessionSummary[] }) {
               {!session.current && (
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="compact"
                   onClick={() => {
                     setError(null);
                     setPending({ kind: "one", session });

@@ -162,7 +162,7 @@ export function FilesSkeleton({
           <div className="space-y-6">
             <div className={TrashShape.header}>
               <TrashIntro />
-              <Button variant="outline" disabled tabIndex={-1}>
+              <Button variant="tertiary" disabled tabIndex={-1}>
                 {TrashShape.emptyLabel}
               </Button>
             </div>

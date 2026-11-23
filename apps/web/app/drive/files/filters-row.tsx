@@ -53,7 +53,7 @@ export function FiltersRow({
       {/* Mobile: single filter button that opens a Drawer */}
       <Button
         variant="ghost"
-        size="sm"
+        size="compact"
         className="touch-hit md:hidden"
         onClick={() => setFilterDrawerOpen(true)}
         aria-label="Sort and filter options"

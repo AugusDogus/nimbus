@@ -39,7 +39,7 @@ export function SplitToggle({
         render={
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon-compact"
             aria-label="Split view"
             data-shape="split-toggle"
             aria-pressed={open}

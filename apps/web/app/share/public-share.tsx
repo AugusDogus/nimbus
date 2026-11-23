@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { FileText, Folder } from "lucide-react";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { NimbusWordmark } from "@/components/nimbus-wordmark";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -150,18 +150,14 @@ export function PublicShare({ token }: { token: string }) {
               </p>
             </div>
             {share.data.mode === "download" && (
-              <a
-                href={`${url}&download=1`}
-                download
-                className={buttonVariants()}
-              >
+              <Button render={<a href={`${url}&download=1`} download />}>
                 {share.data.entry.type === "dir" ? "Download ZIP" : "Download"}
-              </a>
+              </Button>
             )}
           </div>
           {path && (
             <Button
-              variant="outline"
+              variant="tertiary"
               onClick={() => setPath(path.split("/").slice(0, -1).join("/"))}
             >
               Parent folder

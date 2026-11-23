@@ -76,8 +76,12 @@ export function WebDavSettings({ email }: { email: string }) {
         title="App passwords"
         description="Each password has the same file permissions as your account."
         action={
-          <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
-            <Plus aria-hidden="true" />
+          <Button
+            size="compact"
+            variant="tertiary"
+            onClick={() => setCreating(true)}
+            leadingIcon={Plus}
+          >
             Create password
           </Button>
         }
@@ -141,7 +145,7 @@ export function WebDavSettings({ email }: { email: string }) {
                 </div>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="compact"
                   onClick={() => {
                     setError(null);
                     setRevoking(password);

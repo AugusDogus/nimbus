@@ -92,10 +92,10 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
         <div className="flex shrink-0 flex-wrap gap-2">
           {enabled ? (
             <>
-              <Button variant="outline" onClick={() => open("codes")}>
+              <Button variant="tertiary" onClick={() => open("codes")}>
                 New recovery codes
               </Button>
-              <Button variant="outline" onClick={() => open("disable")}>
+              <Button variant="tertiary" onClick={() => open("disable")}>
                 Turn off
               </Button>
             </>
@@ -217,7 +217,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
               <DialogFooter>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="tertiary"
                   disabled={busy}
                   onClick={close}
                 >
@@ -227,7 +227,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
                   type="submit"
                   disabled={busy}
                   variant={
-                    flow.purpose === "disable" ? "destructive" : "default"
+                    flow.purpose === "disable" ? "destructive" : "primary"
                   }
                 >
                   {busy
@@ -308,7 +308,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
               <DialogFooter>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="tertiary"
                   disabled={busy}
                   onClick={close}
                 >

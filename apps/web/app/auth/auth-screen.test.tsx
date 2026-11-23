@@ -17,7 +17,10 @@ test("sign-in renders each option the server reports, with actions off until hyd
   expect(offered).toContain('href="/signup"');
   expect(offered).toContain('href="/reset-password"');
   expect(offered).toContain("Authentik has not verified your email address");
-  expect(offered).toMatch(/<button[^>]*disabled[^>]*>Sign in with a passkey/);
+  // A disabled button holding the label, which sits in the button's own inner layers.
+  expect(offered).toMatch(
+    /<button[^>]*disabled[^>]*>(?:(?!<\/button>).)*Sign in with a passkey/,
+  );
 
   const plain = render(
     AuthPageData.signIn(

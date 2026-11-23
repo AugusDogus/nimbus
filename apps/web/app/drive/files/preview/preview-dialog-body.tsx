@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { FilePreview } from "../preview-dialog";
 import type { FileEntry } from "../types";
 
@@ -123,7 +123,7 @@ export default function PreviewDialog({
           {entries.length > 1 && (
             <div className="mr-auto flex gap-1">
               <Button
-                variant="outline"
+                variant="tertiary"
                 size="icon"
                 aria-label="Previous file"
                 disabled={!previous}
@@ -132,7 +132,7 @@ export default function PreviewDialog({
                 <ChevronLeft />
               </Button>
               <Button
-                variant="outline"
+                variant="tertiary"
                 size="icon"
                 aria-label="Next file"
                 disabled={!next}
@@ -144,9 +144,7 @@ export default function PreviewDialog({
               </Button>
             </div>
           )}
-          <a href={url} download className={buttonVariants()}>
-            Download
-          </a>
+          <Button render={<a href={url} download />}>Download</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

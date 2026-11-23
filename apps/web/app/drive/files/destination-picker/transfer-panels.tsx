@@ -112,7 +112,7 @@ export function ClashPanel({
       <div className="flex flex-wrap gap-2">
         <Button
           ref={keepBoth}
-          variant={single ? "outline" : "default"}
+          variant={single ? "tertiary" : "primary"}
           disabled={busy}
           onClick={() => onChoose({ kind: "keep-both" })}
         >
@@ -120,7 +120,7 @@ export function ClashPanel({
         </Button>
         {!single && (
           <Button
-            variant="outline"
+            variant="tertiary"
             disabled={busy}
             onClick={() => onChoose({ kind: "skip" })}
           >
@@ -229,13 +229,18 @@ export function FailurePanel({
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" disabled={busy} onClick={onRetry}>
+        <Button
+          variant="tertiary"
+          size="compact"
+          disabled={busy}
+          onClick={onRetry}
+        >
           Try again
         </Button>
         {done > 0 && undo.kind !== "done" && (
           <Button
             variant="ghost"
-            size="sm"
+            size="compact"
             disabled={busy || undo.kind === "undoing"}
             onClick={() => {
               setUndo({ kind: "undoing" });

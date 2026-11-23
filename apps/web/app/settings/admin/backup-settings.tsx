@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import * as z from "zod/mini";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { ByteSize } from "@/lib/byte-size";
 import { queryClient } from "@/lib/trpc";
 import { SettingsSection } from "../settings-section";
@@ -57,8 +57,8 @@ export function BackupSettings() {
       description="Nimbus copies its database every day while it runs. Files are not included; back up the data root separately."
       action={
         <Button
-          size="sm"
-          variant="outline"
+          size="compact"
+          variant="tertiary"
           disabled={busy}
           onClick={() => void backUp()}
         >
@@ -95,13 +95,18 @@ export function BackupSettings() {
                   {ByteSize.format(backup.size)}
                 </p>
               </div>
-              <a
-                href={`/api/backups/${encodeURIComponent(backup.name)}`}
-                download
-                className={buttonVariants({ variant: "ghost", size: "sm" })}
+              <Button
+                variant="ghost"
+                size="compact"
+                render={
+                  <a
+                    href={`/api/backups/${encodeURIComponent(backup.name)}`}
+                    download
+                  />
+                }
               >
                 Download
-              </a>
+              </Button>
             </li>
           ))}
         </ul>

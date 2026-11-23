@@ -1,6 +1,7 @@
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { Link } from "@/components/link";
 import { useCallback, useMemo } from "react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TransferDialog } from "../files/entry-dialogs";
 import { EntriesView } from "../files/entries-view";
@@ -127,9 +128,9 @@ export function SearchResultsPage({ query }: { query: string }) {
             <p className="text-pretty text-muted-foreground">
               No matching files. Try a different filename.
             </p>
-            <Link to="/" className={buttonVariants({ variant: "outline" })}>
+            <Button variant="tertiary" render={<Link to="/" />}>
               Open {DriveRoot.label}
-            </Link>
+            </Button>
           </div>
         )}
         {/* Said even when the rebuilt list is empty. */}
@@ -156,7 +157,7 @@ export function SearchResultsPage({ query }: { query: string }) {
             >
               {search.problem.message}
             </p>
-            <Button variant="outline" size="sm" onClick={search.retry}>
+            <Button variant="tertiary" size="compact" onClick={search.retry}>
               Search again
             </Button>
           </div>
@@ -182,13 +183,18 @@ export function SearchResultsPage({ query }: { query: string }) {
             </p>
             {search.more && (
               <Button
-                variant="outline"
-                size="sm"
-                // Keyboard focus stays on the button while the next page loads.
-                focusableWhenDisabled
+                variant="tertiary"
+                size="compact"
                 className="aria-disabled:opacity-50"
-                disabled={!total.exact || search.loadingMore}
-                onClick={search.loadMore}
+                // Keyboard focus stays on the button while the next page loads, which Base UI's
+                // button keeps where this one renders it.
+                render={
+                  <ButtonPrimitive
+                    focusableWhenDisabled
+                    disabled={!total.exact || search.loadingMore}
+                    onClick={search.loadMore}
+                  />
+                }
               >
                 {search.loadingMore
                   ? "Loading…"

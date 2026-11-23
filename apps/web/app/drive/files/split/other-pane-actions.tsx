@@ -27,7 +27,7 @@ function MoreActions({ items }: { items: readonly MenuAction[] }) {
         render={
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon-compact"
             aria-label="More actions"
             title="More actions"
             className="touch-hit order-last"
@@ -92,7 +92,7 @@ export function OtherPaneActions({
       <Button
         key={item.operation}
         variant="ghost"
-        size="sm"
+        size="compact"
         disabled={reason !== undefined}
         title={reason ?? item.label}
         onClick={item.run}

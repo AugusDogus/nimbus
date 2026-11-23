@@ -198,7 +198,7 @@ export function PairPage({
                     while the code is still shown on the device.
                   </p>
                   <Button
-                    variant="outline"
+                    variant="tertiary"
                     render={<Link to="/settings/libraries" />}
                   >
                     Create a library
@@ -277,7 +277,7 @@ export function PairPage({
                   Allow
                 </Button>
                 <Button
-                  variant="outline"
+                  variant="tertiary"
                   disabled={busy}
                   onClick={() => void decide(step.review, false)}
                 >

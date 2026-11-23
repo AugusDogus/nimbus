@@ -23,7 +23,7 @@ import { UploadProgress } from "@/components/upload-progress";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { DrawerActionItem } from "@/components/drawer-action-item";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Drawer,
   DrawerClose,
@@ -53,6 +53,7 @@ import { trpcErrorCode } from "@/lib/trpc-error";
 import { AppSidebar } from "./files/app-sidebar";
 import { SearchBox } from "./search/search-box";
 import { PageLayout } from "@/components/page-layout";
+import { cn } from "@/lib/utils";
 import { HeaderToolsSlot } from "./files/header-tools";
 import { HiddenFileInput, NewFolderDialog } from "./files/new-content-ui";
 import { useFileActions } from "./files/use-file-actions";
@@ -251,9 +252,9 @@ export function FilesShell({ children }: FilesShellProps) {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Link to="/login" className={buttonVariants({ size: "sm" })}>
+            <Button size="compact" render={<Link to="/login" />}>
               Sign in
-            </Link>
+            </Button>
           )}
         </div>
       </header>
@@ -312,13 +313,15 @@ export function FilesShell({ children }: FilesShellProps) {
       {canWrite && offersNew && (
         <>
           <Button
-            size="lg"
-            className="fixed bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px))] right-4 z-20 h-14 gap-2.5 rounded-full bg-create text-create-foreground shadow-lg hover:bg-create/90 has-[>svg]:px-6 md:hidden"
+            leadingIcon={Plus}
+            className={cn(
+              "fixed bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px))] right-4 z-20 h-14 rounded-full px-6 shadow-lg md:hidden",
+              PageLayout.createButton,
+            )}
             onClick={() => setFabDrawerOpen(true)}
             aria-label="New file or folder"
             data-toast-clearance="narrow"
           >
-            <Plus className="size-5" strokeWidth={1.8} />
             New
           </Button>
 

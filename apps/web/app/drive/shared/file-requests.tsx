@@ -95,8 +95,8 @@ export function FileRequests() {
                 </p>
               </div>
               <Button
-                size="sm"
-                variant="outline"
+                size="compact"
+                variant="tertiary"
                 onClick={() => {
                   navigator.clipboard
                     .writeText(`${window.location.origin}/r/${request.token}`)
@@ -110,14 +110,14 @@ export function FileRequests() {
                 Copy link
               </Button>
               <Button
-                size="sm"
-                variant="outline"
+                size="compact"
+                variant="tertiary"
                 onClick={() => setEditing(request)}
               >
                 Edit
               </Button>
               <Button
-                size="sm"
+                size="compact"
                 variant="ghost"
                 onClick={() => setRevoking(request.id)}
               >

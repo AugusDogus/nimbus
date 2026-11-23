@@ -101,7 +101,7 @@ export function ThemeSearch({
         </div>
         <Button
           type="submit"
-          variant="outline"
+          variant="tertiary"
           disabled={
             disabled ||
             !query.trim() ||
@@ -154,8 +154,8 @@ export function ThemeSearch({
                     )}
                   </div>
                   <Button
-                    variant="outline"
-                    size="sm"
+                    variant="tertiary"
+                    size="compact"
                     aria-label={`Add ${name}`}
                     disabled={disabled || installing !== null}
                     onClick={() => void install(extension)}

@@ -68,14 +68,14 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeySummary[] }) {
       description="Sign in with your fingerprint, face, or device PIN instead of a password and code."
       action={
         <Button
-          size="sm"
-          variant="outline"
+          size="compact"
+          variant="tertiary"
           onClick={() => {
             setError(null);
             setAdding(true);
           }}
+          leadingIcon={Plus}
         >
-          <Plus aria-hidden="true" />
           Add passkey
         </Button>
       }
@@ -133,7 +133,7 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeySummary[] }) {
               </div>
               <Button
                 variant="ghost"
-                size="sm"
+                size="compact"
                 onClick={() => {
                   setError(null);
                   setRemoving(passkey);
@@ -212,7 +212,7 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeySummary[] }) {
             <DialogFooter>
               <Button
                 type="button"
-                variant="outline"
+                variant="tertiary"
                 disabled={busy}
                 onClick={() => setAdding(false)}
               >

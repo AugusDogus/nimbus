@@ -30,7 +30,7 @@ function Notice({ kind }: { kind: CodeLoadFailure }) {
         {CodeLoad.message(kind)}
       </p>
       <Button
-        size="sm"
+        size="compact"
         className="touch-hit shrink-0"
         onClick={() => location.reload()}
       >
@@ -38,7 +38,7 @@ function Notice({ kind }: { kind: CodeLoadFailure }) {
       </Button>
       <Button
         variant="ghost"
-        size="icon-sm"
+        size="icon-compact"
         aria-label="Dismiss"
         title="Dismiss"
         className="touch-hit shrink-0 text-muted-foreground hover:text-foreground"

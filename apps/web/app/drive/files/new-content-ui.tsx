@@ -47,7 +47,7 @@ export function NewFolderDialog({ state }: { state: NewContentState }) {
           <DialogFooter>
             <Button
               type="button"
-              variant="outline"
+              variant="tertiary"
               onClick={() => state.setFolderDialogOpen(false)}
             >
               Cancel

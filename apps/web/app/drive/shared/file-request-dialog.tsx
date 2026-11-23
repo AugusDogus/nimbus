@@ -190,7 +190,7 @@ export default function FileRequestDialog({
               />
               <Button
                 type="button"
-                variant="outline"
+                variant="tertiary"
                 onClick={() => {
                   navigator.clipboard
                     .writeText(link)
@@ -338,7 +338,7 @@ export default function FileRequestDialog({
             <DialogFooter>
               <Button
                 type="button"
-                variant="outline"
+                variant="tertiary"
                 disabled={busy}
                 onClick={onClose}
               >

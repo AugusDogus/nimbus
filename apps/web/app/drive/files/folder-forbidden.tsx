@@ -1,5 +1,5 @@
 import { Link } from "@/components/link";
-import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { NavPlace } from "./nav-place";
 
 /** A folder the account may not open. Says nothing about whether it exists. */
@@ -13,9 +13,9 @@ export function FolderForbidden() {
         Ask a server administrator, or the person who shared it with you, for
         access. Folders shared with you are listed in {NavPlace.labels.shared}.
       </p>
-      <Link to="/shared" className={buttonVariants()}>
+      <Button render={<Link to="/shared" />}>
         Open {NavPlace.labels.shared}
-      </Link>
+      </Button>
     </div>
   );
 }

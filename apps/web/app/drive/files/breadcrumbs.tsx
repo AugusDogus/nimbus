@@ -196,7 +196,7 @@ export function FileBreadcrumbs({
                   onDrop={cancelSpring}
                   render={
                     <Button
-                      size="icon-sm"
+                      size="icon-compact"
                       variant="ghost"
                       className="touch-hit"
                     />

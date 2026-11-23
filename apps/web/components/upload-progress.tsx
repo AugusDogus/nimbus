@@ -84,7 +84,7 @@ function UploadRow({
       </div>
       {running ? (
         <Button
-          size="icon-sm"
+          size="icon-compact"
           variant="ghost"
           aria-label={`Cancel upload of ${name}`}
           onClick={onCancel}
@@ -93,7 +93,7 @@ function UploadRow({
         </Button>
       ) : item.status.kind === "failed" || item.status.kind === "cancelled" ? (
         <Button
-          size="icon-sm"
+          size="icon-compact"
           variant="ghost"
           aria-label={`Retry upload of ${name}`}
           onClick={onRetry}
@@ -147,34 +147,37 @@ export function UploadProgress() {
             </span>
           )}
           <Button
-            size="sm"
+            size="compact"
             variant="ghost"
             aria-expanded={expanded}
             onClick={() => setExpanded((value) => !value)}
+            trailingIcon={ChevronDown}
           >
             Details
-            <ChevronDown
-              className={cn(
-                "size-4 transition-transform duration-150",
-                expanded && "rotate-180",
-              )}
-            />
           </Button>
           {summary.failed > 0 && (
-            <Button size="sm" variant="outline" onClick={queue.retryFailed}>
+            <Button
+              size="compact"
+              variant="tertiary"
+              onClick={queue.retryFailed}
+            >
               Retry failed
             </Button>
           )}
           {busy ? (
             <Button
-              size="sm"
-              variant="outline"
+              size="compact"
+              variant="tertiary"
               onClick={() => void queue.cancelAll()}
             >
               Cancel upload
             </Button>
           ) : (
-            <Button size="sm" variant="outline" onClick={queue.clearFinished}>
+            <Button
+              size="compact"
+              variant="tertiary"
+              onClick={queue.clearFinished}
+            >
               Dismiss
             </Button>
           )}

@@ -64,7 +64,7 @@ export function UploadConflictDialog({
           <Button variant="ghost" onClick={() => choose("skip")}>
             Skip
           </Button>
-          <Button variant="outline" onClick={() => choose("keep-both")}>
+          <Button variant="tertiary" onClick={() => choose("keep-both")}>
             Keep both
           </Button>
           {replaceable && (

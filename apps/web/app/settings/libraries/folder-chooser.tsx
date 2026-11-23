@@ -31,7 +31,7 @@ export function FolderChooser({
         <Button
           type="button"
           variant="ghost"
-          size="sm"
+          size="icon-compact"
           disabled={path === ""}
           onClick={() => setPath(parentOf(path))}
           aria-label="Up one folder"
@@ -84,7 +84,7 @@ export function FolderChooser({
         )}
       </ul>
       <div className="flex flex-wrap justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onCancel}>
+        <Button type="button" variant="tertiary" onClick={onCancel}>
           Back
         </Button>
         <Button

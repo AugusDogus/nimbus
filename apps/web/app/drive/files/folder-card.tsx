@@ -94,7 +94,7 @@ export function FolderCard({
         >
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon-compact"
             aria-label="Back"
             data-shape="back"
             title="Back"
@@ -106,7 +106,7 @@ export function FolderCard({
           </Button>
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon-compact"
             aria-label="Up one level"
             data-shape="up"
             title="Up one level"

@@ -125,7 +125,7 @@ export function LibrariesSettings({
         title="Your libraries"
         description="Each includes everything in its folders and their subfolders, including files added later."
         action={
-          <Button size="sm" onClick={() => setEditing({ kind: "new" })}>
+          <Button size="compact" onClick={() => setEditing({ kind: "new" })}>
             New library
           </Button>
         }
@@ -173,14 +173,14 @@ export function LibrariesSettings({
                 </div>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="compact"
                   onClick={() => setEditing({ kind: "edit", library })}
                 >
                   Edit
                 </Button>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="compact"
                   onClick={() => {
                     setError(null);
                     setConfirming({ kind: "delete", library });
@@ -234,7 +234,7 @@ export function LibrariesSettings({
                 </div>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="compact"
                   onClick={() => {
                     setError(null);
                     setConfirming({ kind: "cancel", pairing });
@@ -273,7 +273,7 @@ export function LibrariesSettings({
                 </div>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="compact"
                   onClick={() => {
                     setError(null);
                     setConfirming({ kind: "disconnect", device });

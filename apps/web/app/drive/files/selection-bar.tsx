@@ -8,6 +8,7 @@ import {
   Star,
   Trash2,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -29,7 +30,7 @@ function Action({
   iconOnly = false,
 }: {
   label: string;
-  icon: ReactNode;
+  icon: LucideIcon;
   onClick: () => void;
   destructive?: boolean;
   disabled?: boolean;
@@ -40,7 +41,8 @@ function Action({
   return (
     <Button
       variant="ghost"
-      size="sm"
+      size="compact"
+      leadingIcon={icon}
       disabled={disabled}
       title={iconOnly ? label : undefined}
       onClick={onClick}
@@ -50,7 +52,6 @@ function Action({
         className,
       )}
     >
-      {icon}
       {/* Labels show from 1024 px, where the bar has room for them beside the sidebar. */}
       <span className={iconOnly ? "sr-only" : "sr-only lg:not-sr-only"}>
         {label}
@@ -145,7 +146,7 @@ export function SelectionBar({
     >
       <Button
         variant="ghost"
-        size="icon-sm"
+        size="icon-compact"
         aria-label="Clear selection"
         onClick={onClear}
         className="touch-hit pointer-coarse:w-11"
@@ -205,14 +206,14 @@ export function SelectionBar({
             iconOnly={compact}
             // Phones with a second folder to offer keep Select all in the item menus.
             className={other ? "max-md:hidden" : undefined}
-            icon={<ListChecks className="size-4" />}
+            icon={ListChecks}
             onClick={onSelectAll}
           />
         )}
         <Action
           label="Download"
           iconOnly={compact}
-          icon={<Download className="size-4" />}
+          icon={Download}
           onClick={() => actions.downloadEntries(targets)}
         />
         {!compact && (
@@ -220,7 +221,7 @@ export function SelectionBar({
             label={star.label}
             iconOnly={compact}
             className={other ? "max-md:hidden" : undefined}
-            icon={<Star className="size-4" />}
+            icon={Star}
             disabled={star.disabled}
             onClick={star.run}
           />
@@ -229,7 +230,7 @@ export function SelectionBar({
           <Action
             label="Copy"
             iconOnly={compact || other !== null}
-            icon={<Copy className="size-4" />}
+            icon={Copy}
             onClick={() => onOpen({ action: "copy", entries: targets })}
           />
         )}
@@ -237,7 +238,7 @@ export function SelectionBar({
           <Action
             label="Move"
             iconOnly={compact || other !== null}
-            icon={<FolderInput className="size-4" />}
+            icon={FolderInput}
             onClick={() => onOpen({ action: "move", entries: targets })}
           />
         )}
@@ -247,7 +248,7 @@ export function SelectionBar({
             className="max-md:hidden"
             iconOnly
             label="Move up one level"
-            icon={<CornerLeftUp className="size-4" />}
+            icon={CornerLeftUp}
             disabled={up.kind !== "into"}
             onClick={() => {
               if (up.kind === "into")
@@ -260,7 +261,7 @@ export function SelectionBar({
             label="Trash"
             iconOnly={compact}
             destructive
-            icon={<Trash2 className="size-4" />}
+            icon={Trash2}
             onClick={() => onOpen({ action: "delete", entries: targets })}
           />
         )}

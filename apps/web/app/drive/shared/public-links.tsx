@@ -92,8 +92,8 @@ export function PublicLinks() {
                 </p>
               </div>
               <Button
-                size="sm"
-                variant="outline"
+                size="compact"
+                variant="tertiary"
                 onClick={() =>
                   void (async () => {
                     try {
@@ -112,14 +112,14 @@ export function PublicLinks() {
                 Copy link
               </Button>
               <Button
-                size="sm"
-                variant="outline"
+                size="compact"
+                variant="tertiary"
                 onClick={() => setEditing(share)}
               >
                 Edit
               </Button>
               <Button
-                size="sm"
+                size="compact"
                 variant="ghost"
                 onClick={() => setRevoking(share.id)}
               >

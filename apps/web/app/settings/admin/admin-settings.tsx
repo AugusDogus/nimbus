@@ -84,8 +84,12 @@ export function AdminSettings() {
         title="Users"
         description="Accounts on this Nimbus server."
         action={
-          <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
-            <Plus aria-hidden="true" />
+          <Button
+            size="compact"
+            variant="tertiary"
+            onClick={() => setCreating(true)}
+            leadingIcon={Plus}
+          >
             Create account
           </Button>
         }
@@ -117,12 +121,12 @@ export function AdminSettings() {
         description="Give a set of people the same folder permissions."
         action={
           <Button
-            size="sm"
-            variant="outline"
+            size="compact"
+            variant="tertiary"
             disabled={!users.isSuccess}
             onClick={() => setEditor({ kind: "create" })}
+            leadingIcon={Plus}
           >
-            <Plus aria-hidden="true" />
             Create group
           </Button>
         }
@@ -171,7 +175,7 @@ export function AdminSettings() {
                 </div>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="compact"
                   disabled={!users.isSuccess}
                   onClick={() => setEditor({ kind: "edit", group })}
                 >
@@ -179,7 +183,7 @@ export function AdminSettings() {
                 </Button>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="compact"
                   onClick={() => {
                     setConfirmation({
                       title: "Delete group and revoke its access?",
@@ -212,7 +216,7 @@ export function AdminSettings() {
             </p>
           </div>
           <Button
-            variant="outline"
+            variant="tertiary"
             className="shrink-0"
             onClick={() => setSharing(true)}
           >

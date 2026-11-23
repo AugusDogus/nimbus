@@ -110,7 +110,7 @@ export default function TextEditor({
             the current text.
           </p>
           <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="outline" onClick={onDiscard}>
+            <Button type="button" variant="tertiary" onClick={onDiscard}>
               Discard my edits
             </Button>
             <Button

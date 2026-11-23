@@ -482,7 +482,7 @@ export function LoginForm({
               <Field>
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="tertiary"
                   disabled={!hydrated || isSubmitting}
                   onClick={() => void signInWithPasskey()}
                 >
@@ -491,7 +491,7 @@ export function LoginForm({
                 {singleSignOn && (
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="tertiary"
                     disabled={!hydrated || isSubmitting}
                     onClick={() => void signInWithProvider()}
                   >

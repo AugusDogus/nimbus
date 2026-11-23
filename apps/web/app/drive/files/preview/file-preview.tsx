@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { lazyComponent } from "@/components/lazy-component";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileKind } from "@/lib/file-kind";
 import type { EditBase } from "./text-editor";
@@ -154,10 +154,7 @@ function PdfPreview({ name, url }: { name: string; url: string }) {
         href={url}
         target="_blank"
         rel="noopener"
-        className={buttonVariants({
-          variant: "link",
-          className: "h-auto p-0",
-        })}
+        className="font-medium text-primary underline-offset-4 hover:underline"
       >
         Open in a new tab
       </a>
@@ -284,7 +281,7 @@ function TextPreview({
           {hasRendered && (
             <Button
               variant="ghost"
-              size="sm"
+              size="compact"
               onClick={() =>
                 setMode({ type: mode.type === "source" ? "view" : "source" })
               }
@@ -299,8 +296,8 @@ function TextPreview({
                 refocusEdit.current = false;
                 button.focus();
               }}
-              variant="outline"
-              size="sm"
+              variant="tertiary"
+              size="compact"
               onClick={() => setMode({ type: "edit", base: editBase })}
             >
               Edit

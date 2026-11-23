@@ -111,7 +111,7 @@ function PaletteCard({
         {onRemove && (
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon-compact"
             className="shrink-0 text-muted-foreground"
             disabled={disabled}
             aria-label={`Remove ${name}`}

@@ -1,7 +1,7 @@
 import { Link } from "@/components/link";
 import { useQuery } from "@tanstack/react-query";
 import { trpcClient } from "@/lib/trpc";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { EntrySkeleton } from "./files/loading-skeleton";
 import { TransferDialog } from "./files/entry-dialogs";
 import { EntriesView } from "./files/entries-view";
@@ -70,8 +70,8 @@ export function LibraryPage({
             Could not refresh this list. Showing what was loaded before.
           </p>
           <Button
-            variant="outline"
-            size="sm"
+            variant="tertiary"
+            size="compact"
             onClick={() => void active.refetch()}
           >
             Try again
@@ -109,9 +109,9 @@ export function LibraryPage({
                 ? "Files shared with your account or groups will appear here."
                 : "Files you preview and folders you visit will appear here."}
           </p>
-          <Link to="/" className={buttonVariants({ variant: "outline" })}>
+          <Button variant="tertiary" render={<Link to="/" />}>
             Open {DriveRoot.label}
-          </Link>
+          </Button>
         </div>
       )}
     </div>

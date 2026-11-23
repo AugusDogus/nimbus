@@ -115,7 +115,7 @@ function ToastDescription({
 
 function ToastAction({
   className,
-  render = <Button variant="outline" size="sm" />,
+  render = <Button variant="tertiary" size="compact" />,
   ...props
 }: ToastPrimitive.Action.Props) {
   return (
@@ -131,7 +131,7 @@ function ToastAction({
 function ToastClose({
   className,
   children,
-  render = <Button variant="ghost" size="icon-sm" />,
+  render = <Button variant="ghost" size="icon-compact" />,
   ...props
 }: ToastPrimitive.Close.Props) {
   return (
@@ -209,8 +209,8 @@ function ToastList() {
               {toastItem.data.actions.map((action) => (
                 <Button
                   key={action.label}
-                  variant="outline"
-                  size="sm"
+                  variant="tertiary"
+                  size="compact"
                   className="touch-hit"
                   onClick={() => {
                     if (!action.keepsToast) {

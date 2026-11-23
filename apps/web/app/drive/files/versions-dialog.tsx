@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -93,20 +93,22 @@ export default function VersionsDialog({
                         : ""}
                     </p>
                   </div>
-                  <a
-                    href={`/api/files/version?path=${encodeURIComponent(entry.path)}&id=${version.id}`}
-                    download
-                    className={buttonVariants({
-                      variant: "outline",
-                      size: "sm",
-                    })}
+                  <Button
+                    variant="tertiary"
+                    size="compact"
+                    render={
+                      <a
+                        href={`/api/files/version?path=${encodeURIComponent(entry.path)}&id=${version.id}`}
+                        download
+                      />
+                    }
                   >
                     Download
-                  </a>
+                  </Button>
                   {canRestore &&
                     (confirming === version.id ? (
                       <Button
-                        size="sm"
+                        size="compact"
                         disabled={busy}
                         onClick={() => void restore(version.id)}
                       >
@@ -114,7 +116,7 @@ export default function VersionsDialog({
                       </Button>
                     ) : (
                       <Button
-                        size="sm"
+                        size="compact"
                         variant="ghost"
                         disabled={busy}
                         onClick={() => setConfirming(version.id)}

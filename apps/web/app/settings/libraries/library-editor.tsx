@@ -128,7 +128,7 @@ export function LibraryEditor({
             </div>
             <DialogFooter>
               <Button
-                variant="outline"
+                variant="tertiary"
                 disabled={busy}
                 onClick={() => setView({ kind: "form" })}
               >
@@ -186,7 +186,7 @@ export function LibraryEditor({
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon-sm"
+                        size="icon-compact"
                         aria-label={`Move ${folder} up`}
                         disabled={busy || index === 0}
                         onClick={() => move(index, -1)}
@@ -196,7 +196,7 @@ export function LibraryEditor({
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon-sm"
+                        size="icon-compact"
                         aria-label={`Move ${folder} down`}
                         disabled={busy || index === folders.length - 1}
                         onClick={() => move(index, 1)}
@@ -206,7 +206,7 @@ export function LibraryEditor({
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon-sm"
+                        size="icon-compact"
                         aria-label={`Remove ${folder}`}
                         disabled={busy}
                         onClick={() =>
@@ -223,8 +223,8 @@ export function LibraryEditor({
               )}
               <Button
                 type="button"
-                variant="outline"
-                size="sm"
+                variant="tertiary"
+                size="compact"
                 disabled={busy}
                 onClick={() => setView({ kind: "choose" })}
               >
@@ -239,7 +239,7 @@ export function LibraryEditor({
             <DialogFooter>
               <Button
                 type="button"
-                variant="outline"
+                variant="tertiary"
                 disabled={busy}
                 onClick={onClose}
               >

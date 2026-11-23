@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -71,12 +71,9 @@ export function ResetPasswordForm({
               <p role="status" className="text-pretty text-sm">
                 Your password has been changed.
               </p>
-              <a
-                href="/login"
-                className={buttonVariants({ className: "w-full" })}
-              >
+              <Button className="w-full" render={<a href="/login" />}>
                 Sign in
-              </a>
+              </Button>
             </div>
           ) : (
             <form
@@ -179,15 +176,13 @@ export function ResetPasswordForm({
               If an account uses that address, a reset link is on its way. It
               works for one hour. Check your spam folder if it does not arrive.
             </p>
-            <a
-              href="/login"
-              className={buttonVariants({
-                variant: "outline",
-                className: "w-full",
-              })}
+            <Button
+              variant="tertiary"
+              className="w-full"
+              render={<a href="/login" />}
             >
               Back to sign in
-            </a>
+            </Button>
           </div>
         ) : (
           <form

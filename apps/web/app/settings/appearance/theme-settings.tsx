@@ -140,15 +140,15 @@ export function ThemeSettings() {
             Themes
           </h3>
           <Button
-            variant="outline"
-            size="sm"
+            variant="tertiary"
+            size="compact"
             disabled={disabled}
             onClick={() => {
               setError(null);
               setAdding(true);
             }}
+            leadingIcon={Plus}
           >
-            <Plus className="size-3.5" />
             Add theme
           </Button>
         </div>
@@ -186,7 +186,7 @@ export function ThemeSettings() {
           </p>
           {snapshot.status === "error" && (
             <Button
-              variant="outline"
+              variant="tertiary"
               onClick={() => {
                 setError(null);
                 setConfirmation({ type: "reset" });
@@ -219,12 +219,12 @@ export function ThemeSettings() {
               </p>
             </div>
             <Button
-              variant="outline"
-              size="sm"
+              variant="tertiary"
+              size="compact"
               disabled={disabled}
               onClick={() => input.current?.click()}
+              leadingIcon={Upload}
             >
-              <Upload className="size-3.5" />
               {reading ? "Importing…" : "Import VS Code theme"}
             </Button>
           </div>

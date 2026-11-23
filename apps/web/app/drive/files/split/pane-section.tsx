@@ -59,13 +59,13 @@ export function PaneFailureView({
         )}
         {moves.up && (
           <Button
-            variant={failure.code === null ? "outline" : "default"}
+            variant={failure.code === null ? "tertiary" : "primary"}
             onClick={moves.up}
           >
             Open parent
           </Button>
         )}
-        <Button variant="outline" onClick={moves.top}>
+        <Button variant="tertiary" onClick={moves.top}>
           Open {DriveRoot.label}
         </Button>
       </div>
@@ -97,7 +97,7 @@ function PaneViewMenu({
         render={
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon-compact"
             aria-label="Pane options"
             title="Sort, view and collapse"
             className={cn(
@@ -228,7 +228,7 @@ export function PaneTools({
       <PaneViewMenu prefs={prefs} muted={!active} onCollapse={onCollapse} />
       <Button
         variant="ghost"
-        size="icon-sm"
+        size="icon-compact"
         aria-label="Close this pane"
         title="Close this pane"
         onClick={onClose}
