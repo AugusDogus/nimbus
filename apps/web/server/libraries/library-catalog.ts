@@ -119,11 +119,17 @@ function openFolder(root: string, relative: string) {
  * Folders deeper than `MAX_DEPTH` below a library folder are not read. Stops once more than
  * `cap` files are found.
  */
+type ScanHooks = {
+  /** Runs before each folder is opened, to change the disk under a scan. */
+  beforeOpen: (relative: string) => Promise<void>;
+};
+let scanHooks: ScanHooks = { beforeOpen: async () => undefined };
+
 async function scan(
   folders: readonly string[],
   {
     cap = MAX_LIBRARY_ITEMS,
-    beforeOpen = async () => undefined,
+    beforeOpen = scanHooks.beforeOpen,
   }: {
     cap?: number;
     /** Tests only: runs before each folder is opened, to change the disk under the scan. */
@@ -325,7 +331,12 @@ type Cached = {
 };
 
 const cache = new Map<string, Cached>();
+/** Scans under way, by library and the exact folders scanned: one never stands in for another. */
 const inFlight = new Map<string, Promise<Cached>>();
+/** The folder keys being scanned for each library, so a change during a scan is noticed. */
+const scanning = new Map<string, Set<string>>();
+/** Changes reported for each library, counted: a scan a change overtook is not kept as current. */
+const changes = new Map<string, number>();
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
 const keyOf = (target: CatalogTarget) => target.folders.join("\0");
@@ -335,14 +346,17 @@ async function refresh(
   libraryId: string,
   target: CatalogTarget,
 ): Promise<Cached> {
-  const running = inFlight.get(libraryId);
+  const key = keyOf(target);
+  const flight = `${libraryId}\0\0${key}`;
+  const running = inFlight.get(flight);
   if (running) return running;
   const work = (async (): Promise<Cached> => {
+    const before = changes.get(libraryId) ?? 0;
     const scanned = await scan(target.folders);
     const entry: Cached = {
-      folders: keyOf(target),
+      folders: key,
       scannedAt: ctx.now(),
-      dirty: false,
+      dirty: (changes.get(libraryId) ?? 0) !== before,
       result:
         scanned.kind === "ok"
           ? { kind: "ok", items: await reconcile(ctx, libraryId, scanned) }
@@ -351,11 +365,16 @@ async function refresh(
     cache.set(libraryId, entry);
     return entry;
   })();
-  inFlight.set(libraryId, work);
+  inFlight.set(flight, work);
+  const keys = scanning.get(libraryId) ?? new Set<string>();
+  keys.add(key);
+  scanning.set(libraryId, keys);
   try {
     return await work;
   } finally {
-    inFlight.delete(libraryId);
+    inFlight.delete(flight);
+    keys.delete(key);
+    if (!keys.size) scanning.delete(libraryId);
   }
 }
 
@@ -396,19 +415,25 @@ export const LibraryCatalog = {
       .split(path.sep)
       .join("/");
     if (relative.startsWith("..")) return;
+    const touches = (key: string) =>
+      key
+        .split("\0")
+        .some(
+          (folder) =>
+            isWithinPath(folder, relative) || isWithinPath(relative, folder),
+        );
     let marked = false;
-    for (const entry of cache.values())
-      if (
-        entry.folders
-          .split("\0")
-          .some(
-            (folder) =>
-              isWithinPath(folder, relative) || isWithinPath(relative, folder),
-          )
-      ) {
-        entry.dirty = true;
-        marked = true;
-      }
+    const libraryIds = new Set([...cache.keys(), ...scanning.keys()]);
+    for (const libraryId of libraryIds) {
+      const entry = cache.get(libraryId);
+      const hit =
+        (entry !== undefined && touches(entry.folders)) ||
+        [...(scanning.get(libraryId) ?? [])].some(touches);
+      if (!hit) continue;
+      changes.set(libraryId, (changes.get(libraryId) ?? 0) + 1);
+      if (entry) entry.dirty = true;
+      marked = true;
+    }
     if (!marked || settleTimer) return;
     settleTimer = setTimeout(() => {
       settleTimer = null;
@@ -456,9 +481,19 @@ export const LibraryCatalog = {
     await Promise.all([...inFlight.values()]);
   },
 
+  /** Tests only: run `hooks` in every scan until the returned function restores the defaults. */
+  useScanHooksForTest(hooks: ScanHooks) {
+    const previous = scanHooks;
+    scanHooks = hooks;
+    return () => {
+      scanHooks = previous;
+    };
+  },
+
   /** Forget every cached scan, as a restart would. */
   resetForTest() {
     cache.clear();
+    changes.clear();
     if (settleTimer) clearTimeout(settleTimer);
     settleTimer = null;
   },

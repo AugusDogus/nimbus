@@ -242,3 +242,61 @@ test("a folder swapped for a link during a scan lists nothing from where the lin
     scanned.kind === "ok" && scanned.files.map((entry) => entry.path),
   ).toEqual([]);
 });
+
+test("a scan for one set of visible folders is never handed to another", async () => {
+  await file("library/kitchen/Loaf.md", "loaf");
+  for (let index = 0; index < 2001; index++)
+    await file(`library/garage/bulk/${index}.md`, "x");
+  const id = await create(["library/kitchen", "library/garage"]);
+  LibraryCatalog.resetForTest();
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const restore = LibraryCatalog.useScanHooksForTest({
+    beforeOpen: async (relative) => {
+      if (relative === "library/garage") await held;
+    },
+  });
+  try {
+    const wide = LibraryCatalog.items(t.ctx, id, {
+      folders: ["library/kitchen", "library/garage"],
+    });
+    // The garage stops being visible while the wider scan is under way.
+    const narrow = LibraryCatalog.items(t.ctx, id, {
+      folders: ["library/kitchen"],
+    });
+    release();
+    expect((await wide).kind).toBe("too_large");
+    const result = await narrow;
+    expect(
+      result.kind === "ok" && result.items.map((item) => item.path),
+    ).toEqual(["library/kitchen/Loaf.md"]);
+  } finally {
+    restore();
+  }
+});
+
+test("a change during a scan is not lost when the scan finishes", async () => {
+  await file("library/kitchen/Guides/Loaf.md", "loaf");
+  const id = await create(["library/kitchen"]);
+  LibraryCatalog.resetForTest();
+  const target = { folders: ["library/kitchen"] };
+  const restore = LibraryCatalog.useScanHooksForTest({
+    beforeOpen: async (relative) => {
+      if (relative !== "library/kitchen/Guides") return;
+      // The top folder was already read: this file arrives behind the scan.
+      await file("library/kitchen/Late.md", "late");
+      LibraryCatalog.noteChange(t.ctx, "library/kitchen/Late.md");
+    },
+  });
+  try {
+    await LibraryCatalog.items(t.ctx, id, target);
+  } finally {
+    restore();
+  }
+  const again = await LibraryCatalog.items(t.ctx, id, target);
+  expect(
+    again.kind === "ok" && again.items.map((item) => item.path).sort(),
+  ).toEqual(["library/kitchen/Guides/Loaf.md", "library/kitchen/Late.md"]);
+});
