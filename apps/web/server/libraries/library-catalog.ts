@@ -188,6 +188,8 @@ async function scan(
         for (const entry of entries) {
           if (entry.name.startsWith(".")) continue;
           const child = `${relative}/${entry.name}`;
+          // A name the listing would refuse (see LibraryAccess.reaches) is never counted.
+          if (!LibraryAccess.canonical(child)) continue;
           if (entry.isDirectory()) {
             if (depth < MAX_DEPTH) children.push([child, depth + 1]);
             continue;
