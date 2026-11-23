@@ -46,6 +46,8 @@ export type PairedDevice = {
   tokenHash: string;
   /** When the device was last used, to the minute, for `touch`. */
   lastUsedAt: number;
+  /** When the device lapses unless it is used before then. */
+  idleDeadline: number;
 };
 
 export type DeviceAuth =
@@ -101,6 +103,7 @@ function revokeGrants(
       .all();
     if (!ended.length) return [];
     const ids = ended.map((row) => row.id);
+    for (const id of ids) revokedHere.add(id);
     return tx
       .update(pairedDevices)
       .set({ revokedReason: reason })
@@ -133,8 +136,80 @@ const liveGrantIds = (
     .all()
     .map((row) => row.id);
 
+/**
+ * The device grant matching `where` (on its token), checked as every request is: not revoked,
+ * its account enabled, its library still there, its idle deadline not passed.
+ */
+function check(
+  ctx: Pick<LibraryContext, "db" | "now">,
+  where: SQL | undefined,
+): DeviceAuth {
+  const [row] = ctx.db
+    .select({
+      grantId: mcpGrants.id,
+      name: pairedDevices.deviceName,
+      ownerId: mcpGrants.userId,
+      libraryId: pairedDevices.libraryId,
+      expiresAt: mcpTokens.expiresAt,
+      tokenHash: mcpTokens.hash,
+      lastUsedAt: mcpGrants.lastUsedAt,
+      createdAt: mcpGrants.createdAt,
+      revokedAt: mcpGrants.revokedAt,
+      banned: user.banned,
+    })
+    .from(mcpTokens)
+    .innerJoin(mcpGrants, eq(mcpGrants.id, mcpTokens.grantId))
+    .innerJoin(pairedDevices, eq(pairedDevices.grantId, mcpGrants.id))
+    .innerJoin(user, eq(user.id, mcpGrants.userId))
+    .where(and(where, eq(mcpGrants.resource, "device")))
+    .limit(1)
+    .all();
+  if (!row) return invalid;
+  if (row.revokedAt !== null || row.libraryId === null)
+    return revoked("This device was disconnected from Nimbus. Pair it again.");
+  if (row.banned)
+    return revoked(
+      "The Nimbus account this device belongs to is disabled. Ask a Nimbus administrator to restore it, then pair the device again.",
+    );
+  if (row.expiresAt <= ctx.now()) {
+    revokeGrants(ctx, [row.grantId], "idle_lapsed", { type: "system" });
+    return revoked(
+      "This device was not used for 30 days, so Nimbus disconnected it. Pair it again.",
+    );
+  }
+  return {
+    ok: true,
+    device: {
+      id: row.grantId,
+      name: row.name,
+      ownerId: row.ownerId,
+      libraryId: row.libraryId,
+      tokenHash: row.tokenHash,
+      lastUsedAt: row.lastUsedAt ?? row.createdAt,
+      idleDeadline: row.expiresAt,
+    },
+  };
+}
+
+/**
+ * Devices revoked by this process, so work already under way for one, such as a file still being
+ * sent, can stop between chunks without asking the database. The database stays the authority.
+ */
+const revokedHere = new Set<string>();
+
 export const PairedDevices = {
   tokenPrefix,
+
+  /** The device of grant `grantId`, checked as `authenticate` checks a token's device. */
+  byGrant(ctx: Pick<LibraryContext, "db" | "now">, grantId: string) {
+    return check(
+      ctx,
+      and(eq(mcpGrants.id, grantId), eq(mcpTokens.kind, "device_token")),
+    );
+  },
+
+  /** Whether this process revoked device `grantId`: cheap, for checks between chunks. */
+  revokedHere: (grantId: string) => revokedHere.has(grantId),
 
   /**
    * Record a newly paired device inside the caller's transaction: its grant, its token (only the
@@ -216,58 +291,13 @@ export const PairedDevices = {
       };
     const token = /^Bearer +(\S+)\s*$/i.exec(header)?.[1];
     if (!token?.startsWith(tokenPrefix) || token.length > 200) return invalid;
-    const [row] = ctx.db
-      .select({
-        grantId: mcpGrants.id,
-        name: pairedDevices.deviceName,
-        ownerId: mcpGrants.userId,
-        libraryId: pairedDevices.libraryId,
-        expiresAt: mcpTokens.expiresAt,
-        tokenHash: mcpTokens.hash,
-        lastUsedAt: mcpGrants.lastUsedAt,
-        createdAt: mcpGrants.createdAt,
-        revokedAt: mcpGrants.revokedAt,
-        banned: user.banned,
-      })
-      .from(mcpTokens)
-      .innerJoin(mcpGrants, eq(mcpGrants.id, mcpTokens.grantId))
-      .innerJoin(pairedDevices, eq(pairedDevices.grantId, mcpGrants.id))
-      .innerJoin(user, eq(user.id, mcpGrants.userId))
-      .where(
-        and(
-          eq(mcpTokens.hash, hashToken(token)),
-          eq(mcpTokens.kind, "device_token"),
-          eq(mcpGrants.resource, "device"),
-        ),
-      )
-      .limit(1)
-      .all();
-    if (!row) return invalid;
-    if (row.revokedAt !== null || row.libraryId === null)
-      return revoked(
-        "This device was disconnected from Nimbus. Pair it again.",
-      );
-    if (row.banned)
-      return revoked(
-        "The Nimbus account this device belongs to is disabled. Ask a Nimbus administrator to restore it, then pair the device again.",
-      );
-    if (row.expiresAt <= ctx.now()) {
-      revokeGrants(ctx, [row.grantId], "idle_lapsed", { type: "system" });
-      return revoked(
-        "This device was not used for 30 days, so Nimbus disconnected it. Pair it again.",
-      );
-    }
-    return {
-      ok: true,
-      device: {
-        id: row.grantId,
-        name: row.name,
-        ownerId: row.ownerId,
-        libraryId: row.libraryId,
-        tokenHash: row.tokenHash,
-        lastUsedAt: row.lastUsedAt ?? row.createdAt,
-      },
-    };
+    return check(
+      ctx,
+      and(
+        eq(mcpTokens.hash, hashToken(token)),
+        eq(mcpTokens.kind, "device_token"),
+      ),
+    );
   },
 
   /**
