@@ -320,3 +320,17 @@ test("a folder moved out of the library while it is read contributes nothing", a
     scanned.kind === "ok" && scanned.files.map((entry) => entry.path),
   ).toEqual([]);
 });
+
+test("renaming a library does not make its folders count as never scanned", async () => {
+  await create();
+  await Libraries.update(t.ctx, await t.drive.access("owner"), false, {
+    id: libraryId,
+    title: "Kitchen and pantry",
+    folders: ["library/kitchen"],
+    acknowledgedDevices: [],
+  });
+  t.advance(HOUR);
+  await file("library/kitchen/Arrived later.md", "new");
+  await reconcile();
+  expect(at("library/kitchen/Arrived later.md")?.addedAt).toBe(t.now());
+});
