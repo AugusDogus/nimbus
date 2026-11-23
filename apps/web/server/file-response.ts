@@ -215,23 +215,11 @@ async function respond(
     if (heldDescriptors < maxHeldDescriptors) {
       // The slot is taken before the check awaits, so concurrent downloads cannot all pass it.
       heldDescriptors++;
-      if (await stillNamed(absolute, stats)) {
-        const body = Bun.file(`/proc/self/fd/${handle.fd}`).slice(
-          response.start,
-          response.end + 1,
+      if (await stillNamed(absolute, stats))
+        return new Response(
+          held(handle, response.start, response.end),
+          response.init,
         );
-        const release = async () => {
-          if (!holds.delete(release)) return;
-          clearTimeout(timer);
-          heldDescriptors--;
-          await handle.close();
-        };
-        // Unreferenced: an open hold never keeps the process alive on its own.
-        const timer = setTimeout(() => void release(), descriptorHoldMs);
-        timer.unref();
-        holds.add(release);
-        return new Response(body, response.init);
-      }
       heldDescriptors--;
     }
     const stream = handle.createReadStream({
@@ -252,6 +240,25 @@ async function respond(
  * runs once when the body ends, however it ends.
  */
 export type BodyWatch = { allowed: () => string | null; done: () => void };
+
+/**
+ * Bytes `start` to `end` of the open file, sent zero-copy from its descriptor, which stays open
+ * for `descriptorHoldMs` and is then closed. The caller took a held-descriptor slot.
+ */
+function held(handle: FileHandle, start: number, end: number) {
+  const body = Bun.file(`/proc/self/fd/${handle.fd}`).slice(start, end + 1);
+  const release = async () => {
+    if (!holds.delete(release)) return;
+    clearTimeout(timer);
+    heldDescriptors--;
+    await handle.close();
+  };
+  // Unreferenced: an open hold never keeps the process alive on its own.
+  const timer = setTimeout(() => void release(), descriptorHoldMs);
+  timer.unref();
+  holds.add(release);
+  return body;
+}
 
 /** Bytes `start` to `end` of the open file, each chunk confirmed as version `stats` before it is sent. */
 function confirmedBody(
@@ -307,10 +314,15 @@ export type OpenedResponse =
 
 /**
  * Serve an already opened and checked regular file, or one byte range of it, inline as
- * `filename`, for callers that opened it themselves (see LibraryAccess.open). The body always
- * streams in confirmed mode: each chunk is checked against the version opened and against
- * `watch` before it is sent, so a body ends as failed when the file changes or the caller's
- * right to send it ends. The handle is always closed. Small files are read whole and checked once.
+ * `filename`, for callers that opened it themselves (see LibraryAccess.open). The handle is
+ * always closed.
+ *
+ * A range is answered in full, zero-copy from this descriptor with an exact `Content-Length`,
+ * after the file's version and `watch` are checked one last time. Once handed off, such an
+ * answer cannot be stopped: Bun 1.4.4 sends a body it can stop only in chunks, without
+ * `Content-Length`, which media players refuse for ranges. A request without a range streams
+ * in confirmed mode instead, checking the version and `watch` before each chunk, so it ends as
+ * failed when either changes. Small files are read whole and checked once.
  */
 export async function serveOpened(
   request: Request,
@@ -319,12 +331,6 @@ export async function serveOpened(
     filename: string;
     etag: string;
     cacheControl: string;
-    /**
-     * The most bytes one ranged answer carries. A larger range is answered with its first
-     * `window` bytes, as `Content-Range` states, read whole and sent with an exact length; the
-     * client asks for the rest. Only an answer without a range streams.
-     */
-    window: number;
     watch?: BodyWatch;
   },
 ): Promise<OpenedResponse> {
@@ -333,7 +339,7 @@ export async function serveOpened(
     allowed: () => null,
     done: () => undefined,
   };
-  let streaming = false;
+  let handedOff = false;
   try {
     const response = fileResponse(
       request,
@@ -349,18 +355,30 @@ export async function serveOpened(
       response.length === 0
     )
       return { kind: "served", response: new Response(null, response.init) };
-    if (response.init.status === 206 && response.length > options.window) {
-      response.end = response.start + options.window - 1;
-      response.length = options.window;
-      const headers = new Headers(response.init.headers);
-      headers.set(
-        "Content-Range",
-        `bytes ${response.start}-${response.end}/${stats.size}`,
-      );
-      headers.set("Content-Length", String(response.length));
-      response.init = { ...response.init, headers };
+    const ranged = response.init.status === 206;
+    if (
+      ranged &&
+      response.length > bufferedBytes &&
+      descriptorPaths &&
+      heldDescriptors < maxHeldDescriptors
+    ) {
+      // The last checks before the answer is handed off.
+      if (FileVersion.of(await handle.stat()) !== FileVersion.of(stats))
+        return { kind: "changed" };
+      const refused = watch.allowed();
+      if (refused !== null) return { kind: "refused", reason: refused };
+      heldDescriptors++;
+      handedOff = true;
+      watch.done();
+      return {
+        kind: "served",
+        response: new Response(
+          held(handle, response.start, response.end),
+          response.init,
+        ),
+      };
     }
-    if (response.length <= Math.max(bufferedBytes, options.window)) {
+    if (response.length <= bufferedBytes) {
       const bytes = new Uint8Array(response.length);
       let read = 0;
       while (read < bytes.length) {
@@ -378,7 +396,6 @@ export async function serveOpened(
         FileVersion.of(await handle.stat()) !== FileVersion.of(stats)
       )
         return { kind: "changed" };
-      // Read whole after every check, so a refusal since then still stops it here.
       const refused = watch.allowed();
       if (refused !== null) return { kind: "refused", reason: refused };
       return {
@@ -386,7 +403,7 @@ export async function serveOpened(
         response: new Response(bytes, response.init),
       };
     }
-    streaming = true;
+    handedOff = true;
     return {
       kind: "served",
       response: new Response(
@@ -395,7 +412,7 @@ export async function serveOpened(
       ),
     };
   } finally {
-    if (!streaming) {
+    if (!handedOff) {
       watch.done();
       await handle.close();
     }

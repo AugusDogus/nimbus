@@ -332,6 +332,56 @@ describe("media addresses", () => {
     expect(head.headers.get("content-length")).toBe(String(size));
   });
 
+  test("answer every range in full, as a player loading a file asks", async () => {
+    const { token } = await pair();
+    const minted = await mint(token, await idOf(token, "Pattern.mp4"));
+    const check = async (header: string, start: number, end: number) => {
+      const answer = await media(minted, { range: header });
+      expect(answer.status).toBe(206);
+      expect(answer.headers.get("content-range")).toBe(
+        `bytes ${start}-${end}/${size}`,
+      );
+      expect(answer.headers.get("content-length")).toBe(
+        String(end - start + 1),
+      );
+      expect(new Uint8Array(await answer.arrayBuffer())).toEqual(
+        expected(start, end),
+      );
+      const head = await media(minted, { range: header }, "HEAD");
+      expect(head.status).toBe(206);
+      for (const name of ["content-range", "content-length"])
+        expect(head.headers.get(name)).toBe(answer.headers.get(name));
+    };
+    await check("bytes=0-1", 0, 1);
+    // The whole file as one closed range, far larger than any window.
+    await check(`bytes=0-${size - 1}`, 0, size - 1);
+    await check(`bytes=${size - 1000}-${size - 1}`, size - 1000, size - 1);
+    await check("bytes=-500", size - 500, size - 1);
+    await check("bytes=1000-", 1000, size - 1);
+    // Clamped to the file's size, as any range is.
+    await check(`bytes=${size - 10}-${size + 5000}`, size - 10, size - 1);
+  });
+
+  test("serve several ranges held open at once", async () => {
+    const { token } = await pair();
+    const minted = await mint(token, await idOf(token, "Pattern.mp4"));
+    const open = await Promise.all(
+      [
+        "bytes=0-",
+        `bytes=0-${size - 1}`,
+        `bytes=${size - 2000}-`,
+        "bytes=-1",
+      ].map((range) => media(minted, { range })),
+    );
+    expect(open.map((answer) => answer.status)).toEqual([206, 206, 206, 206]);
+    const last = open[3];
+    if (!last) throw new Error("no answer");
+    expect(new Uint8Array(await last.arrayBuffer())).toEqual(
+      expected(size - 1, size - 1),
+    );
+    for (const answer of open.slice(0, 3)) await answer.body?.cancel();
+  });
+
   test("need both the ticket and its own cookie", async () => {
     const one = await pair();
     const two = await pair();
@@ -490,20 +540,10 @@ describe("media addresses", () => {
     expect(file.status).toBe(404);
   });
 
-  test("are limited per device: minting, and files sent at once", async () => {
-    const { token, deviceId } = await pair();
+  test("are limited per device to ten mints a minute", async () => {
+    const { token } = await pair();
     const id = await idOf(token, "Pattern.mp4");
-    const minted = await mint(token, id);
-    // Two files being sent already: a third waits.
-    const held = [
-      MediaTickets.claimBody(deviceId),
-      MediaTickets.claimBody(deviceId),
-    ];
-    const third = await media(minted, { range: "bytes=0-0" });
-    expect(third.status).toBe(429);
-    expect(third.headers.get("retry-after")).toBe("1");
-    for (const release of held) release?.();
-    expect((await media(minted, { range: "bytes=0-0" })).status).toBe(206);
+    await mint(token, id);
     // Ten a minute: one minted above, nine more, then refused.
     for (let index = 0; index < 9; index++) await mint(token, id);
     const eleventh = await fetch(`${base}/items/${id}/stream`, {

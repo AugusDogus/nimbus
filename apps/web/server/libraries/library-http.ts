@@ -214,12 +214,6 @@ type Endpoint = {
   ) => Promise<Response>;
 };
 
-/**
- * The most bytes one ranged media answer carries. Each answer is read whole after every check
- * and sent with its exact length; a player asks for the rest, and each request is checked again.
- */
-export const MEDIA_WINDOW_BYTES = 4 * 1024 * 1024;
-
 const itemNotFound = () =>
   LibraryApiError.response({
     code: "item_not_found",
@@ -358,22 +352,13 @@ const itemEndpoints: Record<string, Endpoint> = {
             await handle.close();
             return sourceChanged();
           }
-          const release = MediaTickets.claimBody(device.id);
-          if (release === null) {
-            await handle.close();
-            return LibraryApiError.response({
-              code: "rate_limited",
-              message:
-                "This device is already receiving as many files as it may at once. Try again when one finishes.",
-              retryAfterSeconds: 1,
-            });
-          }
+          // A ranged answer goes out whole and cannot be stopped once handed off: a
+          // revocation, a library change or a file change takes effect on the next request.
           const served = await serveOpened(request, opened.value.opened, {
             filename: path.posix.basename(opened.value.item.path),
             etag: `"${version}"`,
             cacheControl: "private, no-store",
-            window: MEDIA_WINDOW_BYTES,
-            watch: deviceWatch(ctx, device, release),
+            watch: deviceWatch(ctx, device, () => undefined),
           });
           if (served.kind === "served") return served.response;
           if (served.kind === "changed") return sourceChanged();

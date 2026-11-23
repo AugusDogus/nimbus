@@ -231,8 +231,9 @@ paths:
       summary: The file's bytes for a media address
       description: >-
         Needs the address's ticket and its cookie, not the token. Every request is checked again.
-        A ranged request is answered with at most 4 MiB, with an exact `Content-Range` and
-        `Content-Length`; a request without a range gets the whole file, sent in chunks.
+        A ranged request is answered in full, with an exact `Content-Range` and `Content-Length`;
+        once under way it cannot be stopped, and changes take effect on the next request. A
+        request without a range gets the whole file, sent in chunks that stop when its access ends.
       security:
         - MediaCookie: []
       parameters:

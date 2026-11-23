@@ -21,12 +21,11 @@ import { PairedDevices, type PairedDevice } from "./paired-devices";
  * A request needs both: a URL copied from a log is useless alone, and a cookie names one session
  * of one item. Sessions live in this process's memory: a restart ends every one, and their
  * tickets then answer `stream_expired`, so the client mints again. Each device keeps at most
- * `MAX_TICKETS_PER_DEVICE` sessions (minting replaces its oldest) and sends at most
- * `MAX_BODIES_PER_DEVICE` files at once.
+ * `MAX_TICKETS_PER_DEVICE` sessions (minting replaces its oldest). There is no limit on answers
+ * sent at once: a media player holds several ranges open while it buffers.
  */
 
 export const MAX_TICKETS_PER_DEVICE = 4;
-export const MAX_BODIES_PER_DEVICE = 2;
 /** How long a ticket lasts when the file's duration is unknown. */
 export const DEFAULT_TICKET_MS = 4 * 60 * 60 * 1000;
 /** The longest any ticket lasts. */
@@ -53,8 +52,6 @@ export type MediaCheck =
 const sessions = new Map<string, Session>();
 /** Each device's sessions, oldest first. */
 const byDevice = new Map<string, string[]>();
-/** Bodies being sent, per device. */
-const bodies = new Map<string, number>();
 
 const claims = z.object({
   v: z.literal(1),
@@ -236,28 +233,9 @@ export const MediaTickets = {
     return { ok: true, grant: { device: device.device, session } };
   },
 
-  /**
-   * Take one of `deviceId`'s body slots, or null when it already sends as many files as it may.
-   * The returned function gives the slot back, once.
-   */
-  claimBody(deviceId: string) {
-    const sending = bodies.get(deviceId) ?? 0;
-    if (sending >= MAX_BODIES_PER_DEVICE) return null;
-    bodies.set(deviceId, sending + 1);
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      const left = (bodies.get(deviceId) ?? 1) - 1;
-      if (left > 0) bodies.set(deviceId, left);
-      else bodies.delete(deviceId);
-    };
-  },
-
-  /** Forget every session and body, as a restart would. */
+  /** Forget every session, as a restart would. */
   resetForTest() {
     sessions.clear();
     byDevice.clear();
-    bodies.clear();
   },
 } as const;
