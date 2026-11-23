@@ -64,6 +64,23 @@ const outermost = (folders: readonly string[]) =>
       !folders.some((other) => other !== folder && isWithinPath(other, folder)),
   );
 
+/** Paths already reported unreadable, so each is logged once per process. */
+const reported = new Set<string>();
+
+/** Report that `relative` could not be read and was skipped, once per path and cause. */
+function skipped(relative: string, error: unknown) {
+  const code =
+    error instanceof Error && "code" in error && typeof error.code === "string"
+      ? error.code
+      : "unknown";
+  const key = `${code}\0${relative}`;
+  if (reported.has(key)) return;
+  reported.add(key);
+  console.warn(
+    `Nimbus skipped "${relative}" in a library because it cannot be read (${code}). The rest of the library is listed. Check the permissions of that file or folder on the server.`,
+  );
+}
+
 /**
  * The folder at drive path `relative`, opened without following a symbolic link and checked to
  * be that very folder: a folder on the way swapped for a link since it was listed would make
@@ -80,13 +97,12 @@ function openFolder(root: string, relative: string) {
     );
   } catch (error) {
     if (
-      isFsError(error, "ENOENT") ||
-      isFsError(error, "ENOTDIR") ||
-      isFsError(error, "ELOOP") ||
-      isFsError(error, "EACCES")
+      !isFsError(error, "ENOENT") &&
+      !isFsError(error, "ENOTDIR") &&
+      !isFsError(error, "ELOOP")
     )
-      return null;
-    throw error;
+      skipped(relative, error);
+    return null;
   }
   const there = () => {
     const stats = fstatSync(fd);
@@ -110,8 +126,8 @@ function openFolder(root: string, relative: string) {
       };
   } catch (error) {
     closeSync(fd);
-    if (isFsError(error, "ENOENT")) return null;
-    throw error;
+    if (!isFsError(error, "ENOENT")) skipped(relative, error);
+    return null;
   }
   closeSync(fd);
   return null;
@@ -159,8 +175,8 @@ async function scan(
     try {
       await resolveSafePath(folder);
     } catch (error) {
-      if (error instanceof PathError) continue;
-      throw error;
+      if (!(error instanceof PathError)) skipped(folder, error);
+      continue;
     }
     const into: string[] = [];
     const pending: [string, number][] = [[folder, 0]];
@@ -179,9 +195,8 @@ async function scan(
         try {
           entries = await readdir(opened.listing, { withFileTypes: true });
         } catch (error) {
-          if (isFsError(error, "ENOENT") || isFsError(error, "EACCES"))
-            continue;
-          throw error;
+          if (!isFsError(error, "ENOENT")) skipped(relative, error);
+          continue;
         }
         const children: [string, number][] = [];
         const read: Omit<ScannedFile, "firstScan">[] = [];
@@ -199,8 +214,8 @@ async function scan(
           try {
             stats = await lstat(path.join(opened.listing, entry.name));
           } catch (error) {
-            if (isFsError(error, "ENOENT")) continue;
-            throw error;
+            if (!isFsError(error, "ENOENT")) skipped(child, error);
+            continue;
           }
           if (!stats.isFile()) continue;
           read.push({
