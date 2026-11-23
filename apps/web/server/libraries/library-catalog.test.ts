@@ -376,3 +376,25 @@ test("the tombstone limit counts the files that vanished in the same pass", asyn
   // The newest are kept.
   expect(rows().filter((row) => row.missingSince === t.now())).toHaveLength(20);
 });
+
+test("a reconcile writes in one transaction, however many files changed", async () => {
+  for (let index = 0; index < 50; index++)
+    await file(`library/kitchen/Batch/${index}.md`, `${index}`);
+  await create();
+  await rm(t.drive.absolute("library/kitchen/Batch/0.md"));
+  for (let index = 50; index < 80; index++)
+    await file(`library/kitchen/Batch/${index}.md`, `${index}`);
+  await writeFile(t.drive.absolute("library/kitchen/Batch/1.md"), "edited");
+  let transactions = 0;
+  const db = new Proxy(t.ctx.db, {
+    get(target, property, receiver) {
+      if (property === "transaction") transactions += 1;
+      const value: unknown = Reflect.get(target, property, receiver);
+      return value;
+    },
+  });
+  LibraryCatalog.resetForTest();
+  await LibraryCatalog.refreshLibrary({ ...t.ctx, db }, libraryId);
+  expect(transactions).toBe(1);
+  expect(rows().filter((row) => row.missingSince === null)).toHaveLength(79);
+});
