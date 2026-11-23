@@ -5,7 +5,7 @@ import path from "node:path";
 import { getAccess } from "@nimbus/api/access";
 import type { Share } from "@nimbus/api/drive-store";
 import { createTestDriveStore } from "@nimbus/api/testing";
-import { sharedTarget } from "./shared-target";
+import { archiveAccess, sharedTarget } from "./shared-target";
 
 let root: string;
 let previousRoot: string | undefined;
@@ -44,4 +44,16 @@ test("a link's access reads inside its path and carries none of its creator's ot
   expect(access.can("docs/a.txt", "read")).toBe(true);
   expect(access.can("docs/a.txt", "write")).toBe(false);
   expect(access.can("other.txt", "read")).toBe(false);
+});
+
+test("a folder download stops once its link needs its password again or allows previews only", async () => {
+  const creator = await getAccess(createTestDriveStore().store, "user-1");
+  const access = await archiveAccess(share, creator, true, "");
+  expect(access.can("docs/a.txt", "read")).toBe(true);
+  await expect(archiveAccess(share, creator, false, "")).rejects.toThrow(
+    "password again",
+  );
+  await expect(
+    archiveAccess({ ...share, mode: "view" }, creator, true, ""),
+  ).rejects.toThrow("previews only");
 });

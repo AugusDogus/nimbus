@@ -47,3 +47,29 @@ export async function sharedTarget(
   };
   return { target, access: scoped };
 }
+
+/**
+ * The access a link's folder download reads its next file with, from the link as it is now:
+ * refused once the link needs its password again (`unlocked` false) or allows previews only,
+ * which never include a folder's ZIP.
+ */
+export async function archiveAccess(
+  share: Share,
+  access: Access,
+  unlocked: boolean,
+  child: string,
+) {
+  if (!unlocked)
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "This link now needs its password again, so the download was stopped.",
+    });
+  if (share.mode === "view")
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "This link now allows previews only, so the download was stopped. Ask the owner for a download link.",
+    });
+  return (await sharedTarget(share, access, child)).access;
+}

@@ -15,10 +15,26 @@ import { DriveRoot } from "@nimbus/api/drive-root";
  */
 export type ArchiveAccess = () => Promise<Access>;
 
-/** One member of a ZIP: a folder marker or a file read from disk. Names use `/` separators. */
+/**
+ * One member of a ZIP: a folder marker or a file read from disk. Names use `/` separators. A
+ * file is listed long before the archive reaches and opens it, so `authorize` checks again
+ * right before it is opened, and throws once it may no longer be read.
+ */
 export type ArchiveEntry =
   | { type: "dir"; name: string; mtime: Date }
-  | { type: "file"; name: string; absolute: string; size: number; mtime: Date };
+  | {
+      type: "file";
+      name: string;
+      absolute: string;
+      size: number;
+      mtime: Date;
+      authorize: () => Promise<void>;
+    };
+
+/** Throws unless `relative` may still be read, as of now. */
+const authorizer = (current: ArchiveAccess, relative: string) => async () => {
+  (await current()).require(relative, "read");
+};
 
 /** Validate the requested items up front so permission errors fail the request, not the stream. */
 export async function resolveArchiveRoots(
@@ -62,8 +78,9 @@ export async function folderRoot(relative: string) {
 /**
  * Walk the requested items breadth first, yielding readable entries. A root
  * named "" contributes its contents at the top level. Removed entries are skipped. Access is
- * checked again before each folder is listed and each file is yielded (and so opened); once it
- * is gone, the walk throws, which ends the archive.
+ * checked again before each folder is listed and each file is yielded, and each file checks it
+ * once more when the archive opens it (`authorize`); once it is gone, the walk or the open
+ * throws, which ends the archive.
  */
 export async function* archiveEntries(
   roots: readonly { relative: string; name: string; isDirectory: boolean }[],
@@ -80,6 +97,7 @@ export async function* archiveEntries(
         absolute: top.absolute,
         size: top.stats.size,
         mtime: top.stats.mtime,
+        authorize: authorizer(current, root.relative),
       };
       continue;
     }
@@ -109,6 +127,7 @@ export async function* archiveEntries(
           absolute: path.join(dataRoot, entry.path),
           size: entry.size,
           mtime: new Date(entry.mtime),
+          authorize: authorizer(current, entry.path),
         };
       }
     }

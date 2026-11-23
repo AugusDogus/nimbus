@@ -23,12 +23,17 @@ async function* listed(...entries: ArchiveEntry[]) {
   yield* entries;
 }
 
-const file = (name: string, size: number): ArchiveEntry => ({
+const file = (
+  name: string,
+  size: number,
+  authorize: () => Promise<void> = async () => undefined,
+): ArchiveEntry => ({
   type: "file",
   name,
   absolute: path.join(root, name),
   size,
   mtime: new Date(),
+  authorize,
 });
 
 test("a ZIP fails its download, not the server, when a listed file is gone before it is read", async () => {
@@ -81,4 +86,29 @@ test("a ZIP fails its download, not the server, when reading a listed file fails
   } finally {
     spy.mockRestore();
   }
+});
+
+test("a ZIP checks each file's access again when it opens it, not only when it was listed", async () => {
+  await writeFile(path.join(root, "first.txt"), "first");
+  await writeFile(path.join(root, "second.txt"), "secret-content");
+  // Every entry is listed long before yazl opens it; access ends after the first file is read.
+  let allowed = true;
+  const opened: string[] = [];
+  const authorize = (name: string) => async () => {
+    if (!allowed) throw new Error("The link no longer grants this download.");
+    opened.push(name);
+    allowed = false;
+  };
+  const body = zipStream(
+    listed(
+      file("first.txt", 5, authorize("first.txt")),
+      file("second.txt", 14, authorize("second.txt")),
+    ),
+    null,
+    "a folder",
+  );
+  await expect(new Response(body).arrayBuffer()).rejects.toThrow(
+    "no longer grants",
+  );
+  expect(opened).toEqual(["first.txt"]);
 });

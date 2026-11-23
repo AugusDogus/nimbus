@@ -53,29 +53,33 @@ export function zipStream(
         entry.name,
         { size: entry.size, mtime: entry.mtime, compress: false },
         (callback) => {
-          // Listed as a plain file, but opened without following a symlink swapped in since.
-          DriveFile.openFile(entry.absolute).then(
-            ({ handle }) => {
-              // 1 MiB reads: measured twice the throughput of the 64 KiB default.
-              const stream = handle.createReadStream({
-                highWaterMark: 1 << 20,
-              });
-              active = stream;
-              stream.on("error", fail);
-              stream.once("close", () => {
-                if (active === stream) active = null;
-              });
-              callback(null, stream);
-            },
-            (error: unknown) =>
-              // yazl fails the whole archive on an error and reads nothing from the stream.
-              callback(
-                error instanceof Error
-                  ? error
-                  : new Error(`Opening ${entry.name} for the ZIP failed.`),
-                Readable.from([]),
-              ),
-          );
+          // Access again, as of now: the file was listed long before yazl reached it. Listed as
+          // a plain file, but opened without following a symlink swapped in since.
+          entry
+            .authorize()
+            .then(() => DriveFile.openFile(entry.absolute))
+            .then(
+              ({ handle }) => {
+                // 1 MiB reads: measured twice the throughput of the 64 KiB default.
+                const stream = handle.createReadStream({
+                  highWaterMark: 1 << 20,
+                });
+                active = stream;
+                stream.on("error", fail);
+                stream.once("close", () => {
+                  if (active === stream) active = null;
+                });
+                callback(null, stream);
+              },
+              (error: unknown) =>
+                // yazl fails the whole archive on an error and reads nothing from the stream.
+                callback(
+                  error instanceof Error
+                    ? error
+                    : new Error(`Opening ${entry.name} for the ZIP failed.`),
+                  Readable.from([]),
+                ),
+            );
         },
       );
     }
