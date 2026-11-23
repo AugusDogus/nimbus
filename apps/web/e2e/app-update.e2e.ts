@@ -363,20 +363,26 @@ async function entryChecks(page: Page) {
 /**
  * Deploys a newer build as this page finds out: answers from the API name it, and checking this
  * page's entry finds it gone. The entry still loads for a page that asks for it, as from a cache
- * that kept it. Returns the checks of the entry from now on, and waits for the next one.
+ * that kept it. Returns the checks of the entry from now on, a wait for the next one, and
+ * `answer`: checks get no answer until it is called, so a move the test starts first starts
+ * before the update is known. Without it any API answer can start the check, such as those the
+ * page still asks for after it loaded, or the listing pointing at a folder fetches, and the check
+ * can finish before the test's move starts.
  */
 async function deployNewerBuild(page: Page) {
   const { entry, checks } = await entryChecks(page);
+  const answered = Promise.withResolvers<void>();
   await page.route(
     (url) => url.pathname === entry,
-    (route) =>
-      route.request().method() === "HEAD"
-        ? route.fulfill({
-            status: 404,
-            headers: { "Cache-Control": "no-store" },
-            body: "Not found",
-          })
-        : route.fallback(),
+    async (route) => {
+      if (route.request().method() !== "HEAD") return route.fallback();
+      await answered.promise;
+      await route.fulfill({
+        status: 404,
+        headers: { "Cache-Control": "no-store" },
+        body: "Not found",
+      });
+    },
   );
   await answerFromAnotherBuild(page);
   const checked = () =>
@@ -385,7 +391,7 @@ async function deployNewerBuild(page: Page) {
         response.request().method() === "HEAD" &&
         new URL(response.url()).pathname === entry,
     );
-  return { checks, checked };
+  return { checks, checked, answer: () => answered.resolve() };
 }
 
 test("opens the next page in full once Nimbus has been updated, saying nothing, and not again from the same build", async ({
@@ -394,11 +400,12 @@ test("opens the next page in full once Nimbus has been updated, saying nothing, 
   const name = await folder({ "sub/": "" });
   await page.goto(href(name));
   await mark(page);
-  const { checks, checked } = await deployNewerBuild(page);
+  const { checks, checked, answer } = await deployNewerBuild(page);
   // Opening a folder asks the server for its listing, whose answer tells of the update.
   const first = checked();
   await open(page, "sub");
   await expect(page).toHaveURL(new RegExp(`${href(name)}/sub$`));
+  answer();
   expect((await first).status()).toBe(404);
   // That move started before the update was known.
   expect(await marked(page)).toBe("this load");
@@ -434,10 +441,11 @@ test("moves to another page in place while an upload runs after an update, and o
   const name = await folder({ "sub/": "" });
   const rpc = await client(context);
   await page.goto(href(name));
-  const { checked } = await deployNewerBuild(page);
+  const { checked, answer } = await deployNewerBuild(page);
   const known = checked();
   await open(page, "sub");
   await expect(page).toHaveURL(new RegExp(`${href(name)}/sub$`));
+  answer();
   await known;
   await mark(page);
 
