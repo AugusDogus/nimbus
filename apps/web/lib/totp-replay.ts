@@ -6,6 +6,7 @@ import {
   getSessionFromCtx,
 } from "better-auth/api";
 import { z } from "zod";
+import { GuessBudgets } from "../server/guess-budgets";
 
 /**
  * Better Auth accepts an authenticator code for the previous, current and next 30-second
@@ -14,8 +15,9 @@ import { z } from "zod";
  * second use. Better Auth still generates and checks every code; this only remembers
  * each account's accepted codes for the 90 seconds they can be valid, and refuses them
  * again. A code is reserved before verification, so two requests sending it at once
- * cannot both pass, and released when verification fails. The record lives in memory:
- * a restart forgets at most 90 seconds of codes.
+ * cannot both pass, and released when verification fails. The record is kept with the guess
+ * budgets (GuessBudgets), in the database once the server starts, so every server process
+ * refuses a code once used, also across a restart or an update.
  */
 const VALID_FOR_MS = 90 * 1000;
 const path = "/two-factor/verify-totp";
@@ -24,8 +26,7 @@ const codeBody = z.object({ code: z.string() });
 const sessionUser = z.object({ user: z.object({ id: z.string() }) });
 
 export const totpReplayGuard = () => {
-  /** Accepted or in-flight codes per account, by key, with when they stop mattering. */
-  const used = new Map<string, number>();
+  const spent = GuessBudgets.spentCodes();
   /** The key each in-flight request reserved, released if its verification fails. */
   const reserved = new WeakMap<Request, string>();
 
@@ -60,16 +61,13 @@ export const totpReplayGuard = () => {
               .update(`${account}:${body.data.code.replace(/\s/g, "")}`)
               .digest("base64url");
             const now = Date.now();
-            for (const [entry, expires] of used)
-              if (expires <= now) used.delete(entry);
-            // Checked and reserved without awaiting, so parallel requests see each other.
-            if ((used.get(key) ?? 0) > now)
+            // Checked and reserved in one step, so parallel requests see each other.
+            if (!spent.spend(key, now + VALID_FOR_MS, now))
               throw new APIError("UNAUTHORIZED", {
                 code: "TOTP_ALREADY_USED",
                 message:
                   "That code was already used. Wait for your authenticator app to show a new code, then enter it.",
               });
-            used.set(key, now + VALID_FOR_MS);
             reserved.set(ctx.request, key);
           }),
         },
@@ -80,7 +78,7 @@ export const totpReplayGuard = () => {
           handler: createAuthMiddleware(async (ctx) => {
             const key = ctx.request && reserved.get(ctx.request);
             if (key && ctx.context.returned instanceof APIError)
-              used.delete(key);
+              spent.unspend(key);
           }),
         },
       ],

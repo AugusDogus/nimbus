@@ -14,6 +14,8 @@ import {
   setFileLockStore,
 } from "@nimbus/api/file-mutations";
 import { DavLockStore } from "./dav-lock-store";
+import { GuessBudgets } from "./guess-budgets";
+import { LinkPasswordAttempts } from "./link-password-attempts";
 import { UploadClaims } from "./mcp/upload-claims";
 
 /**
@@ -33,6 +35,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   setFileLockStore(null);
+  GuessBudgets.keepIn(null);
   for (const server of servers) server.sqlite.close();
   await rm(directory, { recursive: true, force: true });
 });
@@ -216,5 +219,82 @@ describe("WebDAV locks", () => {
         expiresAt: 601_000,
       },
     ]);
+  });
+});
+
+describe("password guess budgets", () => {
+  const rule = { limit: 3, windowMs: 60_000 };
+
+  test("a budget spent on one server is spent on the other", () => {
+    const [old, next] = servers.map((server) =>
+      GuessBudgets.durable(server.db).limiter("share-password-client", rule),
+    );
+    if (!old || !next) throw new Error("two servers");
+    for (let guess = 0; guess < 3; guess++)
+      expect(old.consume("198.51.100.0/24", 1_000).allowed).toBe(true);
+    expect(next.consume("198.51.100.0/24", 1_000).allowed).toBe(false);
+    // A right password given back on one server is given back on both.
+    old.refund("198.51.100.0/24", 1_000);
+    expect(next.consume("198.51.100.0/24", 1_000).allowed).toBe(true);
+    // Other limiters and keys keep their own budgets.
+    expect(next.consume("203.0.113.0/24", 1_000).allowed).toBe(true);
+  });
+
+  test("link password attempts keep their budget across an update", async () => {
+    const attempts = LinkPasswordAttempts.create("share", {
+      sleep: async () => undefined,
+    });
+    const request = () =>
+      new Request("http://localhost/api/share/token", {
+        headers: { "x-nimbus-client-ip": "198.51.100.7" },
+      });
+    GuessBudgets.keepIn(servers[0].db);
+    for (let guess = 0; guess < 10; guess++)
+      expect((await attempts.begin("link", request())).kind).toBe("admitted");
+    // The next server, with nothing in memory from the first.
+    GuessBudgets.keepIn(servers[1].db);
+    expect((await attempts.begin("link", request())).kind).toBe("refused");
+  });
+
+  test("the sign-in throttle is counted once for every server", async () => {
+    const [old, next] = servers.map((server) =>
+      GuessBudgets.durable(server.db),
+    );
+    if (!old || !next) throw new Error("two servers");
+    const signIn = { window: 60, max: 2 };
+    expect((await old.auth.consume("ip|/sign-in/email", signIn)).allowed).toBe(
+      true,
+    );
+    expect((await next.auth.consume("ip|/sign-in/email", signIn)).allowed).toBe(
+      true,
+    );
+    const third = await old.auth.consume("ip|/sign-in/email", signIn);
+    expect(third.allowed).toBe(false);
+    expect(third.retryAfter).toBeGreaterThan(0);
+  });
+
+  test("an authenticator code accepted on one server is refused on the other", () => {
+    const [old, next] = servers.map((server) =>
+      GuessBudgets.durable(server.db),
+    );
+    if (!old || !next) throw new Error("two servers");
+    expect(old.codes.spend("account:123456", 91_000, 1_000)).toBe(true);
+    expect(next.codes.spend("account:123456", 91_000, 2_000)).toBe(false);
+    // A code whose verification failed is given back.
+    old.codes.unspend("account:123456");
+    expect(next.codes.spend("account:123456", 91_000, 2_000)).toBe(true);
+    // Once it could no longer be valid, it is forgotten.
+    expect(old.codes.spend("account:123456", 200_000, 95_000)).toBe(true);
+  });
+
+  test("an account's password budget is counted once for every server", () => {
+    const rule = { limit: 2, windowMs: 60_000 };
+    const [old, next] = servers.map((server) =>
+      GuessBudgets.durable(server.db).limiter("password-account", rule),
+    );
+    if (!old || !next) throw new Error("two servers");
+    expect(old.consume("owner@example.test", 1_000).allowed).toBe(true);
+    expect(next.consume("owner@example.test", 1_000).allowed).toBe(true);
+    expect(old.consume("owner@example.test", 1_000).allowed).toBe(false);
   });
 });

@@ -42,6 +42,7 @@ import { GET as readiness } from "./routes/health";
 import { Supervision, type LifecycleMessage } from "./supervisor/supervision";
 import { ServerRun } from "@nimbus/api/server-run";
 import { InstallationLock } from "./installation-lock";
+import { GuessBudgets } from "./guess-budgets";
 
 const startedAt = performance.now();
 // The run starts now, before any link or receipt is issued, and a bad one stops startup.
@@ -127,6 +128,8 @@ DatabaseFiles.restrict(databasePath);
 setAuditSink(createAuditSink(db));
 // WebDAV locks outlive this process, so the next one an update starts honours them.
 setFileLockStore(DavLockStore.create(db));
+// Password guess budgets and spent codes outlive this process too, so a restart never resets them.
+GuessBudgets.keepIn(db);
 if (supervision.kind === "supervised") {
   // Every server the supervisor runs takes path scopes from it, so their changes never overlap.
   setScopeAuthority(supervision.scopes);

@@ -261,3 +261,47 @@ export const davLocks = sqliteTable(
   },
   (table) => [index("nimbus_dav_lock_expiry").on(table.expiresAt)],
 );
+
+/**
+ * Password guess budgets (see GuessBudgets), per limiter and key: the time at which the key's
+ * budget is whole again, as the GCRA limiter keeps it. In the database so that a restart or an
+ * update never hands a guesser a fresh budget, and every server process counts the same guesses.
+ */
+export const guessBudgets = sqliteTable(
+  "nimbus_guess_budget",
+  {
+    name: text("name").notNull(),
+    key: text("key").notNull(),
+    tat: integer("tat").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.name, table.key] }),
+    index("nimbus_guess_budget_tat").on(table.tat),
+  ],
+);
+
+/** Better Auth's request limits (sign-in among them), per key, in fixed windows. */
+export const authRateLimits = sqliteTable(
+  "nimbus_auth_rate_limit",
+  {
+    key: text("key").primaryKey(),
+    count: integer("count").notNull(),
+    windowStart: integer("window_start").notNull(),
+    windowEnd: integer("window_end").notNull(),
+  },
+  (table) => [index("nimbus_auth_rate_limit_end").on(table.windowEnd)],
+);
+
+/**
+ * One-time codes already accepted, such as authenticator codes (see GuessBudgets), by a hash of
+ * the account and the code, until they could no longer be valid anyway: every server process
+ * refuses them again, also across an update.
+ */
+export const spentCodes = sqliteTable(
+  "nimbus_spent_code",
+  {
+    key: text("key").primaryKey(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => [index("nimbus_spent_code_expiry").on(table.expiresAt)],
+);

@@ -1,5 +1,6 @@
 import { ClientIp } from "./client-ip";
-import { RateLimiter, type RateLimitDecision } from "./rate-limit";
+import { GuessBudgets } from "./guess-budgets";
+import type { RateLimitDecision } from "./rate-limit";
 
 /** An attempt to unlock a public link with a password. */
 export type LinkPasswordAttempt =
@@ -45,11 +46,12 @@ export const LinkPasswordAttempts = {
       sleep = (ms) => Bun.sleep(ms),
     }: Options = {},
   ): LinkPasswordAttempts {
-    const byClient = RateLimiter.shared(`${kind}-password-client`, {
+    // Kept with every guess budget, so a restart or an update never resets them.
+    const byClient = GuessBudgets.limiter(`${kind}-password-client`, {
       limit: 10,
       windowMs: 15 * 60 * 1000,
     });
-    const byLink = RateLimiter.shared(`${kind}-password-link`, {
+    const byLink = GuessBudgets.limiter(`${kind}-password-link`, {
       limit: 50,
       windowMs: 60 * 60 * 1000,
     });

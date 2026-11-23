@@ -1,8 +1,5 @@
-import {
-  RateLimiter,
-  type RateLimitDecision,
-  type RateLimitRule,
-} from "./rate-limit";
+import { GuessBudgets } from "./guess-budgets";
+import type { RateLimitDecision, RateLimitRule } from "./rate-limit";
 
 export type CredentialAttempt<T> =
   | { kind: "verified"; value: T }
@@ -26,8 +23,9 @@ export type CredentialAttempts = {
 };
 
 export const CredentialAttempts = {
-  create(rule: RateLimitRule): CredentialAttempts {
-    const failures = RateLimiter.create(rule);
+  /** Attempts counted as guess budget `name` (see GuessBudgets), which outlives restarts. */
+  create(name: string, rule: RateLimitRule): CredentialAttempts {
+    const failures = GuessBudgets.limiter(name, rule);
     return {
       async run<T>(key: string, verify: () => Promise<T | null>) {
         const decision = failures.consume(key);

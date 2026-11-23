@@ -88,7 +88,7 @@ const MICROSOFT = "urn:schemas-microsoft-com:";
 
 // Counts wrong credentials per client. Requests without credentials (the usual
 // first request of a WebDAV client) are challenged, not counted.
-const failedLogins = CredentialAttempts.create({
+const failedLogins = CredentialAttempts.create("webdav-credentials", {
   limit: 20,
   windowMs: 10 * 60 * 1000,
 });

@@ -1,8 +1,5 @@
-import {
-  RateLimiter,
-  type RateLimitDecision,
-  type RateLimitRule,
-} from "../server/rate-limit";
+import { GuessBudgets } from "../server/guess-budgets";
+import type { RateLimitDecision, RateLimitRule } from "../server/rate-limit";
 
 /**
  * Password sign-in attempts per account, on top of Better Auth's per-address limit, so
@@ -11,7 +8,9 @@ import {
  * guessing slows to a trickle instead of locking the account. Addresses the account signed
  * in from with its password are exempt, so an attacker keeping the limit busy does not
  * lock its owner out of a known device; passkeys and single sign-on are never limited here.
- * Like Nimbus's other limits, this lives in memory and resets on restart.
+ * The budget is kept with the other guess budgets (GuessBudgets), in the database once the
+ * server starts, so a restart or an update never resets it. Known addresses stay in this
+ * process's memory: forgetting them only limits their owner as any other address.
  */
 export type PasswordAttempts = {
   /** Counts one attempt at `email` from `address` and decides whether it may proceed. */
@@ -32,7 +31,7 @@ export const PasswordAttempts = {
     addressesPerAccount?: number;
     maxAccounts?: number;
   } = {}): PasswordAttempts {
-    const attempts = RateLimiter.create(rule, maxAccounts);
+    const attempts = GuessBudgets.limiter("password-account", rule);
     /** Per account, its known addresses in least recently used order. */
     const known = new Map<string, Set<string>>();
     return {

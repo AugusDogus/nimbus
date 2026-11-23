@@ -20,6 +20,7 @@ import { finishAuthResponse, nimbusAudit } from "./auth-audit";
 import { nimbusSecurity } from "./auth-security";
 import { OidcConfig, oidcProviderId } from "./oidc-config";
 import { PasswordAttempts } from "./password-attempts";
+import { GuessBudgets } from "../server/guess-budgets";
 import { totpReplayGuard } from "./totp-replay";
 
 /**
@@ -207,7 +208,9 @@ export function createNimbusAuth({
     },
     rateLimit: {
       enabled: true,
-      storage: "memory",
+      // Kept with the other guess budgets, in the database once the server starts, so a
+      // restart or an update never resets the sign-in limits.
+      customStorage: GuessBudgets.authStorage(),
       window: 60,
       max: 600,
       customRules: {
