@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { LeaveGuard } from "@/lib/leave-guard";
+import { SignOut } from "@/lib/sign-out";
 import { toast } from "@/lib/toast";
 import {
   AlertDialog,
@@ -119,17 +120,11 @@ export function FilesShell({ children }: FilesShellProps) {
   // ends only once they confirm.
   const [signOutAsked, setSignOutAsked] = useState(false);
   const signOut = async () => {
-    // The server's own endpoint, so signing out needs no code loaded on demand, which a page
-    // opened before Nimbus was updated could no longer load.
-    const ended = await fetch("/api/auth/sign-out", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    }).catch(() => null);
-    if (!ended?.ok) {
+    const ended = await SignOut.request();
+    if (ended.kind !== "signed-out") {
       toast.error(
-        ended
-          ? `Nimbus could not sign you out (the server answered ${ended.status}). You are still signed in. Try again.`
+        ended.kind === "refused"
+          ? `Nimbus could not sign you out (the server answered ${ended.status} without confirming). You are still signed in. Try again.`
           : "Nimbus could not be reached, so you are still signed in. Check your connection, then try again.",
       );
       return;
