@@ -8,24 +8,36 @@ import { PageSurface } from "./page-surface";
  */
 export const PageLayout = {
   /**
-   * The files pages' header. From 768 px, three columns: search keeps to the middle one, centred
-   * over the page. The sides share one minimum, room for the split view toggle and the account
-   * menu, so the search stays put whichever page adds a tool.
+   * The files pages' header. From 768 px its ends line up with the content card's edges, the
+   * sidebar toggle at its left and the account menu at its right, open or closed, and the search
+   * is centred on the window (see `searchPlace`).
    */
   filesHeader: cn(
     PageSurface.header,
-    "sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 px-4 md:grid md:grid-cols-[minmax(5.5rem,1fr)_minmax(0,36rem)_minmax(5.5rem,1fr)] md:gap-4 md:px-6",
+    "sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 px-4 md:gap-4 md:px-0",
+    // On touch screens its ends keep the room their 44 px touch areas reach past them.
+    "md:pointer-coarse:px-1.5 md:pointer-coarse:[--header-pad:0.375rem]",
+    // Where the search may go, in the window's coordinates: from the end of the header's left
+    // part to the start of its right part, a gap clear of each (`--start-edge`, `--end-edge`,
+    // which the header sets as it moves with the sidebar, and its own left, `--header-left`).
+    "md:[--search-l:max(var(--start-edge),calc(50vw-18rem))] md:[--search-r:min(var(--end-edge),calc(50vw+18rem))]",
   ),
+  /**
+   * The search's place from 768 px: up to 36 rem centred on the window, so it stays put when the
+   * sidebar opens or closes. Where the header's ends come within reach it gives way on that side
+   * instead of covering them.
+   */
+  searchPlace:
+    "md:absolute md:top-1/2 md:-translate-y-1/2 md:left-[calc(var(--search-l)-var(--header-left))] md:w-[calc(var(--search-r)-var(--search-l))]",
   /** The sidebar toggle and, on phones, the logo, 44 px apart so their touch areas do not overlap. */
   filesHeaderStart:
     "flex shrink-0 items-center gap-2 max-md:pointer-coarse:gap-3.5 md:gap-4",
   /** The page's own tools, such as the split view toggle, then the account menu. */
-  filesHeaderEnd:
-    "flex shrink-0 items-center gap-1 md:justify-self-end md:gap-3",
+  filesHeaderEnd: "flex shrink-0 items-center gap-1 md:ml-auto md:gap-3",
   /** Settings' header: the sidebar toggle and the breadcrumb. */
   settingsHeader: cn(
     PageSurface.header,
-    "sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 px-4 md:px-6",
+    "sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 px-4 md:px-0 md:pointer-coarse:px-1.5",
   ),
   sidebarTrigger: "touch-hit size-8 shrink-0 text-muted-foreground",
   logo: "size-7",

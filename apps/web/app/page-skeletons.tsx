@@ -1,6 +1,6 @@
 import type { UserPreferences } from "@nimbus/api/context";
 import { Search } from "lucide-react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { AppFrame } from "@/components/app-frame";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { PageLayout } from "@/components/page-layout";
@@ -44,6 +44,25 @@ import {
 
 const bar = "motion-reduce:animate-none";
 const nothing = () => undefined;
+
+/**
+ * What the app measures as its header moves (see `useHeaderEdges`), here from the sidebar's state
+ * and the header's own parts: the toggle on the left, and on the right the account menu, after
+ * the split view's toggle on a folder from 1024 px (`--end-w`).
+ */
+function headerEdges(
+  sidebarOpen: boolean,
+): CSSProperties & Record<`--${string}`, string> {
+  return {
+    "--header-left": sidebarOpen
+      ? `calc(${AppFrame.sidebarRem}rem + 0.5rem)`
+      : "0.5rem",
+    "--start-edge":
+      "calc(var(--header-left) + var(--header-pad, 0px) + 2rem + 1rem)",
+    "--end-edge":
+      "calc(100vw - 0.5rem - var(--header-pad, 0px) - var(--end-w) - 1rem)",
+  };
+}
 
 /** Who is signed in, as far as the skeleton shows it. */
 export type SkeletonAccount = {
@@ -117,7 +136,16 @@ export function FilesSkeleton({
         />
       }
     >
-      <header data-shape="header" className={PageLayout.filesHeader}>
+      <header
+        data-shape="header"
+        className={cn(
+          PageLayout.filesHeader,
+          folder
+            ? "[--end-w:2.25rem] lg:[--end-w:4.75rem]"
+            : "[--end-w:2.25rem]",
+        )}
+        style={headerEdges(account.sidebarOpen)}
+      >
         <div className={PageLayout.filesHeaderStart}>
           <SidebarTrigger
             tabIndex={-1}

@@ -70,11 +70,12 @@ test("keeps primary navigation and utility actions usable in both themes", async
     ).toHaveAttribute("href", "/settings");
     await expect(
       page
-        .locator('[data-slot="sidebar-footer"]')
+        .locator('[data-sidebar="footer"]')
+        .filter({ visible: true })
         .getByRole("button", { name: "Theme", exact: true }),
     ).toHaveCount(0);
     const settings = page.getByRole("link", { name: "Settings", exact: true });
-    await expect(settings).toHaveText("");
+    await expect(settings).toHaveAccessibleName("Settings");
     await expect(settings.locator("svg")).toBeVisible();
     await settings.click();
     await expect(page).toHaveURL("/settings/appearance");
@@ -169,7 +170,8 @@ test("keeps primary navigation and utility actions usable in both themes", async
         .getByRole("button", { name: "Toggle Sidebar", exact: true })
         .click();
     const primary = page
-      .locator('[data-slot="sidebar-content"]')
+      .locator('[data-sidebar="content"]')
+      .filter({ visible: true })
       .getByRole("link");
     await expect(primary).toHaveCount(4);
     for (const [name, href] of [
@@ -213,7 +215,12 @@ test("keeps primary navigation and utility actions usable in both themes", async
       await page
         .getByRole("button", { name: "Toggle Sidebar", exact: true })
         .click();
-      await expect(create).toBeVisible();
+      // Collapsed, the sidebar is out of the way, New with it, until it opens again.
+      await expect(create).not.toBeInViewport();
+      await page
+        .getByRole("button", { name: "Toggle Sidebar", exact: true })
+        .click();
+      await expect(create).toBeInViewport({ ratio: 1 });
       await create.focus();
       await expect(create).toBeFocused();
       await create.press("Enter");
@@ -228,7 +235,7 @@ test("keeps primary navigation and utility actions usable in both themes", async
       await expect(page.getByRole("menu")).toHaveCount(0);
       await page.screenshot({
         path: testInfo.outputPath(
-          `nimbus-desktop-${theme.toLowerCase()}-collapsed.png`,
+          `nimbus-desktop-${theme.toLowerCase()}-reopened.png`,
         ),
         animations: "disabled",
       });
@@ -237,9 +244,6 @@ test("keeps primary navigation and utility actions usable in both themes", async
           () => document.documentElement.scrollWidth <= window.innerWidth,
         ),
       ).toBe(true);
-      await page
-        .getByRole("button", { name: "Toggle Sidebar", exact: true })
-        .click();
     }
     await page.getByRole("link", { name: "Settings", exact: true }).click();
     await expect(page).toHaveURL("/settings/appearance");

@@ -53,6 +53,7 @@ import { trpcErrorCode } from "@/lib/trpc-error";
 import { AppSidebar } from "./files/app-sidebar";
 import { SearchBox } from "./search/search-box";
 import { PageLayout } from "@/components/page-layout";
+import { useHeaderEdges } from "@/components/use-header-edges";
 import { cn } from "@/lib/utils";
 import { HeaderToolsSlot } from "./files/header-tools";
 import { HiddenFileInput, NewFolderDialog } from "./files/new-content-ui";
@@ -155,6 +156,7 @@ export function FilesShell({ children }: FilesShellProps) {
   });
 
   const [toolsSlot, setToolsSlot] = useState<HTMLElement | null>(null);
+  const [attachHeader, attachHeaderStart, attachHeaderEnd] = useHeaderEdges();
 
   // Single new-content instance shared by sidebar (desktop) and FAB (mobile)
   const [fabDrawerOpen, setFabDrawerOpen] = useState(false);
@@ -178,8 +180,12 @@ export function FilesShell({ children }: FilesShellProps) {
           newContent={newContent}
         />
       </AppFrame.SidebarBody>
-      <header data-shape="header" className={PageLayout.filesHeader}>
-        <div className={PageLayout.filesHeaderStart}>
+      <header
+        ref={attachHeader}
+        data-shape="header"
+        className={PageLayout.filesHeader}
+      >
+        <div ref={attachHeaderStart} className={PageLayout.filesHeaderStart}>
           {/* Desktop: sidebar trigger */}
           <SidebarTrigger
             data-shape="sidebar-trigger"
@@ -198,7 +204,7 @@ export function FilesShell({ children }: FilesShellProps) {
 
         <SearchBox />
 
-        <div className={PageLayout.filesHeaderEnd}>
+        <div ref={attachHeaderEnd} className={PageLayout.filesHeaderEnd}>
           <span ref={setToolsSlot} className="contents" />
           {session ? (
             <DropdownMenu>

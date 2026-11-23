@@ -3,6 +3,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -48,6 +49,44 @@ const FoldContext = createContext<Fold>({
   folded: false,
   setFolded: () => undefined,
 });
+
+/**
+ * Whether the sidebar is sliding open or closed, from the moment it is told to until its column
+ * reaches its new width. The page moves with it frame by frame; what would rearrange on each of
+ * those frames, such as the grid's columns, can wait for it instead (see `useGridTrack`).
+ */
+const MotionContext = createContext(false);
+
+function useSidebarMotion(open: boolean) {
+  const [moving, setMoving] = useState(false);
+  const [settledOpen, setSettledOpen] = useState(open);
+  if (settledOpen !== open) {
+    setSettledOpen(open);
+    setMoving(true);
+  }
+  useEffect(() => {
+    if (!moving) return;
+    const column = document.querySelector('[data-slot="sidebar"]');
+    const target = open ? sidebarRem * 16 : 0;
+    const done = () => setMoving(false);
+    const check = () => {
+      if (
+        column &&
+        Math.abs(column.getBoundingClientRect().width - target) < 0.5
+      )
+        done();
+    };
+    const observer = new ResizeObserver(check);
+    if (column) observer.observe(column);
+    // A sidebar out of view, as on a phone, never reaches its width.
+    const fallback = setTimeout(done, 1000);
+    return () => {
+      observer.disconnect();
+      clearTimeout(fallback);
+    };
+  }, [moving, open]);
+  return moving;
+}
 
 /**
  * Where the current section's navigation renders inside the sidebar. On phones the sidebar has two
@@ -125,7 +164,9 @@ function Layout({
       onOpenChange={onOpenChange}
       // Nimbus remembers the person's choice itself, apart from a split view's fold.
       persist={false}
-      peek="hover"
+      // No peek: the collapsed sidebar would float in over the toggle, which sits at the
+      // content's edge, so the toggle could not be reached to open it.
+      peek="none"
       width={`${sidebarRem}rem`}
       className="surface-grain h-dvh min-h-0 overflow-hidden"
     >
@@ -157,21 +198,25 @@ function Root({ children }: { children: ReactNode }) {
   const [folded, setFolded] = useState(false);
   const { slot, attach } = useBodySlot();
   const fold = useMemo(() => ({ folded, setFolded }), [folded]);
+  const open = chosen && !folded;
+  const moving = useSidebarMotion(open);
   return (
     <FoldContext.Provider value={fold}>
-      <Layout
-        open={chosen && !folded}
-        onOpenChange={(open) => {
-          // The person's own toggle: theirs from now on, also over a fold.
-          setChosen(open);
-          setFolded(false);
-          SidebarChoice.remember(open);
-        }}
-        brand={<Brand />}
-        sidebar={<div ref={attach} className="contents" />}
-      >
-        <BodySlot.Provider value={slot}>{children}</BodySlot.Provider>
-      </Layout>
+      <MotionContext.Provider value={moving}>
+        <Layout
+          open={open}
+          onOpenChange={(open) => {
+            // The person's own toggle: theirs from now on, also over a fold.
+            setChosen(open);
+            setFolded(false);
+            SidebarChoice.remember(open);
+          }}
+          brand={<Brand />}
+          sidebar={<div ref={attach} className="contents" />}
+        >
+          <BodySlot.Provider value={slot}>{children}</BodySlot.Provider>
+        </Layout>
+      </MotionContext.Provider>
     </FoldContext.Provider>
   );
 }
@@ -200,4 +245,6 @@ export const AppFrame = {
   SidebarChoice,
   /** The split view's channel for folding the sidebar without it being remembered. */
   useFold: () => useContext(FoldContext),
+  /** Whether the sidebar is sliding open or closed right now. */
+  useSidebarMoving: () => useContext(MotionContext),
 } as const;

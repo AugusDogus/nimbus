@@ -666,7 +666,11 @@ export function EntriesView({
             // restyles them. Remounting under a new wrapper would drop focus and in-flight clicks.
             const { gap } = entryGeometry.grid;
             const columns = layout.columns;
-            const width = `((100% - ${(columns - 1) * gap}px) / ${columns})`;
+            // While the sidebar slides the cards keep their width, so no name re-wraps on the way.
+            const width =
+              gridTrack.heldWidth === null
+                ? `((100% - ${(columns - 1) * gap}px) / ${columns})`
+                : `(${(gridTrack.heldWidth - (columns - 1) * gap) / columns}px)`;
             return layout.entries
               .slice(row.start, row.start + row.count)
               .map((entry, offset) =>
