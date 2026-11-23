@@ -7,6 +7,7 @@ import {
   type ReactElement,
 } from "react";
 import {
+  Columns2,
   Copy,
   CornerLeftUp,
   Download,
@@ -133,7 +134,8 @@ const moveUpItems = (
 /**
  * Actions for one entry, or for every target when the entry is part of a multi-selection.
  * `starred` is what is starred now. `moveUp` says whether items may move up into the folder
- * above the one shown.
+ * above the one shown. `openInOtherPane` opens a folder in the other pane of a split view, where
+ * the page has one or can open one.
  */
 export function entryMenuItems(
   entry: FileEntry,
@@ -142,6 +144,7 @@ export function entryMenuItems(
   open: (dialog: EntryDialog) => void,
   starred: StarredPaths,
   moveUp: MoveUp,
+  openInOtherPane: ((path: string) => void) | null,
 ): MenuItem[] {
   if (targets.length > 1) {
     const count = targets.length.toLocaleString();
@@ -182,7 +185,15 @@ export function entryMenuItems(
   }
   return [
     ...(entry.type === "dir"
-      ? []
+      ? openInOtherPane
+        ? [
+            {
+              label: "Open in other pane",
+              icon: Columns2,
+              select: () => openInOtherPane(entry.path),
+            },
+          ]
+        : []
       : [
           {
             label: "Preview",
@@ -329,6 +340,7 @@ export function EntryMenuHost({
   actions,
   open,
   moveUp,
+  openInOtherPane,
   onClosed,
 }: {
   /** The collection's element. The right-click area is rendered onto it, not around it. */
@@ -341,6 +353,8 @@ export function EntryMenuHost({
   open: (dialog: EntryDialog) => void;
   /** Whether items may move up into the folder above the one shown (see `MoveUp`). */
   moveUp: MoveUp;
+  /** Opens a folder in the other pane of a split view; null where the page offers no split. */
+  openInOtherPane: ((path: string) => void) | null;
   /** Return focus to the entry after the menu closes. The grid itself cannot hold focus. */
   onClosed: () => void;
 }) {
@@ -365,6 +379,7 @@ export function EntryMenuHost({
         open,
         starred,
         MoveUp.steady(moveUpAtOpen, moveUp),
+        openInOtherPane,
       )
     : [];
   const popup = useRef<HTMLDivElement>(null);

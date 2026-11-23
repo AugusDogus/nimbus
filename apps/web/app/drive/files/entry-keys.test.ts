@@ -11,7 +11,14 @@ const key = (value: string, modifiers: Partial<KeyInput> = {}): KeyInput => ({
   isComposing: false,
   ...modifiers,
 });
-const list = { index: 4, count: 10, columns: 1, pageSize: 5, isMac: false };
+const list = {
+  index: 4,
+  count: 10,
+  columns: 1,
+  pageSize: 5,
+  isMac: false,
+  split: "none",
+} as const;
 const grid = { ...list, columns: 3, pageSize: 9 };
 
 describe("file browser keys", () => {
@@ -124,5 +131,47 @@ describe("file browser keys", () => {
     expect(typeaheadMatch(names, 1, "bl")).toBe(3);
     expect(typeaheadMatch(names, 1, "ba")).toBe(1);
     expect(typeaheadMatch(names, 0, "z")).toBe(-1);
+  });
+});
+
+describe("split view keys", () => {
+  it("opens and closes the split with a bar, and moves to the other pane with a backslash", () => {
+    const closed = { ...list, split: "closed" } as const;
+    const open = { ...list, split: "side-by-side" } as const;
+    expect(commandFor(key("|", { shiftKey: true }), closed)).toEqual({
+      type: "toggleSplit",
+    });
+    expect(commandFor(key("|", { shiftKey: true }), open)).toEqual({
+      type: "toggleSplit",
+    });
+    expect(commandFor(key("\\"), open)).toEqual({ type: "focusOtherPane" });
+    // AltGr, as some layouts type them, reports Ctrl and Alt together.
+    expect(
+      commandFor(key("|", { ctrlKey: true, altKey: true }), closed),
+    ).toEqual({ type: "toggleSplit" });
+  });
+
+  it("leaves the keys alone without a split to open or a pane beside", () => {
+    expect(commandFor(key("|", { shiftKey: true }), list)).toEqual({
+      type: "typeahead",
+      text: "|",
+    });
+    expect(commandFor(key("\\"), { ...list, split: "closed" })).toEqual({
+      type: "typeahead",
+      text: "\\",
+    });
+  });
+
+  it("never takes browser shortcuts or function keys", () => {
+    const open = { ...list, split: "side-by-side" } as const;
+    expect(commandFor(key("\\", { metaKey: true }), open)).toBeNull();
+    expect(commandFor(key("\\", { ctrlKey: true }), open)).toBeNull();
+    expect(
+      commandFor(key("|", { altKey: true, shiftKey: true }), open),
+    ).toBeNull();
+    for (const name of ["F5", "F6", "F11", "F12"])
+      expect(commandFor(key(name), open)).toBeNull();
+    expect(commandFor(key("r", { ctrlKey: true }), open)).toBeNull();
+    expect(commandFor(key("l", { ctrlKey: true }), open)).toBeNull();
   });
 });

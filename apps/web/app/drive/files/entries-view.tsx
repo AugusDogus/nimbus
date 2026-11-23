@@ -3,6 +3,7 @@ import { lazyComponent } from "@/components/lazy-component";
 import { useNavigate } from "@tanstack/react-router";
 import {
   useCallback,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -25,7 +26,9 @@ import { EntryLayout, entryGeometry, type EntrySection } from "./entry-layout";
 import { PreviewDialog } from "./preview-dialog";
 import { Selection } from "./selection";
 import { SelectionBar } from "./selection-bar";
-import { fileHref, FileEntry } from "./types";
+import { FileEntry } from "./types";
+import { usePaneHref } from "./pane-links";
+import type { OtherPane, SplitControl } from "./split-layout";
 import type { useFileActions } from "./use-file-actions";
 import { DragHint } from "./drag-hint";
 import { DropTarget } from "./drop-target";
@@ -68,7 +71,17 @@ type Props = {
    * no input, and their selection and menu are dropped, so nothing acts on items no longer shown.
    */
   stale?: boolean;
+  /** Opening, closing and using a split view; folder pages offer it (see `SplitControl`). */
+  split?: SplitControl;
+  /** The other pane's folder in a split view, offered to the selection as a destination. */
+  other?: OtherPane | null;
+  /** A pane of a split view, narrower than the page: the selection bar keeps to icons. */
+  compact?: boolean;
+  /** Whether this listing shows where a drag would drop. A split view shows one for both panes. */
+  dragHint?: boolean;
 };
+
+const noSplit: SplitControl = { kind: "none" };
 
 const longPressMs = 450;
 const isMac = () =>
@@ -89,8 +102,14 @@ export function EntriesView({
   dialog,
   onDialog,
   stale = false,
+  split = noSplit,
+  other = null,
+  compact = false,
+  dragHint = true,
 }: Props) {
   const navigate = useNavigate();
+  const folderHref = usePaneHref();
+  const keyboardHint = useId();
   const isMobile = useIsMobile();
   const canDrag = useFinePointer();
   const columns = useGridColumns();
@@ -209,7 +228,7 @@ export function EntriesView({
   });
 
   const activate = (entry: FileEntry) => {
-    if (entry.type === "dir") void navigate({ href: fileHref(entry.path) });
+    if (entry.type === "dir") void navigate({ href: folderHref(entry.path) });
     else open({ action: "preview", entry });
   };
 
@@ -241,6 +260,12 @@ export function EntriesView({
         columns: layout.columns,
         pageSize: virtual.rowsPerPage() * layout.columns,
         isMac: isMac(),
+        split:
+          split.kind === "none"
+            ? "none"
+            : split.kind === "open" && split.focusOther
+              ? "side-by-side"
+              : "closed",
       },
     );
     if (!command) return;
@@ -285,6 +310,13 @@ export function EntriesView({
       }
       case "help":
         setHelpOpen(true);
+        break;
+      case "toggleSplit":
+        if (split.kind === "closed") split.open(null);
+        else if (split.kind === "open") split.close();
+        break;
+      case "focusOtherPane":
+        if (split.kind === "open") split.focusOther?.();
         break;
       case "typeahead": {
         const state = typeahead.current;
@@ -515,22 +547,24 @@ export function EntriesView({
         onOpen={open}
         onSelectAll={() => setSelection(Selection.all(order))}
         onClear={() => setSelection(Selection.empty)}
+        other={other}
+        compact={compact}
       />
     ) : null;
 
   return (
     <>
-      <DragHint drag={drag} />
-      {drag.state.status === "moving" && (
+      {dragHint && <DragHint drag={drag} />}
+      {dragHint && drag.state.status === "moving" && (
         <p role="status" className="sr-only">
-          Moving{" "}
+          {drag.state.operation === "copy" ? "Copying" : "Moving"}{" "}
           {drag.state.sources.length === 1
             ? drag.state.sources[0]?.name
             : `${drag.state.sources.length} items`}
           …
         </p>
       )}
-      <p id="entries-keyboard-hint" className="sr-only">
+      <p id={keyboardHint} className="sr-only">
         Use arrow keys to move, Enter to open, and question mark for keyboard
         shortcuts.
       </p>
@@ -542,6 +576,13 @@ export function EntriesView({
         actions={actions}
         open={open}
         moveUp={moveUp}
+        openInOtherPane={
+          split.kind === "open"
+            ? split.openInOther
+            : split.kind === "closed" && !isMobile
+              ? split.open
+              : null
+        }
         onClosed={() => {
           // Actions that open a dialog move focus there. Otherwise return it to the entry.
           if (
@@ -566,7 +607,7 @@ export function EntriesView({
           aria-multiselectable="true"
           aria-rowcount={layout.entries.length + headerRows.length}
           aria-colcount={1}
-          aria-describedby="entries-keyboard-hint"
+          aria-describedby={keyboardHint}
           // Fades only when loading takes long enough to notice.
           className={cn(
             "relative transition-opacity",

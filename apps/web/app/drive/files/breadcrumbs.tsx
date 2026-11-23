@@ -76,10 +76,13 @@ function crumbDrop(drop: CrumbDrop | undefined, crumb: Crumb) {
 export function FileBreadcrumbs({
   trail,
   drop,
+  folded = false,
 }: {
   trail: BreadcrumbTrail;
   /** Makes every folder above the current one a drop target. */
   drop?: CrumbDrop;
+  /** Keeps the parent folded into "…" at every width, as in a pane of a split view. */
+  folded?: boolean;
 }) {
   const segmentCrumbs = trail.crumbs;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -121,7 +124,9 @@ export function FileBreadcrumbs({
   const middleCrumbs = segmentCrumbs.slice(0, -1);
   const parent = middleCrumbs.at(-1);
   // With nothing else to collapse, desktop has no ellipsis.
-  const ellipsisClassName = middleCrumbs.length === 1 ? "lg:hidden" : undefined;
+  const ellipsisClassName =
+    middleCrumbs.length === 1 && !folded ? "lg:hidden" : undefined;
+  const parentClassName = folded ? "hidden" : "max-lg:hidden";
 
   if (!isNested) {
     return (
@@ -207,7 +212,7 @@ export function FileBreadcrumbs({
                         key={crumb.path}
                         {...crumbDrop(drop, crumb)}
                         className={cn(
-                          crumb === parent && "lg:hidden",
+                          crumb === parent && !folded && "lg:hidden",
                           crumbDrop(drop, crumb).className,
                         )}
                         render={<FolderLink path={crumb.path} />}
@@ -219,8 +224,8 @@ export function FileBreadcrumbs({
                 </DropdownMenuContent>
               </DropdownMenu>
             </BreadcrumbItem>
-            <BreadcrumbSeparator className="max-lg:hidden" />
-            <BreadcrumbItem className="max-lg:hidden">
+            <BreadcrumbSeparator className={parentClassName} />
+            <BreadcrumbItem className={parentClassName}>
               <BreadcrumbLink
                 {...crumbDrop(drop, parent)}
                 render={<FolderLink path={parent.path} />}
