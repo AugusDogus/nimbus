@@ -29,7 +29,16 @@ export type BackupOptions = {
   now?: number;
 };
 
-const backupName = /^nimbus-(\d{8}T\d{6}Z)\.sqlite$/;
+/** `nimbus-<UTC second>.sqlite`, or with `-2`, `-3` … for later backups in the same second. */
+const backupName = /^nimbus-(\d{8}T\d{6}Z)(?:-(\d+))?\.sqlite$/;
+
+/** Newest first: by second, then by the number a later backup in that second got. */
+function newestFirst(a: string, b: string) {
+  const [, aStamp = "", aSeq = "1"] = backupName.exec(a) ?? [];
+  const [, bStamp = "", bSeq = "1"] = backupName.exec(b) ?? [];
+  if (aStamp !== bStamp) return aStamp < bStamp ? 1 : -1;
+  return Number(bSeq) - Number(aSeq);
+}
 
 // Runs in its own process with Bun's built-in SQLite, so it needs no package
 // resolution and never shares this process's file locks.
@@ -101,7 +110,7 @@ async function list(directory: string): Promise<BackupFile[]> {
         return { name, size: details.size, createdAt: details.mtimeMs };
       }),
   );
-  return backups.sort((a, b) => (a.name < b.name ? 1 : -1));
+  return backups.sort((a, b) => newestFirst(a.name, b.name));
 }
 
 async function create({
@@ -158,7 +167,11 @@ async function createHeld(
   keep: number,
   now: number,
 ) {
-  const name = `nimbus-${stamp(now)}.sqlite`;
+  // Unused, chosen under the lock: a second backup in the same second never replaces the first.
+  const taken = new Set(await readdir(directory));
+  let name = `nimbus-${stamp(now)}.sqlite`;
+  for (let seq = 2; taken.has(name); seq++)
+    name = `nimbus-${stamp(now)}-${seq}.sqlite`;
   const completed = path.join(directory, name);
   const partial = `${completed}.partial`;
   // One backup runs at a time, so any partial file is left from an interrupted one.

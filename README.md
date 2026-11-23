@@ -394,7 +394,7 @@ In browsers that support [WebMCP](https://webmachinelearning.github.io/webmcp/) 
 
 ### Database backups
 
-Nimbus backs up its database every day while running, using SQLite's `VACUUM INTO` in a separate process. Requests continue during the backup. Backups are compact, consistent snapshots, stored with owner-only permissions in `<config root>/backups`, like the live database and its journal files, as `nimbus-<UTC time>.sqlite`. The newest `NIMBUS_BACKUP_KEEP` (default 7) are kept. Server administrators can select **Back up now** and download backups from **Settings → Administration**. Failed backups are logged and retried within an hour; earlier backups are unaffected.
+Nimbus backs up its database every day while running, using SQLite's `VACUUM INTO` in a separate process. Requests continue during the backup. Backups are compact, consistent snapshots, stored with owner-only permissions in `<config root>/backups`, like the live database and its journal files, as `nimbus-<UTC time>.sqlite`, with `-2`, `-3` and so on for a second backup in the same second. The newest `NIMBUS_BACKUP_KEEP` (default 7) are kept. Server administrators can select **Back up now** and download backups from **Settings → Administration**. Failed backups are logged and retried within an hour; earlier backups are unaffected.
 
 These backups contain accounts, permissions, links, file requests, trash records, version records, and preferences. They do not contain files. Back up the data root, including `.nimbus` (trash, versions), with your usual file backup tool, and keep the environment configuration with it.
 

@@ -164,3 +164,17 @@ test("backups started at once by two servers both complete, neither removing the
     "nimbus-20260102T000000Z.sqlite",
   ]);
 });
+
+test("two backups in the same second both keep their snapshot, newest first", async () => {
+  // Such as a pre-migration snapshot and the old server's scheduled one.
+  const directory = path.join(root, "backups");
+  const now = Date.UTC(2026, 0, 1);
+  const first = await Backup.create({ databaseUrl, directory, keep: 7, now });
+  const second = await Backup.create({ databaseUrl, directory, keep: 7, now });
+  expect(first.name).not.toBe(second.name);
+  expect((await Backup.list(directory)).map((backup) => backup.name)).toEqual([
+    second.name,
+    first.name,
+  ]);
+  expect(Backup.file(directory, second.name)).not.toBeNull();
+});
