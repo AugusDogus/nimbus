@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { ServerRun } from "./server-run";
 
 describe("ServerRun.fromEnvironment", () => {
@@ -34,5 +35,25 @@ describe("ServerRun.fromEnvironment", () => {
       expect(parsed.ok).toBe(false);
       if (!parsed.ok) expect(parsed.error.kind).toBe("invalid-run");
     }
+  });
+});
+
+describe("ServerRun.current", () => {
+  test("starts when the server process loads it, not when it is first asked", () => {
+    // A link issued between startup and the first upload must not look older than the run.
+    const script = `
+      const loadedAt = Date.now();
+      const { ServerRun } = await import(${JSON.stringify(`${import.meta.dir}/server-run.ts`)});
+      await Bun.sleep(200);
+      console.log(JSON.stringify({ loadedAt, startedAt: ServerRun.current().startedAt }));
+    `;
+    const env = { ...process.env };
+    delete env.NIMBUS_RUN_ID;
+    delete env.NIMBUS_RUN_STARTED_AT;
+    const run = Bun.spawnSync([process.execPath, "-e", script], { env });
+    const { loadedAt, startedAt } = z
+      .object({ loadedAt: z.number(), startedAt: z.number() })
+      .parse(JSON.parse(run.stdout.toString()));
+    expect(startedAt - loadedAt).toBeLessThan(100);
   });
 });

@@ -40,8 +40,11 @@ import { Transfers } from "./libraries/transfers";
 import { searchIndexed } from "./search-bridge";
 import { GET as readiness } from "./routes/health";
 import { Supervision } from "./supervisor/supervision";
+import { ServerRun } from "@nimbus/api/server-run";
 
 const startedAt = performance.now();
+// The run starts now, before any link or receipt is issued, and a bad one stops startup.
+ServerRun.current();
 // Under the supervisor this server is one of possibly several, replaced without downtime.
 const supervised = Supervision.fromProcess();
 if (!supervised.ok) throw new Error(supervised.error.message);

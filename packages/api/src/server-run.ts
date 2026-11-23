@@ -55,20 +55,21 @@ function fromEnvironment(
   return { ok: true, run: { id, startedAt: started } };
 }
 
-let current: ServerRun | null = null;
+/**
+ * This process's run, read once when the module loads, which the server does at startup: a run
+ * read only when first needed would start after links and receipts issued before then.
+ */
+const loaded = fromEnvironment(process.env);
 
 export const ServerRun = {
   env,
   fromEnvironment,
   /**
-   * This process's run, read from the environment once. Throws on an invalid pair: only the
-   * supervisor sets it, so that is a bug to stop on, not a condition to serve through.
+   * This process's run. Throws on an invalid pair: only the supervisor sets it, so that is a bug
+   * to stop on, not a condition to serve through.
    */
   current(): ServerRun {
-    if (current) return current;
-    const parsed = fromEnvironment(process.env);
-    if (!parsed.ok) throw new Error(parsed.error.message);
-    current = parsed.run;
-    return current;
+    if (!loaded.ok) throw new Error(loaded.error.message);
+    return loaded.run;
   },
 } as const;
