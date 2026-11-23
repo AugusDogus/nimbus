@@ -52,6 +52,8 @@ export function ShortcutHelp({
     { label: "Rename", keys: ["F2"] },
     { label: "Move to trash", keys: mac ? ["⌘", "Delete"] : ["Delete"] },
     { label: "Jump to a name", keys: ["Type its first letters"] },
+    { label: "Open or close split view", keys: ["|"] },
+    { label: "Go to the other pane in split view", keys: ["\\"] },
     { label: "Show these shortcuts", keys: ["?"] },
   ];
   return (

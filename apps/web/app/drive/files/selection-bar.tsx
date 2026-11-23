@@ -9,11 +9,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { EntryDialog } from "./entry-dialogs";
 import { selectionCapabilities } from "./entry-menu";
+import type { OtherPane } from "./split-layout";
 import { starControl, useStarredPaths } from "./starred";
 import type { FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
@@ -58,6 +59,24 @@ function Action({
   );
 }
 
+/** What the other pane's actions in the selection bar are given. */
+export type OtherPaneActionsProps = {
+  targets: readonly FileEntry[];
+  other: OtherPane;
+  canMove: boolean;
+  /** In a pane of a split view: names the folder beside the icons once the pane is wide enough. */
+  labelled: boolean;
+  actions: ReturnType<typeof useFileActions>;
+};
+
+/**
+ * Renders the actions that move or copy the selection straight into the other pane's folder.
+ * The split view gives it, so their code loads with the split view rather than every folder.
+ */
+export const OtherPaneActionsSlot = createContext<
+  ((props: OtherPaneActionsProps) => ReactNode) | null
+>(null);
+
 /**
  * Actions for the selected entries. It overlays the folder toolbar, or floats above the content
  * when there is no toolbar, so showing it never moves the entries.
@@ -71,6 +90,8 @@ export function SelectionBar({
   onOpen,
   onSelectAll,
   onClear,
+  other = null,
+  compact = false,
 }: {
   targets: readonly FileEntry[];
   total: number;
@@ -81,12 +102,17 @@ export function SelectionBar({
   onOpen: (dialog: EntryDialog) => void;
   onSelectAll: () => void;
   onClear: () => void;
+  /** The other pane's folder in a split view, which the selection can go to directly. */
+  other?: OtherPane | null;
+  /** In a pane of a split view: the usual actions show only icons, leaving room for the other pane's. */
+  compact?: boolean;
 }) {
   const { move: canMove, trash: canTrash } = selectionCapabilities(targets);
   // The bar keeps its buttons in place while it shows, as a menu does (see `MoveUp.steady`).
   const [moveUpAtOpen] = useState(moveUp);
   const up = MoveUp.steady(moveUpAtOpen, moveUp);
   const star = starControl(targets, useStarredPaths(true), actions.setStarred);
+  const otherPaneActions = useContext(OtherPaneActionsSlot);
   return (
     <div
       role="toolbar"
@@ -121,33 +147,49 @@ export function SelectionBar({
         {/* Narrow touch screens keep the 44 px buttons in a row by showing only the count. */}
         <span className="max-md:pointer-coarse:sr-only"> selected</span>
       </p>
-      <div className="ml-auto flex items-center gap-0.5">
+      <div className="ml-auto flex min-w-0 items-center gap-0.5">
+        {other &&
+          otherPaneActions?.({
+            targets,
+            other,
+            canMove,
+            labelled: compact,
+            actions,
+          })}
         {targets.length < total && (
           <Action
             label="Select all"
+            iconOnly={compact}
+            // Phones with a second folder to offer keep Select all in the item menus.
+            className={other ? "max-md:hidden" : undefined}
             icon={<ListChecks className="size-4" />}
             onClick={onSelectAll}
           />
         )}
         <Action
           label="Download"
+          iconOnly={compact}
           icon={<Download className="size-4" />}
           onClick={() => actions.downloadEntries(targets)}
         />
         <Action
           label={star.label}
+          iconOnly={compact}
+          className={other ? "max-md:hidden" : undefined}
           icon={<Star className="size-4" />}
           disabled={star.disabled}
           onClick={star.run}
         />
         <Action
           label="Copy"
+          iconOnly={compact || other !== null}
           icon={<Copy className="size-4" />}
           onClick={() => onOpen({ action: "copy", entries: targets })}
         />
         {canMove && (
           <Action
             label="Move"
+            iconOnly={compact || other !== null}
             icon={<FolderInput className="size-4" />}
             onClick={() => onOpen({ action: "move", entries: targets })}
           />
@@ -169,6 +211,7 @@ export function SelectionBar({
         {canTrash && (
           <Action
             label="Trash"
+            iconOnly={compact}
             destructive
             icon={<Trash2 className="size-4" />}
             onClick={() => onOpen({ action: "delete", entries: targets })}

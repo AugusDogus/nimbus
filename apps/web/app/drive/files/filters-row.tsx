@@ -191,11 +191,13 @@ export function FiltersRow({
         <SelectTrigger
           aria-label="Sort files"
           size="sm"
-          className="touch-hit hidden w-auto min-w-[140px] border-transparent bg-transparent shadow-none hover:bg-muted md:flex dark:bg-transparent"
+          // In a narrow pane of a split view the order shows as its icon alone, leaving the
+          // breadcrumb room; the page itself is no container, so this never applies there.
+          className="touch-hit hidden w-auto min-w-[140px] border-transparent bg-transparent shadow-none hover:bg-muted @max-lg:min-w-0 md:flex dark:bg-transparent"
         >
           <SelectValue>
             <selectedSort.icon className="size-4" />
-            <span>{selectedSort.label}</span>
+            <span className="@max-lg:sr-only">{selectedSort.label}</span>
           </SelectValue>
         </SelectTrigger>
         <SelectContent>

@@ -26,6 +26,8 @@ export type EntryCommand =
   | { type: "trash" }
   | { type: "rename" }
   | { type: "help" }
+  | { type: "toggleSplit" }
+  | { type: "focusOtherPane" }
   | { type: "typeahead"; text: string };
 
 export type KeyContext = {
@@ -37,7 +39,30 @@ export type KeyContext = {
   /** Entries per viewport, for PageUp and PageDown. */
   pageSize: number;
   isMac: boolean;
+  /**
+   * Whether this listing can open a split view (`closed`), is a pane of one with the other pane
+   * beside it (`side-by-side`), or offers neither (`none`).
+   */
+  split: "none" | "closed" | "side-by-side";
 };
+
+/**
+ * Plain keys no browser or operating system binds, and that no file name is likely to start
+ * with: `|` opens and closes the split view, `\` moves focus to the other pane. Layouts that type
+ * them with AltGr report Ctrl and Alt together; Cmd and a lone Ctrl or Alt stay with the browser.
+ */
+function splitCommand(
+  event: KeyInput,
+  context: KeyContext,
+): EntryCommand | null {
+  if (context.split === "none" || event.metaKey || event.repeat) return null;
+  const altGr = event.ctrlKey && event.altKey;
+  if (!altGr && (event.ctrlKey || event.altKey)) return null;
+  if (event.key === "|") return { type: "toggleSplit" };
+  if (event.key === "\\" && context.split === "side-by-side")
+    return { type: "focusOtherPane" };
+  return null;
+}
 
 const clamp = (value: number, count: number) =>
   Math.max(0, Math.min(count - 1, value));
@@ -86,6 +111,8 @@ export function commandFor(
   context: KeyContext,
 ): EntryCommand | null {
   if (event.isComposing || context.count === 0) return null;
+  const split = splitCommand(event, context);
+  if (split) return split;
   const mod = context.isMac ? event.metaKey : event.ctrlKey;
   // Cross-platform modifiers this widget does not use belong to the browser or the OS.
   const foreign = context.isMac ? event.ctrlKey : event.metaKey;
