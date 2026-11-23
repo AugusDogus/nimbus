@@ -504,3 +504,51 @@ test("only successful requests keep a device paired", async () => {
   t.advance(2 * day);
   await error(await call("me", { token }), 401, "token_revoked");
 });
+
+describe("revocation while a request is in flight", () => {
+  const owner = { id: "owner", email: "owner@example.test" };
+
+  test("a request answered after its device was disconnected is refused", async () => {
+    const { token } = await pair();
+    const disconnected: string[] = [];
+    for (const endpoint of ["me", "library"]) {
+      const before = await pair();
+      // Authenticated, still working on its answer...
+      const racing = call(endpoint, { token: before.token });
+      // ...when the owner's Disconnect returns.
+      const [device] = PairedDevices.list(t.ctx, "owner");
+      if (!device) throw new Error("not paired");
+      expect(PairedDevices.revoke(t.ctx, owner, device.id)).toBe(true);
+      await error(await racing, 401, "token_revoked");
+      disconnected.push(before.token);
+    }
+    for (const revoked of disconnected)
+      expect((await call("me", { token: revoked })).status).toBe(401);
+    // The device nobody disconnected is unaffected.
+    expect((await call("me", { token })).status).toBe(200);
+  });
+
+  test("a folder removed while a listing is in flight is not in that listing", async () => {
+    await Libraries.update(t.ctx, await t.drive.access("owner"), false, {
+      id: libraryId,
+      title: "Kitchen",
+      folders: ["library/kitchen", "library/garage"],
+      acknowledgedDevices: [],
+    });
+    const { token } = await pair();
+    const racing = call("library", { token });
+    // Save commits the new folders in one transaction, as Libraries.update does.
+    t.drive.sqlite.run(
+      "DELETE FROM nimbus_library_folder WHERE library_id = ? AND path = 'library/garage'",
+      [libraryId],
+    );
+    t.drive.sqlite.run(
+      "UPDATE nimbus_library SET updated_at = updated_at + 1 WHERE id = ?",
+      [libraryId],
+    );
+    const listed = libraryBody.parse(await (await racing).json());
+    expect(listed.items.map((item) => item.name)).not.toContain(
+      "Bike repair notes.pdf",
+    );
+  });
+});
