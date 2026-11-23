@@ -302,3 +302,21 @@ test("a change during a scan is not lost when the scan finishes", async () => {
     again.kind === "ok" && again.items.map((item) => item.path).sort(),
   ).toEqual(["library/kitchen/Guides/Loaf.md", "library/kitchen/Late.md"]);
 });
+
+test("a folder moved out of the library while it is read contributes nothing", async () => {
+  await file("library/kitchen/Guides/Loaf.md", "loaf");
+  const scanned = await LibraryCatalog.scan(["library/kitchen"], {
+    afterOpen: async (relative) => {
+      if (relative !== "library/kitchen/Guides") return;
+      await mkdir(t.drive.absolute("other"), { recursive: true });
+      await rename(
+        t.drive.absolute("library/kitchen/Guides"),
+        t.drive.absolute("other/Elsewhere"),
+      );
+      await file("other/Elsewhere/Not in the library.md", "private");
+    },
+  });
+  expect(
+    scanned.kind === "ok" && scanned.files.map((entry) => entry.path),
+  ).toEqual([]);
+});

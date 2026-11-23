@@ -1,11 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  closeSync,
-  constants,
-  fstatSync,
-  openSync,
-  realpathSync,
-} from "node:fs";
+import { closeSync, constants, fstatSync, openSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { and, eq, inArray, isNull } from "drizzle-orm";
@@ -55,7 +49,9 @@ export type CatalogScan =
       /** Folders that exist, by path, each with the files found under it. */
       folders: Map<string, string[]>;
     }
-  | { kind: "too_large" };
+  | { kind: "too_large" }
+  /** This system cannot tell where an open folder is, so folders cannot be read confined. */
+  | { kind: "unavailable" };
 
 /** An opaque revision of a file's content, from its size, modification and change times. */
 const versionOf = (stats: { size: number; mtimeMs: number; ctimeMs: number }) =>
@@ -92,14 +88,24 @@ function openFolder(root: string, relative: string) {
       return null;
     throw error;
   }
-  try {
+  const there = () => {
     const stats = fstatSync(fd);
-    const there = DescriptorPath.available
-      ? DescriptorPath.opened(fd, stats, root, relative)
-      : realpathSync(absolute) === path.join(realpathSync(root), relative);
-    if (there && stats.isDirectory())
+    return (
+      stats.isDirectory() && DescriptorPath.opened(fd, stats, root, relative)
+    );
+  };
+  try {
+    if (there())
       return {
-        listing: DescriptorPath.available ? DescriptorPath.of(fd) : absolute,
+        listing: DescriptorPath.of(fd),
+        /** Whether the folder is still where it was reached, as after reading it. */
+        stillThere: () => {
+          try {
+            return there();
+          } catch {
+            return false;
+          }
+        },
         close: () => closeSync(fd),
       };
   } catch (error) {
@@ -122,8 +128,14 @@ function openFolder(root: string, relative: string) {
 type ScanHooks = {
   /** Runs before each folder is opened, to change the disk under a scan. */
   beforeOpen: (relative: string) => Promise<void>;
+  /** Runs once a folder is open and checked, before it is read. */
+  afterOpen: (relative: string) => Promise<void>;
 };
-let scanHooks: ScanHooks = { beforeOpen: async () => undefined };
+const noHooks: ScanHooks = {
+  beforeOpen: async () => undefined,
+  afterOpen: async () => undefined,
+};
+let scanHooks: ScanHooks = noHooks;
 
 async function scan(
   folders: readonly string[],
@@ -131,14 +143,18 @@ async function scan(
     excluded = null,
     cap = MAX_LIBRARY_ITEMS,
     beforeOpen = scanHooks.beforeOpen,
+    afterOpen = scanHooks.afterOpen,
   }: {
     /** The library's data file, never an item. */
     excluded?: string | null;
     cap?: number;
     /** Tests only: runs before each folder is opened, to change the disk under the scan. */
     beforeOpen?: (relative: string) => Promise<void>;
+    afterOpen?: (relative: string) => Promise<void>;
   } = {},
 ): Promise<CatalogScan> {
+  // Reading by path again could follow a folder swapped meanwhile: refuse rather than guess.
+  if (!DescriptorPath.available) return { kind: "unavailable" };
   const root = getDataRoot();
   const files: Omit<ScannedFile, "firstScan">[] = [];
   const found = new Map<string, string[]>();
@@ -161,6 +177,7 @@ async function scan(
       if (!opened) continue;
       if (relative === folder) exists = true;
       try {
+        await afterOpen(relative);
         let entries;
         try {
           entries = await readdir(opened.listing, { withFileTypes: true });
@@ -169,11 +186,13 @@ async function scan(
             continue;
           throw error;
         }
+        const children: [string, number][] = [];
+        const read: Omit<ScannedFile, "firstScan">[] = [];
         for (const entry of entries) {
           if (entry.name.startsWith(".")) continue;
           const child = `${relative}/${entry.name}`;
           if (entry.isDirectory()) {
-            if (depth < MAX_DEPTH) pending.push([child, depth + 1]);
+            if (depth < MAX_DEPTH) children.push([child, depth + 1]);
             continue;
           }
           if (!entry.isFile() || child === excluded) continue;
@@ -185,13 +204,19 @@ async function scan(
             throw error;
           }
           if (!stats.isFile()) continue;
-          files.push({
+          read.push({
             path: child,
             version: versionOf(stats),
             sizeBytes: stats.size,
             modifiedAt: Math.floor(stats.mtimeMs),
           });
-          into.push(child);
+        }
+        // A folder moved elsewhere while it was read listed someone else's entries.
+        if (!opened.stillThere()) continue;
+        pending.push(...children);
+        for (const entry of read) {
+          files.push(entry);
+          into.push(entry.path);
           if (files.length > cap) return { kind: "too_large" };
         }
       } finally {
@@ -330,7 +355,9 @@ type Cached = {
   folders: string;
   scannedAt: number;
   dirty: boolean;
-  result: { kind: "ok"; items: LibraryItem[] } | { kind: "too_large" };
+  result:
+    | { kind: "ok"; items: LibraryItem[] }
+    | Exclude<CatalogScan, { kind: "ok" }>;
 };
 
 const cache = new Map<string, Cached>();
@@ -487,9 +514,9 @@ export const LibraryCatalog = {
   },
 
   /** Tests only: run `hooks` in every scan until the returned function restores the defaults. */
-  useScanHooksForTest(hooks: ScanHooks) {
+  useScanHooksForTest(hooks: Partial<ScanHooks>) {
     const previous = scanHooks;
-    scanHooks = hooks;
+    scanHooks = { ...noHooks, ...hooks };
     return () => {
       scanHooks = previous;
     };
