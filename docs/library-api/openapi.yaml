@@ -127,6 +127,161 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/Error"
+  /items/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    get:
+      operationId: getItem
+      summary: One item, as the library lists it
+      responses:
+        "200":
+          description: The item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /items/{id}/file:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    get:
+      operationId: getItemFile
+      summary: The file's bytes
+      description: >-
+        Inline, with the item's content type, `Content-Length`, `Accept-Ranges: bytes`, the item's
+        version as a quoted `ETag`, and `Cache-Control: private, no-cache`. One byte range per
+        request, including open-ended and suffix ranges; `If-Range` and `HEAD` are supported.
+      parameters:
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/IfRange"
+      responses:
+        "200":
+          description: The whole file.
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "206":
+          $ref: "#/components/responses/PartialContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+        "416":
+          $ref: "#/components/responses/RangeNotSatisfiable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    head:
+      operationId: headItemFile
+      summary: The file's headers
+      responses:
+        "200":
+          description: The headers a GET would answer with, without the body.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+  /items/{id}/stream:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+    post:
+      operationId: createMediaAddress
+      summary: A media address and its cookie, for clients that cannot send the token
+      description: >-
+        For media players that cannot add an Authorization header to their requests. The
+        response sets a cookie (`Set-Cookie`) the client must send with every request for the
+        address. See README.md, Media addresses.
+      responses:
+        "200":
+          description: The address and when it expires.
+          headers:
+            Set-Cookie:
+              description: >-
+                `__Secure-nimbus-media-<session>=<secret>; Path=/api/library/v1/media; Max-Age=<at
+                most the address's lifetime>; HttpOnly; SameSite=Strict; Secure`
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaAddress"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /media/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ItemId"
+      - name: ticket
+        in: query
+        required: true
+        description: The ticket from the media address. Never send it anywhere else.
+        schema:
+          type: string
+    get:
+      operationId: getMedia
+      summary: The file's bytes for a media address
+      description: >-
+        Needs the address's ticket and its cookie, not the token. Every request is checked again.
+        A ranged request is answered with at most 4 MiB, with an exact `Content-Range` and
+        `Content-Length`; a request without a range gets the whole file, sent in chunks.
+      security:
+        - MediaCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/IfRange"
+      responses:
+        "200":
+          description: The whole file.
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "206":
+          $ref: "#/components/responses/PartialContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: "`stream_invalid` or `stream_expired`: mint a new address."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          description: "`stream_source_changed`: the file changed since the address was made; mint a new one."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "416":
+          $ref: "#/components/responses/RangeNotSatisfiable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    head:
+      operationId: headMedia
+      summary: The headers of a media address
+      security:
+        - MediaCookie: []
+      responses:
+        "200":
+          description: The headers a GET would answer with, without the body.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
 components:
   securitySchemes:
     DeviceBearer:
@@ -136,7 +291,35 @@ components:
       description: >-
         The token `/pair/poll` returned. Checked against the server on every request. It stays
         valid until revoked or unused for 30 days; each successful request slides that deadline.
+    MediaCookie:
+      type: apiKey
+      in: cookie
+      name: __Secure-nimbus-media-<session>
+      description: >-
+        The cookie `POST /items/{id}/stream` sets, sent with the address it came with. Useless
+        without that address's ticket, and the ticket is useless without it.
   parameters:
+    ItemId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^itm_[A-Za-z0-9_-]{10,64}$
+    Range:
+      name: Range
+      in: header
+      required: false
+      description: One byte range, such as `bytes=0-1`, `bytes=1000-` or `bytes=-500`.
+      schema:
+        type: string
+    IfRange:
+      name: If-Range
+      in: header
+      required: false
+      description: The ETag the client has; a range is served only while it still matches.
+      schema:
+        type: string
     IfNoneMatch:
       name: If-None-Match
       in: header
@@ -154,6 +337,20 @@ components:
         type: string
         pattern: ^[0-9]+$
   responses:
+    PartialContent:
+      description: One byte range, with an exact `Content-Range` and `Content-Length`.
+      headers:
+        Content-Range:
+          schema:
+            type: string
+            pattern: ^bytes [0-9]+-[0-9]+/[0-9]+$
+      content:
+        "*/*":
+          schema:
+            type: string
+            format: binary
+    RangeNotSatisfiable:
+      description: The range starts past the end. `Content-Range` gives the size, as `bytes */<size>`.
     Error:
       description: A failure with a stable code.
       content:
@@ -374,6 +571,18 @@ components:
         poster:
           type: "null"
           description: Reserved for a later version.
+    MediaAddress:
+      type: object
+      additionalProperties: false
+      required: [url, expiresAt]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: "`<server>/api/library/v1/media/{id}?ticket=...`, on this server."
+        expiresAt:
+          type: string
+          format: date-time
     Error:
       type: object
       additionalProperties: false
@@ -395,6 +604,9 @@ components:
                 - not_found
                 - item_not_found
                 - method_not_allowed
+                - stream_invalid
+                - stream_expired
+                - stream_source_changed
                 - library_too_large
                 - rate_limited
                 - slow_down

@@ -8,7 +8,17 @@ import { LibraryApiError, noStore } from "./library-api-error";
 import type { LibraryContext } from "./library-context";
 import { LibraryListing } from "./library-listing";
 import { LibraryThrottle } from "./library-throttle";
-import { PairedDevices, type PairedDevice } from "./paired-devices";
+import path from "node:path";
+import { isApiError } from "@nimbus/api/safe-path";
+import { serveFile, serveOpened, type BodyWatch } from "../file-response";
+import { LibraryCatalog } from "./library-catalog";
+import type { LibraryThrottleRule } from "./library-throttle";
+import { MediaTickets } from "./media-tickets";
+import {
+  PairedDevices,
+  type DeviceAuth,
+  type PairedDevice,
+} from "./paired-devices";
 
 /**
  * The library API under /api/library/v1, as docs/library-api/openapi.yaml defines it. Every
@@ -94,17 +104,31 @@ const address = (request: Request) =>
  * afresh, once. Only a successful answer (a 304 included) counts as use of the device, sliding
  * its 30-day idle deadline.
  */
+type DeviceRequest = {
+  /** Who is asking: by default the bearer token's device. Checked again before answering. */
+  identify?: () => DeviceAuth;
+  /** The rate limit the request counts against. */
+  rule?: LibraryThrottleRule;
+};
+
 async function asDevice(
   ctx: LibraryContext,
   request: Request,
   respond: (device: PairedDevice, scope: LibraryScope) => Promise<Response>,
+  options: DeviceRequest = {},
   attempt = 0,
 ): Promise<Response> {
-  const authorized = await authorize(ctx, request);
+  const identify =
+    options.identify ?? (() => PairedDevices.authenticate(ctx, request));
+  const authorized = await authorize(
+    ctx,
+    identify(),
+    options.rule ?? "perDevice",
+  );
   if (!authorized.ok) return authorized.response;
   const response = await respond(authorized.device, authorized.scope);
   // Synchronous from here on: nothing can change between this check and the answer.
-  const still = PairedDevices.authenticate(ctx, request);
+  const still = identify();
   if (!still.ok || still.device.id !== authorized.device.id) {
     await response.body?.cancel();
     return LibraryApiError.response(
@@ -121,7 +145,7 @@ async function asDevice(
     authorized.scope.library.updatedAt
   ) {
     await response.body?.cancel();
-    if (attempt === 0) return asDevice(ctx, request, respond, 1);
+    if (attempt === 0) return asDevice(ctx, request, respond, options, 1);
     return LibraryApiError.response({
       code: "service_unavailable",
       message:
@@ -136,18 +160,15 @@ async function asDevice(
 /** The paired device of a bearer request and its library scope, or the response refusing it. */
 async function authorize(
   ctx: LibraryContext,
-  request: Request,
+  auth: DeviceAuth,
+  rule: LibraryThrottleRule,
 ): Promise<
   | { ok: true; device: PairedDevice; scope: LibraryScope }
   | { ok: false; response: Response }
 > {
-  const auth = PairedDevices.authenticate(ctx, request);
   if (!auth.ok)
     return { ok: false, response: LibraryApiError.response(auth.error) };
-  const limit = LibraryThrottle.hit(
-    [{ key: auth.device.id, rule: "perDevice" }],
-    ctx.now(),
-  );
+  const limit = LibraryThrottle.hit([{ key: auth.device.id, rule }], ctx.now());
   if (!limit.allowed)
     return {
       ok: false,
@@ -185,8 +206,217 @@ function conditional(request: Request, etag: string, respond: () => Response) {
 
 type Endpoint = {
   method: "GET" | "POST";
-  handle: (ctx: LibraryContext, request: Request) => Promise<Response>;
+  handle: (
+    ctx: LibraryContext,
+    request: Request,
+    /** The item id, for endpoints under /items/{id} and /media/{id}. */
+    itemId: string,
+  ) => Promise<Response>;
 };
+
+/**
+ * The most bytes one ranged media answer carries. Each answer is read whole after every check
+ * and sent with its exact length; a player asks for the rest, and each request is checked again.
+ */
+export const MEDIA_WINDOW_BYTES = 4 * 1024 * 1024;
+
+const itemNotFound = () =>
+  LibraryApiError.response({
+    code: "item_not_found",
+    message:
+      "This item is not in the library any more. Reload the library to see what is there.",
+  });
+
+const sourceChanged = () =>
+  LibraryApiError.response({
+    code: "stream_source_changed",
+    message:
+      "This file changed since its media address was made. Ask for a new address.",
+  });
+
+/**
+ * What a file body checks between chunks: that this process did not revoke the device, and
+ * at most once a second, that the database still has it live, so a revocation by any route ends
+ * the body. Bytes already sent cannot be taken back.
+ */
+function deviceWatch(
+  ctx: LibraryContext,
+  device: PairedDevice,
+  done: () => void,
+): BodyWatch {
+  let checkedAt = ctx.now();
+  const stopped =
+    "The device was disconnected from Nimbus, so the transfer was stopped.";
+  return {
+    allowed: () => {
+      if (PairedDevices.revokedHere(device.id)) return stopped;
+      if (ctx.now() - checkedAt < 1000) return null;
+      checkedAt = ctx.now();
+      return PairedDevices.byGrant(ctx, device.id).ok ? null : stopped;
+    },
+    done,
+  };
+}
+
+const itemEndpoints: Record<string, Endpoint> = {
+  item: {
+    method: "GET",
+    handle: (ctx, request, itemId) =>
+      asDevice(ctx, request, async (_device, scope) => {
+        const opened = await LibraryAccess.open(ctx, scope, itemId);
+        if (!opened.ok) return LibraryApiError.response(opened.error);
+        const { item } = opened.value;
+        const { stats } = opened.value.opened;
+        await opened.value.opened.handle.close();
+        const entry = LibraryListing.entry(scope, {
+          ...item,
+          version: LibraryCatalog.versionOf(stats),
+          sizeBytes: stats.size,
+        });
+        return entry === null ? itemNotFound() : json(entry);
+      }),
+  },
+  file: {
+    method: "GET",
+    handle: (ctx, request, itemId) =>
+      asDevice(
+        ctx,
+        request,
+        async (_device, scope) => {
+          const item = LibraryAccess.resolve(ctx, scope, itemId);
+          if (!item.ok) return LibraryApiError.response(item.error);
+          // The file response every download uses, through the scope's read-only access.
+          try {
+            return await serveFile(
+              request,
+              item.value.path,
+              scope.access,
+              true,
+              () => "fast",
+              {
+                etag: (stats) => `"${LibraryCatalog.versionOf(stats)}"`,
+                cacheControl: "private, no-cache",
+              },
+            );
+          } catch (error) {
+            if (
+              isApiError(error, "NOT_FOUND") ||
+              isApiError(error, "FORBIDDEN") ||
+              isApiError(error, "BAD_REQUEST")
+            )
+              return itemNotFound();
+            throw error;
+          }
+        },
+        { rule: "mediaPerDevice" },
+      ),
+  },
+  stream: {
+    method: "POST",
+    handle: (ctx, request, itemId) =>
+      asDevice(
+        ctx,
+        request,
+        async (device, scope) => {
+          if (ctx.origin.kind !== "configured")
+            return LibraryApiError.response({
+              code: "service_unavailable",
+              message: ctx.origin.reason,
+            });
+          const opened = await LibraryAccess.open(ctx, scope, itemId);
+          if (!opened.ok) return LibraryApiError.response(opened.error);
+          const version = LibraryCatalog.versionOf(opened.value.opened.stats);
+          await opened.value.opened.handle.close();
+          // Nimbus does not know durations: every address gets the default lifetime.
+          const minted = MediaTickets.mint(ctx, device, itemId, version, null);
+          return json(
+            {
+              url: `${ctx.origin.origin}/api/library/v1/media/${encodeURIComponent(itemId)}?ticket=${minted.ticket}`,
+              expiresAt: new Date(minted.expiresAt).toISOString(),
+            },
+            { headers: { "Set-Cookie": minted.setCookie } },
+          );
+        },
+        { rule: "mintPerDevice" },
+      ),
+  },
+  media: {
+    method: "GET",
+    async handle(ctx, request, itemId) {
+      const first = MediaTickets.check(ctx, request, itemId);
+      if (!first.ok) return LibraryApiError.response(first.error);
+      const { session } = first.grant;
+      return asDevice(
+        ctx,
+        request,
+        async (device, scope) => {
+          const opened = await LibraryAccess.open(ctx, scope, itemId);
+          if (!opened.ok) return itemNotFound();
+          const { handle, stats } = opened.value.opened;
+          const version = LibraryCatalog.versionOf(stats);
+          if (version !== session.version) {
+            await handle.close();
+            return sourceChanged();
+          }
+          const release = MediaTickets.claimBody(device.id);
+          if (release === null) {
+            await handle.close();
+            return LibraryApiError.response({
+              code: "rate_limited",
+              message:
+                "This device is already receiving as many files as it may at once. Try again when one finishes.",
+              retryAfterSeconds: 1,
+            });
+          }
+          const served = await serveOpened(request, opened.value.opened, {
+            filename: path.posix.basename(opened.value.item.path),
+            etag: `"${version}"`,
+            cacheControl: "private, no-store",
+            window: MEDIA_WINDOW_BYTES,
+            watch: deviceWatch(ctx, device, release),
+          });
+          if (served.kind === "served") return served.response;
+          if (served.kind === "changed") return sourceChanged();
+          return LibraryApiError.response({
+            code: "token_revoked",
+            message: served.reason,
+          });
+        },
+        {
+          rule: "mediaPerDevice",
+          identify: () => {
+            const checked = MediaTickets.check(ctx, request, itemId);
+            return checked.ok
+              ? { ok: true, device: checked.grant.device }
+              : checked;
+          },
+        },
+      );
+    },
+  },
+};
+
+/** The endpoint at `endpoint`, below /api/library/v1/, with its item id, or null. */
+function route(endpoint: string): { found: Endpoint; itemId: string } | null {
+  const fixed = Object.hasOwn(endpoints, endpoint)
+    ? endpoints[endpoint]
+    : undefined;
+  if (fixed) return { found: fixed, itemId: "" };
+  const [first, itemId, rest, ...more] = endpoint.split("/");
+  if (itemId === undefined || itemId === "" || more.length) return null;
+  const name =
+    first === "items"
+      ? rest === undefined
+        ? "item"
+        : rest === "file" || rest === "stream"
+          ? rest
+          : null
+      : first === "media" && rest === undefined
+        ? "media"
+        : null;
+  const found = name === null ? undefined : itemEndpoints[name];
+  return found ? { found, itemId } : null;
+}
 
 const endpoints: Record<string, Endpoint> = {
   "pair/start": {
@@ -260,14 +490,13 @@ function foreignPage(ctx: LibraryContext, request: Request) {
 export const LibraryHttp = {
   /** Serve `endpoint`, the path below /api/library/v1/. */
   async handle(ctx: LibraryContext, request: Request, endpoint: string) {
-    const found = Object.hasOwn(endpoints, endpoint)
-      ? endpoints[endpoint]
-      : undefined;
-    if (!found)
+    const matched = route(endpoint);
+    if (!matched)
       return LibraryApiError.response({
         code: "not_found",
         message: "There is no library API endpoint at this address.",
       });
+    const { found, itemId } = matched;
     const method = request.method === "HEAD" ? "GET" : request.method;
     if (method !== found.method)
       return LibraryApiError.response(
@@ -283,11 +512,12 @@ export const LibraryHttp = {
         message: "The library API does not answer web pages on other sites.",
       });
     try {
-      return await found.handle(ctx, request);
+      return await found.handle(ctx, request, itemId);
     } catch (error) {
       // Names only: errors can carry query parameters, token hashes or paths.
+      // The endpoint's shape only: item ids are opaque, and query strings may hold credentials.
       console.error(
-        `[library-api] ${endpoint} failed: ${error instanceof Error ? error.name : typeof error}`,
+        `[library-api] ${itemId ? endpoint.replace(itemId, "{id}") : endpoint} failed: ${error instanceof Error ? error.name : typeof error}`,
       );
       return LibraryApiError.response({
         code: "service_unavailable",

@@ -443,6 +443,8 @@ test.each([
   ["me.json", "Me"],
   ["library-response.json", "LibraryResponse"],
   ["error-slow-down.json", "Error"],
+  ["item.json", "Item"],
+  ["media-address.json", "MediaAddress"],
 ])("the documented fixture %s matches %s", async (file, schema) => {
   const fixture: unknown = await Bun.file(
     fileURLToPath(

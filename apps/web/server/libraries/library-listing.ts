@@ -100,6 +100,10 @@ export type LibraryListingResult =
   | { ok: false; error: LibraryApiError };
 
 export const LibraryListing = {
+  /** One item as the listing shows it, as `scope` sees it, or null when no folder holds it. */
+  entry: (scope: LibraryScope, item: LibraryItem) =>
+    listed(scope.folders, item),
+
   /** The scope's library, only items of `kinds` when given. */
   async library(
     ctx: Pick<LibraryContext, "db" | "now">,

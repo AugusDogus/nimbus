@@ -13,6 +13,9 @@ export type LibraryApiErrorCode =
   | "not_found"
   | "method_not_allowed"
   | "forbidden_origin"
+  | "stream_invalid"
+  | "stream_expired"
+  | "stream_source_changed"
   | "rate_limited"
   | "slow_down"
   | "service_unavailable";
@@ -32,9 +35,12 @@ const statuses: Record<LibraryApiErrorCode, number> = {
   token_invalid: 401,
   token_revoked: 401,
   forbidden_origin: 403,
+  stream_invalid: 403,
+  stream_expired: 403,
   item_not_found: 404,
   not_found: 404,
   method_not_allowed: 405,
+  stream_source_changed: 409,
   library_too_large: 422,
   rate_limited: 429,
   slow_down: 429,

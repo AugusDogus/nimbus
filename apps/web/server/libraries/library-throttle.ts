@@ -18,6 +18,10 @@ const rules = {
   decideGlobal: { limit: 100, windowMs: 60_000 },
   /** Authenticated requests per paired device. */
   perDevice: { limit: 120, windowMs: 60_000 },
+  /** Media addresses minted per paired device. */
+  mintPerDevice: { limit: 10, windowMs: 60_000 },
+  /** File and media byte requests (each range one) per paired device. */
+  mediaPerDevice: { limit: 300, windowMs: 60_000 },
 } as const;
 
 export type LibraryThrottleRule = keyof typeof rules;

@@ -34,10 +34,14 @@ Send it as `Authorization: Bearer <token>` on every other endpoint. Store it in 
 | `POST /pair/poll` | `{ status }`, with `token` and `library` when `approved` |
 | `GET /me` | `{ deviceName, library: { id, title } }` |
 | `GET /library` | `{ library, items, generatedAt }`; optional `?kinds=video,document` |
+| `GET /items/{id}` | One item, as the library lists it |
+| `GET`, `HEAD /items/{id}/file` | The file's bytes, see [Files](#files) |
+| `POST /items/{id}/stream` | `{ url, expiresAt }` and a cookie: a media address, see [Media addresses](#media-addresses) |
+| `GET`, `HEAD /media/{id}?ticket=...` | The file's bytes for a media address and its cookie, without the token |
 
 `GET /library` answers with `Cache-Control: private, no-cache` and an `ETag`; send `If-None-Match` to get `304 Not Modified` when nothing changed. Every other answer is `private, no-store`.
 
-Planned for later versions, in this API's style: endpoints for one item, its original bytes and a preview image.
+Planned for a later version, in this API's style: a preview image.
 
 ## The library
 
@@ -66,6 +70,21 @@ Ids and added dates survive renames and moves made through Nimbus, and a folder 
 - **Returns.** A file that disappears is remembered, unlisted and unreachable, for 30 days. When a file appears again at the same path with the same size and modification time, it gets its id and added date back, as when a folder was briefly unavailable.
 - **Otherwise a new item.** A different file at an old path, or a file at a new path, is a new item.
 
+## Files
+
+`GET /items/{id}/file` sends the file's bytes with the token, for clients that can send an Authorization header. It answers as a file download does: the item's `contentType`, `Content-Length`, `Accept-Ranges: bytes`, a single byte range (`bytes=0-1`, `bytes=1000-`, `bytes=-500`) as `206` with an exact `Content-Range`, `416` with `Content-Range: bytes */<size>` for a range past the end, `HEAD`, and `If-Range`. The `ETag` is the item's `version`, quoted, and the answer is `Cache-Control: private, no-cache`. An id that is unknown, from another library, of a file that went missing, or of a file the device can no longer see all answer the same `404 item_not_found`.
+
+## Media addresses
+
+Some media players cannot add an Authorization header to the requests they make for a file. For them, `POST /items/{id}/stream` (with the token) returns `{ url, expiresAt }` and sets a cookie. The address is on the same server, `/api/library/v1/media/{id}?ticket=...`; pass the cookie with every request for it, as the player's cookie option allows. A request needs both: the address alone, as it might appear in a log, is refused, and the cookie only works with the address it came with.
+
+- **Lifetime.** Four hours from minting (an hour longer than the file's duration once durations are known, at most eight hours), and never past the device's idle deadline. The cookie's `Max-Age` is no longer. Mint a new address after `stream_expired`.
+- **Cookie.** A random 256-bit value Nimbus stores only as a hash, named `__Secure-nimbus-media-<session>`, with `Secure; HttpOnly; SameSite=Strict; Path=/api/library/v1/media` and no `Domain`. Over plain HTTP on the server's own machine, as in development, the name has no `__Secure-` prefix and the cookie no `Secure`.
+- **Checked on every request.** The ticket, its cookie and their expiry; the device (not revoked, not idle, its account enabled); the item (still in the library and visible to the device); and the file's version. A changed file answers `409 stream_source_changed`: mint again. An invalid ticket or cookie answers `403 stream_invalid`, an expired one `403 stream_expired`, and a disconnected device `401 token_revoked`, also when its ticket expired too.
+- **Ranges.** A ranged request is answered with at most 4 MiB, as `206` with an exact `Content-Range` and `Content-Length`; a larger range is answered with its first 4 MiB and the player asks for the rest. A request without a range gets the whole file, sent in chunks.
+- **Stopping.** Disconnecting a device, or any other end of its sign-in, refuses its next request at once and stops a whole file being sent between chunks. Bytes already sent, up to one range answer, cannot be taken back.
+- **Limits and restarts.** A device holds at most four addresses (a new one replaces its oldest) and receives at most two files at once (a third request answers `429` with `Retry-After`). Addresses live in the server's memory: after a restart every one answers `stream_expired`, and the client mints again.
+
 ## Errors
 
 Every failure is JSON `{ "error": { "code": "...", "message": "..." } }`, with a stable `code` to branch on and a `message` for people that never contains paths or credentials. `slow_down` also carries `interval`. Every 429 carries `Retry-After`.
@@ -74,9 +93,10 @@ Every failure is JSON `{ "error": { "code": "...", "message": "..." } }`, with a
 | --- | --- |
 | 400 | `invalid_request` |
 | 401 | `authorization_required`, `token_invalid`, `token_revoked` |
-| 403 | `forbidden_origin` (a web page on another site sent the request) |
+| 403 | `forbidden_origin` (a web page on another site sent the request), `stream_invalid`, `stream_expired` |
 | 404 | `not_found`, `item_not_found` |
 | 405 | `method_not_allowed` |
+| 409 | `stream_source_changed` |
 | 422 | `library_too_large` |
 | 429 | `rate_limited`, `slow_down` |
 | 503 | `library_unavailable` (the owner can no longer share any of the library's folders), `service_unavailable` |
@@ -89,6 +109,8 @@ Every failure is JSON `{ "error": { "code": "...", "message": "..." } }`, with a
 | `POST /pair/poll` | The request's interval, from 5 seconds, plus 30 per minute per address |
 | Looking up, allowing or denying a code | 5 each per 10 minutes per account and per address, 100 per minute for the server |
 | Requests with a token | 120 per minute per device |
+| Minting media addresses | 10 per minute per device |
+| File and media byte requests (each range one) | 300 per minute per device |
 
 ## What a device can reach
 
