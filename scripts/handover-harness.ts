@@ -1,12 +1,18 @@
 /**
  * Drives traffic at Nimbus under the supervisor while it restarts without downtime, and reports
- * what clients saw. For manual runs; the automated check is handover.e2e.test.ts.
+ * what clients saw. For manual runs on a test installation; the automated check is
+ * apps/web/server/supervisor/handover.e2e.test.ts. Not part of the image.
  *
- *   NIMBUS_DATA_ROOT=... BETTER_AUTH_URL=http://localhost:3000 \
- *     bun apps/web/server/supervisor/handover-harness.ts \
- *     --origin http://127.0.0.1:3000 --control /tmp/nimbus-supervisor/control.sock \
- *     --handovers 4 --media <large file in the data root>
+ *   bun scripts/handover-harness.ts prepare --data-root /var/tmp/harness-data
+ *   # start Nimbus under the supervisor on that data root, create a test account, then:
+ *   HARNESS_PASSWORD=... bun scripts/handover-harness.ts run \
+ *     --base-url http://127.0.0.1:3000 --control /tmp/nimbus-supervisor/control.sock \
+ *     --data-root /var/tmp/harness-data --email tester@example.test \
+ *     --media <large file in the data root> --handovers 4
  *
+ * `prepare` makes a new data root and marks it as the harness's; `run` refuses a data root it
+ * did not prepare unless given `--existing-data-root`, signs in with the account it is given
+ * and never creates one, and writes only in a scratch folder of its own, removed at the end.
  * Without `--releases`, each handover restarts the running release in place; with
  * `--releases a,b` it alternates between releases in NIMBUS_RELEASES_DIR.
  *
@@ -17,44 +23,116 @@
  * - ranges: bounded 8 MiB range requests one after another, as players that fetch in pieces do;
  * - api: concurrent loops of a tRPC query and the health check on fresh and reused connections;
  * - events: the tRPC files.onChange subscription, reconnecting when it ends, while the harness
- *   changes a file in the data root every 250 ms;
- * - upload: a tus upload in 1 MiB PATCH chunks, resumed with HEAD when a chunk fails.
+ *   changes a file in its scratch folder every 250 ms;
+ * - upload: a tus upload in 1 MiB PATCH chunks into the scratch folder, resumed with HEAD when a
+ *   chunk fails.
  *
  * "failed" counts every request that got a network error or an unexpected status: a real
  * client would have shown an error or had to retry. "gap" is the longest time a workload went
  * without progress (bytes, answers or events).
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { z } from "zod";
 
-const { values: args } = parseArgs({
+/** The chunks of `body`, each checked to be bytes. */
+async function* bytes(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<Uint8Array> {
+  const reader = body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    if (value instanceof Uint8Array) yield value;
+  }
+}
+
+async function exists(file: string) {
+  try {
+    await lstat(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const { values: args, positionals } = parseArgs({
+  allowPositionals: true,
   options: {
-    origin: { type: "string", default: "http://127.0.0.1:21800" },
+    "base-url": { type: "string" },
+    "public-origin": { type: "string" },
     control: { type: "string" },
+    "data-root": { type: "string" },
+    "existing-data-root": { type: "boolean", default: false },
     releases: { type: "string", default: "" },
     handovers: { type: "string", default: "4" },
     interval: { type: "string", default: "6000" },
-    media: { type: "string", default: "sample-video.bin" },
+    media: { type: "string" },
     "media-rate": { type: "string", default: "40" },
-    email: { type: "string", default: "admin@example.test" },
-    password: { type: "string", default: "spike-password-0123456789" },
+    email: { type: "string" },
   },
 });
-const origin = args.origin;
+
+const refuse = (message: string): never => {
+  console.error(message);
+  process.exit(2);
+};
+/** Marks a data root the harness made, so it never writes into one it was not given for it. */
+const marker = ".handover-harness";
+const [command] = positionals;
+const dataRoot =
+  args["data-root"] ??
+  refuse("Pass --data-root <the test installation's data root>.");
+
+if (command === "prepare") {
+  if (await exists(dataRoot))
+    refuse(
+      `${dataRoot} already exists, so the harness did not prepare it. Choose a new folder for a test installation.`,
+    );
+  await mkdir(dataRoot, { recursive: true });
+  await writeFile(
+    path.join(dataRoot, marker),
+    "made by scripts/handover-harness.ts\n",
+  );
+  console.info(
+    `Prepared ${dataRoot}. Start Nimbus under the supervisor with NIMBUS_DATA_ROOT=${dataRoot}, create a test account, then use run.`,
+  );
+  process.exit(0);
+}
+if (command !== "run")
+  refuse(
+    "Usage: bun scripts/handover-harness.ts prepare|run --data-root <folder> ...",
+  );
+if (!args["existing-data-root"] && !(await exists(path.join(dataRoot, marker))))
+  refuse(
+    `The harness did not prepare ${dataRoot}, so it does not write there. Use a data root from prepare, or pass --existing-data-root for a test installation you chose on purpose.`,
+  );
+const origin =
+  args["base-url"] ??
+  refuse(
+    "Pass --base-url <the test installation's address>, such as http://127.0.0.1:3000.",
+  );
 // Sent as Origin: the address Nimbus believes it is reached at, which sign-in checks.
-const publicOrigin = process.env.BETTER_AUTH_URL ?? origin;
-const control = args.control;
-if (!control)
-  throw new Error("Pass --control <path to the supervisor socket>.");
+const publicOrigin = args["public-origin"] ?? origin;
+const control =
+  args.control ?? refuse("Pass --control <path to the supervisor socket>.");
+const email =
+  args.email ??
+  refuse("Pass --email <a test account that exists on the installation>.");
+const password =
+  process.env.HARNESS_PASSWORD ??
+  refuse("Set HARNESS_PASSWORD to the test account's password.");
+const mediaPath =
+  args.media ??
+  refuse("Pass --media <a large file in the data root, relative to it>.");
 const releases = args.releases.split(",").filter(Boolean);
 const handovers = Number(args.handovers);
 const intervalMs = Number(args.interval);
 const mediaBytesPerSecond = Number(args["media-rate"]) * 1024 * 1024;
-const dataRoot = process.env.NIMBUS_DATA_ROOT;
-if (!dataRoot)
-  throw new Error("Set NIMBUS_DATA_ROOT to the server's data root.");
+/** This run's own folder in the data root: everything it writes, removed at the end. */
+const scratch = `handover-harness-${Date.now()}-${randomBytes(4).toString("hex")}`;
+await mkdir(path.join(dataRoot, scratch));
 
 type Stats = {
   ok: number;
@@ -100,36 +178,22 @@ let running = true;
 const stop = new AbortController();
 
 // --- account -------------------------------------------------------------------------------
+/** Sign in with the given test account; the harness never creates one. */
 async function session(): Promise<string> {
-  const headers = { "content-type": "application/json", origin: publicOrigin };
-  const signIn = () =>
-    fetch(`${origin}/api/auth/sign-in/email`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ email: args.email, password: args.password }),
-    });
-  let response = await signIn();
-  if (!response.ok) {
-    const signUp = await fetch(`${origin}/api/auth/sign-up/email`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        name: "Spike Administrator",
-        email: args.email,
-        password: args.password,
-      }),
-    });
-    if (!signUp.ok)
-      throw new Error(
-        `Could not sign in or create ${args.email}: ${signUp.status} ${await signUp.text()}`,
-      );
-    response = await signIn();
-  }
+  const response = await fetch(`${origin}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: publicOrigin },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok)
+    refuse(
+      `Signing in as ${email} failed (${response.status} ${await response.text()}). Create that test account first; the harness never creates accounts.`,
+    );
   const cookies = response.headers
     .getSetCookie()
     .map((cookie) => cookie.split(";")[0])
     .join("; ");
-  if (!cookies) throw new Error("Signing in returned no session cookie.");
+  if (!cookies) refuse("Signing in returned no session cookie.");
   return cookies;
 }
 const cookie = await session();
@@ -142,7 +206,7 @@ const authed = (init: RequestInit = {}): RequestInit => ({
 // --- media: open-ended range, read at a fixed rate, reopened where it stopped ----------------
 async function media() {
   const s = stats("media");
-  const url = `${origin}/api/files/download?path=${encodeURIComponent(args.media)}`;
+  const url = `${origin}/api/files/download?path=${encodeURIComponent(mediaPath)}`;
   let offset = 0;
   while (running) {
     try {
@@ -158,7 +222,7 @@ async function media() {
       s.ok++;
       const started = performance.now();
       let read = 0;
-      for await (const chunk of response.body) {
+      for await (const chunk of bytes(response.body)) {
         read += chunk.byteLength;
         offset += chunk.byteLength;
         progress(s);
@@ -183,7 +247,7 @@ async function media() {
 // --- ranges: bounded 8 MiB requests one after another ----------------------------------------
 async function ranges() {
   const s = stats("ranges");
-  const url = `${origin}/api/files/download?path=${encodeURIComponent(args.media)}`;
+  const url = `${origin}/api/files/download?path=${encodeURIComponent(mediaPath)}`;
   const piece = 8 * 1024 * 1024;
   let offset = 0;
   while (running) {
@@ -242,7 +306,7 @@ async function api(fresh: boolean) {
 const changesWritten = { count: 0 };
 async function events() {
   const s = stats("events");
-  const url = `${origin}/api/trpc/files.onChange?input=${encodeURIComponent(JSON.stringify({ path: "spike" }))}`;
+  const url = `${origin}/api/trpc/files.onChange?input=${encodeURIComponent(JSON.stringify({ path: scratch }))}`;
   while (running) {
     try {
       const response = await fetch(
@@ -257,7 +321,7 @@ async function events() {
       s.ok++;
       const decoder = new TextDecoder();
       let buffer = "";
-      for await (const chunk of response.body) {
+      for await (const chunk of bytes(response.body)) {
         buffer += decoder.decode(chunk, { stream: true });
         let end = buffer.indexOf("\n\n");
         while (end !== -1) {
@@ -284,7 +348,7 @@ async function events() {
   }
 }
 async function changeFiles() {
-  const folder = path.join(dataRoot ?? "", "spike");
+  const folder = path.join(dataRoot, scratch);
   await mkdir(folder, { recursive: true });
   while (running) {
     await writeFile(
@@ -317,7 +381,7 @@ async function upload() {
             "upload-length": String(size),
             "upload-metadata": [
               meta("filename", filename),
-              meta("targetPath", "spike"),
+              meta("targetPath", scratch),
               meta("conflict", "keep-both"),
             ].join(","),
           },
@@ -380,23 +444,41 @@ async function upload() {
 }
 
 // --- handovers -----------------------------------------------------------------------------
-const Report = z.object({
-  from: z.string(),
-  to: z.string(),
-  readyMs: z.number(),
-  draining: z.object({ pid: z.number(), deadline: z.string() }).nullable(),
-});
-type Report = z.infer<typeof Report>;
-const Status = z.object({
-  active: z.object({ release: z.string() }).nullable(),
-  draining: z.array(
-    z.object({ pid: z.number(), inFlight: z.number().nullable() }),
-  ),
-});
-const status = async () =>
-  Status.parse(
-    await (await fetch("http://supervisor/status", { unix: control })).json(),
-  );
+type Report = {
+  readyMs: number;
+  draining: { pid: number } | null;
+  fullRestart: string | null;
+};
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+/** The supervisor's handover answer, or null when it is something else. */
+function reportOf(value: unknown): Report | null {
+  if (!isRecord(value) || typeof value.readyMs !== "number") return null;
+  const { draining, fullRestart } = value;
+  return {
+    readyMs: value.readyMs,
+    draining:
+      isRecord(draining) && typeof draining.pid === "number"
+        ? { pid: draining.pid }
+        : null,
+    fullRestart: typeof fullRestart === "string" ? fullRestart : null,
+  };
+}
+/** The active release and what drains, from the supervisor's status. */
+async function status() {
+  const body: unknown = await (
+    await fetch("http://supervisor/status", { unix: control })
+  ).json();
+  const active =
+    isRecord(body) &&
+    isRecord(body.active) &&
+    typeof body.active.release === "string"
+      ? body.active.release
+      : "";
+  const draining =
+    isRecord(body) && Array.isArray(body.draining) ? body.draining : [];
+  return { active, draining };
+}
 async function handover(release: string | null): Promise<Report | string> {
   const response = await fetch(
     release === null
@@ -405,8 +487,8 @@ async function handover(release: string | null): Promise<Report | string> {
     { method: "POST", unix: control },
   );
   const body: unknown = await response.json();
-  const report = Report.safeParse(body);
-  return response.ok && report.success ? report.data : JSON.stringify(body);
+  const report = reportOf(body);
+  return response.ok && report ? report : JSON.stringify(body);
 }
 
 const work = [
@@ -425,7 +507,7 @@ measuring = true;
 const reports: (Report | string)[] = [];
 for (let i = 0; i < handovers; i++) {
   // In place, or the release after the active one, so a refused handover is not repeated.
-  const active = releases.indexOf((await status()).active?.release ?? "");
+  const active = releases.indexOf((await status()).active);
   const release = releases.length
     ? (releases[(active + 1) % releases.length] ?? null)
     : null;
@@ -433,7 +515,7 @@ for (let i = 0; i < handovers; i++) {
   const report = await handover(release);
   reports.push(report);
   console.info(
-    `handover ${i + 1} to ${release ?? "a fresh server"}: ${typeof report === "string" ? report : `ready in ${Math.round(report.readyMs)} ms; ${report.draining ? `pid ${report.draining.pid} drains` : "nothing to drain"}`} [${Math.round(performance.now() - started)} ms round trip]`,
+    `handover ${i + 1} to ${release ?? "a fresh server"}: ${typeof report === "string" ? report : `ready in ${Math.round(report.readyMs)} ms; ${report.fullRestart ? `full restart: ${report.fullRestart}` : report.draining ? `pid ${report.draining.pid} drains` : "nothing to drain"}`} [${Math.round(performance.now() - started)} ms round trip]`,
   );
   await Bun.sleep(intervalMs);
 }
@@ -468,4 +550,6 @@ const failed = rows.reduce((sum, row) => sum + row.failed, 0);
 console.info(
   `\nTOTAL failed requests: ${failed}; longest gap: ${Math.max(...rows.map((row) => row.longestGapMs))} ms`,
 );
+// Everything this run wrote lives in its scratch folder.
+await rm(path.join(dataRoot, scratch), { recursive: true, force: true });
 process.exit(0);

@@ -22,3 +22,5 @@ Dockerfile
 .dockerignore
 compose.yaml
 docs
+# The manual handover harness drives test traffic; it has no place in the image.
+scripts/handover-harness.ts
