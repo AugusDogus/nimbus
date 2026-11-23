@@ -216,6 +216,7 @@ const call = (
     query?: string;
     method?: string;
     headers?: Record<string, string>;
+    signal?: AbortSignal;
   } = {},
 ) => {
   const headers = new Headers(init.headers);
@@ -225,7 +226,7 @@ const call = (
     t.ctx,
     new Request(
       `${testOrigin}/api/library/v1/${endpoint}${init.query ? `?${init.query}` : ""}`,
-      { method: init.method ?? "GET", headers },
+      { method: init.method ?? "GET", headers, signal: init.signal },
     ),
     endpoint,
   );
@@ -591,6 +592,33 @@ describe.skipIf(missing.length > 0)(
       } finally {
         drawing.mockRestore();
       }
+    });
+
+    test("a drawing everyone left is stopped and leaves no record", async () => {
+      const token = await pair();
+      const id = await idOf(token, "Sourdough basics.mp4");
+      const leaving = new AbortController();
+      const draw = PosterRender.master;
+      const seen: { signal: AbortSignal | null } = { signal: null };
+      const drawing = spyOn(PosterRender, "master").mockImplementation(
+        async (source, file, signal) => {
+          seen.signal = signal;
+          leaving.abort();
+          return draw(source, file, signal);
+        },
+      );
+      try {
+        const left = await call(`items/${id}/poster`, token, {
+          signal: leaving.signal,
+        });
+        expect(left.status).toBe(503);
+        expect(seen.signal).not.toBeNull();
+        expect(seen.signal?.aborted).toBe(true);
+      } finally {
+        drawing.mockRestore();
+      }
+      // Not remembered as a failure: the next request draws it.
+      expect((await poster(token, id, "w=400")).width).toBe(400);
     });
 
     test("a changed file gets a new poster, never the old one", async () => {

@@ -1,5 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -235,11 +243,102 @@ type Largest =
   | { ok: true; jpeg: Uint8Array<ArrayBuffer> }
   | { ok: false; error: LibraryApiError };
 
+const cancelled: LibraryApiError = {
+  code: "service_unavailable",
+  message: "The request was cancelled.",
+};
+
+/** A drawing of an item's largest poster, shared by the requests waiting for it. */
+type Job = {
+  waiters: number;
+  controller: AbortController;
+  /** Settles once the drawing holds its own descriptor of the file. */
+  opened: Promise<void>;
+  promise: Promise<Largest>;
+};
+
 /**
- * Renders under way, by the largest poster's cache name, so requests for the same poster share
- * one. A render runs to the end once started, even if its requests left: its result is kept.
+ * Drawings under way, by the largest poster's cache name, so requests for the same poster share
+ * one. When every request waiting for one has left, it is stopped, as thumbnails are.
  */
-const rendering = new Map<string, Promise<Largest>>();
+const rendering = new Map<string, Job>();
+
+/**
+ * Draw the item's largest poster and record what was found. The drawing reads its own
+ * descriptor of the file, opened from the requester's before that requester can leave, so it
+ * outlives any one request; a descriptor of another version is refused.
+ */
+function draw(
+  ctx: Pick<LibraryContext, "db" | "now">,
+  item: LibraryItem,
+  file: OpenedDriveFile,
+  source: PosterSource,
+  version: string,
+  known: PosterRecord | null,
+  name: string,
+): Job {
+  const controller = new AbortController();
+  const own = open(`/proc/${process.pid}/fd/${file.handle.fd}`, "r");
+  const promise = (async (): Promise<Largest> => {
+    const handle = await own;
+    try {
+      if (FileVersion.of(await handle.stat()) !== FileVersion.of(file.stats))
+        return { ok: false, error: changed };
+      const drawn = await PosterRender.master(
+        source,
+        { handle, stats: file.stats },
+        controller.signal,
+      );
+      switch (drawn.kind) {
+        case "ready":
+          await store(name, drawn.master.jpeg);
+          remember(ctx, item.id, version, {
+            state: "ready",
+            size: drawn.master.source,
+          });
+          return { ok: true, jpeg: drawn.master.jpeg };
+        case "timed_out": {
+          // A busy server can cause one: tried once more later, then remembered as failed.
+          const again =
+            known?.state === "timed_out" && known.version === version;
+          console.warn(
+            `[library-api] A poster render ran out of time${again ? " again; it is not tried until the file changes" : `; it is tried again in ${TIMEOUT_RETRY_MS / 60_000} minutes`}.`,
+          );
+          remember(ctx, item.id, version, {
+            state: again ? "failed" : "timed_out",
+          });
+          return { ok: false, error: failed };
+        }
+        case "failed":
+          // Names only: the item and its path stay out of the log.
+          console.warn(
+            `[library-api] A poster could not be drawn (${drawn.cause instanceof Error ? drawn.cause.name : typeof drawn.cause}); it is not tried again until the file changes.`,
+          );
+          remember(ctx, item.id, version, { state: "failed" });
+          return { ok: false, error: failed };
+        case "busy":
+          return { ok: false, error: busy };
+        case "changed":
+          return { ok: false, error: changed };
+        case "unavailable":
+          return { ok: false, error: notAvailable };
+        case "cancelled":
+          return { ok: false, error: cancelled };
+      }
+    } finally {
+      await handle.close();
+    }
+  })();
+  return {
+    waiters: 0,
+    controller,
+    opened: own.then(
+      () => undefined,
+      () => undefined,
+    ),
+    promise,
+  };
+}
 
 /** The largest poster of the item: cached, or drawn and recorded now. */
 async function largest(
@@ -249,6 +348,7 @@ async function largest(
   source: PosterSource,
   version: string,
   known: PosterRecord | null,
+  signal: AbortSignal,
 ): Promise<Largest> {
   const name = cacheName(item, file, LARGEST);
   // Trusted only with its record, which the listing's dimensions come from.
@@ -256,54 +356,35 @@ async function largest(
     const cached = await readCached(name);
     if (cached) return { ok: true, jpeg: cached };
   }
-  const running = rendering.get(name);
-  if (running) return running;
-  const started = (async (): Promise<Largest> => {
-    const drawn = await PosterRender.master(
-      source,
-      file,
-      new AbortController().signal,
-    );
-    switch (drawn.kind) {
-      case "ready":
-        await store(name, drawn.master.jpeg);
-        remember(ctx, item.id, version, {
-          state: "ready",
-          size: drawn.master.source,
-        });
-        return { ok: true, jpeg: drawn.master.jpeg };
-      case "timed_out": {
-        // A busy server can cause one: tried once more later, then remembered as failed.
-        const again = known?.state === "timed_out" && known.version === version;
-        console.warn(
-          `[library-api] A poster render ran out of time${again ? " again; it is not tried until the file changes" : `; it is tried again in ${TIMEOUT_RETRY_MS / 60_000} minutes`}.`,
-        );
-        remember(ctx, item.id, version, {
-          state: again ? "failed" : "timed_out",
-        });
-        return { ok: false, error: failed };
-      }
-      case "failed":
-        // Names only: the item and its path stay out of the log.
-        console.warn(
-          `[library-api] A poster could not be drawn (${drawn.cause instanceof Error ? drawn.cause.name : typeof drawn.cause}); it is not tried again until the file changes.`,
-        );
-        remember(ctx, item.id, version, { state: "failed" });
-        return { ok: false, error: failed };
-      case "busy":
-        return { ok: false, error: busy };
-      case "changed":
-        return { ok: false, error: changed };
-      case "unavailable":
-        return { ok: false, error: notAvailable };
-    }
-  })();
-  rendering.set(name, started);
-  try {
-    return await started;
-  } finally {
-    rendering.delete(name);
+  let job = rendering.get(name);
+  if (!job) {
+    const created = draw(ctx, item, file, source, version, known, name);
+    const forget = () => {
+      if (rendering.get(name) === created) rendering.delete(name);
+    };
+    void created.promise.then(forget, forget);
+    rendering.set(name, created);
+    job = created;
   }
+  const current = job;
+  current.waiters++;
+  return new Promise<Largest>((resolve, reject) => {
+    const onAbort = () => {
+      current.waiters--;
+      if (current.waiters === 0) {
+        current.controller.abort();
+        // A new request starts afresh rather than joining a drawing being stopped.
+        if (rendering.get(name) === current) rendering.delete(name);
+      }
+      // The caller closes its descriptor next: not before the drawing has its own.
+      void current.opened.then(() => resolve({ ok: false, error: cancelled }));
+    };
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    current.promise
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 /** Each device's own bound on posters being drawn, dropped while it has none. */
@@ -333,13 +414,7 @@ async function forDevice<T>(
       return { ok: false, error: busy };
     // The device left while its request waited; nothing is drawn for it.
     if (error instanceof DOMException && error.name === "AbortError")
-      return {
-        ok: false,
-        error: {
-          code: "service_unavailable",
-          message: "The request was cancelled.",
-        },
-      };
+      return { ok: false, error: cancelled };
     throw error;
   } finally {
     entry.users--;
@@ -421,7 +496,15 @@ async function respond(
         // Read again: another request may have drawn it, or failed, while this one waited.
         const latest = recordOf(ctx, item.id);
         if (failedBefore(latest)) return { ok: false, error: failed };
-        const big = await largest(ctx, item, file, source, version, latest);
+        const big = await largest(
+          ctx,
+          item,
+          file,
+          source,
+          version,
+          latest,
+          request.signal,
+        );
         if (!big.ok || width === LARGEST) return big;
         const jpeg = await PosterRender.scaled(big.jpeg, width);
         await store(name, jpeg);

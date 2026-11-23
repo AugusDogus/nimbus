@@ -56,7 +56,9 @@ export type PosterRenderResult =
   /** The file was written while it was drawn, so the output may mix two versions. */
   | { kind: "changed" }
   /** This server lacks the decoder. */
-  | { kind: "unavailable" };
+  | { kind: "unavailable" }
+  /** `signal` aborted: everyone who asked for it left. */
+  | { kind: "cancelled" };
 
 /** Linux names each open descriptor under /proc, where a child process can open it too. */
 const descriptorPaths = existsSync("/proc/self/fd");
@@ -289,6 +291,8 @@ async function master(
       return { kind: "failed", cause: new Error("The source has no size.") };
     return { kind: "ready", master: drawn };
   } catch (error) {
+    // Checked first: a decoder killed on abort would otherwise read as a file it cannot draw.
+    if (signal.aborted) return { kind: "cancelled" };
     if (error instanceof TRPCError && error.code === "TOO_MANY_REQUESTS")
       return { kind: "busy" };
     if (error instanceof PdfRenderUnavailable) return { kind: "unavailable" };
