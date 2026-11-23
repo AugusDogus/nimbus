@@ -168,7 +168,9 @@ function Layout({
       // content's edge, so the toggle could not be reached to open it.
       peek="none"
       width={`${sidebarRem}rem`}
-      className="surface-grain h-dvh min-h-0 overflow-hidden"
+      // The window's tint, which the sidebar and the header share and the content's cards
+      // stand on.
+      className="surface-grain h-dvh min-h-0 overflow-hidden bg-sidebar"
     >
       <Sidebar
         variant="sidebar"
