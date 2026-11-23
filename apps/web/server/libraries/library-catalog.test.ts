@@ -60,6 +60,22 @@ async function reconcile(id = libraryId) {
   await LibraryCatalog.whenIdle();
 }
 
+/** Take the garage out of library `id`, leaving the kitchen. */
+async function withdrawGarage(id: string) {
+  const updated = await Libraries.update(
+    t.ctx,
+    await t.drive.access("owner"),
+    false,
+    {
+      id,
+      title: "Kitchen",
+      folders: ["library/kitchen"],
+      acknowledgedDevices: [],
+    },
+  );
+  if (!updated.ok) throw new Error(updated.error.message);
+}
+
 const rows = (id = libraryId) =>
   t.drive.db
     .select()
@@ -257,6 +273,7 @@ test("no match is made out of or into a folder outside the visible set", async (
   const narrow = { folders: ["library/kitchen"] };
   // The garage stops being visible as its file moves into the kitchen, and a kitchen file
   // moves into the garage.
+  await withdrawGarage(id);
   await rename(
     t.drive.absolute("library/garage/Chain.md"),
     t.drive.absolute("library/kitchen/Chain.md"),
@@ -315,6 +332,35 @@ test("a scan whose folders stopped being offered while it ran moves no id out of
   expect(narrowed).toBe(true);
   await reconcile(id);
   expect(at("library/garage/Notes.md", id)?.id).not.toBe(original?.id ?? "");
+});
+
+test("a scan overtaken by a folder joining the library is discarded, not committed over a fuller one", async () => {
+  await file("library/kitchen/Notes.md", "proofing times");
+  await file("library/garage/Chain.md", "chain lube");
+  const id = await create(["library/kitchen"]);
+  let widened = false;
+  const restore = LibraryCatalog.useScanHooksForTest({
+    beforeOpen: async (relative) => {
+      if (relative !== "library/kitchen" || widened) return;
+      widened = true;
+      // The garage joins while this kitchen-only scan runs, and a full scan finishes first.
+      await Libraries.update(t.ctx, await t.drive.access("owner"), false, {
+        id,
+        title: "Kitchen",
+        folders: ["library/kitchen", "library/garage"],
+        acknowledgedDevices: [],
+      });
+      await LibraryCatalog.refreshLibrary(t.ctx, id);
+    },
+  });
+  LibraryCatalog.resetForTest();
+  try {
+    await LibraryCatalog.items(t.ctx, id, { folders: ["library/kitchen"] });
+  } finally {
+    restore();
+  }
+  expect(widened).toBe(true);
+  expect(at("library/garage/Chain.md", id)).toBeDefined();
 });
 
 for (const [where, swapped] of [
@@ -549,6 +595,7 @@ test("a scan for one set of visible folders is never handed to another", async (
       folders: ["library/kitchen", "library/garage"],
     });
     // The garage stops being visible while the wider scan is under way.
+    await withdrawGarage(id);
     const narrow = LibraryCatalog.items(t.ctx, id, {
       folders: ["library/kitchen"],
     });

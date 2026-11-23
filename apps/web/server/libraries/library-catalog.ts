@@ -514,15 +514,13 @@ async function refresh(
   const work = (async (): Promise<Cached> => {
     const before = changes.get(libraryId) ?? 0;
     const scanned = await scan(target.folders);
-    // A folder that stopped being offered while the scan ran must not lend its rows to files
-    // found elsewhere: such a scan is discarded, and the next look scans again. Checked just
-    // before reconciling, which commits without waiting on anything.
-    const offered = (await LibraryAccess.targetOf(ctx, libraryId)).folders;
+    // The folders offered may have changed while the scan ran: one withdrawn must not lend
+    // its rows to files found elsewhere, and one added was not read, so committing would
+    // tombstone its rows over a fuller scan's. Such a scan is discarded, and the next look
+    // scans again. Checked just before reconciling, which commits without waiting on anything.
     if (
       scanned.kind === "ok" &&
-      !target.folders.every((folder) =>
-        offered.some((current) => isWithinPath(current, folder)),
-      )
+      keyOf(await LibraryAccess.targetOf(ctx, libraryId)) !== key
     )
       return {
         folders: key,
