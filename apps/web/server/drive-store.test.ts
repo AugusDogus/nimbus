@@ -559,6 +559,7 @@ test("shared paths list each live path with sharing once, by kind, without trash
     links: [],
     fileRequests: [],
     bookmarks: [],
+    libraryFolders: [],
   });
   await store.saveGrant(grant("root", ""));
   await store.saveGrant(grant("team", "team"));
@@ -585,6 +586,7 @@ test("shared paths list each live path with sharing once, by kind, without trash
     links: ["team/users"],
     fileRequests: ["team/users"],
     bookmarks: ["team/users/a"],
+    libraryFolders: [],
   });
 });
 

@@ -35,6 +35,7 @@
     "./filesystem-failure": "./src/filesystem-failure.ts",
     "./pending-changes": "./src/pending-changes.ts",
     "./drive-file": "./src/drive-file.ts",
+    "./descriptor-path": "./src/descriptor-path.ts",
     "./versions-router": "./src/versions-router.ts",
     "./search-index": "./src/search-index.ts",
     "./search-scan": "./src/search-scan.ts",

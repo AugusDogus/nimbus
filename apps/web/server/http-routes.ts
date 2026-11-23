@@ -29,6 +29,7 @@ import * as share from "./routes/share";
 import * as sharePdf from "./routes/share-pdf";
 import * as shareThumbnail from "./routes/share-thumbnail";
 import * as trpc from "./routes/trpc";
+import * as libraryApi from "./routes/library-api";
 import * as upload from "./routes/upload";
 import { RequestBody } from "./request-body";
 
@@ -94,6 +95,7 @@ const routes = ({ shell, mode }: PageContext): Route[] => [
     HEAD: RequestBody.capped(trpcBodyBytes, trpc.HEAD),
     POST: RequestBody.capped(trpcBodyBytes, trpc.POST),
   }),
+  route("/api/library/v1/*", ([endpoint = ""]) => ({ endpoint }), libraryApi),
   route("/api/upload/*?", none, upload),
   route("/oauth/authorize", none, oauthAuthorize),
   route("/oauth/consent", none, {

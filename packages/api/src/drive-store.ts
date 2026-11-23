@@ -78,6 +78,8 @@ export type SharedPaths = {
   links: string[];
   fileRequests: string[];
   bookmarks: string[];
+  /** Folders offered to paired devices in a library. */
+  libraryFolders: string[];
 };
 
 /**
