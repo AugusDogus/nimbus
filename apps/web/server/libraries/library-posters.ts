@@ -146,15 +146,26 @@ function recordOf(ctx: Pick<LibraryContext, "db">, itemId: string) {
   return row ? record(row) : null;
 }
 
+/**
+ * Record what drawing `source` found for item `itemId`, unless the id has passed to another
+ * file meanwhile: the record is keyed by the id alone, and is the new file's to write.
+ */
 function remember(
   ctx: Pick<LibraryContext, "db" | "now">,
   itemId: string,
+  source: OpenedSource,
   version: string,
   found:
     | { state: "ready"; size: Dimensions }
     | { state: "failed" }
     | { state: "timed_out" },
 ) {
+  const row = ctx.db
+    .select()
+    .from(libraryItems)
+    .where(eq(libraryItems.id, itemId))
+    .get();
+  if (!row || !LibraryCatalog.names(row, source)) return;
   const values = {
     version,
     state: found.state,
@@ -292,10 +303,16 @@ function draw(
       switch (drawn.kind) {
         case "ready":
           await store(name, drawn.master.jpeg);
-          remember(ctx, item.id, version, {
-            state: "ready",
-            size: drawn.master.source,
-          });
+          remember(
+            ctx,
+            item.id,
+            LibraryCatalog.sourceOf(item, file.stats),
+            version,
+            {
+              state: "ready",
+              size: drawn.master.source,
+            },
+          );
           return { ok: true, jpeg: drawn.master.jpeg };
         case "timed_out": {
           // A busy server can cause one: tried once more later, then remembered as failed.
@@ -304,9 +321,15 @@ function draw(
           console.warn(
             `[library-api] A poster render ran out of time${again ? " again; it is not tried until the file changes" : `; it is tried again in ${TIMEOUT_RETRY_MS / 60_000} minutes`}.`,
           );
-          remember(ctx, item.id, version, {
-            state: again ? "failed" : "timed_out",
-          });
+          remember(
+            ctx,
+            item.id,
+            LibraryCatalog.sourceOf(item, file.stats),
+            version,
+            {
+              state: again ? "failed" : "timed_out",
+            },
+          );
           return { ok: false, error: failed };
         }
         case "failed":
@@ -314,7 +337,13 @@ function draw(
           console.warn(
             `[library-api] A poster could not be drawn (${drawn.cause instanceof Error ? drawn.cause.name : typeof drawn.cause}); it is not tried again until the file changes.`,
           );
-          remember(ctx, item.id, version, { state: "failed" });
+          remember(
+            ctx,
+            item.id,
+            LibraryCatalog.sourceOf(item, file.stats),
+            version,
+            { state: "failed" },
+          );
           return { ok: false, error: failed };
         case "busy":
           return { ok: false, error: busy };

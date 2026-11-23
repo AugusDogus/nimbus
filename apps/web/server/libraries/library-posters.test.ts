@@ -25,6 +25,7 @@ import { DevicePairing } from "./device-pairing";
 import { Libraries } from "./libraries";
 import { LibraryCatalog } from "./library-catalog";
 import { LibraryHttp } from "./library-http";
+import { LibraryPosters } from "./library-posters";
 import {
   openLibraryTest,
   testOrigin,
@@ -643,6 +644,8 @@ describe.skipIf(missing.length > 0)(
         (item) => item.name === "Trail copy.pdf",
       );
       expect(moved?.id).toBe(id);
+      // Nor is what was found for the first file recorded for the second.
+      expect(LibraryPosters.knownFor(t.ctx, id)).toBeUndefined();
     });
 
     test("a drawing everyone left is stopped and leaves no record", async () => {
