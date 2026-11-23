@@ -121,6 +121,15 @@ export const LibraryListing = {
       scope.library.id,
       LibraryAccess.catalogTarget(scope),
     );
+    if (catalog.kind === "unavailable")
+      return {
+        ok: false,
+        error: {
+          code: "service_unavailable",
+          message:
+            "This Nimbus server's system cannot read library folders safely, so libraries are unavailable on it. Ask the administrator to run Nimbus on Linux.",
+        },
+      };
     if (catalog.kind === "too_large")
       return {
         ok: false,
