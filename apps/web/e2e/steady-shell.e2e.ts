@@ -137,15 +137,34 @@ test("opening and closing a split view leaves the header where it was", async ({
         ];
       }),
     );
+  // The folder's card, and its Back and path, which become the left pane's.
+  const card = () =>
+    page
+      .locator('[data-slot="folder-card"]')
+      .first()
+      .evaluate((section) =>
+        [
+          section,
+          section.querySelector('[aria-label="Back"]'),
+          section.querySelector('[data-slot="breadcrumb-page"]'),
+        ].map((element) => {
+          const box = element?.getBoundingClientRect();
+          return box ? [box.x, box.y, box.height] : null;
+        }),
+      );
   const before = await controls();
+  const single = await card();
   const toggle = page.getByRole("button", { name: "Split view" });
-  await toggle.click();
-  await expect(page.locator("[data-pane]")).toHaveCount(2);
-  // The page area no longer keeps room for a scrollbar; the header must not take it.
-  expect(await controls()).toEqual(before);
-  await toggle.click();
-  await expect(page.locator("[data-pane]")).toHaveCount(0);
-  expect(await controls()).toEqual(before);
+  for (const round of [1, 2]) {
+    await toggle.click();
+    await expect(page.locator("[data-pane]")).toHaveCount(2);
+    expect(await controls(), `split, round ${round}`).toEqual(before);
+    expect(await card(), `left pane, round ${round}`).toEqual(single);
+    await toggle.click();
+    await expect(page.locator("[data-pane]")).toHaveCount(0);
+    expect(await controls(), `single, round ${round}`).toEqual(before);
+    expect(await card(), `single card, round ${round}`).toEqual(single);
+  }
 });
 
 test("a page that scrolls is as wide as one that does not", async ({
@@ -157,28 +176,35 @@ test("a page that scrolls is as wide as one that does not", async ({
   // An empty folder is short however full the rest of the drive is.
   const empty = `steady-${randomUUID()}`;
   await (await client(context)).files.createFolder.mutate({ name: empty });
-  const headerWidth = () =>
-    page
-      .locator('[data-slot="sidebar-inset"] > header')
-      .evaluate((header) => header.getBoundingClientRect().width);
+  // The page area never scrolls: content scrolls on its card, below the header on the tint.
+  const frame = () =>
+    page.evaluate(() => {
+      const area = document.querySelector('[data-slot="sidebar-inset"]');
+      const card = document.querySelector(
+        '[data-slot="page-card"], [data-slot="folder-card"]',
+      );
+      const header = area?.querySelector(":scope > header");
+      if (!area || !card || !header) return null;
+      const box = card.getBoundingClientRect();
+      return {
+        areaScrolls: area.scrollHeight > area.clientHeight,
+        cardScrolls: card.scrollHeight > card.clientHeight,
+        header: header.getBoundingClientRect().width,
+        card: [box.x, box.width],
+      };
+    });
   await page.goto("/settings/account");
   await expect(
     page.getByRole("heading", { name: "Account", exact: true }),
   ).toBeVisible();
-  expect(
-    await page
-      .locator('[data-slot="sidebar-inset"]')
-      .evaluate((main) => main.scrollHeight > main.clientHeight),
-  ).toBe(true);
-  const scrolling = await headerWidth();
+  const scrolling = await frame();
+  expect(scrolling).toMatchObject({ areaScrolls: false, cardScrolls: true });
   await page.goto(`/browse/${empty}`);
   await expect(page.getByText("This folder is empty")).toBeVisible();
-  expect(
-    await page
-      .locator('[data-slot="sidebar-inset"]')
-      .evaluate((main) => main.scrollHeight > main.clientHeight),
-  ).toBe(false);
-  expect(await headerWidth()).toBe(scrolling);
+  const still = await frame();
+  expect(still).toMatchObject({ areaScrolls: false, cardScrolls: false });
+  expect(still?.header).toBe(scrolling?.header);
+  expect(still?.card).toEqual(scrolling?.card);
 });
 
 test("Settings and the files pages share one sidebar", async ({

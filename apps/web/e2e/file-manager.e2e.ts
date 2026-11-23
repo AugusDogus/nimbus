@@ -516,8 +516,13 @@ test("Tab reaches an entry on screen after scrolling a long folder", async ({
   const { folder } = await folderWithFiles(names);
   await page.goto(`/browse/${folder}`);
   await expect(entry(page, "row 000.txt")).toBeVisible();
-  const scroller = page.locator('[data-slot="sidebar-inset"]');
-  await scroller.evaluate((element) => element.scrollTo(0, 10_000));
+  // The listing scrolls on its card, or with the page on a phone.
+  await page.getByRole("grid").evaluate((grid) => {
+    let element: Element | null = grid;
+    while (element && !/auto|scroll/.test(getComputedStyle(element).overflowY))
+      element = element.parentElement;
+    element?.scrollTo(0, 10_000);
+  });
   await expect(entry(page, "row 000.txt")).toHaveCount(0);
   // Start from the control just before the list, as someone tabbing through the page would.
   await page.getByRole("combobox", { name: "Sort files" }).focus();

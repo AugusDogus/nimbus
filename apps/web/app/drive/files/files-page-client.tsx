@@ -1,14 +1,12 @@
 import { MoveUp } from "./move-up";
 import { Folder, HardDrive } from "lucide-react";
-import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentType,
-  type ReactNode,
-} from "react";
+  useCanGoBack,
+  useNavigate,
+  useRouteContext,
+  useRouter,
+} from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import type { UserPreferences } from "@nimbus/api/context";
@@ -53,6 +51,7 @@ import { WebMcpFileTools } from "./webmcp-tools";
 import { useFilePreferences } from "./use-file-preferences";
 import { openSplit, SplitToggle } from "./split-toggle";
 import { HeaderTools } from "./header-tools";
+import { FolderCard, type FolderMoves } from "./folder-card";
 import { fileHref } from "./types";
 
 // Two folders side by side load only when a split view opens. A load that fails shows the
@@ -108,29 +107,26 @@ export type PaneFailure = {
   retry: () => void;
 };
 
-/** What a pane of a split view lays out: its toolbar's parts, and its listing or failure. */
-export type PaneParts = {
-  attachToolbar: (element: HTMLDivElement | null) => void;
-  breadcrumbs: ReactNode;
-  /** The pane's own sort, grouping and view, which its frame offers in a menu. */
-  prefs: PanePrefs;
-  content:
-    | { kind: "listing"; body: ReactNode }
-    | { kind: "failed"; failure: PaneFailure };
-  /** The pane's folder, taking drops on its empty space; read-only until its permissions arrive. */
-  target: DropTarget;
-};
-
 /**
  * A pane of a split view, given by the split view: which one, whether commands act on it, the
- * drag both panes share, its own sort and view, and the frame that lays out its parts.
+ * drag both panes share, its own sort and view, its Back and Up, and what its card shows that a
+ * page's one folder does not.
  */
 export type PaneFrame = {
+  id: string;
   side: PaneSide;
   active: boolean;
   drag: FileDrag;
   prefs: PanePrefs;
-  Frame: ComponentType<{ parts: PaneParts }>;
+  moves: FolderMoves;
+  /** After the path in the pane's header: its sort and view menu, and Close. */
+  tools: ReactNode;
+  /** Says why the pane's folder cannot be shown, with ways on that keep the pane open. */
+  failure: (failure: PaneFailure) => ReactNode;
+  onActivate: () => void;
+  /** Whether a drag is over this pane, which then says where it would drop. */
+  dragOver: boolean;
+  onDragOver: () => void;
 };
 
 const failureCode = (code: string | null | undefined) =>
@@ -216,6 +212,21 @@ export function FolderPane({
   useClashChoices(clashHandoff, offer);
   const navigate = useNavigate();
   const folderHref = usePaneHref();
+  // Alone, the folder goes back the way the browser does, and up to the folder above it.
+  const router = useRouter();
+  const canGoBack = useCanGoBack();
+  const ownMoves: FolderMoves = {
+    back: canGoBack ? () => router.history.back() : null,
+    up:
+      currentPath === top || currentPath === ""
+        ? null
+        : () =>
+            void navigate({
+              href: folderHref(
+                currentPath.slice(0, Math.max(0, currentPath.lastIndexOf("/"))),
+              ),
+            }),
+  };
   useEffect(() => {
     if (isAuthed && currentPath) void recordVisit(currentPath);
   }, [currentPath, isAuthed, recordVisit]);
@@ -391,46 +402,50 @@ export function FolderPane({
     </div>
   );
 
-  if (pane)
-    return (
-      <pane.Frame
-        parts={{
-          attachToolbar,
-          breadcrumbs,
-          prefs: pane.prefs,
-          content: failed
-            ? {
-                kind: "failed",
-                failure: {
-                  code: failureCode(code),
-                  retry: () => void listQuery.refetch(),
-                },
-              }
-            : { kind: "listing", body },
-          target: {
-            path: currentPath,
-            writable: !failed && capabilities.data?.canWrite === true,
-          },
-        }}
-      />
-    );
-
+  // The pane's folder takes drops on its empty space; read-only until its permissions arrive.
+  const target: DropTarget = {
+    path: currentPath,
+    writable: !failed && capabilities.data?.canWrite === true,
+  };
   return (
-    <>
-      <div
-        ref={attachToolbar}
-        className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-background px-4 py-3 md:-mx-6 md:flex md:justify-between md:px-6 lg:-mx-8 lg:-mt-8 lg:px-8"
-      >
-        <div className="min-w-0 overflow-hidden pointer-coarse:-my-3 pointer-coarse:py-3 pointer-coarse:-ml-3.5 pointer-coarse:pl-3.5">
-          {breadcrumbs}
-        </div>
-        <FiltersRow
-          prefs={prefs}
-          view={view}
-          updatePreferences={updatePreferences}
-        />
-      </div>
-      {body}
-    </>
+    <FolderCard
+      pane={
+        pane && {
+          id: pane.id,
+          side: pane.side,
+          active: pane.active,
+          highlighted: drag.dropState(target.path) === "allowed",
+          handlers: {
+            onPointerDownCapture: pane.onActivate,
+            onFocusCapture: pane.onActivate,
+            onDragOverCapture: pane.onDragOver,
+            ...drag.targetProps(target),
+          },
+          hint: <DragHint drag={drag} placement="pane" shown={pane.dragOver} />,
+        }
+      }
+      attachToolbar={attachToolbar}
+      moves={pane ? pane.moves : ownMoves}
+      breadcrumbs={breadcrumbs}
+      tools={
+        pane ? (
+          pane.tools
+        ) : (
+          <FiltersRow
+            prefs={prefs}
+            view={view}
+            updatePreferences={updatePreferences}
+          />
+        )
+      }
+      body={
+        failed && pane
+          ? pane.failure({
+              code: failureCode(code),
+              retry: () => void listQuery.refetch(),
+            })
+          : body
+      }
+    />
   );
 }

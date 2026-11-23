@@ -5,6 +5,8 @@ import { UploadProgress } from "@/components/upload-progress";
 import { usePathname } from "@/hooks/use-pathname";
 import type { ReactNode } from "react";
 import { AppFrame } from "@/components/app-frame";
+import { PageSurface } from "@/components/page-surface";
+import { cn } from "@/lib/utils";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   Breadcrumb,
@@ -31,7 +33,12 @@ export function SettingsShell({
       <AppFrame.SidebarBody>
         <SettingsSidebar isAdmin={isAdmin} />
       </AppFrame.SidebarBody>
-      <header className="surface-grain sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 border-b border-border/40 bg-background px-4 md:px-6">
+      <header
+        className={cn(
+          PageSurface.header,
+          "sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 px-4 md:px-6",
+        )}
+      >
         <SidebarTrigger className="touch-hit size-8 shrink-0 text-muted-foreground" />
         <Breadcrumb aria-label="Settings breadcrumb">
           <BreadcrumbList>
@@ -54,8 +61,10 @@ export function SettingsShell({
         </Breadcrumb>
       </header>
       <UploadProgress />
-      <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 md:px-6 lg:px-8 lg:py-8">
-        {children}
+      <div data-slot="page-card" className={cn("flex-1", PageSurface.card)}>
+        <div className="mx-auto w-full max-w-4xl px-4 py-6 md:px-6 lg:px-8 lg:py-8">
+          {children}
+        </div>
       </div>
     </>
   );

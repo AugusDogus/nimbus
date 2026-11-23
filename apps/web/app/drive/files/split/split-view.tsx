@@ -45,13 +45,13 @@ import { PaneDivider } from "./pane-divider";
 import { PaneHistory } from "./pane-history";
 import {
   CollapsedPane,
-  PaneChrome,
-  PaneSection,
+  PaneFailureView,
+  PaneTools,
   type PaneMoves,
 } from "./pane-section";
 import { SplitAddress } from "./split-address";
 import { SplitMemory } from "./split-memory";
-import { useSidebarFold, usePageArea } from "./split-page";
+import { useSidebarFold } from "./split-page";
 import { AppFrame } from "@/components/app-frame";
 
 /** Narrowest useful pane, in pixels. */
@@ -74,40 +74,22 @@ const columns = (ratio: number, collapsed: PaneSide | null) =>
       ? "minmax(0, 1fr) 2.75rem"
       : `minmax(0, ${ratio}fr) ${dividerWidth}px minmax(0, ${100 - ratio}fr)`;
 
-type Box = { width: number; height: number };
-
 /**
- * The page's content area, measured: its width decides whether the panes fit side by side, and
- * its height is what the panes fill, each scrolling on its own below the page header.
+ * The width of the page's content area, measured: it decides whether the panes fit side by side.
+ * The panes fill the area's height, each scrolling on its own below its header.
  */
-function useContentBox(frame: RefObject<HTMLDivElement | null>) {
-  const [box, setBox] = useState<Box | null>(null);
+function useContentWidth(frame: RefObject<HTMLDivElement | null>) {
+  const [width, setWidth] = useState<number | null>(null);
   useLayoutEffect(() => {
     const area = frame.current?.parentElement;
-    const scroller = area?.closest<HTMLElement>('[data-slot="sidebar-inset"]');
-    if (!area || !scroller) return;
-    const header = scroller.querySelector<HTMLElement>(":scope > header");
-    const measure = () => {
-      const style = getComputedStyle(scroller);
-      const height =
-        scroller.clientHeight -
-        parseFloat(style.paddingTop) -
-        parseFloat(style.paddingBottom) -
-        (header?.offsetHeight ?? 0);
-      const next = { width: area.clientWidth, height: Math.max(0, height) };
-      setBox((current) =>
-        current?.width === next.width && current.height === next.height
-          ? current
-          : next,
-      );
-    };
+    if (!area) return;
+    const measure = () => setWidth(area.clientWidth);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(area);
-    observer.observe(scroller);
     return () => observer.disconnect();
   }, [frame]);
-  return box;
+  return width;
 }
 
 /**
@@ -259,18 +241,17 @@ export default function SplitView({
   });
 
   const frameRef = useRef<HTMLDivElement>(null);
-  const box = useContentBox(frameRef);
-  const wide = box !== null && box.width >= minSideBySide;
+  const width = useContentWidth(frameRef);
+  const wide = width !== null && width >= minSideBySide;
   const fitsFolded =
-    box !== null && !wide && box.width + sidebarSpare >= minSideBySide;
+    width !== null && !wide && width + sidebarSpare >= minSideBySide;
   const sidebar = useSidebarFold(fitsFolded);
   // While the sidebar folds, the panes stay side by side as the room for them grows.
   const sideBySide = wide || (fitsFolded && sidebar.foldedForSplit);
-  usePageArea(frameRef, sideBySide);
   // Which pane a drag is over: that pane says where the drag would drop.
   const [dragOver, setDragOver] = useState<PaneSide | null>(null);
   if (drag.state.status !== "dragging" && dragOver !== null) setDragOver(null);
-  const usable = box ? box.width - dividerWidth : 0;
+  const usable = width === null ? 0 : width - dividerWidth;
   const bound =
     usable > 0
       ? Math.min(50, Math.ceil((minPaneWidth / usable) * 100))
@@ -321,24 +302,31 @@ export default function SplitView({
       top: () => openIn(side, topPath),
     };
   };
-  const frameFor = (side: PaneSide): PaneFrame => ({
-    side,
-    active: layout.active === side,
-    drag,
-    prefs: panePrefs[side],
-    Frame: PaneSection,
-  });
-  const chromeFor = (side: PaneSide): PaneChrome => ({
-    id: ids[side],
-    side,
-    active: layout.active === side,
-    drag,
-    moves: movesFor(side),
-    onClose: () => keepOnly(SplitLayout.other(side)),
-    dragOver: dragOver === side,
-    onDragOver: () => setDragOver(side),
-    onActivate: () => activate(side),
-  });
+  const frameFor = (side: PaneSide): PaneFrame => {
+    const moves = movesFor(side);
+    const active = layout.active === side;
+    return {
+      id: ids[side],
+      side,
+      active,
+      drag,
+      prefs: panePrefs[side],
+      moves,
+      tools: (
+        <PaneTools
+          prefs={panePrefs[side]}
+          active={active}
+          onClose={() => keepOnly(SplitLayout.other(side))}
+        />
+      ),
+      failure: (failure) => <PaneFailureView failure={failure} moves={moves} />,
+      onActivate: () => activate(side),
+      dragOver: dragOver === side,
+      onDragOver: () => {
+        if (dragOver !== side) setDragOver(side);
+      },
+    };
+  };
 
   const pane = (side: PaneSide) =>
     layout.collapsed === side ? (
@@ -350,28 +338,25 @@ export default function SplitView({
       />
     ) : (
       <PaneLinks.Provider key={side} value={links[side]}>
-        <PaneChrome.Provider value={chromeFor(side)}>
-          <FolderPane
-            path={paths[side]}
-            pane={frameFor(side)}
-            other={others[side]}
-            split={controlFor(side)}
-          />
-        </PaneChrome.Provider>
+        <FolderPane
+          path={paths[side]}
+          pane={frameFor(side)}
+          other={others[side]}
+          split={controlFor(side)}
+        />
       </PaneLinks.Provider>
     );
 
   return (
     <OtherPaneActionsSlot.Provider value={renderOtherPaneActions}>
-      {box === null ? (
-        <div ref={frameRef} />
+      {width === null ? (
+        <div ref={frameRef} className="md:flex-1" />
       ) : sideBySide ? (
         <div
           ref={frameRef}
           data-split-view
-          className="-mx-4 -mb-24 -mt-6 grid md:-mx-6 md:-mb-6 lg:-mx-8 lg:-mt-8"
+          className="grid min-h-0 flex-1"
           style={{
-            height: box.height,
             gridTemplateColumns: columns(ratio, layout.collapsed),
             // A folded pane's card keeps the gap the divider leaves.
             columnGap: layout.collapsed ? dividerWidth : 0,
@@ -411,7 +396,11 @@ export default function SplitView({
         </div>
       ) : (
         // One folder fits: the active pane's, with the other offered as a destination.
-        <div ref={frameRef} data-split-view="narrow">
+        <div
+          ref={frameRef}
+          data-split-view="narrow"
+          className="md:flex md:min-h-0 md:flex-1 md:flex-col"
+        >
           <PaneLinks.Provider value={links[layout.active]}>
             <FolderPane
               key={layout.active}

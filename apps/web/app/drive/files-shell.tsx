@@ -52,6 +52,8 @@ import { trpcErrorCode } from "@/lib/trpc-error";
 
 import { AppSidebar } from "./files/app-sidebar";
 import { SearchBox } from "./search/search-box";
+import { PageSurface } from "@/components/page-surface";
+import { cn } from "@/lib/utils";
 import { HeaderToolsSlot } from "./files/header-tools";
 import { HiddenFileInput, NewFolderDialog } from "./files/new-content-ui";
 import { useFileActions } from "./files/use-file-actions";
@@ -179,7 +181,12 @@ export function FilesShell({ children }: FilesShellProps) {
       {/* From 768 px, three columns: search keeps to the middle one, centred over the page.
           The sides share one minimum, room for the split view toggle and the account menu, so
           the search stays put whichever page adds a tool. */}
-      <header className="surface-grain sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 border-b border-border/40 bg-background px-4 md:grid md:grid-cols-[minmax(5.5rem,1fr)_minmax(0,36rem)_minmax(5.5rem,1fr)] md:gap-4 md:px-6">
+      <header
+        className={cn(
+          PageSurface.header,
+          "sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 px-4 md:grid md:grid-cols-[minmax(5.5rem,1fr)_minmax(0,36rem)_minmax(5.5rem,1fr)] md:gap-4 md:px-6",
+        )}
+      >
         {/* On phones the toggle and logo sit 44 px apart, so their touch areas do not overlap. */}
         <div className="flex shrink-0 items-center gap-2 max-md:pointer-coarse:gap-3.5 md:gap-4">
           {/* Desktop: sidebar trigger */}
@@ -286,7 +293,14 @@ export function FilesShell({ children }: FilesShellProps) {
         </AlertDialogContent>
       </AlertDialog>
       <div
-        className="flex-1 overflow-x-clip px-4 pb-24 pt-6 md:px-6 md:pb-6 lg:px-8 lg:pt-8"
+        data-slot={FolderPath.isShownAt(pathname) ? undefined : "page-card"}
+        // A folder lays out its own card, or one per pane; other pages sit on one card here.
+        className={cn(
+          "flex-1 overflow-x-clip px-4 pb-24 pt-6",
+          FolderPath.isShownAt(pathname)
+            ? "md:flex md:min-h-0 md:flex-col md:p-0"
+            : cn(PageSurface.card, "md:px-6 md:pb-6 lg:px-8 lg:pt-8"),
+        )}
         onDragOver={(event) => {
           if (
             canWrite &&

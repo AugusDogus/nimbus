@@ -3,6 +3,8 @@ import { MonitorSmartphone, ShieldAlert } from "lucide-react";
 import { Link } from "@/components/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PageSurface } from "@/components/page-surface";
+import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -103,191 +105,204 @@ export function PairPage({
 
   return (
     <>
-      <header className="surface-grain sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 border-b border-border/40 bg-background px-4 md:px-6">
+      <header
+        className={cn(
+          PageSurface.header,
+          "sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 px-4 md:px-6",
+        )}
+      >
         <SidebarTrigger className="touch-hit size-8 shrink-0 text-muted-foreground" />
         <h1 className="text-sm font-medium">Pair a device</h1>
       </header>
       <UploadProgress />
-      <div className="mx-auto w-full max-w-lg flex-1 space-y-6 px-4 py-6 md:py-10">
-        <p className="text-pretty text-sm text-muted-foreground">
-          Signed in as{" "}
-          <span className="font-medium text-foreground">{email}</span>
-        </p>
-        {step.kind === "enter" && (
-          <form
-            className="space-y-4 rounded-2xl border border-border/60 bg-card/40 p-5"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void lookUp();
-            }}
-          >
-            <div className="space-y-2">
-              <Label htmlFor="pairing-code">Code shown on the device</Label>
-              <Input
-                id="pairing-code"
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                placeholder="ABCD-EFGH"
-                autoComplete="off"
-                autoCapitalize="characters"
-                spellCheck={false}
-                maxLength={20}
-                required
-                disabled={busy}
-                className="font-mono tracking-widest uppercase"
-              />
-            </div>
-            {step.error && (
-              <p role="alert" className="text-pretty text-sm text-destructive">
-                {step.error}
-              </p>
-            )}
-            <Button type="submit" disabled={busy || !code.trim()}>
-              {busy ? "Checking…" : "Continue"}
-            </Button>
-          </form>
-        )}
-        {step.kind === "review" && (
-          <div className="space-y-5 rounded-2xl border border-border/60 bg-card/40 p-5">
-            <div className="flex items-start gap-3">
-              <MonitorSmartphone
-                className="mt-0.5 size-5 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <div className="min-w-0 space-y-1">
-                <p className="break-words text-sm font-medium">
-                  “<bdi>{step.review.deviceName}</bdi>”
+      <div data-slot="page-card" className={cn("flex-1", PageSurface.card)}>
+        <div className="mx-auto w-full max-w-lg space-y-6 px-4 py-6 md:py-10">
+          <p className="text-pretty text-sm text-muted-foreground">
+            Signed in as{" "}
+            <span className="font-medium text-foreground">{email}</span>
+          </p>
+          {step.kind === "enter" && (
+            <form
+              className="space-y-4 rounded-2xl border border-border/60 bg-card/40 p-5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void lookUp();
+              }}
+            >
+              <div className="space-y-2">
+                <Label htmlFor="pairing-code">Code shown on the device</Label>
+                <Input
+                  id="pairing-code"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  placeholder="ABCD-EFGH"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  maxLength={20}
+                  required
+                  disabled={busy}
+                  className="font-mono tracking-widest uppercase"
+                />
+              </div>
+              {step.error && (
+                <p
+                  role="alert"
+                  className="text-pretty text-sm text-destructive"
+                >
+                  {step.error}
                 </p>
-                <p className="flex flex-wrap gap-x-1.5 text-xs text-muted-foreground">
-                  <span>Name supplied by the device</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="whitespace-nowrap">
-                    asked {age(step.review.requestedAt)}
-                  </span>
+              )}
+              <Button type="submit" disabled={busy || !code.trim()}>
+                {busy ? "Checking…" : "Continue"}
+              </Button>
+            </form>
+          )}
+          {step.kind === "review" && (
+            <div className="space-y-5 rounded-2xl border border-border/60 bg-card/40 p-5">
+              <div className="flex items-start gap-3">
+                <MonitorSmartphone
+                  className="mt-0.5 size-5 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <div className="min-w-0 space-y-1">
+                  <p className="break-words text-sm font-medium">
+                    “<bdi>{step.review.deviceName}</bdi>”
+                  </p>
+                  <p className="flex flex-wrap gap-x-1.5 text-xs text-muted-foreground">
+                    <span>Name supplied by the device</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="whitespace-nowrap">
+                      asked {age(step.review.requestedAt)}
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                <dt className="text-muted-foreground">Code</dt>
+                <dd
+                  className="font-mono tracking-widest"
+                  data-testid="pairing-code"
+                >
+                  {step.review.pairingCode}
+                </dd>
+                <dt className="text-muted-foreground">Account</dt>
+                <dd className="break-all">{step.review.account.email}</dd>
+              </dl>
+              {step.review.libraries.length === 0 ? (
+                <div className="space-y-2 text-sm">
+                  <p className="font-medium">You have no libraries yet</p>
+                  <p className="text-pretty text-muted-foreground">
+                    A device can only be paired with a library: folders you
+                    choose to offer it. Create one, then return to this page
+                    while the code is still shown on the device.
+                  </p>
+                  <Button
+                    variant="outline"
+                    render={<Link to="/settings/libraries" />}
+                  >
+                    Create a library
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="pairing-library">Library</Label>
+                  <Select
+                    items={step.review.libraries.map((library) => ({
+                      value: library.id,
+                      label: library.title,
+                    }))}
+                    value={libraryId}
+                    onValueChange={(value) => setLibraryId(value)}
+                  >
+                    <SelectTrigger id="pairing-library" className="w-full">
+                      <SelectValue placeholder="Choose a library" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {step.review.libraries.map((library) => (
+                        <SelectItem key={library.id} value={library.id}>
+                          {library.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {libraryId !== null && (
+                    <p className="text-pretty text-xs text-muted-foreground">
+                      Folders:{" "}
+                      {step.review.libraries
+                        .find((library) => library.id === libraryId)
+                        ?.folders.join(", ")}
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="space-y-1 text-sm">
+                <p className="font-medium">If you allow it, this device can</p>
+                <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                  <li>
+                    See and open the files in the library you choose, including
+                    files added to its folders later
+                  </li>
+                  <li>Nothing else: it cannot change, delete or share files</li>
+                </ul>
+                <p className="pt-1 text-pretty text-xs text-muted-foreground">
+                  It stays paired until you disconnect it in Settings,
+                  Libraries, or it goes unused for 30 days.
                 </p>
               </div>
-            </div>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Code</dt>
-              <dd
-                className="font-mono tracking-widest"
-                data-testid="pairing-code"
-              >
-                {step.review.pairingCode}
-              </dd>
-              <dt className="text-muted-foreground">Account</dt>
-              <dd className="break-all">{step.review.account.email}</dd>
-            </dl>
-            {step.review.libraries.length === 0 ? (
-              <div className="space-y-2 text-sm">
-                <p className="font-medium">You have no libraries yet</p>
-                <p className="text-pretty text-muted-foreground">
-                  A device can only be paired with a library: folders you choose
-                  to offer it. Create one, then return to this page while the
-                  code is still shown on the device.
+              <p className="flex gap-2 rounded-xl border border-border/60 bg-background p-3 text-pretty text-sm">
+                <ShieldAlert
+                  className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <span>
+                  Approve only a code shown on a device you are setting up right
+                  now. Someone else&apos;s code would give their device access
+                  to this library.
+                </span>
+              </p>
+              {step.error && (
+                <p
+                  role="alert"
+                  className="text-pretty text-sm text-destructive"
+                >
+                  {step.error}
                 </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={busy || libraryId === null}
+                  onClick={() => void decide(step.review, true)}
+                >
+                  Allow
+                </Button>
                 <Button
                   variant="outline"
-                  render={<Link to="/settings/libraries" />}
+                  disabled={busy}
+                  onClick={() => void decide(step.review, false)}
                 >
-                  Create a library
+                  Deny
                 </Button>
               </div>
-            ) : (
-              <div className="space-y-2">
-                <Label htmlFor="pairing-library">Library</Label>
-                <Select
-                  items={step.review.libraries.map((library) => ({
-                    value: library.id,
-                    label: library.title,
-                  }))}
-                  value={libraryId}
-                  onValueChange={(value) => setLibraryId(value)}
-                >
-                  <SelectTrigger id="pairing-library" className="w-full">
-                    <SelectValue placeholder="Choose a library" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {step.review.libraries.map((library) => (
-                      <SelectItem key={library.id} value={library.id}>
-                        {library.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {libraryId !== null && (
-                  <p className="text-pretty text-xs text-muted-foreground">
-                    Folders:{" "}
-                    {step.review.libraries
-                      .find((library) => library.id === libraryId)
-                      ?.folders.join(", ")}
-                  </p>
-                )}
-              </div>
-            )}
-            <div className="space-y-1 text-sm">
-              <p className="font-medium">If you allow it, this device can</p>
-              <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-                <li>
-                  See and open the files in the library you choose, including
-                  files added to its folders later
-                </li>
-                <li>Nothing else: it cannot change, delete or share files</li>
-              </ul>
-              <p className="pt-1 text-pretty text-xs text-muted-foreground">
-                It stays paired until you disconnect it in Settings, Libraries,
-                or it goes unused for 30 days.
+            </div>
+          )}
+          {step.kind === "done" && (
+            <div
+              role="status"
+              className="space-y-2 rounded-2xl border border-border/60 bg-card/40 p-5"
+            >
+              <p className="text-sm font-medium">
+                “<bdi>{step.deviceName}</bdi>”{" "}
+                {step.outcome === "approved" ? "is paired" : "was not paired"}
+              </p>
+              <p className="text-pretty text-sm text-muted-foreground">
+                {step.outcome === "approved"
+                  ? "The device finishes signing in by itself in a few seconds. You can disconnect it at any time in Settings, Libraries."
+                  : "The device gets no access. You can close this page."}
               </p>
             </div>
-            <p className="flex gap-2 rounded-xl border border-border/60 bg-background p-3 text-pretty text-sm">
-              <ShieldAlert
-                className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <span>
-                Approve only a code shown on a device you are setting up right
-                now. Someone else&apos;s code would give their device access to
-                this library.
-              </span>
-            </p>
-            {step.error && (
-              <p role="alert" className="text-pretty text-sm text-destructive">
-                {step.error}
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                disabled={busy || libraryId === null}
-                onClick={() => void decide(step.review, true)}
-              >
-                Allow
-              </Button>
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => void decide(step.review, false)}
-              >
-                Deny
-              </Button>
-            </div>
-          </div>
-        )}
-        {step.kind === "done" && (
-          <div
-            role="status"
-            className="space-y-2 rounded-2xl border border-border/60 bg-card/40 p-5"
-          >
-            <p className="text-sm font-medium">
-              “<bdi>{step.deviceName}</bdi>”{" "}
-              {step.outcome === "approved" ? "is paired" : "was not paired"}
-            </p>
-            <p className="text-pretty text-sm text-muted-foreground">
-              {step.outcome === "approved"
-                ? "The device finishes signing in by itself in a few seconds. You can disconnect it at any time in Settings, Libraries."
-                : "The device gets no access. You can close this page."}
-            </p>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </>
   );

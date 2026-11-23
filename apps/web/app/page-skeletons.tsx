@@ -2,7 +2,9 @@ import { Clock, HardDrive, Star, Trash2, Users } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { NimbusWordmark } from "@/components/nimbus-wordmark";
+import { PageSurface } from "@/components/page-surface";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { LoadingSkeleton } from "./drive/files/loading-skeleton";
 
 /**
@@ -64,7 +66,7 @@ function SidebarFrame({
       </div>
       <main
         data-slot="sidebar-inset"
-        className="bg-background relative flex w-full flex-1 flex-col md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]"
+        className="bg-background relative flex w-full flex-1 flex-col md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] md:overflow-hidden md:bg-none md:[scrollbar-gutter:auto] md:peer-data-[variant=inset]:bg-transparent"
       >
         {children}
       </main>
@@ -111,30 +113,54 @@ export function FilesSkeleton({ view }: { view: "list" | "grid" | null }) {
         </>
       }
     >
-      <header className="surface-grain sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border/40 bg-background px-4 md:gap-4 md:px-6">
-        <div className="flex min-w-0 flex-1 items-center gap-2 max-md:pointer-coarse:gap-3.5 md:gap-4">
+      <header
+        className={cn(
+          PageSurface.header,
+          "sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 px-4 md:grid md:grid-cols-[minmax(5.5rem,1fr)_minmax(0,36rem)_minmax(5.5rem,1fr)] md:gap-4 md:px-6",
+        )}
+      >
+        <div className="flex shrink-0 items-center gap-2 max-md:pointer-coarse:gap-3.5 md:gap-4">
           <Skeleton className="size-8 shrink-0" />
           <NimbusLogo className="size-7 shrink-0 md:hidden" />
-          <div className="relative min-w-0 max-w-lg flex-1">
-            <div className="h-9 rounded-lg bg-muted/70 pointer-coarse:h-11 md:h-10 md:pointer-coarse:h-11 dark:bg-sidebar/70" />
-          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1 md:gap-3">
+        <div className="relative min-w-0 flex-1 md:w-full">
+          <div className="h-9 rounded-lg border border-transparent bg-muted/70 pointer-coarse:h-11 md:h-10 md:border-border/80 md:bg-card md:pointer-coarse:h-11 max-md:dark:bg-sidebar/70" />
+        </div>
+        <div className="flex shrink-0 items-center gap-1 md:justify-self-end md:gap-3">
           <Skeleton className="size-9 rounded-full" />
         </div>
       </header>
-      <div className="flex-1 overflow-x-clip px-4 pb-24 pt-6 md:px-6 md:pb-6 lg:px-8 lg:pt-8">
-        {view && <FolderPlaceholder view={view} />}
-      </div>
+      {view ? (
+        <div className="flex-1 overflow-x-clip px-4 pb-24 pt-6 md:flex md:min-h-0 md:flex-col md:p-0">
+          <FolderPlaceholder view={view} />
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "flex-1 overflow-x-clip px-4 pb-24 pt-6",
+            PageSurface.card,
+            "md:px-6 md:pb-6 lg:px-8 lg:pt-8",
+          )}
+        />
+      )}
     </SidebarFrame>
   );
 }
 
 function FolderPlaceholder({ view }: { view: "list" | "grid" }) {
   return (
-    <>
-      <div className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/70 bg-background px-4 py-3 md:-mx-6 md:flex md:justify-between md:px-6 lg:-mx-8 lg:-mt-8 lg:px-8">
-        <div className="flex h-10 min-w-0 items-center gap-2 overflow-hidden">
+    <section
+      className={cn(
+        "relative md:flex md:min-h-0 md:min-w-0 md:flex-1 md:flex-col md:overflow-hidden",
+        PageSurface.raisedFromTablet,
+      )}
+    >
+      <div className="surface-grain sticky top-16 z-10 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-border/70 bg-background px-4 py-3 md:relative md:top-auto md:m-0 md:flex md:h-14 md:shrink-0 md:border-border/60 md:bg-card md:bg-none md:px-2 md:py-0">
+        <div className="flex shrink-0 items-center gap-2 px-2 max-md:hidden">
+          <Skeleton className="size-4 rounded" />
+          <Skeleton className="mr-1 size-4 rounded" />
+        </div>
+        <div className="flex h-10 min-w-0 items-center gap-2 overflow-hidden md:flex-1">
           <Skeleton className="h-6 w-28 max-w-[38vw]" />
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -147,8 +173,10 @@ function FolderPlaceholder({ view }: { view: "list" | "grid" }) {
           </div>
         </div>
       </div>
-      <LoadingSkeleton view={view} />
-    </>
+      <div className="md:min-h-0 md:flex-1 md:overflow-hidden md:p-4">
+        <LoadingSkeleton view={view} />
+      </div>
+    </section>
   );
 }
 
@@ -164,14 +192,21 @@ export function SettingsSkeleton() {
         </div>
       }
     >
-      <header className="surface-grain sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 border-b border-border/40 bg-background px-4 md:px-6">
+      <header
+        className={cn(
+          PageSurface.header,
+          "sticky top-0 z-10 flex h-16 shrink-0 items-center gap-3 px-4 md:px-6",
+        )}
+      >
         <Skeleton className="size-8 shrink-0" />
         <Skeleton className="h-4 w-40" />
       </header>
-      <div className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 md:px-6 lg:px-8 lg:py-8">
-        <div className="space-y-8">
-          <Skeleton className="h-8 w-40" />
-          <Skeleton className="h-48 w-full rounded-xl" />
+      <div className={cn("flex-1", PageSurface.card)}>
+        <div className="mx-auto w-full max-w-4xl px-4 py-6 md:px-6 lg:px-8 lg:py-8">
+          <div className="space-y-8">
+            <Skeleton className="h-8 w-40" />
+            <Skeleton className="h-48 w-full rounded-xl" />
+          </div>
         </div>
       </div>
     </SidebarFrame>

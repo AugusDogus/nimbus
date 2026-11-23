@@ -57,7 +57,9 @@ function Root({ children }: { children: ReactNode }) {
         <Brand />
         <div ref={setSlot} className="contents" />
       </Sidebar>
-      <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pb-(--impersonation-offset) [scrollbar-gutter:stable]">
+      {/* Phones scroll the page as one. From 768 px the area is the window's tint and never
+          scrolls: the header sits on it and the content scrolls on its card (see `PageSurface`). */}
+      <SidebarInset className="surface-grain min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pb-(--impersonation-offset) [scrollbar-gutter:stable] md:overflow-hidden md:bg-none md:[scrollbar-gutter:auto] md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:bg-transparent md:peer-data-[variant=inset]:shadow-none">
         <BodySlot.Provider value={slot}>{children}</BodySlot.Provider>
       </SidebarInset>
     </SidebarProvider>

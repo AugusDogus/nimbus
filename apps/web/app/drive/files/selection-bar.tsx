@@ -139,7 +139,8 @@ export function SelectionBar({
           : compact
             ? // Takes the colour of the pane header it covers.
               "absolute inset-0 bg-inherit px-2"
-            : "absolute inset-0 bg-background px-2 md:px-4 lg:px-6",
+            : // From 768 px it covers the folder card's header and takes its colour.
+              "absolute inset-0 bg-background px-2 md:bg-inherit",
       )}
     >
       <Button
