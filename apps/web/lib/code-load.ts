@@ -90,6 +90,9 @@ function show(next: CodeLoadNotice) {
   for (const watcher of watchers) watcher();
 }
 
+/** Builds that answers named, other than this page's, whose entry was checked already. */
+const checkedBuilds = new Set<string>();
+
 /** Says, once, that Nimbus was updated. */
 function announceUpdate() {
   updated = true;
@@ -142,12 +145,30 @@ export const CodeLoad = {
     show("unavailable");
   },
 
-  /** Compares the build the server runs, as its responses name it, with this page's. */
+  /**
+   * Compares the build the server runs, as its answers name it, with this page's. Another name is
+   * only a hint, since an older server or a cached answer can carry one: Nimbus was updated only
+   * when this page's own entry is gone. Each name is checked once.
+   */
   checkBuild(build: string | null) {
     const entry = document.querySelector<HTMLScriptElement>(
       'script[type="module"][src]',
     )?.src;
-    if (build && entry && new URL(entry).pathname !== build) announceUpdate();
+    if (
+      !build ||
+      !entry ||
+      updated ||
+      checkedBuilds.has(build) ||
+      new URL(entry).pathname === build
+    )
+      return;
+    checkedBuilds.add(build);
+    void fetch(entry, { method: "HEAD", cache: "no-store" }).then(
+      (response) => {
+        if (response.status === 404) announceUpdate();
+      },
+      () => undefined,
+    );
   },
 
   notice: (): CodeLoadNotice => notice,

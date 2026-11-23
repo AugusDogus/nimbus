@@ -272,13 +272,8 @@ test("says when the picker's code keeps failing to arrive, without claiming an u
   expect(await marked(page)).toBe("this load");
 });
 
-test("says Nimbus was updated as soon as the server answers from a newer build", async ({
-  page,
-}) => {
-  const name = await folder({ "sub/": "" });
-  await page.goto(href(name));
-  await mark(page);
-  await expect(updated(page)).toHaveCount(0);
+/** Every answer from the API names another build than this page's. */
+async function answerFromAnotherBuild(page: Page) {
   await page.route("**/api/trpc/**", async (route) => {
     const response = await route.fetch();
     await route.fulfill({
@@ -289,6 +284,31 @@ test("says Nimbus was updated as soon as the server answers from a newer build",
       },
     });
   });
+}
+
+/** The page's own entry script, and the HEAD requests for it from now on. */
+async function entryChecks(page: Page) {
+  const entry = await page.evaluate(
+    () =>
+      new URL(
+        document.querySelector<HTMLScriptElement>('script[type="module"][src]')
+          ?.src ?? "",
+      ).pathname,
+  );
+  const checks = count(page, entry);
+  return { entry, checks };
+}
+
+test("says Nimbus was updated when an answer names another build and this page's entry is gone", async ({
+  page,
+}) => {
+  const name = await folder({ "sub/": "" });
+  await page.goto(href(name));
+  await mark(page);
+  await expect(updated(page)).toHaveCount(0);
+  const { entry, checks } = await entryChecks(page);
+  await remove(page, [entry]);
+  await answerFromAnotherBuild(page);
   // Opening a folder asks the server for its listing.
   await page
     .locator('[data-entry-name="sub"]')
@@ -297,7 +317,35 @@ test("says Nimbus was updated as soon as the server answers from a newer build",
   await expect(page).toHaveURL(new RegExp(`${href(name)}/sub$`));
   await expect(updated(page)).toBeVisible();
   expect(await marked(page)).toBe("this load");
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`${href(name)}$`));
+  // One check of the entry for that build, however many answers name it.
+  expect(checks).toEqual([expect.stringMatching(/^HEAD /)]);
   // Live update streams stay open through the handler until the page closes.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
+test("does not say Nimbus was updated when an answer names another build but this page's entry is still there", async ({
+  page,
+}) => {
+  const name = await folder({ "sub/": "" });
+  await page.goto(href(name));
+  const { checks } = await entryChecks(page);
+  await answerFromAnotherBuild(page);
+  const checked = page.waitForResponse(
+    (response) => response.request().method() === "HEAD",
+  );
+  await page
+    .locator('[data-entry-name="sub"]')
+    .filter({ visible: true })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`${href(name)}/sub$`));
+  expect((await checked).status()).toBe(200);
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`${href(name)}$`));
+  await page.waitForTimeout(500);
+  await expect(updated(page)).toHaveCount(0);
+  expect(checks).toHaveLength(1);
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
