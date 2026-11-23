@@ -1,0 +1,8 @@
+{
+  "deviceCode": "nimbus_pairing_example-only-not-a-real-device-code-0123456789",
+  "pairingCode": "B7KD-M4Q9",
+  "verificationUrl": "https://nimbus.example.test/pair",
+  "verificationUrlComplete": "https://nimbus.example.test/pair?code=B7KD-M4Q9",
+  "expiresIn": 600,
+  "interval": 5
+}
