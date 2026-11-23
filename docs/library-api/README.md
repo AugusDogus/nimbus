@@ -1,6 +1,6 @@
 # Libraries and paired devices
 
-Nimbus can offer chosen folders, read-only, to apps and devices that pair with it: a media player, a tablet on a kitchen wall, a script on another machine. This document is for anyone writing such a client. [`openapi.yaml`](openapi.yaml) is the exact contract, and [`fixtures/`](fixtures) has example responses.
+Nimbus can offer chosen folders, read-only, to apps and devices that pair with it: a tablet on a kitchen wall, a reader, a script on another machine. This document is for anyone writing such a client. [`openapi.yaml`](openapi.yaml) is the exact contract, and [`fixtures/`](fixtures) has example responses.
 
 - A **library** is a named set of folders that one Nimbus account offers. The account's owner creates it in Settings, Libraries, and chooses its folders in order. Everything in those folders and their subfolders is included, including files added later.
 - A **paired device** signs in once, with a code its owner approves on a signed-in phone or browser, and then holds one opaque token bound to exactly one library. It sees only that library and can change nothing.
@@ -9,7 +9,7 @@ All endpoints are under `/api/library/v1` on the server's public HTTPS address.
 
 ## Pairing
 
-1. The device calls `POST /pair/start` with `{ "deviceName": "Media box" }`. The name is shown to the person approving, labeled as supplied by the device.
+1. The device calls `POST /pair/start` with `{ "deviceName": "Kitchen tablet" }`. The name is shown to the person approving, labeled as supplied by the device.
 2. It shows the `pairingCode` (such as `B7KD-M4Q9`) and the `verificationUrl`, and may show `verificationUrlComplete` as a QR code. Codes expire after `expiresIn` seconds (10 minutes). Never show or log `deviceCode`: it is the device's secret.
 3. The owner opens the address on a phone or browser, signs in to Nimbus as usual (with their second factor, if they have one), checks the request and chooses a library, then Allow or Deny. Opening the address approves nothing.
 4. Meanwhile the device calls `POST /pair/poll` with `{ "deviceCode": "..." }` every `interval` seconds (5). The answer is `pending`, `denied`, `expired`, or `approved` with the device's `token` and its `library`. An early poll gets 429 `slow_down` with a larger `interval`, which then applies to every later poll.
@@ -38,7 +38,7 @@ Send it as `Authorization: Bearer <token>` on every other endpoint. Store it in 
 
 `GET /library` and `GET /library/data` answer with `Cache-Control: private, no-cache` and an `ETag`; send `If-None-Match` to get `304 Not Modified` when nothing changed. Every other answer is `private, no-store`.
 
-Planned for later versions, in this API's style: `GET /items/{id}`, `GET /items/{id}/file` (original bytes with ranges), `GET /items/{id}/poster`, `POST /items/{id}/stream` with `GET /media/{id}`, and `PUT /items/{id}/progress`. Some media players cannot send request headers, so streams will use a short-lived signed address together with a separate cookie rather than the bearer token.
+Planned for later versions, in this API's style: endpoints for one item, its original bytes, a preview image and this device's progress.
 
 ## The library
 
@@ -48,7 +48,7 @@ Each item has:
 
 | Field | Meaning |
 | --- | --- |
-| `id` | Opaque and random. Kept through renames and moves within the library; see [Identity](#identity). |
+| `id` | Opaque and random. Kept through renames and moves made through Nimbus; see [Identity](#identity). |
 | `name` | The file's real name, extension included. |
 | `title` | A display title derived from the name; see below. |
 | `kind` | `video`, `audio`, `image`, `document` or `other`, from the name. |
@@ -61,12 +61,12 @@ Each item has:
 
 ### Identity
 
-Ids, added dates and progress survive renames and moves, including ones made outside Nimbus (over a network share, by a sync tool, directly on disk), as long as the file's content is unchanged and the match is unambiguous.
+Ids and added dates survive renames and moves made through Nimbus, and a folder disappearing for a while and returning. Renames and moves made outside Nimbus (over a network share, by a sync tool, directly on disk) currently produce a new item with a new id; this is to be improved before progress is kept.
 
 - **Added dates.** A file found when a folder is first scanned, which happens when the folder is added to a library (or the library is created) and exists, is dated by its modification time, never later than the moment of the scan. A file that appears later is dated when the library first sees it, even when its modification time is older, as for a file copied in with its original dates.
 - **Edits.** A file changed in place keeps its id and added date; its `version` changes.
-- **Moves and returns.** Nimbus keeps a cheap fingerprint of each file: its size and a hash of a few small samples of its content. A file that disappears is remembered, unlisted and unreachable, for 30 days. When a file appears with the same size, modification time and fingerprint as exactly one remembered file of the same library, it takes over that file's id and added date, whether it came back to its old place or turned up somewhere else in the library. A copy made before the original is deleted, as moves between disks are, is recognized the same way within an hour.
-- **When in doubt, a new item.** If several remembered files or several new files match each other, if the content changed during the move, or if a file comes from another library, it gets a new id. A different file at an old path is a new item.
+- **Returns.** A file that disappears is remembered, unlisted and unreachable, for 30 days. When a file appears again at the same path with the same size and modification time, it gets its id and added date back, as when a folder was briefly unavailable.
+- **Otherwise a new item.** A different file at an old path, or a file at a new path, is a new item.
 
 ### Display titles
 

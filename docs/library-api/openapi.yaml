@@ -225,7 +225,7 @@ components:
           description: >-
             Shown to the person approving, labeled as supplied by the device. No control,
             invisible formatting (such as bidirectional marks) or line break characters.
-          examples: [Media box]
+          examples: [Kitchen tablet]
     PairStartResponse:
       type: object
       additionalProperties: false
@@ -370,8 +370,8 @@ components:
           type: string
           pattern: ^itm_[A-Za-z0-9_-]{10,64}$
           description: >-
-            Opaque and random. Kept through renames and moves within the library, also ones made
-            outside Nimbus, while the content is unchanged and the match is unambiguous; see README.md.
+            Opaque and random. Kept through renames and moves made through Nimbus and when a file
+            returns to its path; a rename made outside Nimbus gives a new id. See README.md.
         name:
           type: string
           minLength: 1

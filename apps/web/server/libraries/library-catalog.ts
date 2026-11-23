@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { getDataRoot } from "@nimbus/api/data-root";
 import { DescriptorPath } from "@nimbus/api/descriptor-path";
 import {
@@ -21,7 +21,6 @@ import { libraries, libraryFolders, libraryItems } from "../db/library-schema";
 import { FileVersion } from "../file-version";
 import { reconcileIntervalMs } from "../search-protocol";
 import { CatalogIdentity, type ScannedFile } from "./catalog-identity";
-import { ContentFingerprint } from "./content-fingerprint";
 import {
   LibraryAccess,
   type CatalogTarget,
@@ -235,7 +234,7 @@ async function reconcile(
     .from(libraryItems)
     .where(eq(libraryItems.libraryId, libraryId))
     .all();
-  const plan = await CatalogIdentity.plan(
+  const plan = CatalogIdentity.plan(
     libraryId,
     rows,
     scanned.files.map((file) => ({
@@ -243,7 +242,6 @@ async function reconcile(
       firstScan: firstScan.has(file.path),
     })),
     now,
-    (file) => ContentFingerprint.of(file.path, file),
   );
   const prunable = rows
     .filter((row) => !live(row) && !plan.updates.some((u) => u.id === row.id))
@@ -258,11 +256,7 @@ async function reconcile(
     unscanned.has(folder),
   );
   const changed =
-    plan.inserts.length +
-      plan.updates.length +
-      plan.deletes.length +
-      plan.tombstones.length >
-    0;
+    plan.inserts.length + plan.updates.length + plan.tombstones.length > 0;
   // Synchronous, so the transaction commits exactly these statements.
   const committed = ctx.db.transaction((tx) => {
     // Deleted while it was being scanned: its catalog went with it.
@@ -274,7 +268,7 @@ async function reconcile(
         .get()
     )
       return false;
-    const removed = [...plan.deletes, ...new Set(pruned)];
+    const removed = [...new Set(pruned)];
     for (let start = 0; start < removed.length; start += 500)
       tx.delete(libraryItems)
         .where(inArray(libraryItems.id, removed.slice(start, start + 500)))
@@ -325,49 +319,6 @@ async function reconcile(
     .all();
 }
 
-/**
- * Compute the fingerprints the live rows of library `libraryId` lack, as new and changed files
- * have, so a later move or return can be recognized. Runs after a reconcile, off the request
- * that caused it, one file at a time, and stores them in one transaction.
- */
-async function fingerprintPending(
-  ctx: Pick<LibraryContext, "db">,
-  libraryId: string,
-) {
-  const pending = ctx.db
-    .select()
-    .from(libraryItems)
-    .where(
-      and(
-        eq(libraryItems.libraryId, libraryId),
-        isNull(libraryItems.missingSince),
-        isNull(libraryItems.fingerprint),
-      ),
-    )
-    .orderBy(asc(libraryItems.firstSeenAt))
-    .all();
-  const computed: { id: string; version: string; fingerprint: string }[] = [];
-  for (const row of pending) {
-    const fingerprint = await ContentFingerprint.of(row.path, row);
-    if (fingerprint !== null)
-      computed.push({ id: row.id, version: row.version, fingerprint });
-  }
-  if (!computed.length) return;
-  ctx.db.transaction((tx) => {
-    for (const row of computed)
-      // Only for the version it was read for: a file changed meanwhile is read again later.
-      tx.update(libraryItems)
-        .set({ fingerprint: row.fingerprint })
-        .where(
-          and(
-            eq(libraryItems.id, row.id),
-            eq(libraryItems.version, row.version),
-          ),
-        )
-        .run();
-  });
-}
-
 type Cached = {
   /** The target scanned, as a key: a change of folders makes the entry stale. */
   folders: string;
@@ -378,8 +329,6 @@ type Cached = {
 
 const cache = new Map<string, Cached>();
 const inFlight = new Map<string, Promise<Cached>>();
-/** Each library's latest fingerprint pass. */
-const background = new Map<string, Promise<void>>();
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
 const keyOf = (target: CatalogTarget) =>
@@ -404,14 +353,6 @@ async function refresh(
           : scanned,
     };
     cache.set(libraryId, entry);
-    background.set(
-      libraryId,
-      fingerprintPending(ctx, libraryId).catch((error: unknown) =>
-        console.error(
-          `Nimbus could not fingerprint a library's files: ${error instanceof Error ? error.name : typeof error}. Moves of those files are not recognized until the next pass.`,
-        ),
-      ),
-    );
     return entry;
   })();
   inFlight.set(libraryId, work);
@@ -515,10 +456,9 @@ export const LibraryCatalog = {
       await LibraryCatalog.refreshLibrary(ctx, library.id);
   },
 
-  /** Wait for every fingerprint pass started so far. */
+  /** Wait for every reconcile under way. */
   async whenIdle() {
     await Promise.all([...inFlight.values()]);
-    await Promise.all([...background.values()]);
   },
 
   /** Forget every cached scan, as a restart would. */
