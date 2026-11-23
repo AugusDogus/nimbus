@@ -104,7 +104,6 @@ function revokeGrants(
       .all();
     if (!ended.length) return [];
     const ids = ended.map((row) => row.id);
-    for (const id of ids) revokedHere.add(id);
     Transfers.devicesEnded(ids);
     return tx
       .update(pairedDevices)
@@ -193,12 +192,6 @@ function check(
   };
 }
 
-/**
- * Devices revoked by this process, so work already under way for one, such as a file still being
- * sent, can stop between chunks without asking the database. The database stays the authority.
- */
-const revokedHere = new Set<string>();
-
 export const PairedDevices = {
   tokenPrefix,
 
@@ -209,9 +202,6 @@ export const PairedDevices = {
       and(eq(mcpGrants.id, grantId), eq(mcpTokens.kind, "device_token")),
     );
   },
-
-  /** Whether this process revoked device `grantId`: cheap, for checks between chunks. */
-  revokedHere: (grantId: string) => revokedHere.has(grantId),
 
   /**
    * Record a newly paired device inside the caller's transaction: its grant, its token (only the

@@ -17,6 +17,7 @@ import { LibraryHttp } from "./library-http";
 import { openLibraryTest, type LibraryTest } from "./library-testing";
 import { MediaTickets, MAX_TICKETS_PER_DEVICE } from "./media-tickets";
 import { PairedDevices } from "./paired-devices";
+import { Transfers } from "./transfers";
 
 /**
  * The library's file endpoints over a real socket, as a client and a media player use them:
@@ -490,6 +491,8 @@ describe("media addresses", () => {
     })().catch(() => "stopped");
     expect(await drained).toBe("stopped");
     expect(received).toBeLessThan(size);
+    // Nothing about the transfer, or the revocation, is kept once it ended.
+    expect(Transfers.size).toBe(0);
     // And the next range is refused as a revoked device, even once the ticket expired too.
     const after = await media(minted, { range: "bytes=2-3" });
     expect(after.status).toBe(401);

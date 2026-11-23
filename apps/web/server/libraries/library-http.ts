@@ -250,7 +250,6 @@ async function deviceWatch(
     "The device was disconnected from Nimbus, so the transfer was stopped.";
   return {
     allowed: async () => {
-      if (PairedDevices.revokedHere(device.id)) return disconnected;
       if (transfer.stopped !== null) return transfer.stopped;
       const currentEpoch = await ctx.drive.accessEpoch();
       const currentVersion = LibraryAccess.libraryVersion(
