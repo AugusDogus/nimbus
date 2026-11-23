@@ -112,7 +112,8 @@ export type PaneFailure = {
 export type PaneParts = {
   attachToolbar: (element: HTMLDivElement | null) => void;
   breadcrumbs: ReactNode;
-  filters: ReactNode;
+  /** The pane's own sort, grouping and view, which its frame offers in a menu. */
+  prefs: PanePrefs;
   content:
     | { kind: "listing"; body: ReactNode }
     | { kind: "failed"; failure: PaneFailure };
@@ -273,14 +274,6 @@ export function FolderPane({
       }}
     />
   );
-  const filters = (
-    <FiltersRow
-      prefs={prefs}
-      view={view}
-      updatePreferences={updatePreferences}
-    />
-  );
-
   // A folder that is missing, refused or cannot be opened replaces the page, until a listing
   // exists. The server refuses a folder the account may not browse before looking it up, so
   // a refusal says nothing about whether it exists. A pane says so at once, even over the
@@ -404,7 +397,7 @@ export function FolderPane({
         parts={{
           attachToolbar,
           breadcrumbs,
-          filters,
+          prefs: pane.prefs,
           content: failed
             ? {
                 kind: "failed",
@@ -431,7 +424,11 @@ export function FolderPane({
         <div className="min-w-0 overflow-hidden pointer-coarse:-my-3 pointer-coarse:py-3 pointer-coarse:-ml-3.5 pointer-coarse:pl-3.5">
           {breadcrumbs}
         </div>
-        {filters}
+        <FiltersRow
+          prefs={prefs}
+          view={view}
+          updatePreferences={updatePreferences}
+        />
       </div>
       {body}
     </>

@@ -5,7 +5,7 @@ import type { SplitSearch } from "./split-layout";
 /**
  * Where a folder opens from the pane around a link: the address's left folder and its split
  * params, so the other pane stays as it is. Outside a split view there is none, and folders
- * open as the page's one folder.
+ * open as the page's one folder. `SplitAddress.paneLinks` makes them.
  */
 export type PaneLinks = {
   to: (path: string) => { left: string; search: SplitSearch };

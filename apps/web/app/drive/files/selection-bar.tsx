@@ -64,10 +64,16 @@ export type OtherPaneActionsProps = {
   targets: readonly FileEntry[];
   other: OtherPane;
   canMove: boolean;
-  /** In a pane of a split view: names the folder beside the icons once the pane is wide enough. */
-  labelled: boolean;
+  /**
+   * In a pane of a split view, the selection's less frequent actions, for a menu after the rest;
+   * the other pane's actions then name its folder once the pane is wide enough. Null elsewhere.
+   */
+  more: readonly MenuAction[] | null;
   actions: ReturnType<typeof useFileActions>;
 };
+
+/** One action in a menu: what it says, and what it does. */
+export type MenuAction = { label: string; run: () => void };
 
 /**
  * Renders the actions that move or copy the selection straight into the other pane's folder.
@@ -104,7 +110,10 @@ export function SelectionBar({
   onClear: () => void;
   /** The other pane's folder in a split view, which the selection can go to directly. */
   other?: OtherPane | null;
-  /** In a pane of a split view: the usual actions show only icons, leaving room for the other pane's. */
+  /**
+   * In a pane of a split view: the other pane's actions keep their labels, Download and Trash
+   * show as icons, and the rest go into a menu.
+   */
   compact?: boolean;
 }) {
   const { move: canMove, trash: canTrash } = selectionCapabilities(targets);
@@ -124,10 +133,13 @@ export function SelectionBar({
         onClear();
       }}
       className={cn(
-        "z-20 flex items-center gap-1 bg-background",
+        "z-20 flex items-center gap-1",
         floating
-          ? "fixed bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px))] left-1/2 -translate-x-1/2 rounded-full border px-2 py-1.5 shadow-lg"
-          : "absolute inset-0 px-2 md:px-4 lg:px-6",
+          ? "fixed bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px))] left-1/2 -translate-x-1/2 rounded-full border bg-background px-2 py-1.5 shadow-lg"
+          : compact
+            ? // Takes the colour of the pane header it covers.
+              "absolute inset-0 bg-inherit px-2"
+            : "absolute inset-0 bg-background px-2 md:px-4 lg:px-6",
       )}
     >
       <Button
@@ -153,10 +165,40 @@ export function SelectionBar({
             targets,
             other,
             canMove,
-            labelled: compact,
+            more: compact
+              ? [
+                  ...(targets.length < total
+                    ? [{ label: "Select all", run: onSelectAll }]
+                    : []),
+                  {
+                    label: "Copy to…",
+                    run: () => onOpen({ action: "copy", entries: targets }),
+                  },
+                  ...(canMove
+                    ? [
+                        {
+                          label: "Move to…",
+                          run: () =>
+                            onOpen({ action: "move", entries: targets }),
+                        },
+                      ]
+                    : []),
+                  ...(star.disabled
+                    ? []
+                    : [{ label: star.label, run: star.run }]),
+                  ...(canMove && up.kind === "into"
+                    ? [
+                        {
+                          label: "Move up one level",
+                          run: () => void actions.moveEntries(targets, up.path),
+                        },
+                      ]
+                    : []),
+                ]
+              : null,
             actions,
           })}
-        {targets.length < total && (
+        {!compact && targets.length < total && (
           <Action
             label="Select all"
             iconOnly={compact}
@@ -172,21 +214,25 @@ export function SelectionBar({
           icon={<Download className="size-4" />}
           onClick={() => actions.downloadEntries(targets)}
         />
-        <Action
-          label={star.label}
-          iconOnly={compact}
-          className={other ? "max-md:hidden" : undefined}
-          icon={<Star className="size-4" />}
-          disabled={star.disabled}
-          onClick={star.run}
-        />
-        <Action
-          label="Copy"
-          iconOnly={compact || other !== null}
-          icon={<Copy className="size-4" />}
-          onClick={() => onOpen({ action: "copy", entries: targets })}
-        />
-        {canMove && (
+        {!compact && (
+          <Action
+            label={star.label}
+            iconOnly={compact}
+            className={other ? "max-md:hidden" : undefined}
+            icon={<Star className="size-4" />}
+            disabled={star.disabled}
+            onClick={star.run}
+          />
+        )}
+        {!compact && (
+          <Action
+            label="Copy"
+            iconOnly={compact || other !== null}
+            icon={<Copy className="size-4" />}
+            onClick={() => onOpen({ action: "copy", entries: targets })}
+          />
+        )}
+        {!compact && canMove && (
           <Action
             label="Move"
             iconOnly={compact || other !== null}
@@ -194,7 +240,7 @@ export function SelectionBar({
             onClick={() => onOpen({ action: "move", entries: targets })}
           />
         )}
-        {canMove && up.kind !== "none" && (
+        {!compact && canMove && up.kind !== "none" && (
           <Action
             // Phones have no room for it beside the other 44 px actions; item menus offer it there.
             className="max-md:hidden"

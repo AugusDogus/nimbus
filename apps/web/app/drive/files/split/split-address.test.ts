@@ -39,4 +39,23 @@ describe("writing a split view into the address", () => {
       }),
     ).toBe("/?right=%2F&active=right&ratio=40");
   });
+
+  it("opens a folder in the active pane and leaves the other as it is", () => {
+    const layout = {
+      right: "Archive",
+      active: "right",
+      ratio: 50,
+      collapsed: null,
+    } as const;
+    expect(
+      SplitAddress.openInActive({ left: "Projects", layout }, "Guides"),
+    ).toBe("/browse/Projects?right=Guides&active=right&ratio=50");
+    expect(
+      SplitAddress.openInActive(
+        { left: "Projects", layout: { ...layout, active: "left" } },
+        "Guides",
+      ),
+    ).toBe("/browse/Guides?right=Archive&active=left&ratio=50");
+  });
+
 });

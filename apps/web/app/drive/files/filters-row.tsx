@@ -1,16 +1,4 @@
-import type { LucideIcon } from "lucide-react";
-import {
-  ArrowDownAZ,
-  ArrowUpAZ,
-  Calendar,
-  Check,
-  FileText,
-  Grid2X2,
-  Layers,
-  List,
-  SlidersHorizontal,
-  Weight,
-} from "lucide-react";
+import { Check, Grid2X2, Layers, List, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -39,48 +27,13 @@ import {
 } from "@/components/ui/tooltip";
 
 import type { UserPreferences } from "@nimbus/api/context";
+import { SortOption } from "./sort-option";
 
 type FiltersRowProps = {
   prefs: UserPreferences;
   view: UserPreferences["view"];
   updatePreferences: (partial: Partial<UserPreferences>) => void;
 };
-
-type SortOption = {
-  field: UserPreferences["sortField"];
-  direction: UserPreferences["sortDirection"];
-  label: string;
-  icon: LucideIcon;
-};
-
-const sortOptions: SortOption[] = [
-  {
-    field: "name",
-    direction: "asc",
-    label: "Name (A to Z)",
-    icon: ArrowDownAZ,
-  },
-  { field: "name", direction: "desc", label: "Name (Z to A)", icon: ArrowUpAZ },
-  {
-    field: "modified",
-    direction: "desc",
-    label: "Modified (Newest)",
-    icon: Calendar,
-  },
-  {
-    field: "modified",
-    direction: "asc",
-    label: "Modified (Oldest)",
-    icon: Calendar,
-  },
-  { field: "size", direction: "desc", label: "Size (Largest)", icon: Weight },
-  { field: "size", direction: "asc", label: "Size (Smallest)", icon: Weight },
-  { field: "type", direction: "asc", label: "Type (A to Z)", icon: FileText },
-  { field: "type", direction: "desc", label: "Type (Z to A)", icon: FileText },
-];
-
-const sortValue = (option: Pick<SortOption, "field" | "direction">) =>
-  `${option.field}-${option.direction}`;
 
 export function FiltersRow({
   prefs,
@@ -89,13 +42,11 @@ export function FiltersRow({
 }: FiltersRowProps) {
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
-  const selectedValue = sortValue({
+  const selectedValue = SortOption.value({
     field: prefs.sortField,
     direction: prefs.sortDirection,
   });
-  const selectedSort =
-    sortOptions.find((option) => sortValue(option) === selectedValue) ??
-    sortOptions[0];
+  const selectedSort = SortOption.find(selectedValue) ?? SortOption.all[0];
 
   return (
     <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -134,12 +85,12 @@ export function FiltersRow({
               aria-labelledby="sort-drawer-label"
               className="flex flex-col gap-1"
             >
-              {sortOptions.map((option) => (
+              {SortOption.all.map((option) => (
                 <DrawerClose
-                  key={sortValue(option)}
+                  key={SortOption.value(option)}
                   render={
                     <DrawerActionItem
-                      aria-pressed={sortValue(option) === selectedValue}
+                      aria-pressed={SortOption.value(option) === selectedValue}
                       onClick={() => {
                         updatePreferences({
                           sortField: option.field,
@@ -151,7 +102,7 @@ export function FiltersRow({
                 >
                   <option.icon className="size-5 text-muted-foreground" />
                   <span className="flex-1 text-left">{option.label}</span>
-                  {sortValue(option) === selectedValue && (
+                  {SortOption.value(option) === selectedValue && (
                     <Check aria-hidden className="size-4 text-primary" />
                   )}
                 </DrawerClose>
@@ -176,11 +127,9 @@ export function FiltersRow({
 
       {/* Desktop: inline controls */}
       <Select
-        value={sortValue(selectedSort)}
+        value={SortOption.value(selectedSort)}
         onValueChange={(value) => {
-          const option = sortOptions.find(
-            (candidate) => sortValue(candidate) === value,
-          );
+          const option = value === null ? undefined : SortOption.find(value);
           if (option)
             updatePreferences({
               sortField: option.field,
@@ -201,8 +150,11 @@ export function FiltersRow({
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {sortOptions.map((option) => (
-            <SelectItem key={sortValue(option)} value={sortValue(option)}>
+          {SortOption.all.map((option) => (
+            <SelectItem
+              key={SortOption.value(option)}
+              value={SortOption.value(option)}
+            >
               <option.icon className="size-4" />
               {option.label}
             </SelectItem>
