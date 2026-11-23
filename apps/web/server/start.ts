@@ -7,7 +7,10 @@ import { DatabaseFiles } from "./db/database-files";
 import { upgradeDatabase } from "./db/migrate-database";
 import { createDriveStore } from "./drive-store";
 import { DavLockStore } from "./dav-lock-store";
-import { setFileLockStore } from "@nimbus/api/file-mutations";
+import {
+  setFileLockStore,
+  setScopeAuthority,
+} from "@nimbus/api/file-mutations";
 import { handleWebDAV } from "./webdav";
 import { cleanExpiredData } from "./maintenance";
 import {
@@ -31,8 +34,35 @@ import { SameSiteRedirect } from "./same-site-redirect";
 import { backups, backupsToKeep } from "./backup";
 import { readMcpConfig } from "./mcp/config";
 import { getConfigRoot, requireDataRoot } from "./storage-paths";
-import { ensureFileWatcher } from "./file-watcher";
+import { ensureFileWatcher, stopFileWatcher } from "./file-watcher";
 import { watchLibraryCatalogs } from "./libraries/library-runtime";
+import { Transfers } from "./libraries/transfers";
+import { searchIndexed } from "./search-bridge";
+import { GET as readiness } from "./routes/health";
+import { Supervision } from "./supervisor/supervision";
+
+const startedAt = performance.now();
+// Under the supervisor this server is one of possibly several, replaced without downtime.
+const supervised = Supervision.fromProcess();
+if (!supervised.ok) throw new Error(supervised.error.message);
+const supervision = supervised.value;
+/**
+ * Work only one server may do. `active` is the server taking new connections: it scans library
+ * catalogs and runs the hourly cleanup. `alone` means no other server runs any more: only then
+ * are changes a crash left unfinished recovered, since another server's changes in progress
+ * would look the same. A server with no predecessor is both from the start.
+ */
+const roles = {
+  active: Promise.withResolvers<void>(),
+  alone: Promise.withResolvers<void>(),
+};
+const replacing = supervision.kind === "supervised" && supervision.predecessor;
+if (!replacing) {
+  roles.active.resolve();
+  roles.alone.resolve();
+}
+/** Set once this server started to drain; see `drain`. */
+let draining = false;
 
 const port = Number(process.env.PORT ?? "3000");
 if (!Number.isInteger(port) || port < 0 || port > 65535) {
@@ -78,6 +108,11 @@ const commonHeaders = SecurityHeaders.common(securityMode);
 backupsToKeep();
 requireDataRoot();
 DatabaseFiles.requireWritable(client, databasePath);
+// Live updates and search follow the data root from here on, now that it is known to exist.
+ensureFileWatcher();
+// A supervised server takes over with search complete, and migrates only then, so a server it
+// replaces runs against a newer schema for as short a time as possible.
+if (supervision.kind === "supervised") await searchIndexed();
 await upgradeDatabase(client, async () =>
   path.join(getConfigRoot(), "backups", (await backups().run()).name),
 );
@@ -87,12 +122,34 @@ DatabaseFiles.restrict(databasePath);
 setAuditSink(createAuditSink(db));
 // WebDAV locks outlive this process, so the next one an update starts honours them.
 setFileLockStore(DavLockStore.create(db));
-const store = createDriveStore(db);
-// Before any request: changes a crash cut between their filesystem and database steps.
-for (const recovered of await PendingChanges.recover(store, getDataRoot()))
-  (recovered.outcome === "unclear" ? console.warn : console.info)(
-    PendingChanges.describe(recovered),
+if (supervision.kind === "supervised") {
+  // Every server the supervisor runs takes path scopes from it, so their changes never overlap.
+  setScopeAuthority(supervision.scopes);
+  // A transfer may be sent by another server than the one where its device or library changed.
+  Transfers.relayTo((signal) =>
+    supervision.send({ kind: "transfer-signal", signal }),
   );
+  supervision.onTransferSignal(Transfers.apply);
+}
+const store = createDriveStore(db);
+// Changes a crash cut between their filesystem and database steps: before any request, or,
+// beside servers still running, once they are gone.
+const recoverPendingChanges = async () => {
+  for (const recovered of await PendingChanges.recover(store, getDataRoot()))
+    (recovered.outcome === "unclear" ? console.warn : console.info)(
+      PendingChanges.describe(recovered),
+    );
+};
+if (replacing)
+  void roles.alone.promise
+    .then(recoverPendingChanges)
+    .catch((error: unknown) =>
+      console.error(
+        "Nimbus could not recover changes a stopped server left unfinished. They are recovered at the next start.",
+        error,
+      ),
+    );
+else await recoverPendingChanges();
 const homesContainer = await Homes.prepare(store, homesPath);
 if (homesContainer.kind === "refused") throw new Error(homesContainer.message);
 if (homesContainer.created)
@@ -100,10 +157,14 @@ if (homesContainer.created)
 for (const home of await Homes.backfill(store))
   if (home.kind === "failed") console.error(home.message);
   else console.info(`Nimbus created the home folder ${home.path}.`);
-// Live updates and search follow the data root from here on, now that it is known to exist.
-ensureFileWatcher();
-watchLibraryCatalogs();
-const shell = await AppShell.start(securityMode);
+let stopCatalogs: (() => void) | null = null;
+void roles.active.promise.then(() => {
+  if (!draining) stopCatalogs = watchLibraryCatalogs();
+});
+const shell = await AppShell.start(
+  securityMode,
+  supervision.kind === "supervised" ? supervision.previousAssets : [],
+);
 const routes = HttpRoutes.create({ shell, mode: securityMode });
 // Aborted at shutdown, which ends live event streams so the server can drain.
 const streams = new AbortController();
@@ -231,9 +292,22 @@ async function route(request: Request): Promise<Response> {
   );
 }
 
+// With reusePort, requests reach a server the moment it listens, so a supervised one listens
+// only once its readiness check passes; the server it replaces keeps serving meanwhile.
+if (supervision.kind === "supervised")
+  for (let attempt = 0; !(await readiness()).ok; attempt++) {
+    if (attempt === 0)
+      console.error(
+        "Nimbus waits for its readiness check to pass before it listens; the server it replaces keeps serving meanwhile.",
+      );
+    await Bun.sleep(1000);
+  }
+
 const server = Bun.serve({
   port,
   hostname: "0.0.0.0",
+  // Lets the next server listen on the same port before this one leaves it.
+  reusePort: supervision.kind === "supervised",
   development: false,
   // Bun's maximum. Event streams opt out of the timeout entirely.
   idleTimeout: 255,
@@ -314,36 +388,98 @@ function cleanup() {
     });
   return pendingCleanup;
 }
-void cleanup();
-const cleanupTimer = setInterval(() => void cleanup(), 60 * 60 * 1000);
-cleanupTimer.unref();
+let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+void roles.active.promise.then(() => {
+  if (draining) return;
+  void cleanup();
+  cleanupTimer = setInterval(() => void cleanup(), 60 * 60 * 1000);
+  cleanupTimer.unref();
+});
 
-let shuttingDown = false;
-function shutdown() {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  clearInterval(cleanupTimer);
-  streams.abort();
-  const deadline = setTimeout(() => {
-    console.error(
-      "Nimbus shutdown exceeded 30 seconds. Closing remaining connections.",
+/**
+ * Stop accepting connections, and finish what was started: graceful `server.stop()` closes the
+ * listener at once and resolves once every response already started has been sent, however
+ * long that takes, such as a film streamed to a player. Live event streams end now, so their
+ * clients reconnect to the next server. Work this server no longer needs stops too: the file
+ * watcher, the search index and its worker, catalog scans and the hourly cleanup. What open
+ * responses need stays: their file descriptors, the database, and the checks between chunks
+ * that cut off a disconnected device. Past `deadline` (epoch milliseconds) the remaining
+ * responses are cut. A later call may bring the deadline forward.
+ */
+let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+let deadlineAt = Number.POSITIVE_INFINITY;
+function drain(deadline: number) {
+  if (deadline < deadlineAt) {
+    deadlineAt = deadline;
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    deadlineTimer = setTimeout(
+      () => {
+        console.error(
+          `Nimbus reached its drain deadline with ${server.pendingRequests} responses still being sent. Closing their connections.`,
+        );
+        void server.stop(true);
+        void finish(true);
+      },
+      Math.max(0, deadline - Date.now()),
     );
-    void server.stop(true);
-    client.close();
-    process.exit(1);
-  }, 30_000);
-  deadline.unref();
-  void (async () => {
-    await server.stop();
+  }
+  if (draining) return;
+  draining = true;
+  const stopped = server.stop();
+  streams.abort();
+  if (cleanupTimer) clearInterval(cleanupTimer);
+  stopCatalogs?.();
+  stopFileWatcher();
+  if (supervision.kind === "supervised") {
+    const report = () =>
+      supervision.send({ kind: "in-flight", count: server.pendingRequests });
+    report();
+    setInterval(report, 10_000).unref();
+  }
+  void stopped.then(() => finish(false));
+}
+
+let finishing: Promise<void> | null = null;
+function finish(forced: boolean) {
+  finishing ??= (async () => {
     await pendingCleanup;
     await flushAudit();
     client.close();
-    clearTimeout(deadline);
-    process.exit(0);
+    if (supervision.kind === "supervised")
+      supervision.send({ kind: "drained", forced });
+    process.exit(forced ? 1 : 0);
   })().catch((error: unknown) => {
     console.error("Nimbus shutdown failed.", error);
     process.exit(1);
   });
+  return finishing;
 }
+
+// On its own, a stop signal drains for 30 seconds, as a container stop allows.
+const shutdown = () => drain(Date.now() + 30_000);
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+
+if (supervision.kind === "supervised") {
+  supervision.onLifecycle((message) => {
+    switch (message.kind) {
+      case "drain":
+        drain(message.deadline);
+        return;
+      case "active":
+        roles.active.resolve();
+        return;
+      case "alone":
+        roles.active.resolve();
+        roles.alone.resolve();
+        return;
+    }
+  });
+  // Without its supervisor nothing can hand this server over: it stops as a container would.
+  supervision.onDisconnect(shutdown);
+  supervision.send({
+    kind: "ready",
+    build: shell.build,
+    startupMs: Math.round(performance.now() - startedAt),
+  });
+}
