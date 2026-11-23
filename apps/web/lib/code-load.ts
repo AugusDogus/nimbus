@@ -3,9 +3,12 @@
  *
  * Nimbus ships each build with new file names. A page opened before a deployment still asks for
  * the old ones, which the server no longer has, so only reloading gets the new code. Other loads
- * fail for a while, such as on a dropped connection, and pass when tried again. Nothing here
- * reloads the page by itself, which could lose an upload, a transfer or unsaved text.
+ * fail for a while, such as on a dropped connection, and pass when tried again. Once Nimbus was
+ * updated, the next move to another page loads that page in full (see `reloadForUpdate`), unless
+ * leaving would lose an upload, a transfer or unsaved text (see `LeaveGuard`).
  */
+
+import { LeaveGuard } from "./leave-guard";
 
 /**
  * `updated`: a deployment replaced the files of the build this page runs. `unavailable`: loading
@@ -67,10 +70,7 @@ function failedFile(error: unknown) {
  * for the page's own entry, which a deployment replaces. Throws when the server is unreachable.
  */
 async function replaced(file: URL | undefined) {
-  const entry = document.querySelector<HTMLScriptElement>(
-    'script[type="module"][src]',
-  )?.src;
-  for (const url of [file?.pathname, entry])
+  for (const url of [file?.pathname, entryPath()])
     if (
       url &&
       (await fetch(url, { method: "HEAD", cache: "no-store" })).status === 404
@@ -79,9 +79,19 @@ async function replaced(file: URL | undefined) {
   return false;
 }
 
+/** The path of this page's own entry script, which a deployment replaces. */
+function entryPath() {
+  const src = document.querySelector<HTMLScriptElement>(
+    'script[type="module"][src]',
+  )?.src;
+  return src ? new URL(src).pathname : undefined;
+}
+
+/** Whether a deployment replaced this page's build; nothing says so until something fails. */
 let updated = false;
 let notice: CodeLoadNotice = null;
-let announced = false;
+/** Whether the page is reloading to run the new build. */
+let reloading = false;
 const watchers = new Set<() => void>();
 
 function show(next: CodeLoadNotice) {
@@ -92,13 +102,37 @@ function show(next: CodeLoadNotice) {
 /** Builds that answers named, other than this page's, whose entry was checked already. */
 const checkedBuilds = new Set<string>();
 
-/** Says, once, that Nimbus was updated. */
-function announceUpdate() {
-  updated = true;
-  if (announced) return;
-  announced = true;
-  show("updated");
+/**
+ * The build whose page last reloaded for an update, in this tab. A reload that lands on that same
+ * build, such as from a cache that still serves its page, reloads no more.
+ */
+const reloadedFrom = "nimbus:update-reloaded-from";
+
+/**
+ * Reloads the page, once Nimbus was updated, to run the new build, unless leaving would lose
+ * work, or the page already reloaded from this build. The router calls it when it moves to
+ * another page, with `showAddress` to put that page's address in place first, so the reload opens
+ * that page. Says whether the page is reloading.
+ */
+function reloadForUpdate(showAddress?: () => void) {
+  if (reloading) return true;
+  const entry = entryPath();
+  if (!updated || !entry || LeaveGuard.busy()) return false;
+  try {
+    if (sessionStorage.getItem(reloadedFrom) === entry) return false;
+    sessionStorage.setItem(reloadedFrom, entry);
+  } catch {
+    // Without a record of the reload, a reload could follow another.
+    return false;
+  }
+  reloading = true;
+  showAddress?.();
+  location.reload();
+  return true;
 }
+
+/** Never settles: what waits on it waits for the page to unload. */
+const unloading = new Promise<void>(() => undefined);
 
 /** The pauses before trying a failed load again: three tries at most, further apart each time. */
 const delays = [1000, 3000];
@@ -106,7 +140,7 @@ const delays = [1000, 3000];
 /**
  * `importer`, tried again after a failure that may pass, each time with a new request. Fails
  * with a `CodeLoadError` saying which kind of failure it was, never with the browser's own
- * error, which TanStack Router answers by reloading the page. Says when Nimbus was updated.
+ * error, which TanStack Router answers by reloading the page. Notes when Nimbus was updated.
  * Once it was, a load fails at the first failure: code this page loaded already still loads,
  * and the browser does not ask again for a file that failed.
  */
@@ -119,7 +153,7 @@ async function load<T>(importer: () => Promise<T>): Promise<T> {
       if (updated) throw new CodeLoadError("updated", error);
       const file = failedFile(error);
       if (await replaced(file).catch(() => false)) {
-        announceUpdate();
+        updated = true;
         throw new CodeLoadError("updated", error);
       }
       const delay = delays[attempt];
@@ -135,14 +169,20 @@ export const CodeLoad = {
   message: (kind: CodeLoadFailure) => messages[kind],
 
   /**
-   * Shows that code a page needs did not load and that reloading is needed: that Nimbus was
-   * updated was said already, once.
+   * Shows that code something asked for did not load, and why, with Reload. Each failure shows
+   * it again, also after it was dismissed.
    */
   failed(error: unknown) {
-    if (updated || (error instanceof CodeLoadError && error.kind === "updated"))
-      return;
-    show("unavailable");
+    show(
+      updated || (error instanceof CodeLoadError && error.kind === "updated")
+        ? "updated"
+        : "unavailable",
+    );
   },
+
+  reloadForUpdate,
+  /** For the router to wait on while the page reloads, so the page stays as it is meanwhile. */
+  reloading: () => (reloading ? unloading : undefined),
 
   /**
    * Compares the build the server runs, as its answers name it, with this page's. Another name is
@@ -150,21 +190,19 @@ export const CodeLoad = {
    * when this page's own entry is gone. Each name is checked once.
    */
   checkBuild(build: string | null) {
-    const entry = document.querySelector<HTMLScriptElement>(
-      'script[type="module"][src]',
-    )?.src;
+    const entry = entryPath();
     if (
       !build ||
       !entry ||
       updated ||
       checkedBuilds.has(build) ||
-      new URL(entry).pathname === build
+      entry === build
     )
       return;
     checkedBuilds.add(build);
     void fetch(entry, { method: "HEAD", cache: "no-store" }).then(
       (response) => {
-        if (response.status === 404) announceUpdate();
+        if (response.status === 404) updated = true;
       },
       () => undefined,
     );

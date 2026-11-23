@@ -2,6 +2,7 @@ import {
   createElement,
   Suspense,
   use,
+  useEffect,
   useState,
   type ComponentType,
   type ReactNode,
@@ -19,10 +20,21 @@ type Loading<P> =
  * dialogs, previews and other UI that most visits never open.
  *
  * Loads through `CodeLoad.load`. A load that fails, also after its retries, shows the code load
- * notice, which offers Reload, and renders nothing, so the page stays as it is. It starts over
- * when the component mounts again, such as when its dialog opens again; never on its own, so a
- * file that stays missing is not asked for again and again.
+ * notice, which offers Reload, and renders nothing, so the page stays as it is. A dialog that
+ * failed so closes through its `onClose`, so opening it again is a new try. It starts over when
+ * the component mounts again, such as when its dialog opens again; never on its own, so a file
+ * that stays missing is not asked for again and again.
  */
+/** Whether `props` close what they belong to, as a dialog's do. */
+const closes = (props: object): props is { onClose: () => void } =>
+  "onClose" in props && typeof props.onClose === "function";
+
+/** Closes the dialog whose code did not load, which is not showing, so it can open again. */
+function Failed({ close }: { close: (() => void) | undefined }) {
+  useEffect(() => close?.(), [close]);
+  return null;
+}
+
 export function lazyComponent<P extends object>(
   load: () => Promise<{ default: ComponentType<P> }>,
   fallback: ReactNode = null,
@@ -52,7 +64,7 @@ export function lazyComponent<P extends object>(
     if (state.kind === "idle") start();
     if (state.kind === "loading") use(state.done);
     if (state.kind === "loaded") return createElement(state.Component, props);
-    return null;
+    return <Failed close={closes(props) ? props.onClose : undefined} />;
   }
 
   return function LazyComponent(props: P) {

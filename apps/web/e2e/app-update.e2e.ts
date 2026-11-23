@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { z } from "zod";
+import { FileListing } from "@nimbus/api/file-listing";
 import { action, asMember, client, port, test } from "./helpers";
 
 // A deployment replaces the hashed files of the previous build. A page opened before it still
@@ -111,7 +112,7 @@ const openPicker = (page: Page, isMobile: boolean) =>
 const open = (page: Page, name: string) =>
   page.locator(`[data-entry-name="${name}"]`).filter({ visible: true }).click();
 
-test("says once that Nimbus was updated when the move picker's code is gone, asks for it twice, and reloads only when asked", async ({
+test("says Nimbus has been updated when the move picker's code is gone, asks for it twice, says so again after Dismiss, and reloads only when asked", async ({
   page,
   isMobile,
 }) => {
@@ -128,11 +129,13 @@ test("says once that Nimbus was updated when the move picker's code is gone, ask
     expect.stringMatching(/^GET /),
     expect.stringMatching(/^HEAD /),
   ]);
+  await updated(page).getByRole("button", { name: "Dismiss" }).click();
+  await expect(updated(page)).toHaveCount(0);
+  // Opening it again fails again, which says so again, and asks for nothing more.
   await openPicker(page, isMobile);
-  // Opening it again asks for nothing more, and says nothing more.
+  await expect(updated(page)).toHaveCount(1);
   await page.waitForTimeout(1500);
   expect(requests).toHaveLength(2);
-  await expect(updated(page)).toHaveCount(1);
   await expect(page.locator("[data-picker]")).toHaveCount(0);
   expect(await marked(page)).toBe("this load");
 
@@ -145,7 +148,7 @@ test("says once that Nimbus was updated when the move picker's code is gone, ask
   await expect(updated(page)).toHaveCount(0);
 });
 
-test("says Nimbus was updated when a page's code is gone, instead of reloading by itself", async ({
+test("opens a page in full when its code is gone, and only once when that lands on the same build", async ({
   page,
   isMobile,
 }) => {
@@ -157,17 +160,26 @@ test("says Nimbus was updated when a page's code is gone, instead of reloading b
     await built("routes/_authed/_files/trash.tsx?tsr-split=component"),
   ]);
   await page.getByRole("link", { name: "Trash", exact: true }).click();
+  await expect.poll(() => marked(page)).toBe("");
+  expect(new URL(page.url()).pathname).toBe("/trash");
+
+  // The page that loaded runs the same build, as a cache that kept it would serve, so the
+  // Trash page's code is gone again. It says so instead of reloading again.
   await expect(page.getByText("This page could not open.")).toBeVisible();
   await expect(updated(page)).toHaveCount(1);
+  await mark(page);
+  await page.waitForTimeout(1500);
   expect(await marked(page)).toBe("this load");
+
   await page.unrouteAll();
   await updated(page).getByRole("button", { name: "Reload" }).click();
   await expect.poll(() => marked(page)).toBe("");
   expect(new URL(page.url()).pathname).toBe("/trash");
   await expect(page.getByText("This page could not open.")).toHaveCount(0);
+  await expect(updated(page)).toHaveCount(0);
 });
 
-test("says Nimbus was updated when a preview's code is gone", async ({
+test("says Nimbus has been updated when a preview's code is gone", async ({
   page,
 }) => {
   const name = await folder({ "a.txt": "a" });
@@ -175,17 +187,14 @@ test("says Nimbus was updated when a preview's code is gone", async ({
   await remove(page, [
     await built("app/drive/files/preview/preview-dialog-body.tsx"),
   ]);
-  await page
-    .locator('[data-entry-name="a.txt"]')
-    .filter({ visible: true })
-    .click();
+  await open(page, "a.txt");
   await expect(updated(page)).toBeVisible();
   await expect(page.getByRole("dialog", { name: "a.txt" })).toHaveCount(0);
   await updated(page).getByRole("button", { name: "Dismiss" }).click();
   await expect(updated(page)).toHaveCount(0);
 });
 
-test("says Nimbus was updated on a public share page whose preview code is gone", async ({
+test("says Nimbus has been updated on a public share page whose preview code is gone", async ({
   browser,
   context,
 }) => {
@@ -344,51 +353,179 @@ async function entryChecks(page: Page) {
   return { entry, checks };
 }
 
-test("says Nimbus was updated when an answer names another build and this page's entry is gone", async ({
+/**
+ * Deploys a newer build as this page finds out: answers from the API name it, and checking this
+ * page's entry finds it gone. The entry still loads for a page that asks for it, as from a cache
+ * that kept it. Returns the checks of the entry from now on, and waits for the next one.
+ */
+async function deployNewerBuild(page: Page) {
+  const { entry, checks } = await entryChecks(page);
+  await page.route(
+    (url) => url.pathname === entry,
+    (route) =>
+      route.request().method() === "HEAD"
+        ? route.fulfill({
+            status: 404,
+            headers: { "Cache-Control": "no-store" },
+            body: "Not found",
+          })
+        : route.fallback(),
+  );
+  await answerFromAnotherBuild(page);
+  const checked = () =>
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === "HEAD" &&
+        new URL(response.url()).pathname === entry,
+    );
+  return { checks, checked };
+}
+
+test("opens the next page in full once Nimbus has been updated, saying nothing, and not again from the same build", async ({
   page,
 }) => {
   const name = await folder({ "sub/": "" });
   await page.goto(href(name));
   await mark(page);
-  await expect(updated(page)).toHaveCount(0);
-  const { entry, checks } = await entryChecks(page);
-  await remove(page, [entry]);
-  await answerFromAnotherBuild(page);
-  // Opening a folder asks the server for its listing.
-  await page
-    .locator('[data-entry-name="sub"]')
-    .filter({ visible: true })
-    .click();
+  const { checks, checked } = await deployNewerBuild(page);
+  // Opening a folder asks the server for its listing, whose answer tells of the update.
+  const first = checked();
+  await open(page, "sub");
   await expect(page).toHaveURL(new RegExp(`${href(name)}/sub$`));
-  await expect(updated(page)).toBeVisible();
+  expect((await first).status()).toBe(404);
+  // That move started before the update was known.
   expect(await marked(page)).toBe("this load");
+  expect(checks).toEqual([expect.stringMatching(/^HEAD /)]);
+
+  // Back is a move to another page: it opens in full, with nothing to say. The page that
+  // loads runs the same build, so it learns of the update again as it starts.
+  const again = checked();
+  await page.goBack();
+  await expect.poll(() => marked(page)).toBe("");
+  expect(new URL(page.url()).pathname).toBe(href(name));
+  await expect(page.locator('[data-entry-name="sub"]').first()).toBeVisible();
+  expect((await again).status()).toBe(404);
+  await expect(updated(page)).toHaveCount(0);
+
+  // Moving on from it stays in the page instead of reloading again.
+  await mark(page);
+  await open(page, "sub");
+  await expect(page).toHaveURL(new RegExp(`${href(name)}/sub$`));
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`${href(name)}$`));
-  // One check of the entry for that build, however many answers name it.
-  expect(checks).toEqual([expect.stringMatching(/^HEAD /)]);
+  await page.waitForTimeout(500);
+  expect(await marked(page)).toBe("this load");
+  await expect(updated(page)).toHaveCount(0);
   // Live update streams stay open through the handler until the page closes.
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
-test("does not say Nimbus was updated when an answer names another build but this page's entry is still there", async ({
+test("moves to another page in place while an upload runs after an update, and opens the next in full once it is done", async ({
+  page,
+  context,
+}) => {
+  const name = await folder({ "sub/": "" });
+  const rpc = await client(context);
+  await page.goto(href(name));
+  const { checked } = await deployNewerBuild(page);
+  const known = checked();
+  await open(page, "sub");
+  await expect(page).toHaveURL(new RegExp(`${href(name)}/sub$`));
+  await known;
+  await mark(page);
+
+  const started = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  await page.route("**/api/upload**", async (route) => {
+    // Small uploads send their bytes with the creation POST; larger ones use PATCH.
+    if (["POST", "PATCH"].includes(route.request().method())) {
+      started.resolve();
+      await resume.promise;
+    }
+    await route.continue();
+  });
+  await page
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({
+      name: "kept.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("kept"),
+    });
+  await started.promise;
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`${href(name)}$`));
+  await expect(
+    page.getByRole("button", { name: "Cancel upload", exact: true }),
+  ).toBeVisible();
+  expect(await marked(page)).toBe("this load");
+  resume.resolve();
+  await expect
+    .poll(async () =>
+      FileListing.entries(
+        await rpc.files.list.query({ path: `${name}/sub` }),
+      ).map((item) => item.name),
+    )
+    .toEqual(["kept.txt"]);
+  await expect(
+    page.getByRole("button", { name: "Cancel upload", exact: true }),
+  ).toHaveCount(0);
+  expect(await marked(page)).toBe("this load");
+  await expect(updated(page)).toHaveCount(0);
+
+  // With nothing left to lose, the next page opens in full.
+  await open(page, "sub");
+  await expect.poll(() => marked(page)).toBe("");
+  expect(new URL(page.url()).pathname).toBe(`${href(name)}/sub`);
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
+test("says Nimbus has been updated when the split view's code is gone, stays in the page, and reloads when asked", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Phones show one folder at a time.");
+  const name = await folder({ "sub/": "" });
+  await remove(page, [await built("app/drive/files/split/split-view.tsx")]);
+  await page.goto(href(name));
+  await mark(page);
+  const toggle = page.getByRole("button", { name: "Split view" });
+  await toggle.click();
+  await expect(updated(page)).toBeVisible();
+  // Opening a split view changes the address's search, not its page: nothing reloads.
+  expect(await marked(page)).toBe("this load");
+  expect(new URL(page.url()).searchParams.has("right")).toBe(false);
+  await updated(page).getByRole("button", { name: "Dismiss" }).click();
+  await expect(updated(page)).toHaveCount(0);
+  await toggle.click();
+  await expect(updated(page)).toBeVisible();
+
+  await page.unrouteAll();
+  await updated(page).getByRole("button", { name: "Reload" }).click();
+  await expect.poll(() => marked(page)).toBe("");
+  await toggle.click();
+  await expect(page.locator('[data-pane="right"]')).toBeVisible();
+  await expect(updated(page)).toHaveCount(0);
+});
+
+test("does not open the next page in full when an answer names another build but this page's entry is still there", async ({
   page,
 }) => {
   const name = await folder({ "sub/": "" });
   await page.goto(href(name));
+  await mark(page);
   const { checks } = await entryChecks(page);
   await answerFromAnotherBuild(page);
   const checked = page.waitForResponse(
     (response) => response.request().method() === "HEAD",
   );
-  await page
-    .locator('[data-entry-name="sub"]')
-    .filter({ visible: true })
-    .click();
+  await open(page, "sub");
   await expect(page).toHaveURL(new RegExp(`${href(name)}/sub$`));
   expect((await checked).status()).toBe(200);
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`${href(name)}$`));
   await page.waitForTimeout(500);
+  expect(await marked(page)).toBe("this load");
   await expect(updated(page)).toHaveCount(0);
   expect(checks).toHaveLength(1);
   await page.unrouteAll({ behavior: "ignoreErrors" });
