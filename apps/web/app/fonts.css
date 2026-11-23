@@ -1,16 +1,20 @@
-/* Self-hosted Geist, Geist Mono and Fredoka, with metric-matched Arial fallbacks so text keeps
-   its size and line height while the web fonts load. */
-@import "@fontsource-variable/geist/index.css";
+/* Self-hosted Inter, Geist Mono and Fredoka, with metric-matched Arial fallbacks so text keeps
+   its size and line height while the web fonts load. Inter carries both its weight and optical
+   size axes, which Fluid Functionalism's components set (see lib/font-weight.ts); the browser
+   picks the optical size from the font size everywhere else. */
+@import "@fontsource-variable/inter/opsz.css";
 @import "@fontsource-variable/geist-mono/index.css";
 @import "@fontsource/fredoka/latin-500.css";
 
+/* Measured against Arial's metrics: Inter's average width over English text, and its vertical
+   metrics scaled by that. */
 @font-face {
-  font-family: "Geist Fallback";
+  font-family: "Inter Fallback";
   src: local(Arial);
-  ascent-override: 95.94%;
-  descent-override: 28.16%;
+  ascent-override: 90.17%;
+  descent-override: 22.45%;
   line-gap-override: 0%;
-  size-adjust: 104.76%;
+  size-adjust: 107.44%;
 }
 
 @font-face {
@@ -32,7 +36,7 @@
 }
 
 :root {
-  --font-geist-sans: "Geist Variable", "Geist Fallback";
+  --font-inter: "Inter Variable", "Inter Fallback";
   --font-geist-mono: "Geist Mono Variable", "Geist Mono Fallback";
 }
 

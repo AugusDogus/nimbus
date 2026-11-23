@@ -40,12 +40,12 @@ function themeBootScript(): Plugin {
 }
 
 /**
- * Preloads the latin Geist font, which sets nearly all text, so the first paint usually uses it.
+ * Preloads the latin Inter font, which sets nearly all text, so the first paint usually uses it.
  * Geist Mono and the Fredoka wordmark swap in from metric-matched fallbacks; preloading them too
  * measured slower on slow connections, where they compete with the app's code.
  */
 function preloadFonts(): Plugin {
-  const fonts = ["geist-latin-wght-normal"];
+  const fonts = ["inter-latin-opsz-normal"];
   return {
     name: "nimbus-preload-fonts",
     apply: "build",
