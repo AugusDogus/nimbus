@@ -66,8 +66,8 @@ const minSideBySide = 900;
 const parentOf = (path: string) =>
   path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 
-/** What folding the sidebar to its icons gives the page, in pixels. */
-const sidebarSpare = (AppFrame.sidebarRem.open - AppFrame.sidebarRem.icon) * 16;
+/** What folding the sidebar away gives the page, in pixels. */
+const sidebarSpare = AppFrame.sidebarRem * 16;
 
 const columns = (ratio: number, collapsed: PaneSide | null) =>
   collapsed === "left"

@@ -215,7 +215,12 @@ async function route(request: Request): Promise<Response> {
     request,
     await shell.html(nonce, pathname, {
       data: bootstrap.data,
-      skeleton: PageSkeleton.markup(kind, bootstrap, pathname),
+      skeleton: PageSkeleton.markup(
+        kind,
+        bootstrap,
+        pathname,
+        request.headers.get("cookie"),
+      ),
       requests: bootstrap.requests,
     }),
     new Headers(SecurityHeaders.document(nonce, securityMode)),

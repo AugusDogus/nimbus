@@ -17,7 +17,9 @@ export function useGridTrack(
   useLayoutEffect(() => {
     const element = listing.current;
     if (!active || !element) return;
-    const measure = () => setWidth(element.clientWidth);
+    // The exact width, fractions included, as the page's skeleton lays its cards out in CSS:
+    // rounding it first would round some cards' height the other way.
+    const measure = () => setWidth(element.getBoundingClientRect().width);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);

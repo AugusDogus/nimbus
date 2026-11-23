@@ -1,8 +1,15 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Ref,
+} from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { entryGeometry } from "./entry-layout";
 import { EntryShape } from "./entry-shape";
+import { useGridTrack } from "./use-grid-track";
 
 const bar = "motion-reduce:animate-none";
 
@@ -12,7 +19,9 @@ const placeholders = { list: 12, grid: 18 } as const;
 /**
  * The listing's grid without JavaScript, so the page's skeleton can lay it out before the app
  * runs: as many columns as fit at `minWidth`, each card `aspect` of its width in height, rounded
- * to the pixel as `EntryLayout.gridTrack` rounds it.
+ * to the pixel as `EntryLayout.gridTrack` rounds it. In the app the listing's own track sets the
+ * cards' height instead, as it does the listing's, so a card half a pixel off a whole height
+ * rounds the same way in both.
  */
 const grid: CSSProperties = {
   display: "grid",
@@ -32,10 +41,13 @@ const card: CSSProperties = {
 export function EntrySkeleton({
   view,
   titled = true,
+  grid: track,
 }: {
   view: "list" | "grid";
   /** Whether the listing's first section has a title, as a folder's does. */
   titled?: boolean;
+  /** In the app: the grid's element, to measure, and its cards' height once measured. */
+  grid?: { ref: Ref<HTMLDivElement>; cardHeight: number };
 }) {
   return (
     <div aria-hidden data-entry-skeleton={view}>
@@ -77,12 +89,12 @@ export function EntrySkeleton({
           ))}
         </div>
       ) : (
-        <div style={grid}>
+        <div ref={track?.ref} style={grid}>
           {Array.from({ length: placeholders.grid }, (_, index) => (
             <div key={index} style={cardCell}>
               <div
                 data-entry-placeholder
-                style={card}
+                style={track ? { height: track.cardHeight } : card}
                 className={cn(EntryShape.entry, EntryShape.card, "bg-muted/30")}
               >
                 <div
@@ -122,5 +134,12 @@ export function LoadingSkeleton({
     const timer = setTimeout(() => setDue(true), delayMs);
     return () => clearTimeout(timer);
   }, [due, delayMs]);
-  return due ? <EntrySkeleton view={view} /> : null;
+  return due ? <MeasuredEntrySkeleton view={view} /> : null;
+}
+
+/** The skeleton in the app, its grid measured as the listing's is (see `useGridTrack`). */
+function MeasuredEntrySkeleton({ view }: { view: "list" | "grid" }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const track = useGridTrack(ref, view === "grid");
+  return <EntrySkeleton view={view} grid={{ ref, cardHeight: track.height }} />;
 }

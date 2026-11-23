@@ -86,30 +86,25 @@ function SettingsNav({
 }) {
   return (
     <>
-      <SidebarContent className="gap-4 pt-4">
+      <SidebarContent className="gap-4 px-1 pt-2">
         <nav aria-label="Settings">
           {(["Settings", "Administration"] as const).map((section) => {
             if (section === "Administration" && !isAdmin) return null;
             return (
-              <SidebarGroup
-                key={section}
-                className="px-3 group-data-[collapsible=icon]:px-0"
-              >
+              <SidebarGroup key={section}>
                 <SidebarGroupLabel>{section}</SidebarGroupLabel>
-                <SidebarMenu className="gap-1">
+                <SidebarMenu>
                   {settingsPages
                     .filter((page) => page.section === section)
                     .map((page) => (
                       <SidebarMenuItem key={page.href}>
                         <SidebarMenuButton
+                          icon={page.icon}
                           isActive={current === page.href}
-                          tooltip={page.label}
                           data-shape={`settings-nav-${page.href}`}
-                          className={itemClass}
                           render={link(page.href, current === page.href)}
                         >
-                          <page.icon strokeWidth={1.7} />
-                          <span>{page.label}</span>
+                          {page.label}
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     ))}
@@ -119,17 +114,15 @@ function SettingsNav({
           })}
         </nav>
       </SidebarContent>
-      <SidebarFooter className="px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] group-data-[collapsible=icon]:px-0">
+      <SidebarFooter className="px-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              tooltip="Back to files"
+              icon={ArrowLeft}
               data-shape="settings-nav-back"
-              className={itemClass}
               render={link("/", false)}
             >
-              <ArrowLeft strokeWidth={1.7} />
-              <span>Back to files</span>
+              Back to files
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -137,9 +130,6 @@ function SettingsNav({
     </>
   );
 }
-
-const itemClass =
-  "h-10 gap-3 rounded-xl px-3 group-data-[collapsible=icon]:mx-auto";
 
 export function SettingsSidebar({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();

@@ -1,6 +1,5 @@
-import type { VariantProps } from "class-variance-authority";
 import { PageLayout } from "@/components/page-layout";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, type ButtonProps } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -33,25 +32,30 @@ export function TrashIntro() {
 
 const bar = "motion-reduce:animate-none";
 
-/** A button still to come, the size its `label` will give it. */
+/**
+ * A button still to come: the button itself, so it takes the size its `label` gives it, drawn
+ * as a placeholder (its fill, on the button's inner layer, greyed and its label hidden).
+ */
 export function PendingButton({
   label,
   variant,
 }: {
   label: string;
-  variant: VariantProps<typeof buttonVariants>["variant"];
+  variant: ButtonProps["variant"];
 }) {
   return (
-    <span
+    <Button
       aria-hidden
+      tabIndex={-1}
+      variant={variant}
+      size="compact"
       className={cn(
-        buttonVariants({ variant, size: "compact" }),
-        "pointer-events-none animate-pulse border-transparent bg-accent text-transparent shadow-none hover:bg-accent dark:bg-accent",
+        "pointer-events-none animate-pulse text-transparent [&>span:first-child]:bg-accent [&>span:first-child]:shadow-none",
         bar,
       )}
     >
       {label}
-    </span>
+    </Button>
   );
 }
 
@@ -65,9 +69,17 @@ export function TrashSkeleton() {
             <div className="flex h-5 items-center">
               <Skeleton className={cn("h-3.5 w-48 max-w-full", bar)} />
             </div>
-            <div className="mt-1 flex h-4 items-center">
-              <Skeleton className={cn("h-3 w-56 max-w-full", bar)} />
-            </div>
+            {/* The dates' own line, which wraps where theirs does, a bar under each line. */}
+            <p className={TrashShape.dates}>
+              <span
+                className={cn(
+                  "animate-pulse rounded bg-accent text-transparent [box-decoration-break:clone]",
+                  bar,
+                )}
+              >
+                Deleted 00/00/0000 · Expires 00/00/0000
+              </span>
+            </p>
           </div>
           <PendingButton label="Restore" variant="tertiary" />
           <PendingButton label="Delete permanently" variant="ghost" />

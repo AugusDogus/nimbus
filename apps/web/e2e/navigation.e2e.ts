@@ -24,7 +24,8 @@ test("keeps primary navigation and utility actions usable in both themes", async
         .getByRole("button", { name: "Toggle Sidebar", exact: true })
         .click();
     const brand = page
-      .locator('[data-slot="sidebar-header"]')
+      .locator('[data-sidebar="header"]')
+      .filter({ visible: true })
       .getByRole("link", { name: "Nimbus home", exact: true });
     await expect(brand).toHaveAttribute("href", "/");
     await expect(brand.locator("svg")).toBeVisible();
@@ -50,13 +51,20 @@ test("keeps primary navigation and utility actions usable in both themes", async
       const bounds = element.getBoundingClientRect();
       return bounds.x + bounds.width / 2;
     });
-    const textCenter = await create
-      .getByText("New", { exact: true })
-      .evaluate((element) => {
-        const bounds = element.getBoundingClientRect();
-        return bounds.x + bounds.width / 2;
-      });
-    expect(Math.abs(textCenter - buttonCenter)).toBeLessThanOrEqual(1);
+    // The plus and the label, together, sit in the middle of the button, give or take the 2 px
+    // the button's design draws a leading icon closer to its edge than text.
+    const contentCenter = await create.evaluate((element) => {
+      const icon = element.querySelector("svg")?.getBoundingClientRect();
+      const label = [...element.querySelectorAll("span")]
+        .filter(
+          (span) => span.textContent === "New" && !span.querySelector("span"),
+        )
+        .at(-1)
+        ?.getBoundingClientRect();
+      if (!icon || !label) return Number.NaN;
+      return (icon.left + label.right) / 2;
+    });
+    expect(Math.abs(contentCenter - buttonCenter)).toBeLessThanOrEqual(2);
     await expect(
       page.getByRole("link", { name: "Settings", exact: true }),
     ).toHaveAttribute("href", "/settings");
@@ -604,11 +612,12 @@ test("on a phone the share dialog keeps Create link in reach without scrolling",
   expect(
     await create.evaluate((button) => {
       const box = button.getBoundingClientRect();
-      return (
+      // The button's own label or fill, not something over it.
+      return button.contains(
         document.elementFromPoint(
           box.left + box.width / 2,
           box.top + box.height / 2,
-        ) === button
+        ),
       );
     }),
   ).toBe(true);

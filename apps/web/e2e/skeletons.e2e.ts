@@ -86,11 +86,19 @@ async function shapesAt(page: Page, at: readonly number[]) {
   const shapes: Record<number, Shapes> = {};
   for (const width of at) {
     await page.setViewportSize({ width, height: height(width) });
-    // A resize lays out again in the next frame.
-    await page.evaluate(
-      () => new Promise((resolve) => requestAnimationFrame(resolve)),
-    );
-    shapes[width] = await page.evaluate(boxes);
+    // A resize can start the sidebar's own motion, such as its rail giving way to the drawer:
+    // measure once the parts hold still from one frame to the next.
+    let last = "";
+    for (let frame = 0; frame < 120; frame++) {
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(resolve)),
+      );
+      const now = await page.evaluate(boxes);
+      const text = JSON.stringify(now);
+      shapes[width] = now;
+      if (text === last) break;
+      last = text;
+    }
   }
   return shapes;
 }

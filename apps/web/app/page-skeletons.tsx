@@ -46,7 +46,12 @@ const bar = "motion-reduce:animate-none";
 const nothing = () => undefined;
 
 /** Who is signed in, as far as the skeleton shows it. */
-export type SkeletonAccount = { initial: string; isAdmin: boolean };
+export type SkeletonAccount = {
+  initial: string;
+  isAdmin: boolean;
+  /** Whether the person keeps the sidebar open (see `AppFrame.SidebarChoice`). */
+  sidebarOpen: boolean;
+};
 
 function AccountButton({ initial }: { initial: string }) {
   return (
@@ -102,6 +107,7 @@ export function FilesSkeleton({
   const folder = page.kind === "folder";
   return (
     <AppFrame.Layout
+      open={account.sidebarOpen}
       brand={<AppFrame.BrandPlaceholder />}
       sidebar={
         <AppSidebarPlaceholder
@@ -212,6 +218,7 @@ export function SettingsSkeleton({
   );
   return (
     <AppFrame.Layout
+      open={account.sidebarOpen}
       brand={<AppFrame.BrandPlaceholder />}
       sidebar={
         <SettingsSidebarPlaceholder

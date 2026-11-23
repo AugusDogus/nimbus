@@ -69,16 +69,23 @@ test("the sidebar marks Files on every folder view and each library page on its 
       await page
         .getByRole("button", { name: "Toggle Sidebar", exact: true })
         .click();
-    const sidebar = page.locator('[data-slot="sidebar"]').filter({
+    const sidebar = page.locator('[data-sidebar="sidebar"]').filter({
       visible: true,
     });
     const marked = sidebar.locator(
       '[data-sidebar="menu-button"][aria-current="page"]',
     );
     const names = await marked.evaluateAll((links) =>
-      links.map(
-        (link) => link.getAttribute("aria-label") ?? link.textContent?.trim(),
-      ),
+      links.map((link) => {
+        if (link.getAttribute("aria-label"))
+          return link.getAttribute("aria-label");
+        // Rows carry a hidden copy of their label that holds its bold width.
+        const copy = link.cloneNode(true);
+        if (copy instanceof Element)
+          for (const hidden of copy.querySelectorAll('[aria-hidden="true"]'))
+            hidden.remove();
+        return copy.textContent?.trim();
+      }),
     );
     if (isMobile) {
       await page.keyboard.press("Escape");

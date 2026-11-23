@@ -7,6 +7,7 @@ import {
   type FilesPageSkeleton,
 } from "@/app/page-skeletons";
 import { NavPlace } from "@/app/drive/files/nav-place";
+import { AppFrame } from "@/components/app-frame";
 import { PageLayout } from "@/components/page-layout";
 import type { PageKind } from "./route-preloads";
 
@@ -56,12 +57,14 @@ export const PageSkeleton = {
     kind: PageKind | null,
     page: { folder: boolean; data: Bootstrap },
     pathname: string,
+    cookie: string | null,
   ): string {
     const { session, prefs, me } = page.data;
     if (!session || (kind !== "files" && kind !== "settings")) return "";
     const account = {
       initial: PageLayout.initial(session.user),
       isAdmin: me?.isAdmin === true,
+      sidebarOpen: AppFrame.SidebarChoice.fromCookie(cookie),
     };
     if (kind === "settings")
       return cached(JSON.stringify(["settings", account, pathname]), () => (

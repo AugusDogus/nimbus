@@ -32,7 +32,7 @@ export function StorageIndicator({ storage }: { storage: StorageSummary }) {
       aria-label="Storage usage"
       data-shape="storage"
       aria-busy={loading || undefined}
-      className="overflow-hidden rounded-xl bg-sidebar-accent/50 group-data-[collapsible=icon]:hidden"
+      className="overflow-hidden rounded-xl bg-sidebar-accent/50"
     >
       <div className="space-y-3 rounded-xl bg-background/80 p-3">
         <div className="flex items-center justify-between gap-2 text-sm">

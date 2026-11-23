@@ -11,7 +11,7 @@ const itemBoxes = (page: Page) =>
     Object.fromEntries(
       [
         ...document.querySelectorAll(
-          '[data-slot="sidebar-container"] [data-sidebar="menu-button"]',
+          '[data-slot="sidebar"] [data-sidebar="menu-button"]',
         ),
       ].map((item) => {
         const box = item.getBoundingClientRect();
@@ -42,7 +42,7 @@ test("opening a folder leaves the sidebar exactly as it was", async ({
   await page.evaluate(() => {
     const changes: string[] = [];
     Object.assign(window, { sidebarChanges: changes });
-    const sidebar = document.querySelector('[data-slot="sidebar-container"]');
+    const sidebar = document.querySelector('[data-slot="sidebar"]');
     if (!sidebar) throw new Error("The desktop sidebar is not on the page.");
     new MutationObserver((records) => {
       for (const record of records) {
@@ -89,7 +89,7 @@ test("New hides in the frame that leaving a folder shows the next page", async (
     Object.assign(window, { lateNew: late });
     const sample = () => {
       const trash = document.querySelector(
-        '[data-slot="sidebar-container"] a[href="/trash"]',
+        '[data-slot="sidebar"] a[href="/trash"]',
       );
       const create = document.querySelector('button[aria-label="New"]');
       if (
@@ -225,7 +225,22 @@ test("Settings and the files pages share one sidebar", async ({
   const go = async (name: string) => {
     if (isMobile)
       await page.getByRole("button", { name: "Toggle Sidebar" }).click();
-    await sidebar.getByRole("link", { name, exact: true }).click();
+    // Collapsed, the sidebar is out of the way: move within the app as its links would.
+    else if ((await sidebar.getAttribute("data-state")) === "collapsed") {
+      await page.evaluate(
+        (href) => {
+          history.pushState(null, "", href);
+          dispatchEvent(new PopStateEvent("popstate"));
+        },
+        name === "Settings" ? "/settings" : "/",
+      );
+      return;
+    }
+    await page
+      .locator('[data-sidebar="sidebar"]')
+      .filter({ visible: true })
+      .getByRole("link", { name, exact: true })
+      .click();
   };
   await page.goto("/");
   await expect(
