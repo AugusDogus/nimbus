@@ -105,10 +105,11 @@ export async function serveFile(
   access: Pick<Access, "require">,
   inline = false,
   body: (version: FileVersion) => ServedBody = () => "fast",
+  validators: Validators = {},
 ) {
   access.require(requested, "read");
   const opened = await openFile(request.method === "HEAD", requested);
-  const response = await respond(request, opened, inline, body);
+  const response = await respond(request, opened, inline, body, validators);
   if (!versions.has(response))
     versions.set(response, FileVersion.of(opened.stats));
   return response;
@@ -135,11 +136,18 @@ export const servedVersion = (response: Response): FileVersion | null =>
 /** Each `serveFile` response's file version, read from the same open file as its bytes. */
 const versions = new WeakMap<Response, FileVersion | null>();
 
+/** Overrides of a file response's validators: its ETag, from the file's stats, and caching. */
+export type Validators = {
+  etag?: (stats: Stats) => string;
+  cacheControl?: string;
+};
+
 async function respond(
   request: Request,
   opened: Awaited<ReturnType<typeof openFile>>,
   inline: boolean,
   body: (version: FileVersion) => ServedBody,
+  validators: Validators,
 ) {
   const { handle, stats, absolute } = opened;
   try {
@@ -148,7 +156,17 @@ async function respond(
         code: "BAD_REQUEST",
         message: "Choose a file to download.",
       });
-    const response = fileResponse(request, absolute, stats, inline);
+    const response = fileResponse(
+      request,
+      absolute,
+      stats,
+      inline,
+      path.basename(absolute),
+      {
+        etag: validators.etag?.(stats),
+        cacheControl: validators.cacheControl,
+      },
+    );
     if (response.kind === "headers-only") {
       await handle?.close();
       return new Response(null, response.init);
@@ -228,12 +246,20 @@ async function respond(
   }
 }
 
+/**
+ * What else a confirmed body checks before each chunk, for responses whose right to be sent can
+ * end while they are sent: `allowed` returns why the rest may not go out, or null, and `done`
+ * runs once when the body ends, however it ends.
+ */
+export type BodyWatch = { allowed: () => string | null; done: () => void };
+
 /** Bytes `start` to `end` of the open file, each chunk confirmed as version `stats` before it is sent. */
 function confirmedBody(
   handle: FileHandle,
   stats: Stats,
   start: number,
   end: number,
+  watch: BodyWatch = { allowed: () => null, done: () => undefined },
 ) {
   const version = FileVersion.of(stats);
   let position = start;
@@ -241,6 +267,7 @@ function confirmedBody(
   const close = async () => {
     if (closed) return;
     closed = true;
+    watch.done();
     await handle.close();
   };
   return new ReadableStream<Uint8Array>({
@@ -252,6 +279,8 @@ function confirmedBody(
           controller.close();
           return;
         }
+        const refused = watch.allowed();
+        if (refused !== null) throw new Error(refused);
         const chunk = new Uint8Array(length);
         const { bytesRead } = await handle.read(chunk, 0, length, position);
         if (bytesRead === 0 || FileVersion.of(await handle.stat()) !== version)
@@ -267,6 +296,110 @@ function confirmedBody(
     },
     cancel: close,
   });
+}
+
+/** What `serveOpened` did: served the file, or found it changed before any byte was sent. */
+export type OpenedResponse =
+  | { kind: "served"; response: Response }
+  | { kind: "changed" }
+  /** `watch` refused before any byte was sent, for this reason. */
+  | { kind: "refused"; reason: string };
+
+/**
+ * Serve an already opened and checked regular file, or one byte range of it, inline as
+ * `filename`, for callers that opened it themselves (see LibraryAccess.open). The body always
+ * streams in confirmed mode: each chunk is checked against the version opened and against
+ * `watch` before it is sent, so a body ends as failed when the file changes or the caller's
+ * right to send it ends. The handle is always closed. Small files are read whole and checked once.
+ */
+export async function serveOpened(
+  request: Request,
+  opened: { handle: FileHandle; stats: Stats },
+  options: {
+    filename: string;
+    etag: string;
+    cacheControl: string;
+    /**
+     * The most bytes one ranged answer carries. A larger range is answered with its first
+     * `window` bytes, as `Content-Range` states, read whole and sent with an exact length; the
+     * client asks for the rest. Only an answer without a range streams.
+     */
+    window: number;
+    watch?: BodyWatch;
+  },
+): Promise<OpenedResponse> {
+  const { handle, stats } = opened;
+  const watch = options.watch ?? {
+    allowed: () => null,
+    done: () => undefined,
+  };
+  let streaming = false;
+  try {
+    const response = fileResponse(
+      request,
+      options.filename,
+      stats,
+      true,
+      options.filename,
+      { etag: options.etag, cacheControl: options.cacheControl },
+    );
+    if (
+      response.kind === "headers-only" ||
+      request.method === "HEAD" ||
+      response.length === 0
+    )
+      return { kind: "served", response: new Response(null, response.init) };
+    if (response.init.status === 206 && response.length > options.window) {
+      response.end = response.start + options.window - 1;
+      response.length = options.window;
+      const headers = new Headers(response.init.headers);
+      headers.set(
+        "Content-Range",
+        `bytes ${response.start}-${response.end}/${stats.size}`,
+      );
+      headers.set("Content-Length", String(response.length));
+      response.init = { ...response.init, headers };
+    }
+    if (response.length <= Math.max(bufferedBytes, options.window)) {
+      const bytes = new Uint8Array(response.length);
+      let read = 0;
+      while (read < bytes.length) {
+        const { bytesRead } = await handle.read(
+          bytes,
+          read,
+          bytes.length - read,
+          response.start + read,
+        );
+        if (bytesRead === 0) break;
+        read += bytesRead;
+      }
+      if (
+        read !== bytes.length ||
+        FileVersion.of(await handle.stat()) !== FileVersion.of(stats)
+      )
+        return { kind: "changed" };
+      // Read whole after every check, so a refusal since then still stops it here.
+      const refused = watch.allowed();
+      if (refused !== null) return { kind: "refused", reason: refused };
+      return {
+        kind: "served",
+        response: new Response(bytes, response.init),
+      };
+    }
+    streaming = true;
+    return {
+      kind: "served",
+      response: new Response(
+        confirmedBody(handle, stats, response.start, response.end, watch),
+        response.init,
+      ),
+    };
+  } finally {
+    if (!streaming) {
+      watch.done();
+      await handle.close();
+    }
+  }
 }
 
 /**
@@ -395,13 +528,16 @@ function fileResponse(
   stats: Stats,
   inline: boolean,
   filename = path.basename(absolute),
+  {
+    etag = fileETag(stats),
+    cacheControl = "private, no-store",
+  }: { etag?: string | undefined; cacheControl?: string | undefined } = {},
 ): FileResponse {
   const contentType = FileKind.previewContentType(FileKind.of(filename));
-  const etag = fileETag(stats);
   const validators = {
     ETag: etag,
     "Last-Modified": stats.mtime.toUTCString(),
-    "Cache-Control": "private, no-store",
+    "Cache-Control": cacheControl,
   };
   const failed = precondition(request, etag, stats);
   if (failed !== null)
@@ -439,7 +575,11 @@ function fileResponse(
       kind: "headers-only",
       init: {
         status: 416,
-        headers: { "Content-Range": `bytes */${stats.size}`, ETag: etag },
+        headers: {
+          "Content-Range": `bytes */${stats.size}`,
+          ETag: etag,
+          "Cache-Control": cacheControl,
+        },
       },
     };
   if (range) {
