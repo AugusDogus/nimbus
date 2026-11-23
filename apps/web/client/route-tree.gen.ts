@@ -15,6 +15,7 @@ import { Route as ResetPasswordRouteImport } from './../routes/reset-password'
 import { Route as SignInRouteImport } from './../routes/sign-in'
 import { Route as SignupRouteImport } from './../routes/signup'
 import { Route as AuthedFilesRouteImport } from './../routes/_authed/_files'
+import { Route as AuthedPairRouteImport } from './../routes/_authed/pair'
 import { Route as AuthedSettingsRouteImport } from './../routes/_authed/settings'
 import { Route as AuthedFilesIndexRouteImport } from './../routes/_authed/_files/index'
 import { Route as AuthedFilesAdminRouteImport } from './../routes/_authed/_files/admin'
@@ -29,6 +30,7 @@ import { Route as AuthedFilesTrashRouteImport } from './../routes/_authed/_files
 import { Route as AuthedSettingsIndexRouteImport } from './../routes/_authed/settings/index'
 import { Route as AuthedSettingsAccountRouteImport } from './../routes/_authed/settings/account'
 import { Route as AuthedSettingsAppearanceRouteImport } from './../routes/_authed/settings/appearance'
+import { Route as AuthedSettingsLibrariesRouteImport } from './../routes/_authed/settings/libraries'
 import { Route as AuthedSettingsMcpRouteImport } from './../routes/_authed/settings/mcp'
 import { Route as AuthedSettingsWebdavRouteImport } from './../routes/_authed/settings/webdav'
 import { Route as AuthedFilesBrowseSplatRouteImport } from './../routes/_authed/_files/browse/$'
@@ -61,6 +63,11 @@ const SignupRoute = SignupRouteImport.update({
 } as any)
 const AuthedFilesRoute = AuthedFilesRouteImport.update({
   id: '/_files',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedPairRoute = AuthedPairRouteImport.update({
+  id: '/pair',
+  path: '/pair',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedSettingsRoute = AuthedSettingsRouteImport.update({
@@ -134,6 +141,11 @@ const AuthedSettingsAppearanceRoute =
     path: '/appearance',
     getParentRoute: () => AuthedSettingsRoute,
   } as any)
+const AuthedSettingsLibrariesRoute = AuthedSettingsLibrariesRouteImport.update({
+  id: '/libraries',
+  path: '/libraries',
+  getParentRoute: () => AuthedSettingsRoute,
+} as any)
 const AuthedSettingsMcpRoute = AuthedSettingsMcpRouteImport.update({
   id: '/mcp',
   path: '/mcp',
@@ -168,6 +180,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
   '/signup': typeof SignupRoute
+  '/pair': typeof AuthedPairRoute
   '/settings': typeof AuthedSettingsRouteWithChildren
   '/admin': typeof AuthedFilesAdminRoute
   '/home': typeof AuthedFilesHomeRoute
@@ -180,6 +193,7 @@ export interface FileRoutesByFullPath {
   '/trash': typeof AuthedFilesTrashRoute
   '/settings/account': typeof AuthedSettingsAccountRoute
   '/settings/appearance': typeof AuthedSettingsAppearanceRoute
+  '/settings/libraries': typeof AuthedSettingsLibrariesRoute
   '/settings/mcp': typeof AuthedSettingsMcpRoute
   '/settings/webdav': typeof AuthedSettingsWebdavRoute
   '/settings/': typeof AuthedSettingsIndexRoute
@@ -193,6 +207,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/sign-in': typeof SignInRoute
   '/signup': typeof SignupRoute
+  '/pair': typeof AuthedPairRoute
   '/admin': typeof AuthedFilesAdminRoute
   '/home': typeof AuthedFilesHomeRoute
   '/recent': typeof AuthedFilesRecentRoute
@@ -204,6 +219,7 @@ export interface FileRoutesByTo {
   '/trash': typeof AuthedFilesTrashRoute
   '/settings/account': typeof AuthedSettingsAccountRoute
   '/settings/appearance': typeof AuthedSettingsAppearanceRoute
+  '/settings/libraries': typeof AuthedSettingsLibrariesRoute
   '/settings/mcp': typeof AuthedSettingsMcpRoute
   '/settings/webdav': typeof AuthedSettingsWebdavRoute
   '/settings': typeof AuthedSettingsIndexRoute
@@ -219,6 +235,7 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/signup': typeof SignupRoute
   '/_authed/_files': typeof AuthedFilesRouteWithChildren
+  '/_authed/pair': typeof AuthedPairRoute
   '/_authed/settings': typeof AuthedSettingsRouteWithChildren
   '/_authed/_files/admin': typeof AuthedFilesAdminRoute
   '/_authed/_files/home': typeof AuthedFilesHomeRoute
@@ -231,6 +248,7 @@ export interface FileRoutesById {
   '/_authed/_files/trash': typeof AuthedFilesTrashRoute
   '/_authed/settings/account': typeof AuthedSettingsAccountRoute
   '/_authed/settings/appearance': typeof AuthedSettingsAppearanceRoute
+  '/_authed/settings/libraries': typeof AuthedSettingsLibrariesRoute
   '/_authed/settings/mcp': typeof AuthedSettingsMcpRoute
   '/_authed/settings/webdav': typeof AuthedSettingsWebdavRoute
   '/_authed/_files/': typeof AuthedFilesIndexRoute
@@ -247,6 +265,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/sign-in'
     | '/signup'
+    | '/pair'
     | '/settings'
     | '/admin'
     | '/home'
@@ -259,6 +278,7 @@ export interface FileRouteTypes {
     | '/trash'
     | '/settings/account'
     | '/settings/appearance'
+    | '/settings/libraries'
     | '/settings/mcp'
     | '/settings/webdav'
     | '/settings/'
@@ -272,6 +292,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/sign-in'
     | '/signup'
+    | '/pair'
     | '/admin'
     | '/home'
     | '/recent'
@@ -283,6 +304,7 @@ export interface FileRouteTypes {
     | '/trash'
     | '/settings/account'
     | '/settings/appearance'
+    | '/settings/libraries'
     | '/settings/mcp'
     | '/settings/webdav'
     | '/settings'
@@ -297,6 +319,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/signup'
     | '/_authed/_files'
+    | '/_authed/pair'
     | '/_authed/settings'
     | '/_authed/_files/admin'
     | '/_authed/_files/home'
@@ -309,6 +332,7 @@ export interface FileRouteTypes {
     | '/_authed/_files/trash'
     | '/_authed/settings/account'
     | '/_authed/settings/appearance'
+    | '/_authed/settings/libraries'
     | '/_authed/settings/mcp'
     | '/_authed/settings/webdav'
     | '/_authed/_files/'
@@ -368,6 +392,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AuthedFilesRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/pair': {
+      id: '/_authed/pair'
+      path: '/pair'
+      fullPath: '/pair'
+      preLoaderRoute: typeof AuthedPairRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/settings': {
@@ -468,6 +499,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSettingsAppearanceRouteImport
       parentRoute: typeof AuthedSettingsRoute
     }
+    '/_authed/settings/libraries': {
+      id: '/_authed/settings/libraries'
+      path: '/libraries'
+      fullPath: '/settings/libraries'
+      preLoaderRoute: typeof AuthedSettingsLibrariesRouteImport
+      parentRoute: typeof AuthedSettingsRoute
+    }
     '/_authed/settings/mcp': {
       id: '/_authed/settings/mcp'
       path: '/mcp'
@@ -541,6 +579,7 @@ const AuthedFilesRouteWithChildren = AuthedFilesRoute._addFileChildren(
 interface AuthedSettingsRouteChildren {
   AuthedSettingsAccountRoute: typeof AuthedSettingsAccountRoute
   AuthedSettingsAppearanceRoute: typeof AuthedSettingsAppearanceRoute
+  AuthedSettingsLibrariesRoute: typeof AuthedSettingsLibrariesRoute
   AuthedSettingsMcpRoute: typeof AuthedSettingsMcpRoute
   AuthedSettingsWebdavRoute: typeof AuthedSettingsWebdavRoute
   AuthedSettingsIndexRoute: typeof AuthedSettingsIndexRoute
@@ -551,6 +590,7 @@ interface AuthedSettingsRouteChildren {
 const AuthedSettingsRouteChildren: AuthedSettingsRouteChildren = {
   AuthedSettingsAccountRoute: AuthedSettingsAccountRoute,
   AuthedSettingsAppearanceRoute: AuthedSettingsAppearanceRoute,
+  AuthedSettingsLibrariesRoute: AuthedSettingsLibrariesRoute,
   AuthedSettingsMcpRoute: AuthedSettingsMcpRoute,
   AuthedSettingsWebdavRoute: AuthedSettingsWebdavRoute,
   AuthedSettingsIndexRoute: AuthedSettingsIndexRoute,
@@ -564,11 +604,13 @@ const AuthedSettingsRouteWithChildren = AuthedSettingsRoute._addFileChildren(
 
 interface AuthedRouteChildren {
   AuthedFilesRoute: typeof AuthedFilesRouteWithChildren
+  AuthedPairRoute: typeof AuthedPairRoute
   AuthedSettingsRoute: typeof AuthedSettingsRouteWithChildren
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedFilesRoute: AuthedFilesRouteWithChildren,
+  AuthedPairRoute: AuthedPairRoute,
   AuthedSettingsRoute: AuthedSettingsRouteWithChildren,
 }
 
