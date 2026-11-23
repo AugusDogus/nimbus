@@ -117,6 +117,53 @@ test.describe("split view on a wide screen", () => {
     await expect(page.getByText("This folder is empty")).toBeVisible();
   });
 
+  test("opens on a listed folder with its rows at once, keeping the first listing, after one load", async ({
+    page,
+  }) => {
+    const { root } = await seed(page);
+    const scripts: string[] = [];
+    page.on("request", (request) => {
+      if (request.resourceType() === "script")
+        scripts.push(new URL(request.url()).pathname);
+    });
+    await page.goto(`/browse/${root}/Projects`);
+    await expect(entry(page.locator("main"), "Client Alpha")).toBeVisible();
+    const listing = await page.getByRole("grid").elementHandle();
+    // Records any moment the split shows a loading state or a pane without its rows.
+    await page.evaluate(() => {
+      const seen: string[] = [];
+      Object.assign(window, { splitStates: seen });
+      new MutationObserver(() => {
+        const right = document.querySelector('[data-pane="right"]');
+        if (!right) return;
+        if (document.querySelector('[data-slot="skeleton"]'))
+          seen.push("loading");
+        if (!right.querySelector("[data-entry-name]"))
+          seen.push("right pane without rows");
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+
+    await page.getByRole("button", { name: "Split view" }).click();
+    await expect(entry(rightPane(page), "Client Alpha")).toBeVisible();
+    expect(
+      await page.evaluate(() =>
+        "splitStates" in window ? window.splitStates : null,
+      ),
+    ).toEqual([]);
+    // The first folder's listing is the one it had, not a new one.
+    expect(await listing?.evaluate((grid) => grid.isConnected)).toBe(true);
+    // The split view's code is one load: its own file, with no opener loaded before it.
+    expect(
+      scripts.filter((path) => /\/split-view[-.]/.test(path)),
+    ).toHaveLength(1);
+    expect(scripts.filter((path) => /\/open-split[-.]/.test(path))).toEqual([]);
+
+    // Closing keeps the same listing too.
+    await page.getByRole("button", { name: "Split view" }).click();
+    await expect(page.locator("[data-pane]")).toHaveCount(0);
+    expect(await listing?.evaluate((grid) => grid.isConnected)).toBe(true);
+  });
+
   test("names the active pane, not only colours it", async ({ page }) => {
     const { root } = await seed(page);
     await page.goto(splitHref(root));

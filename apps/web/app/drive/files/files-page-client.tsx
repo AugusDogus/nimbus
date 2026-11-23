@@ -10,7 +10,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import type { UserPreferences } from "@nimbus/api/context";
-import { lazyComponent } from "@/components/lazy-component";
 import { trpc } from "@/lib/trpc";
 import { trpcErrorCode } from "@/lib/trpc-error";
 
@@ -28,7 +27,9 @@ import { FolderNotFound } from "./folder-not-found";
 import { NavPlace } from "./nav-place";
 import { LoadingSkeleton } from "./loading-skeleton";
 import type { DropTarget } from "./drop-target";
-import { usePaneHref } from "./pane-links";
+import { PaneLinks, usePaneHref } from "./pane-links";
+import { OtherPaneActionsSlot } from "./selection-bar";
+import { SplitCode, useSplitCode, useSplitFrame } from "./split-frame";
 import {
   SplitLayout,
   useSplitLayout,
@@ -54,24 +55,34 @@ import { HeaderTools } from "./header-tools";
 import { FolderCard, type FolderMoves } from "./folder-card";
 import { fileHref } from "./types";
 
-// Two folders side by side load only when a split view opens. A load that fails shows the
-// code load notice, such as that Nimbus was updated.
-const SplitView = lazyComponent(
-  () => import("./split/split-view"),
-  <LoadingSkeleton view="list" />,
-);
-
 export function FilesPageClient() {
   const left = useFolderPath();
   const layout = useSplitLayout();
   const navigate = useNavigate();
-  const split = useMemo<SplitControl>(
+  const alone = useMemo<SplitControl>(
     () => ({
       kind: "closed",
       open: (right) => openSplit(navigate, left, right),
     }),
     [navigate, left],
   );
+  // A split view's controller sits beside the frame and publishes what the frame shows (see
+  // `SplitFrame`). Until it has, and once the split closes, the frame shows the one folder.
+  const code = useSplitCode(layout !== null);
+  const published = useSplitFrame();
+  const split = layout && code ? published : null;
+  const first = split?.first.kind === "folder" ? split.first : null;
+  const frameRef = useRef<HTMLDivElement>(null);
+  // The split view's code loads once a folder page has settled, so the split opens at once.
+  useEffect(() => {
+    if (!matchMedia("(min-width: 1024px)").matches) return;
+    const timer = setTimeout(() => {
+      if ("requestIdleCallback" in window)
+        requestIdleCallback(SplitCode.preload, { timeout: 1000 });
+      else SplitCode.preload();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, []);
   return (
     <>
       <HeaderTools>
@@ -86,11 +97,40 @@ export function FilesPageClient() {
           }
         />
       </HeaderTools>
-      {layout ? (
-        <SplitView left={left} layout={layout} />
-      ) : (
-        <FolderPane path={left} pane={null} other={null} split={split} />
+      {layout && code && (
+        <code.SplitController left={left} layout={layout} frameRef={frameRef} />
       )}
+      <OtherPaneActionsSlot.Provider value={split?.otherPaneActions ?? null}>
+        <div
+          ref={frameRef}
+          data-split-view={
+            split ? (split.sideBySide ? "" : "narrow") : undefined
+          }
+          className={
+            split?.sideBySide
+              ? "grid min-h-0 flex-1"
+              : "md:flex md:min-h-0 md:flex-1 md:flex-col"
+          }
+          style={split?.style}
+          // A listing that takes focus can open a split with a key: its code starts loading.
+          onFocusCapture={SplitCode.preload}
+        >
+          {split?.first.kind === "collapsed" ? (
+            split.first.element
+          ) : (
+            <PaneLinks.Provider value={first?.links ?? null}>
+              <FolderPane
+                path={first?.path ?? left}
+                pane={first?.pane ?? null}
+                other={first?.other ?? null}
+                split={first?.control ?? alone}
+              />
+            </PaneLinks.Provider>
+          )}
+          {split?.rest}
+        </div>
+      </OtherPaneActionsSlot.Provider>
+      {split?.extras}
     </>
   );
 }
@@ -344,7 +384,7 @@ export function FolderPane({
         }
       />
       {listQuery.isLoading ? (
-        <LoadingSkeleton view={view} />
+        <LoadingSkeleton view={view} delayMs={150} />
       ) : listQuery.isError ? (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           {listQuery.error instanceof Error

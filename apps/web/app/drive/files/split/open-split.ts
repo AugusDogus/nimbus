@@ -1,13 +1,22 @@
 import type { UseNavigateResult } from "@tanstack/react-router";
-import { CodeLoad } from "@/lib/code-load";
 import { queryClient } from "@/lib/trpc";
 import { fileListQueryOptions } from "../use-file-list";
 import { needsStats, prefsQueryOptions } from "../use-file-preferences";
 import { SplitAddress } from "./split-address";
 import { SplitMemory } from "./split-memory";
 
-/** Whether the folder at `path` still lists for this account. Its listing is then ready too. */
+/**
+ * Whether the folder at `path` still lists for this account. A listing this page already has
+ * answers at once, and the pane refreshes it; otherwise the folder is asked for, and its
+ * listing is then ready for the pane.
+ */
 async function opens(path: string, includeStats: boolean) {
+  const cached = [includeStats, !includeStats].some(
+    (stats) =>
+      queryClient.getQueryData(fileListQueryOptions(path, stats).queryKey) !==
+      undefined,
+  );
+  if (cached) return true;
   try {
     await queryClient.fetchQuery({
       ...fileListQueryOptions(path, includeStats),
@@ -33,26 +42,20 @@ export async function openSplit({
   left: string;
   right: string | null;
 }) {
-  // Starts now, beside the checks below. A load that fails shows the code load notice, and the
-  // page stays as it is.
-  const view = CodeLoad.load(() => import("./split-view")).then(
-    () => true,
-    (error: unknown) => {
-      CodeLoad.failed(error);
-      return false;
-    },
-  );
   const memory = SplitMemory.read();
-  const prefs =
-    memory.prefs ?? (await queryClient.ensureQueryData(prefsQueryOptions));
   const remembered = memory.right;
   const folder =
     right ??
-    (remembered !== null && (await opens(remembered, needsStats(prefs)))
+    (remembered !== null &&
+    remembered !== left &&
+    (await opens(
+      remembered,
+      needsStats(
+        memory.prefs ?? (await queryClient.ensureQueryData(prefsQueryOptions)),
+      ),
+    ))
       ? remembered
       : left);
-  // The view's code arrives before the address changes, so the page never shows nothing.
-  if (!(await view)) return;
   await navigate({
     href: SplitAddress.href(left, {
       right: folder,

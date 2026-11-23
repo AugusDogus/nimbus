@@ -1,6 +1,24 @@
+import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export function LoadingSkeleton({ view }: { view: "list" | "grid" }) {
+/**
+ * Placeholder entries while a folder's listing loads. After `delayMs`, so a listing that arrives
+ * quickly never flashes them.
+ */
+export function LoadingSkeleton({
+  view,
+  delayMs = 0,
+}: {
+  view: "list" | "grid";
+  delayMs?: number;
+}) {
+  const [due, setDue] = useState(delayMs === 0);
+  useEffect(() => {
+    if (due) return;
+    const timer = setTimeout(() => setDue(true), delayMs);
+    return () => clearTimeout(timer);
+  }, [due, delayMs]);
+  if (!due) return null;
   if (view === "grid") {
     return (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">

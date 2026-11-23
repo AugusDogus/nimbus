@@ -7,6 +7,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { CodeLoad } from "@/lib/code-load";
+import { SplitCode } from "./split-frame";
 
 /** Opens a split view beside `left`, with `right` in the other pane or the remembered folder. */
 export function openSplit(
@@ -14,7 +15,7 @@ export function openSplit(
   left: string,
   right: string | null,
 ) {
-  void CodeLoad.load(() => import("./split/open-split")).then(
+  void SplitCode.load().then(
     ({ openSplit }) => openSplit({ navigate, left, right }),
     (error: unknown) => CodeLoad.failed(error),
   );
@@ -43,6 +44,9 @@ export function SplitToggle({
             aria-pressed={open}
             className="touch-hit text-muted-foreground aria-pressed:bg-accent aria-pressed:text-foreground max-lg:hidden"
             onClick={onToggle}
+            // Pointed at or focused, it starts loading the split view's code.
+            onPointerEnter={SplitCode.preload}
+            onFocus={SplitCode.preload}
           />
         }
       >

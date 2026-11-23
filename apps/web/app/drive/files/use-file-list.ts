@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 
 import { fetchFileList } from "@/lib/file-list";
+import { queryClient } from "@/lib/trpc";
 import { trpcErrorCode } from "@/lib/trpc-error";
 
 import type { FileEntry } from "./types";
@@ -37,7 +38,13 @@ export const useFileList = ({
   const listQuery = useQuery({
     ...fileListQueryOptions(currentPath, includeStats),
     enabled,
-    placeholderData: keepPreviousData,
+    // While a listing loads: the one shown before, or the folder's listing without or with
+    // sizes and dates, so a folder this page has listed before never shows as loading.
+    placeholderData: (previous) =>
+      keepPreviousData(previous) ??
+      queryClient.getQueryData(
+        fileListQueryOptions(currentPath, !includeStats).queryKey,
+      ),
   });
   const entries = useMemo<FileEntry[]>(() => {
     const data = listQuery.data ?? [];

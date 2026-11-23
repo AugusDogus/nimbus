@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useRouteContext } from "@tanstack/react-router";
 import {
+  memo,
   useCallback,
   useEffect,
   useId,
@@ -22,6 +23,7 @@ import {
   type PaneFrame,
   type PanePrefs,
 } from "../files-page-client";
+import { SplitFrameStore, type SplitFrame } from "../split-frame";
 import { NavPlace } from "../nav-place";
 import { PaneLinks } from "../pane-links";
 import {
@@ -39,7 +41,6 @@ import {
 import { useFileActions } from "../use-file-actions";
 import { useFileDrag } from "../use-file-drag";
 import { useFilePreferences } from "../use-file-preferences";
-import { OtherPaneActionsSlot } from "../selection-bar";
 import { renderOtherPaneActions } from "./other-pane-actions";
 import { PaneDivider } from "./pane-divider";
 import { PaneHistory } from "./pane-history";
@@ -92,19 +93,38 @@ function useContentWidth(frame: RefObject<HTMLDivElement | null>) {
   return width;
 }
 
+export { openSplit } from "./open-split";
+
+type ControllerProps = {
+  left: string;
+  layout: SplitLayout;
+  /** The page's folder frame, which the panes fill and the divider sizes. */
+  frameRef: RefObject<HTMLDivElement | null>;
+};
+
+const sameProps = (a: ControllerProps, b: ControllerProps) =>
+  a.left === b.left &&
+  a.frameRef === b.frameRef &&
+  a.layout.right === b.layout.right &&
+  a.layout.active === b.layout.active &&
+  a.layout.ratio === b.layout.ratio &&
+  a.layout.collapsed === b.layout.collapsed;
+
 /**
  * Two folders side by side, as the address describes them (see `SplitLayout`). Each pane keeps
  * its own folder, selection, scroll position, sort, view and Back; one drag spans both, so items
  * move between them (or copy, with Ctrl or Option held). Where the panes do not fit, the active
  * pane shows alone and offers the other folder as a destination.
+ *
+ * It renders nothing itself: after each render it publishes the frame's parts (see `SplitFrame`),
+ * and the page puts them around the folder it already shows, which stays mounted. It renders
+ * again only when the address or its own state changes, never because it published.
  */
-export default function SplitView({
+export const SplitController = memo(function SplitController({
   left,
   layout,
-}: {
-  left: string;
-  layout: SplitLayout;
-}) {
+  frameRef,
+}: ControllerProps) {
   const navigate = useNavigate();
   const { session } = useRouteContext({ from: "/_authed" });
   const isAuthed = Boolean(session);
@@ -240,7 +260,6 @@ export default function SplitView({
     },
   });
 
-  const frameRef = useRef<HTMLDivElement>(null);
   const width = useContentWidth(frameRef);
   const wide = width !== null && width >= minSideBySide;
   const fitsFolded =
@@ -328,104 +347,112 @@ export default function SplitView({
     };
   };
 
-  const pane = (side: PaneSide) =>
-    layout.collapsed === side ? (
-      <CollapsedPane
-        key={side}
-        side={side}
-        label={labelOf(paths[side])}
-        onReopen={() => go({ collapsed: null }, undefined, true)}
-      />
-    ) : (
-      <PaneLinks.Provider key={side} value={links[side]}>
-        <FolderPane
-          path={paths[side]}
-          pane={frameFor(side)}
-          other={others[side]}
-          split={controlFor(side)}
-        />
-      </PaneLinks.Provider>
-    );
-
-  return (
-    <OtherPaneActionsSlot.Provider value={renderOtherPaneActions}>
-      {width === null ? (
-        <div ref={frameRef} className="md:flex-1" />
-      ) : sideBySide ? (
-        <div
-          ref={frameRef}
-          data-split-view
-          className="grid min-h-0 flex-1"
-          style={{
-            gridTemplateColumns: columns(ratio, layout.collapsed),
-            // A folded pane's card keeps the gap the divider leaves.
-            columnGap: layout.collapsed ? dividerWidth : 0,
-          }}
-        >
-          {pane("left")}
-          {layout.collapsed === null && (
-            <PaneDivider
-              ratio={ratio}
-              min={bound}
-              max={100 - bound}
-              frameRef={frameRef}
-              controls={ids.left}
-              preview={(next) => {
-                frameRef.current?.style.setProperty(
-                  "grid-template-columns",
-                  columns(next, null),
-                );
-              }}
-              commit={(next) => {
-                frameRef.current?.style.setProperty(
-                  "grid-template-columns",
-                  columns(next, null),
-                );
-                go({ ratio: next }, undefined, true);
-              }}
-              collapse={(side) =>
-                go(
-                  { collapsed: side, active: SplitLayout.other(side) },
-                  undefined,
-                  true,
-                )
-              }
-            />
-          )}
-          {pane("right")}
-        </div>
-      ) : (
-        // One folder fits: the active pane's, with the other offered as a destination.
-        <div
-          ref={frameRef}
-          data-split-view="narrow"
-          className="md:flex md:min-h-0 md:flex-1 md:flex-col"
-        >
-          <PaneLinks.Provider value={links[layout.active]}>
-            <FolderPane
-              key={layout.active}
-              path={activePath}
-              pane={null}
-              other={others[layout.active]}
-              split={controlFor(layout.active)}
-            />
-          </PaneLinks.Provider>
-        </div>
-      )}
-      {sideBySide && drag.state.status === "moving" && (
-        <p role="status" className="sr-only">
-          {drag.state.operation === "copy" ? "Copying" : "Moving"}{" "}
-          {drag.state.sources.length === 1
-            ? drag.state.sources[0]?.name
-            : `${drag.state.sources.length} items`}
-          …
-        </p>
-      )}
-      <TransferDialog
-        dialog={dialog}
-        actions={actions}
-        onClose={() => onDialog(null)}
-      />
-    </OtherPaneActionsSlot.Provider>
+  const paneFor = (side: PaneSide) => ({
+    kind: "folder" as const,
+    path: paths[side],
+    pane: frameFor(side),
+    other: others[side],
+    control: controlFor(side),
+    links: links[side],
+  });
+  const collapsed = (side: PaneSide) => (
+    <CollapsedPane
+      key={side}
+      side={side}
+      label={labelOf(paths[side])}
+      onReopen={() => go({ collapsed: null }, undefined, true)}
+    />
   );
-}
+  const rest =
+    sideBySide &&
+    (layout.collapsed === "right" ? (
+      collapsed("right")
+    ) : (
+      <>
+        {layout.collapsed === null && (
+          <PaneDivider
+            ratio={ratio}
+            min={bound}
+            max={100 - bound}
+            frameRef={frameRef}
+            controls={ids.left}
+            preview={(next) => {
+              frameRef.current?.style.setProperty(
+                "grid-template-columns",
+                columns(next, null),
+              );
+            }}
+            commit={(next) => {
+              frameRef.current?.style.setProperty(
+                "grid-template-columns",
+                columns(next, null),
+              );
+              go({ ratio: next }, undefined, true);
+            }}
+            collapse={(side) =>
+              go(
+                { collapsed: side, active: SplitLayout.other(side) },
+                undefined,
+                true,
+              )
+            }
+          />
+        )}
+        <PaneLinks.Provider value={links.right}>
+          <FolderPane
+            key="right"
+            path={paths.right}
+            pane={frameFor("right")}
+            other={others.right}
+            split={controlFor("right")}
+          />
+        </PaneLinks.Provider>
+      </>
+    ));
+  const frame: SplitFrame | null =
+    width === null
+      ? null
+      : {
+          sideBySide,
+          style: sideBySide
+            ? {
+                gridTemplateColumns: columns(ratio, layout.collapsed),
+                // A folded pane's card keeps the gap the divider leaves.
+                columnGap: layout.collapsed ? dividerWidth : 0,
+              }
+            : undefined,
+          // Where the panes do not fit, the active pane's folder shows alone, with the other
+          // offered as a destination.
+          first: !sideBySide
+            ? { ...paneFor(layout.active), pane: null }
+            : layout.collapsed === "left"
+              ? { kind: "collapsed", element: collapsed("left") }
+              : paneFor("left"),
+          rest: rest || null,
+          extras: (
+            <>
+              {sideBySide && drag.state.status === "moving" && (
+                <p role="status" className="sr-only">
+                  {drag.state.operation === "copy" ? "Copying" : "Moving"}{" "}
+                  {drag.state.sources.length === 1
+                    ? drag.state.sources[0]?.name
+                    : `${drag.state.sources.length} items`}
+                  …
+                </p>
+              )}
+              <TransferDialog
+                dialog={dialog}
+                actions={actions}
+                onClose={() => onDialog(null)}
+              />
+            </>
+          ),
+          otherPaneActions: renderOtherPaneActions,
+        };
+  // After every render: the page shows this frame until the next one, or none once closed.
+  useLayoutEffect(() => {
+    SplitFrameStore.set(frame);
+  });
+  useLayoutEffect(() => () => SplitFrameStore.set(null), []);
+  return null;
+}, sameProps);
