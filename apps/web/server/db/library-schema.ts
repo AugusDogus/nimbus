@@ -183,3 +183,32 @@ export const pairedDevices = sqliteTable(
   },
   (table) => [index("nimbus_paired_device_library").on(table.libraryId)],
 );
+
+export const LIBRARY_POSTER_STATES = ["ready", "failed", "timed_out"] as const;
+export type LibraryPosterState = (typeof LIBRARY_POSTER_STATES)[number];
+
+/**
+ * What drawing an item's poster found, for one version of its file: the source's dimensions
+ * once a poster was drawn, so the listing can give them without decoding anything, or that the
+ * file could not be drawn (or ran out of time), so it is not tried on every request. A row for
+ * another version says nothing about the current one.
+ */
+export const libraryPosters = sqliteTable(
+  "nimbus_library_poster",
+  {
+    itemId: text("item_id")
+      .primaryKey()
+      .references(() => libraryItems.id, { onDelete: "cascade" }),
+    version: text("version").notNull(),
+    state: text("state", { enum: LIBRARY_POSTER_STATES }).notNull(),
+    width: integer("width"),
+    height: integer("height"),
+    recordedAt: integer("recorded_at").notNull(),
+  },
+  (table) => [
+    check(
+      "nimbus_library_poster_dimensions",
+      sql`(${table.state} = 'ready') = (${table.width} IS NOT NULL AND ${table.height} IS NOT NULL AND ${table.width} > 0 AND ${table.height} > 0)`,
+    ),
+  ],
+);
