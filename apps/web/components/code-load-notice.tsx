@@ -58,7 +58,9 @@ function Notice({ kind }: { kind: CodeLoadFailure }) {
  * a running upload or unsaved text.
  *
  * Both live regions are always there, so a dialog that opens leaves them to screen readers, and
- * a notice that appears in one is read out: politely for an update, at once for a failure.
+ * a notice that appears in one is read out whole: politely for an update, at once for a failure.
+ * They carry no role, so an empty one is no status or alert of its own, and the message within
+ * carries none either, which would have it announced twice.
  */
 export function CodeLoadNotice() {
   const notice = useSyncExternalStore(
@@ -68,10 +70,10 @@ export function CodeLoadNotice() {
   );
   return (
     <div className="pointer-events-none fixed right-6 bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px)+var(--toast-clearance,0px))] z-[999999999] w-[356px] max-[600px]:right-4 max-[600px]:bottom-[calc(max(1rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px)+var(--toast-clearance,0px))] max-[600px]:left-4 max-[600px]:w-auto">
-      <div role="status" aria-live="polite">
+      <div aria-live="polite" aria-atomic="true">
         {notice === "updated" && <Notice kind="updated" />}
       </div>
-      <div role="alert" aria-live="assertive">
+      <div aria-live="assertive" aria-atomic="true">
         {notice === "unavailable" && <Notice kind="unavailable" />}
       </div>
     </div>

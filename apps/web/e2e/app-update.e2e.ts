@@ -100,11 +100,18 @@ const marked = (page: Page) =>
     .evaluate(() => document.documentElement.dataset.updateTest ?? "")
     .catch(() => "while loading");
 
-/** The notice in the corner: a status for an update, an alert for code that did not arrive. */
+/**
+ * The notice in the corner, in its live region: polite for an update, assertive for code that did
+ * not arrive. Neither region has a role, so no empty status or alert is on the page.
+ */
+const notice = (page: Page, live: "polite" | "assertive", text: string) =>
+  page
+    .locator(`[aria-live="${live}"] [data-slot="code-load-notice"]`)
+    .filter({ hasText: text });
 const updated = (page: Page) =>
-  page.getByRole("status").filter({ hasText: "Nimbus has been updated." });
+  notice(page, "polite", "Nimbus has been updated.");
 const unavailable = (page: Page) =>
-  page.getByRole("alert").filter({ hasText: "Part of Nimbus could not load." });
+  notice(page, "assertive", "Part of Nimbus could not load.");
 
 const openPicker = (page: Page, isMobile: boolean) =>
   action(page, "a.txt", "Move to…", isMobile);
