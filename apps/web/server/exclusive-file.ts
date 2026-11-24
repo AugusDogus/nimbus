@@ -42,6 +42,9 @@ function acquire(
   }
   try {
     database.run(`PRAGMA busy_timeout = ${Math.max(0, Math.round(waitMs))}`);
+    // No journal file beside it: the lock may sit in a folder its holder cannot write, as the
+    // supervisor's does in a shared config root, and nothing is ever written to it anyway.
+    database.run("PRAGMA journal_mode = MEMORY");
     // Kept after the transaction starts, so the lock lasts until the connection closes.
     database.run("PRAGMA locking_mode = EXCLUSIVE");
     database.run("BEGIN EXCLUSIVE");

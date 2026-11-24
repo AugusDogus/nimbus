@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { InstallationLock } from "./installation-lock";
@@ -109,4 +109,21 @@ test("a lease is released with its holder, and taken by no one else meanwhile", 
   const again = InstallationLock.lease(configRoot, "run-2");
   expect(again.ok).toBe(true);
   if (again.ok) again.value.release();
+});
+
+test("held in a folder its owner may not write, as the supervisor's lock is in a shared config root", async () => {
+  const folder = path.join(configRoot, "shared");
+  await mkdir(folder);
+  await Bun.write(path.join(folder, "server.lock"), "");
+  await chmod(folder, 0o555);
+  try {
+    const held = InstallationLock.acquire(folder);
+    expect(held.ok).toBe(true);
+    if (held.ok) {
+      expect(InstallationLock.acquire(folder).ok).toBe(false);
+      held.value.release();
+    }
+  } finally {
+    await chmod(folder, 0o755);
+  }
 });
