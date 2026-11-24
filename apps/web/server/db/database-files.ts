@@ -1,5 +1,5 @@
 import type { Database as SQLite } from "bun:sqlite";
-import { chmodSync } from "node:fs";
+import { chmodSync, statSync } from "node:fs";
 
 const companions = (file: string) => [file, `${file}-wal`, `${file}-shm`];
 const errorCode = (error: unknown) =>
@@ -53,11 +53,33 @@ function restrict(file: string) {
 }
 
 /** Keep the config root, which holds the database and backups, owner-only, or stop startup. */
+/**
+ * Whether `stats` describe the config root the container entrypoint shares between Nimbus's
+ * users (see docs/updates.md): not this user's, sticky, so nobody renames what another owns, and
+ * closed to everyone outside its group except for passing through. It stays as it is; the
+ * database and its journals inside are still made private.
+ */
+function sharedConfigRoot(stats: { uid: number; mode: number }, uid: number) {
+  return (
+    stats.uid !== uid &&
+    (stats.mode & 0o1000) !== 0 &&
+    (stats.mode & 0o006) === 0
+  );
+}
+
 function restrictDirectory(directory: string) {
+  let details: { uid: number; mode: number } | null = null;
+  try {
+    details = statSync(directory);
+  } catch {
+    details = null;
+  }
+  if (details && sharedConfigRoot(details, process.getuid?.() ?? -1)) return;
   makePrivate(directory, 0o700);
 }
 
 export const DatabaseFiles = {
+  sharedConfigRoot,
   probeWrite,
   requireWritable,
   restrict,
