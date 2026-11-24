@@ -63,8 +63,7 @@ test("an update user that is not one of its own turns updates off, servers still
     server: { uid: 1100, gid: 1100 },
     update: null,
   });
-  if (users.kind === "split")
-    expect(users.updatesOff).toContain("ids of its own");
+  if (users.kind === "split") expect(users.updatesOff).toContain("update user");
 });
 
 test("started as another user, as with --user: one user, updates off unless a test asks", () => {

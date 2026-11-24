@@ -33,7 +33,8 @@ function id(value: string | undefined) {
   return parsed <= 4_294_967_294 ? parsed : null;
 }
 
-const DEFAULT_UPDATE_ID = "1100";
+/** The update user the image creates (Dockerfile), with a group of its own. */
+const UPDATE_ID = 1100;
 
 export const Users = {
   fromEnvironment(
@@ -56,26 +57,17 @@ export const Users = {
           "Nimbus did not start: its supervisor runs as root but was not told which user to run servers as (NIMBUS_SERVER_UID and NIMBUS_SERVER_GID, numbers from 1 to 4294967294), and it never runs servers as root. Start it through the image's entrypoint, which sets them from PUID and PGID.",
       };
     const server = { uid, gid };
-    const updateUid = id(env.NIMBUS_UPDATE_UID ?? DEFAULT_UPDATE_ID);
-    const updateGid = id(env.NIMBUS_UPDATE_GID ?? DEFAULT_UPDATE_ID);
-    if (
-      updateUid === null ||
-      updateGid === null ||
-      updateUid === uid ||
-      updateGid === gid ||
-      updateUid === gid ||
-      updateGid === uid
-    )
+    if (uid === UPDATE_ID || gid === UPDATE_ID)
       return {
         kind: "split",
         server,
         update: null,
-        updatesOff: `In-app updates are off: the update user (NIMBUS_UPDATE_UID and NIMBUS_UPDATE_GID, default ${DEFAULT_UPDATE_ID}) must be ids of its own, other than PUID and PGID. Servers still run as ${uid}:${gid}. Unset them, or set other numbers.`,
+        updatesOff: `In-app updates are off: PUID or PGID is ${UPDATE_ID}, the id of the image's update user, which must be one of its own. Servers still run as ${uid}:${gid}. Choose another PUID and PGID to turn updates on.`,
       };
     return {
       kind: "split",
       server,
-      update: { uid: updateUid, gid: updateGid },
+      update: { uid: UPDATE_ID, gid: UPDATE_ID },
       updatesOff: null,
     };
   },

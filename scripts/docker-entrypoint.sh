@@ -130,8 +130,8 @@ main() {
   # setuid and setgid to start servers as PUID:PGID and the installer as the update user,
   # setpcap for those children to empty their bounding sets, kill to signal them. It drops
   # privileges for every child it starts. Tried first, so a container without these still starts.
-  update=${NIMBUS_UPDATE_UID:-1100}
-  prepare_store "${NIMBUS_TEST_STORE_DIR:-/var/lib/nimbus}" "$update" ||
+  # 1100 is the image's update user (see the Dockerfile).
+  prepare_store "${NIMBUS_TEST_STORE_DIR:-/var/lib/nimbus}" 1100 ||
     printf 'In-app updates are off: Nimbus could not prepare its update store %s. Installed releases still start if they verify.\n' "${NIMBUS_TEST_STORE_DIR:-/var/lib/nimbus}" >&2
   caps=-all,+setuid,+setgid,+setpcap,+kill
   if setpriv --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set="$caps" --no-new-privs -- true 2>/dev/null; then
