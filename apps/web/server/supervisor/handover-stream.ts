@@ -17,6 +17,12 @@ import type {
  * - `done`: its outcome, always the last line. A stream that ends without one was cut off, and
  *   says nothing about how the handover went.
  */
+/** Why a handover, or an update that ends in one, did not happen. */
+export type StreamError =
+  | HandoverError
+  /** An update failed before any handover: nothing was installed or started. */
+  | { kind: "update-failed"; message: string };
+
 export type HandoverEvent =
   | { kind: "started"; release: string | null; readyTimeoutSeconds: number }
   | {
@@ -26,7 +32,7 @@ export type HandoverEvent =
       starting: { release: string; pid: number } | null;
     }
   | { kind: "done"; ok: true; report: HandoverReport }
-  | { kind: "done"; ok: false; error: HandoverError };
+  | { kind: "done"; ok: false; error: StreamError };
 
 const event = z.discriminatedUnion("kind", [
   z.object({
@@ -56,7 +62,7 @@ const event = z.discriminatedUnion("kind", [
       .optional(),
     error: z
       .object({
-        kind: z.enum(["busy", "unknown-release", "not-ready"]),
+        kind: z.enum(["busy", "unknown-release", "not-ready", "update-failed"]),
         message: z.string(),
       })
       .optional(),
@@ -87,7 +93,7 @@ export const HandoverStream = {
   respond(
     release: string | null,
     outcome: Promise<
-      { ok: true; value: HandoverReport } | { ok: false; error: HandoverError }
+      { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
     >,
     {
       status,

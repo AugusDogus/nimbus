@@ -39,4 +39,25 @@ export const ControlClient = {
     );
     return HandoverStream.read(response, onEvent);
   },
+
+  /** `GET /update`: the update status. */
+  updateStatus: (socket: string) => ask(socket, "/update", "GET"),
+
+  /** `POST /update/check`: ask the update source now. */
+  checkForUpdate: (socket: string) => ask(socket, "/update/check", "POST"),
+
+  /**
+   * `POST /update/install` or `/update/rollback`, streamed as a handover is: the outcome, or null
+   * when the answer ended without one.
+   */
+  async update(
+    socket: string,
+    action: "install" | "rollback",
+    onEvent: (event: HandoverEvent) => void = () => undefined,
+  ) {
+    return HandoverStream.read(
+      await ask(socket, `/update/${action}`, "POST"),
+      onEvent,
+    );
+  },
 } as const;

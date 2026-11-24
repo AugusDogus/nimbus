@@ -3,9 +3,10 @@
  * restarted or updated without closing its port. `bun server/supervisor/main.ts` from apps/web.
  *
  * Control: the Unix socket at NIMBUS_SUPERVISOR_SOCKET (see settings.ts), in a directory only
- * this user may enter, answers `GET /status` and `POST /handover[?release=<name>]` (streamed;
- * see HandoverStream). Nothing
- * listens on the network for it; `bun server/supervisor/control.ts` talks to it. SIGHUP hands
+ * this user may enter, answers `GET /status`, `POST /handover[?release=<name>]`, and for updates
+ * (docs/updates.md) `GET /update`, `POST /update/check`, `POST /update/install` and
+ * `POST /update/rollback`; handovers, installs and rollbacks are streamed (HandoverStream).
+ * Nothing listens on the network for it; `bun server/supervisor/control.ts` talks to it. SIGHUP hands
  * over to a fresh server of the same release. SIGTERM and SIGINT drain every server within
  * NIMBUS_STOP_SECONDS and exit, as a container stop needs.
  */
@@ -16,10 +17,21 @@ import { InstallationLock } from "../installation-lock";
 import { getConfigRoot } from "../storage-paths";
 import { ControlSocket } from "./control-socket";
 import { HandoverStream } from "./handover-stream";
+import { BuildInfo } from "../updates/build-info";
+import { TrustRoot } from "../updates/trust-root";
+import { UpdateSource } from "../updates/update-source";
+import { createUpdater, type RunInstaller } from "../updates/updater";
 import { ReleaseDirectory } from "./release-directory";
 import { PROTOCOL_VERSION, Protocol, WorkerEnv } from "./protocol";
 import { parseSettings } from "./settings";
-import { createSupervisor, type Release, type SpawnWorker } from "./supervisor";
+import { z } from "zod";
+import {
+  createSupervisor,
+  type HandoverReport,
+  type Release,
+  type SpawnWorker,
+} from "./supervisor";
+import type { StreamError } from "./handover-stream";
 
 const log = (line: string) => console.info(`[supervisor] ${line}`);
 
@@ -30,6 +42,7 @@ if (!settings.ok) {
   process.exit(1);
 }
 const { releasesDir, socketPath } = settings.value;
+const readyTimeoutSeconds = settings.value.readyTimeoutMs / 1000;
 
 // Without it, a connection still queued on the old server's listener when that closes is reset.
 const migrate = await readFile(
@@ -51,19 +64,26 @@ const builtIn: Release = {
   root: path.resolve(import.meta.dir, "../../../.."),
 };
 
+const configRoot = getConfigRoot();
+/** Installed releases (see docs/updates.md), and any an operator put there by hand. */
+const releases = releasesDir ?? path.join(configRoot, "releases");
+/** Signed releases verified for this handover, by name (see `prepare`). */
+const prepared = new Map<string, Release>();
+/** What the first server starts from: an installed release, or the built-in one. */
+let startWith: Release = builtIn;
+
 function release(
   name: string | null,
 ): { ok: true; release: Release } | { ok: false; reason: string } {
-  if (name === null || name === builtIn.name) {
+  if (name === null) return { ok: true, release: startWith };
+  if (name === builtIn.name) {
     const checked = ReleaseDirectory.check(builtIn.root);
     return checked.ok ? { ok: true, release: builtIn } : checked;
   }
-  if (!releasesDir)
-    return {
-      ok: false,
-      reason: "there is no NIMBUS_RELEASES_DIR to find releases in",
-    };
-  return ReleaseDirectory.resolve(releasesDir, name);
+  const signed = prepared.get(name);
+  if (signed) return { ok: true, release: signed };
+  // One an operator placed in the releases folder by hand, which only root can.
+  return ReleaseDirectory.resolve(releases, name);
 }
 
 const spawn: SpawnWorker = (request, onMessage) => {
@@ -135,7 +155,6 @@ function portInUse(): string | null {
 }
 
 // One supervisor per installation, for its whole life; see InstallationLock.
-const configRoot = getConfigRoot();
 await mkdir(configRoot, { recursive: true });
 const installation = InstallationLock.acquire(configRoot);
 if (!installation.ok) {
@@ -160,6 +179,73 @@ if (!socket.ok) {
   process.exit(1);
 }
 
+const build = await BuildInfo.read(path.join(builtIn.root, "apps/web"));
+if (!build.ok) log(build.error.message);
+const source = UpdateSource.fromEnvironment(
+  process.env.NIMBUS_UPDATE_SOURCE,
+  build.ok ? build.value : null,
+);
+if (!source.ok) log(`updates are off: ${source.message}`);
+
+/** The installer process (installer.ts), so downloads and unpacking never run in here. */
+const installerAnswer = z.union([
+  z.object({ ok: z.literal(true), name: z.string() }),
+  z.object({ ok: z.literal(false), message: z.string() }),
+]);
+const runInstaller: RunInstaller = async (request) => {
+  const child = Bun.spawn(
+    [process.execPath, "server/supervisor/installer.ts"],
+    {
+      cwd: path.join(builtIn.root, "apps/web"),
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "inherit",
+    },
+  );
+  void child.stdin.write(JSON.stringify(request));
+  void child.stdin.end();
+  const [code, output] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+  ]);
+  let value: unknown;
+  try {
+    value = JSON.parse(output.trim().split("\n").at(-1) ?? "");
+  } catch {
+    value = null;
+  }
+  const answer = installerAnswer.safeParse(value);
+  return answer.success
+    ? answer.data
+    : {
+        ok: false,
+        message: `The installer exited with code ${code} without saying how it went. Nothing new runs; the releases folder holds at most an unfinished staging copy, removed at the next install.`,
+      };
+};
+
+const updater = await createUpdater({
+  releases,
+  builtIn: { root: builtIn.root, build: build.ok ? build.value : null },
+  source: source.ok
+    ? source.value
+    : { kind: "off", reason: `Updates are off: ${source.message}` },
+  trust: await TrustRoot.load(builtIn.root),
+  supervisorProtocol: PROTOCOL_VERSION,
+  runInstaller,
+  log,
+});
+
+/** Verify installed release `name` so the next handover may start it; null if it is not one. */
+async function prepare(name: string) {
+  const resolved = await updater.resolve(name);
+  if (!resolved.ok) return resolved;
+  prepared.set(name, { name, root: resolved.root });
+  return resolved;
+}
+
+const chosen = await updater.startRelease();
+if (chosen) startWith = { name: chosen.name, root: chosen.root };
+
 const started = await supervisor.start();
 if (!started.ok) {
   console.error(started.error.message);
@@ -180,7 +266,7 @@ const control = Bun.serve({
       return Response.json(
         {
           ...supervisor.status(),
-          readyTimeoutSeconds: settings.value.readyTimeoutMs / 1000,
+          readyTimeoutSeconds,
         },
         { headers: closing },
       );
@@ -188,18 +274,94 @@ const control = Bun.serve({
       // Streamed, a line every few seconds: a handover lasts as long as the new server's
       // startup, and Bun resets a Unix socket connection idle for 10 seconds.
       const release = url.searchParams.get("release");
-      return HandoverStream.respond(release, supervisor.handover(release), {
-        status: () => supervisor.status(),
-        readyTimeoutSeconds: settings.value.readyTimeoutMs / 1000,
-      });
+      return streamed(release, handOver(release));
     }
+    if (request.method === "GET" && url.pathname === "/update")
+      return Response.json(updater.status(), { headers: closing });
+    if (request.method === "POST" && url.pathname === "/update/check") {
+      const checked = await updater.check();
+      return Response.json(
+        checked.ok ? checked.status : { error: checked.message },
+        { status: checked.ok ? 200 : 503, headers: closing },
+      );
+    }
+    if (request.method === "POST" && url.pathname === "/update/install")
+      return streamed(null, installUpdate());
+    if (request.method === "POST" && url.pathname === "/update/rollback")
+      return streamed(null, rollBack());
     return new Response(
-      "Use GET /status or POST /handover[?release=<name>].\n",
+      "Use GET /status, POST /handover[?release=<name>], GET /update, or POST /update/check, /update/install or /update/rollback.\n",
       { status: 404, headers: closing },
     );
   },
 });
 await chmod(socketPath, 0o600);
+
+function streamed(
+  release: string | null,
+  outcome: Promise<
+    { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
+  >,
+) {
+  return HandoverStream.respond(release, outcome, {
+    status: () => supervisor.status(),
+    readyTimeoutSeconds,
+  });
+}
+
+/** Hand over to `name`, verifying it first if it is an installed release, and record it. */
+async function handOver(name: string | null) {
+  if (name !== null && name !== builtIn.name) await prepare(name);
+  const outcome = await supervisor.handover(name);
+  if (outcome.ok && name !== null)
+    await updater.ran(
+      name === builtIn.name || !prepared.has(name) ? null : name,
+    );
+  return outcome;
+}
+
+/** Install what the last check offered, then hand over to it. */
+async function installUpdate(): Promise<
+  { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
+> {
+  const installed = await updater.install();
+  if (!installed.ok)
+    return {
+      ok: false,
+      error: { kind: "update-failed", message: installed.message },
+    };
+  const verified = await prepare(installed.name);
+  if (!verified.ok)
+    return {
+      ok: false,
+      error: { kind: "update-failed", message: verified.message },
+    };
+  const outcome = await handOver(installed.name);
+  if (outcome.ok)
+    await updater.prune(
+      [supervisor.status().active, ...supervisor.status().draining].flatMap(
+        (worker) => (worker ? [worker.release] : []),
+      ),
+    );
+  return outcome;
+}
+
+/** Hand back to the release that ran before the current one. */
+async function rollBack(): Promise<
+  { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
+> {
+  const target = updater.rollbackTarget();
+  if (!target)
+    return {
+      ok: false,
+      error: {
+        kind: "update-failed",
+        message:
+          "There is no earlier release to roll back to: the built-in release runs and nothing ran before it.",
+      },
+    };
+  return handOver(target.name ?? builtIn.name);
+}
 log(`serving; control socket ${socketPath}`);
 
 process.on("SIGHUP", () => {

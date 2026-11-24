@@ -33,3 +33,6 @@ playwright-report/
 *.db
 *.db-*
 *.tsbuildinfo
+
+# Written by the image build and release bundles (see docs/updates.md).
+apps/web/build-info.json

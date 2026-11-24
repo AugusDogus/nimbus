@@ -1,0 +1,4 @@
+{
+  "$comment": "The public keys this image trusts to sign release bundles (see docs/updates.md). Empty: this image installs no update. Add a key with bun scripts/release-keys.ts.",
+  "keys": []
+}
