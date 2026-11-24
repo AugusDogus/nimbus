@@ -283,3 +283,22 @@ test("a bundle that already holds the installer's own files, or a link where it 
   expect(installed.ok || installed.error.message).toContain("is a link");
   expect(await leftovers()).toEqual([]);
 });
+
+test("a bundle carrying a native binary is refused, so a bundle stays portable", async () => {
+  const native = await publish(testManifest(111), {
+    tree: async (root) => {
+      await mkdir(path.join(root, "node_modules/.bun/codec@1.0.0/build"), {
+        recursive: true,
+      });
+      await writeFile(
+        path.join(root, "node_modules/.bun/codec@1.0.0/build/codec.node"),
+        "elf",
+      );
+      // A locale named "so" is not a shared object.
+      await writeFile(path.join(root, "node_modules/so.js"), "// locale");
+    },
+  });
+  const installed = await install(native);
+  expect(installed.ok || installed.error.message).toContain("codec.node");
+  expect(await leftovers()).toEqual([]);
+});

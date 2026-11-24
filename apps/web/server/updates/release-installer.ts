@@ -12,6 +12,7 @@ import { ReleaseDirectory } from "../supervisor/release-directory";
 import { BundleArchive } from "./bundle-archive";
 import { BuildInfo } from "./build-info";
 import { ImageAbi } from "./image-abi";
+import { NativeArtifacts } from "./native-artifacts";
 import { ReleaseManifest } from "./release-manifest";
 import { ReleaseSignature, type TrustRoot } from "./release-signature";
 import { MANIFEST_FILE, ReleaseStore, SIGNATURE_FILE } from "./release-store";
@@ -134,6 +135,11 @@ export async function installRelease({
     if (!unpacked.ok)
       return failed(
         `The bundle of release ${name} could not be unpacked: ${unpacked.error.message}`,
+      );
+    const binaries = await NativeArtifacts.find(staging);
+    if (binaries.length)
+      return failed(
+        `The bundle of release ${name} carries native binaries (${binaries.slice(0, 5).join(", ")}${binaries.length > 5 ? ", …" : ""}), which only the image may provide. Nothing was installed.`,
       );
     const tree = ReleaseDirectory.check(staging);
     if (!tree.ok)

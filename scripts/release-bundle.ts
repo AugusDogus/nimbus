@@ -26,6 +26,7 @@ import { parseArgs } from "node:util";
 import { BundleArchive } from "../apps/web/server/updates/bundle-archive";
 import { BUNDLE_ENTRIES } from "../apps/web/server/updates/bundle-entries";
 import { BuildInfo } from "../apps/web/server/updates/build-info";
+import { NativeArtifacts } from "../apps/web/server/updates/native-artifacts";
 import {
   ReleaseManifest,
   type ReleaseManifest as Manifest,
@@ -214,6 +215,11 @@ try {
     }
   };
   await prune(tree);
+  const binaries = await NativeArtifacts.find(tree);
+  if (binaries.length)
+    refuse(
+      `the bundle would carry native binaries (${binaries.join(", ")}), which belong to the image. Add their package to the native packages the image provides.`,
+    );
 
   const journal: unknown = await Bun.file(
     path.join(tree, "apps/web/drizzle/meta/_journal.json"),
