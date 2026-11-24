@@ -315,3 +315,79 @@ test.skipIf(!mappedRoot)(
     ]);
   },
 );
+
+test.skipIf(!mappedRoot)(
+  "a root folder a storage driver left world-writable becomes root's alone, once, and says so",
+  async () => {
+    const dir = path.join(root, "rootfs");
+    const first = await asRoot(
+      `mkdir -m 777 "${dir}"; chmod 777 "${dir}"; secure_root_dir "${dir}"; stat -c %a "${dir}"`,
+    );
+    expect(first.code).toBe(0);
+    expect(first.stdout.trim()).toBe("755");
+    expect(first.stderr.trim().split("\n")).toHaveLength(1);
+    expect(first.stderr).toContain("writable by root only");
+    expect(first.stderr).toContain("mode 777");
+    const again = await asRoot(`secure_root_dir "${dir}"`);
+    expect(again.stderr).toBe("");
+  },
+);
+
+test.skipIf(!mappedRoot)(
+  "a root folder that is not root's, or cannot be changed, is left as it is and updates stay off",
+  async () => {
+    const foreign = path.join(root, "foreign");
+    const left = await asRoot(
+      `mkdir "${foreign}"; chown 2000:2000 "${foreign}"; chmod 777 "${foreign}"; secure_root_dir "${foreign}"; stat -c %a "${foreign}"`,
+    );
+    expect(left.stdout.trim()).toBe("777");
+    expect(left.stderr).toContain("In-app updates are off");
+    expect(left.stderr).toContain("belongs to user 2000");
+    // Read-only, as a read-only root filesystem is.
+    const readOnly = path.join(root, "read-only");
+    const child = Bun.spawn(
+      [
+        "unshare",
+        "--map-auto",
+        "--map-root-user",
+        "--mount",
+        "sh",
+        "-c",
+        `. "$0"; mkdir "${readOnly}"; chmod 777 "${readOnly}"; mount --bind "${readOnly}" "${readOnly}"; mount -o remount,bind,ro "${readOnly}"; secure_root_dir "${readOnly}"; stat -c %a "${readOnly}"`,
+        entrypoint,
+      ],
+      {
+        cwd: root,
+        env: { PATH: process.env.PATH ?? "", NIMBUS_ENTRYPOINT_FUNCTIONS: "1" },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const [stdout, stderr] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(stdout.trim()).toBe("777");
+    expect(stderr).toContain("could not change that");
+  },
+);
+
+test.skipIf(!mappedRoot)(
+  "a start secures the root folder before anything else, and says nothing of roots already the servers'",
+  async () => {
+    await asRoot(
+      `mkdir -m 777 "${root}/rootfs"; chmod 777 "${root}/rootfs"; mkdir -p "${root}/open/data" "${root}/open/config"; chmod 777 "${root}/open"; chown 2000:2000 "${root}/open/data" "${root}/open/config"`,
+    );
+    const started = await asRoot(
+      `export NIMBUS_DATA_ROOT="${root}/open/data" NIMBUS_CONFIG_ROOT="${root}/open/config" NIMBUS_TEST_STORE_DIR="${root}/store" NIMBUS_TEST_ROOT_DIR="${root}/rootfs" PUID=2000 PGID=2000; sh -c '. "$0"; main true' "$0"`,
+    );
+    expect(started.code).toBe(0);
+    const said = started.stderr.trim().split("\n");
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain("writable by root only");
+    expect((await asRoot(`stat -c %a "${root}/rootfs"`)).stdout.trim()).toBe(
+      "755",
+    );
+  },
+);

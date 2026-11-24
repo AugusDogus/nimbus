@@ -52,6 +52,8 @@ own_root() {
     printf 'Nimbus left the owner of %s as it is: it could not resolve it.\n' "$dir" >&2
     return 0
   fi
+  # Already the servers': nothing to change, and nothing to say, whatever is above it.
+  [ "$(stat -c '%u:%g' -- "$real")" != "$uid:$gid" ] || return 0
   above=$real
   while [ "$above" != / ]; do
     above=$(dirname -- "$above")
@@ -66,8 +68,31 @@ own_root() {
     fi
     [ "$owner" != 0 ] || break
   done
-  if [ "$(stat -c '%u:%g' -- "$real")" != "$uid:$gid" ] && ! chown -- "$uid:$gid" "$real"; then
+  if ! chown -- "$uid:$gid" "$real"; then
     printf 'Nimbus could not give %s to %s:%s. Make sure that user can write to it.\n' "$real" "$uid" "$gid" >&2
+  fi
+}
+
+# Some storage drivers, such as btrfs, give a container's own root folder $1 mode 777: then the
+# servers' user could rename /var or /app and put a tree of its own in its place. That folder is
+# the container's own filesystem, never a mount of the host's, so taking group and other write
+# off it changes nothing outside the container. No process of the servers' user exists yet: the
+# entrypoint runs first at every start of the container, a restart having stopped every process
+# of the run before, and only an operator's docker exec can run beside it. A root folder that is
+# not root's, or cannot be changed (a read-only root filesystem), is left as it is, and in-app
+# updates stay off, saying why.
+secure_root_dir() {
+  dir=$1
+  details=$(stat -c '%u %a' -- "$dir") || return 0
+  owner=${details%% *}
+  mode=$((0${details#* }))
+  [ $((mode & 022)) -ne 0 ] || return 0
+  if [ "$owner" != 0 ]; then
+    printf 'In-app updates are off: the container'"'"'s root folder %s may be changed by others (mode %o) and belongs to user %s, not root, so Nimbus left it as it is.\n' "$dir" "$mode" "$owner" >&2
+  elif chmod go-w -- "$dir" 2>/dev/null; then
+    printf 'Nimbus made the container'"'"'s root folder %s writable by root only (it was mode %o, as some storage drivers such as btrfs leave it), so no other user can replace the folders above the update store and the image'"'"'s code.\n' "$dir" "$mode" >&2
+  else
+    printf 'In-app updates are off: the container'"'"'s root folder %s may be changed by others (mode %o) and Nimbus could not change that (a read-only root filesystem?), so its update store cannot be trusted. Make it writable by root only, or let the container write it once.\n' "$dir" "$mode" >&2
   fi
 }
 
@@ -125,6 +150,14 @@ main() {
   fi
   split=0
   if holds 5 && holds 8; then split=1; fi
+
+  # Before anything looks at the folders above the roots or the store. A test root folder only
+  # from a checkout, as the other test seams.
+  root_dir=/
+  if [ -n "${NIMBUS_TEST_ROOT_DIR:-}" ] && [ -e "$(dirname -- "$0")/../.git" ]; then
+    root_dir=$NIMBUS_TEST_ROOT_DIR
+  fi
+  secure_root_dir "$root_dir"
 
   check_roots "${NIMBUS_DATA_ROOT-/data}" "${NIMBUS_CONFIG_ROOT-/config}"
   mkdir -p -- "$config" "$data"

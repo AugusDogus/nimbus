@@ -8,7 +8,8 @@
 #    staging the update user's, the config root is the servers' as on main, and neither the
 #    servers' user nor the update user can write what runs.
 # 2. Restarted: it serves again, the same way. A fresh bind mount and a named volume at the
-#    store get the image's layout.
+#    store get the image's layout. A root folder made world-writable, as btrfs leaves it, is
+#    made root's alone and the store accepted.
 # 3. Started with --user, the old way: it serves, as one user, with updates off and one line
 #    saying why and how to turn them on.
 # 4. With <previous image> (the channel's last published one): it runs on the new layout, or
@@ -23,12 +24,14 @@ previous=${2:-}
 work=$(mktemp -d)
 containers=()
 volumes=()
+images=()
 port=39300
 secret=image-check-secret-0123456789abcdef0123
 
 cleanup() {
   for name in "${containers[@]}"; do docker rm -f "$name" >/dev/null 2>&1 || true; done
   for name in "${volumes[@]}"; do docker volume rm -f "$name" >/dev/null 2>&1 || true; done
+  for name in "${images[@]}"; do docker rmi -f "$name" >/dev/null 2>&1 || true; done
   # Volumes hold files of the container's users; remove them as root, from a container.
   docker run --rm --entrypoint rm -v "$work:/work" "$image" -rf /work/volumes >/dev/null 2>&1 || true
   rm -rf "$work"
@@ -123,6 +126,22 @@ healthy nimbus-check-volume
 layout=$(docker exec nimbus-check-volume stat -c '%u:%g:%a' /var/lib/nimbus /var/lib/nimbus/releases /var/lib/nimbus/staging | tr '\n' ' ')
 [ "$layout" = "0:0:755 0:0:755 1100:0:750 " ] || fail "a named volume store was laid out as $layout"
 stop nimbus-check-volume
+
+echo "2c. a root folder the storage driver left world-writable, as btrfs does"
+printf 'FROM %s\nRUN chmod 777 /\n' "$image" | docker build -q -t nimbus-check-rootfs - >/dev/null
+images+=(nimbus-check-rootfs)
+if [ "$(docker run --rm --entrypoint stat nimbus-check-rootfs -c %a /)" != 777 ]; then
+  echo "2c. skipped: this storage driver does not keep a world-writable root folder in a container"
+else
+  start nimbus-check-rootfs nimbus-check-rootfs "$work/volumes/rootfs" -e PUID=1000 -e PGID=1000
+  healthy nimbus-check-rootfs
+  [ "$(docker exec nimbus-check-rootfs stat -c %a /)" = 755 ] || fail "the container's root folder was left writable by others"
+  logs=$(docker logs nimbus-check-rootfs 2>&1)
+  [ "$(grep -c 'writable by root only' <<< "$logs")" = 1 ] || fail "securing the root folder was not logged once"
+  ! grep -q 'not laid out' <<< "$logs" || fail "the update store was refused after the root folder was secured"
+  ! grep -q 'left the owner' <<< "$logs" || fail "ownership was reported although nothing needed changing"
+  stop nimbus-check-rootfs
+fi
 
 echo "3. --user, the old way"
 user="$work/volumes/user"

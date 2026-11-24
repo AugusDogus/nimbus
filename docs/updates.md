@@ -107,7 +107,9 @@ the image's layout when it is first used; for a bind mount the entrypoint makes 
 root's and creates `releases/` and `staging/` in it once, touching nothing else and re-owning
 nothing recursively. A store laid out otherwise (another owner, a folder others may write, a link)
 is left as it is: the supervisor says why and turns updates off, and installed releases that
-verify still start.
+verify still start. Every folder above the store must be closed to others too; some storage drivers, such as
+btrfs, give a container's own root folder mode 777, so the entrypoint, as root, takes group and
+other write off that folder (the container's own, never the host's) and says so once.
 
 Without a store volume, recreating the container loses the installed releases and the watermark:
 the image's built-in release runs if the migration guard allows it (otherwise it refuses, saying
