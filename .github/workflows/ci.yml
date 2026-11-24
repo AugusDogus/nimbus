@@ -455,7 +455,10 @@ jobs:
             echo "No release signing key is configured, so nothing is published (see docs/updates.md)."
             exit 0
           fi
-          bun scripts/release-sign.ts bundle --key-id "$KEY_ID"
+          # What the manifest must say, from this workflow's own context, not from the bundle.
+          bun scripts/release-sign.ts bundle --key-id "$KEY_ID" \
+            --repository "$GITHUB_REPOSITORY" --channel edge \
+            --commit "$GITHUB_SHA" --sequence "$GITHUB_RUN_NUMBER"
           echo "signed=true" >> "$GITHUB_OUTPUT"
       # The bundle first, its signature next and the manifest last, so a manifest is never
       # published before what it names. A check between two uploads can still see a new

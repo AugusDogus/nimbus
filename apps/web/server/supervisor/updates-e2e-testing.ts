@@ -53,7 +53,23 @@ export async function buildSignedRelease(
   );
   if (builder.exitCode !== 0) throw new Error(builder.stderr.toString());
   const signer = Bun.spawnSync(
-    [process.execPath, "scripts/release-sign.ts", out, "--key-id", "test-key"],
+    [
+      process.execPath,
+      "scripts/release-sign.ts",
+      out,
+      "--key-id",
+      "test-key",
+      "--repository",
+      "example/nimbus",
+      "--channel",
+      "edge",
+      "--commit",
+      Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: repo })
+        .stdout.toString()
+        .trim(),
+      "--sequence",
+      String(sequence),
+    ],
     {
       cwd: repo,
       env: {

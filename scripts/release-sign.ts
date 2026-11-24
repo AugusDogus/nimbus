@@ -2,12 +2,15 @@
  * Signs a release bundle's manifest (see docs/updates.md), in CI's signing job:
  *
  *   NIMBUS_RELEASE_SIGNING_KEY=<base64 PKCS #8 Ed25519 key> \
- *     bun scripts/release-sign.ts <dir holding manifest.json and the bundle> --key-id <id>
+ *     bun scripts/release-sign.ts <dir holding manifest.json and the bundle> --key-id <id> \
+ *       --repository <owner/name> --channel <channel> --commit <sha> --sequence <n>
  *
  * The job holds the signing key, so it installs no package and runs no code from the bundle:
  * this script imports nothing and uses only Bun and WebCrypto. It reads manifest.json once,
- * checks that the bundle beside it has the size and SHA-256 the manifest names, and writes
- * manifest.sig, the signature of exactly those manifest bytes.
+ * checks that it describes the build the workflow made (the repository, channel, commit and run
+ * number the workflow passes from its own context, never from the bundle) and that the bundle
+ * beside it has the size and SHA-256 the manifest names, and writes manifest.sig, the signature
+ * of exactly those manifest bytes.
  */
 function fail(message: string): never {
   console.error(`The manifest was not signed: ${message}`);
@@ -15,10 +18,28 @@ function fail(message: string): never {
 }
 
 const folder = process.argv[2];
-const keyIndex = process.argv.indexOf("--key-id");
-const keyId = keyIndex === -1 ? undefined : process.argv[keyIndex + 1];
+const option = (name: string) => {
+  const index = process.argv.indexOf(`--${name}`);
+  return index === -1 ? undefined : process.argv[index + 1];
+};
+const keyId = option("key-id");
 if (!folder || !keyId || !/^[\w.-]{1,64}$/.test(keyId))
   fail("pass the bundle folder and --key-id <id>.");
+const expected = {
+  repository: option("repository"),
+  channel: option("channel"),
+  commit: option("commit"),
+  sequence: Number(option("sequence")),
+};
+if (
+  !expected.repository ||
+  !expected.channel ||
+  !expected.commit ||
+  !Number.isSafeInteger(expected.sequence)
+)
+  fail(
+    "pass --repository, --channel, --commit and --sequence from the workflow's own context.",
+  );
 const key = process.env.NIMBUS_RELEASE_SIGNING_KEY;
 if (!key) fail("NIMBUS_RELEASE_SIGNING_KEY is not set.");
 
@@ -33,6 +54,26 @@ try {
 } catch {
   fail("manifest.json is not JSON.");
 }
+const build =
+  typeof manifest === "object" && manifest !== null && "build" in manifest
+    ? manifest.build
+    : null;
+const fields: Map<string, unknown> = new Map(
+  typeof build === "object" && build !== null ? Object.entries(build) : [],
+);
+const field = (name: string) => fields.get(name);
+const said = {
+  repository: field("repository"),
+  channel: field("channel"),
+  commit: field("commit"),
+  sequence: field("sequence"),
+};
+for (const name of ["repository", "channel", "commit", "sequence"] as const)
+  if (said[name] !== expected[name])
+    fail(
+      `manifest.json says ${name} ${JSON.stringify(said[name])}, where this workflow built ${JSON.stringify(expected[name])}: it is not the build this workflow made.`,
+    );
+
 const bundle =
   typeof manifest === "object" && manifest !== null && "bundle" in manifest
     ? manifest.bundle
