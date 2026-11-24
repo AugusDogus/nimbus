@@ -32,8 +32,8 @@ const DOWNLOAD_TIMEOUT_MS = 30 * 60_000;
 const describe = (error: unknown) => {
   const code =
     error instanceof Error && "code" in error ? String(error.code) : null;
-  if (code === "ENOSPC")
-    return "the disk holding the releases is full. Free space on it, then install again";
+  if (code === "ENOSPC" || code === "EFBIG")
+    return "the disk holding the releases is full or limits how large a file may grow. Free space on it, then install again";
   if (code === "EACCES" || code === "EPERM")
     return "the supervisor may not write the releases folder. Check its owner, then install again";
   return error instanceof Error ? error.message : String(error);
