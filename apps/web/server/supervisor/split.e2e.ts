@@ -175,6 +175,8 @@ const environment = (config: string, data: string, socket: string) => ({
   NIMBUS_CONFIG_ROOT: config,
   NIMBUS_SUPERVISOR_SOCKET: socket,
   NIMBUS_READY_TIMEOUT_SECONDS: "20",
+  // A stop in a test needs no long drain.
+  NIMBUS_STOP_SECONDS: "5",
   NIMBUS_UPDATE_SOURCE: `http://127.0.0.1:${source.port}/`,
   NIMBUS_TEST_RELEASE_KEYS_FILE: path.join(root, "keys.json"),
 });
@@ -316,9 +318,18 @@ describe.skipIf(!built || (!namespaces && !required))(
     afterAll(async () => {
       if (process.env.NIMBUS_E2E_SUPERVISOR_LOG)
         await Bun.write(process.env.NIMBUS_E2E_SUPERVISOR_LOG, log);
-      if (supervisor && supervisor.exitCode === null) {
-        await inside(["kill", "-KILL", String(supervisor.pid)]);
-        await supervisor.exited;
+      // Stopped as a container stop does, within the short drain, and killed only if it does not.
+      const running = supervisor;
+      if (running && running.exitCode === null) {
+        await inside(["kill", "-TERM", String(running.pid)]);
+        const stopped = await Promise.race([
+          running.exited.then(() => true),
+          Bun.sleep(15_000).then(() => false),
+        ]);
+        if (!stopped) {
+          await inside(["kill", "-KILL", String(running.pid)]);
+          await running.exited;
+        }
       }
       await source?.stop(true);
       await Bun.file(BuildInfo.file(web))
@@ -334,7 +345,8 @@ describe.skipIf(!built || (!namespaces && !required))(
           "-rf",
           root,
         ]);
-    });
+      // A drain of at most NIMBUS_STOP_SECONDS, then removing the release trees.
+    }, 60_000);
 
     test("the supervisor stays root with only its four capabilities, and servers run as PUID:PGID with nothing more", async () => {
       expect(await credentials(supervisor?.pid ?? 0)).toEqual({

@@ -7,7 +7,6 @@ import {
   readdir,
   readFile,
   readlink,
-  rm,
 } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -23,6 +22,7 @@ import { Libraries } from "../libraries/libraries";
 import type { LibraryContext } from "../libraries/library-context";
 import { PairedDevices } from "../libraries/paired-devices";
 import { ControlClient } from "./control-client";
+import { tearDown } from "./updates-e2e-testing";
 
 /**
  * The supervisor with real Nimbus servers: a film streamed before an update plays to its last
@@ -298,6 +298,8 @@ describe.skipIf(!built)("handover with real servers", () => {
         NIMBUS_SUPERVISOR_SOCKET: socket,
         NIMBUS_READY_TIMEOUT_SECONDS: "60",
         NIMBUS_TEST_RELEASES_DIR: path.join(root, "releases"),
+        // A stop in a test needs no long drain.
+        NIMBUS_STOP_SECONDS: "5",
       },
       stdio: ["ignore", "pipe", "inherit"],
     });
@@ -415,10 +417,9 @@ describe.skipIf(!built)("handover with real servers", () => {
   }, 60_000);
 
   afterAll(async () => {
-    supervisor?.kill("SIGKILL");
-    await supervisor?.exited;
-    await rm(root, { recursive: true, force: true });
-  });
+    await tearDown({ supervisor, root });
+    // A drain of at most NIMBUS_STOP_SECONDS and a sweep, then the folder.
+  }, 60_000);
 
   /** A media address and its cookie, as a player gets them. */
   async function mediaAddress() {
@@ -586,6 +587,7 @@ describe.skipIf(!built)("handover with real servers", () => {
       NIMBUS_SUPERVISOR_SOCKET: socket,
       NIMBUS_READY_TIMEOUT_SECONDS: "60",
       NIMBUS_TEST_RELEASES_DIR: path.join(root, "releases"),
+      NIMBUS_STOP_SECONDS: "5",
     };
     const next = Bun.spawn([process.execPath, "server/supervisor/main.ts"], {
       cwd: web,

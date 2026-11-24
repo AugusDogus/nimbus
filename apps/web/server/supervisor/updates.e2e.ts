@@ -17,6 +17,7 @@ import { ReleaseTree } from "../updates/release-tree";
 import { ControlClient } from "./control-client";
 import {
   buildSignedRelease,
+  tearDown,
   web,
   writeBuiltInInfo,
 } from "./updates-e2e-testing";
@@ -149,11 +150,14 @@ async function variant(
   const file = `nimbus-edge-${sequence}.tar.gz`;
   const archive = path.join(root, file);
   const written = await BundleArchive.write(copy, archive);
+  const digest = await ReleaseTree.digest(copy);
+  // Archived, the copy is not needed again: teardown has less to remove.
+  await rm(copy, { recursive: true, force: true });
   const manifest: Manifest = {
     ...bundle101.manifest,
     build: { ...bundle101.manifest.build, sequence },
     bundle: { file, ...written },
-    tree: await ReleaseTree.digest(copy),
+    tree: digest,
   };
   return {
     manifest,
@@ -177,6 +181,8 @@ function startSupervisor(prefix: string[] = []) {
         NIMBUS_CONFIG_ROOT: path.join(root, "config"),
         NIMBUS_SUPERVISOR_SOCKET: socket,
         NIMBUS_READY_TIMEOUT_SECONDS: "20",
+        // A stop in a test needs no long drain: teardown and restarts stop promptly.
+        NIMBUS_STOP_SECONDS: "5",
         NIMBUS_UPDATE_SOURCE: `http://127.0.0.1:${source.port}/`,
         NIMBUS_TEST_RELEASE_KEYS_FILE: path.join(root, "keys.json"),
         // Unsigned releases a restart may name; a rollback must never pick one.
@@ -334,12 +340,11 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     // For a run that failed: the supervisor's own account of it.
     if (process.env.NIMBUS_E2E_SUPERVISOR_LOG)
       await Bun.write(process.env.NIMBUS_E2E_SUPERVISOR_LOG, log);
-    supervisor?.kill("SIGKILL");
-    await supervisor?.exited;
     await source?.stop(true);
     await rm(BuildInfo.file(web), { force: true });
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+    await tearDown({ supervisor, root });
+    // A drain of at most NIMBUS_STOP_SECONDS, a sweep, and removing the release trees.
+  }, 60_000);
 
   test("an update installs and takes over while a download streams to its end from the server it replaced", async () => {
     expect(await active()).toBe("built-in");
