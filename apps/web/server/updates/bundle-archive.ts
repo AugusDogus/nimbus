@@ -128,6 +128,14 @@ const fail = (message: string): { ok: false; error: ArchiveError } => ({
 });
 
 export const BundleArchive = {
+  /** The caps an archive is unpacked under, which a copy of what it unpacked keeps to as well. */
+  limits: {
+    maxEntries: MAX_ENTRIES,
+    maxDepth: MAX_DEPTH,
+    maxTotalBytes: MAX_TOTAL_BYTES,
+  },
+  linkInside,
+
   /**
    * Write the tree at `root` as a gzip-compressed tar to `output`, entries sorted by path so the
    * same tree always gives the same bytes. Returns its size and SHA-256.
