@@ -27,6 +27,7 @@ import { BundleArchive } from "../apps/web/server/updates/bundle-archive";
 import { BUNDLE_ENTRIES } from "../apps/web/server/updates/bundle-entries";
 import { BuildInfo } from "../apps/web/server/updates/build-info";
 import { NativeArtifacts } from "../apps/web/server/updates/native-artifacts";
+import { ReleaseTree } from "../apps/web/server/updates/release-tree";
 import {
   ReleaseManifest,
   type ReleaseManifest as Manifest,
@@ -296,6 +297,8 @@ try {
 
   await mkdir(out, { recursive: true });
   const file = `nimbus-${build.channel}-${sequence}.tar.gz`;
+  // What an installation checks the unpacked and installed release against (ReleaseTree).
+  const treeDigest = await ReleaseTree.digest(tree);
   const archive = await BundleArchive.write(tree, path.join(out, file));
   const manifest: Manifest = {
     format: 1,
@@ -315,6 +318,7 @@ try {
     },
     migrations: { tags, liveSafe: safe },
     bundle: { file, size: archive.size, sha256: archive.sha256 },
+    tree: treeDigest,
   };
   const bytes = ReleaseManifest.encode(manifest);
   if (!ReleaseManifest.parse(bytes).ok)

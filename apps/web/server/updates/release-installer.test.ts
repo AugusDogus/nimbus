@@ -18,6 +18,7 @@ import {
   type ReleaseManifest as Manifest,
 } from "./release-manifest";
 import { installRelease } from "./release-installer";
+import { ReleaseTree } from "./release-tree";
 import { ReleaseSignature, type TrustRoot } from "./release-signature";
 import type { UpdateSource } from "./update-source";
 import { testManifest } from "./updates-testing";
@@ -88,6 +89,7 @@ async function publish(
     `tree-${manifest.build.sequence}-${Math.random()}`,
   );
   await mkdir(path.join(root, "apps/web/server"), { recursive: true });
+  await mkdir(path.join(root, "apps/web/node_modules"));
   await writeFile(path.join(root, "apps/web/server/start.ts"), "// server\n");
   await writeFile(
     path.join(root, "apps/web/release.json"),
@@ -112,6 +114,7 @@ async function publish(
   const signed: Manifest = {
     ...manifest,
     bundle: { ...manifest.bundle, ...written },
+    tree: await ReleaseTree.digest(root),
   };
   served.set(
     signed.bundle.file,
@@ -276,6 +279,7 @@ test("a bundle that already holds the installer's own files, or a link where it 
   const linked = await publish(testManifest(110), {
     tree: async (root) => {
       await mkdir(path.join(root, "modules"), { recursive: true });
+      await rm(path.join(root, "apps/web/node_modules"), { recursive: true });
       await symlink("../../modules", path.join(root, "apps/web/node_modules"));
     },
   });

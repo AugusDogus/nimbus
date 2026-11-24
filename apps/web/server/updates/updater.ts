@@ -112,7 +112,7 @@ export async function createUpdater({
     if (!trust.ok) return { ok: false as const, message: trust.message };
     const verified = await ReleaseStore.verified(releases, name, trust.value);
     if (!verified.ok) return verified;
-    const { abi } = await ImageAbi.read(
+    const { abi, locations } = await ImageAbi.read(
       builtIn.root,
       supervisorProtocol,
       Object.keys(verified.manifest.requires.native),
@@ -123,6 +123,13 @@ export async function createUpdater({
         ok: false as const,
         message: `release ${name} needs ${missing.join("; ")}`,
       };
+    // Every file, against the tree that was signed, before any of it runs.
+    const intact = await ReleaseStore.intact(
+      verified.root,
+      verified.manifest,
+      locations,
+    );
+    if (!intact.ok) return intact;
     known.set(name, verified.manifest);
     return {
       ok: true as const,

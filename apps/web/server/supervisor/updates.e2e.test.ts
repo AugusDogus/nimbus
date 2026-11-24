@@ -13,6 +13,7 @@ import {
   type ReleaseManifest as Manifest,
 } from "../updates/release-manifest";
 import { ReleaseSignature } from "../updates/release-signature";
+import { ReleaseTree } from "../updates/release-tree";
 import { ControlClient } from "./control-client";
 
 /**
@@ -149,6 +150,7 @@ async function variant(
     ...bundle101.manifest,
     build: { ...bundle101.manifest.build, sequence },
     bundle: { file, ...written },
+    tree: await ReleaseTree.digest(copy),
   };
   return {
     manifest,
@@ -520,5 +522,22 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     expect(await health()).toBe(200);
     const left = await readdir(path.join(root, "config/releases"));
     expect(left).not.toContain(ReleaseManifest.releaseName(next.manifest));
+  }, 120_000);
+  test("a damaged installed release is not started: the supervisor falls back to the built-in one", async () => {
+    const damaged = await active();
+    if (!damaged || damaged === "built-in")
+      throw new Error("No installed release runs.");
+    supervisor?.kill("SIGTERM");
+    expect(await supervisor?.exited).toBe(0);
+    await Bun.write(
+      path.join(root, "config/releases", damaged, "apps/web/server/start.ts"),
+      "// replaced\n",
+    );
+    const started = performance.now();
+    await startSupervisor();
+    log += `\n(restart with a damaged release took ${Math.round(performance.now() - started)} ms)\n`;
+    expect(await active()).toBe("built-in");
+    expect(log).toContain("not the tree its signed manifest describes");
+    expect(await health()).toBe(200);
   }, 120_000);
 });

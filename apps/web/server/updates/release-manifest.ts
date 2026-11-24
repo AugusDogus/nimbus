@@ -34,6 +34,8 @@ export type ReleaseManifest = {
     liveSafe: string[];
   };
   bundle: { file: string; size: number; sha256: string };
+  /** The digest of the release tree the bundle unpacks to (see ReleaseTree), and its entries. */
+  tree: { sha256: string; entries: number };
 };
 
 export type ManifestError = { kind: "invalid-manifest"; message: string };
@@ -77,6 +79,10 @@ const schema = z.object({
       .positive()
       .max(2 * 1024 ** 3),
     sha256: hex(64),
+  }),
+  tree: z.object({
+    sha256: hex(64),
+    entries: z.number().int().positive().max(1_000_000),
   }),
 });
 

@@ -1,8 +1,16 @@
-import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  readdir,
+  readFile,
+  readlink,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { ReleaseManifest } from "./release-manifest";
 import { ReleaseSignature, type TrustRoot } from "./release-signature";
+import { ReleaseTree } from "./release-tree";
 
 /**
  * The installed releases (see docs/updates.md): `<releases>/<name>/` for each, holding the
@@ -112,6 +120,48 @@ export const ReleaseStore = {
         message: `Release ${name} holds the manifest of ${ReleaseManifest.releaseName(parsed.value)}.`,
       };
     return { ok: true as const, manifest: parsed.value, root };
+  },
+
+  /**
+   * Whether installed release `root` is the tree `manifest` signed: its digest, leaving out the
+   * installer's own files and the native packages it linked, each of which must lead to the
+   * image's copy (`natives`, by name).
+   */
+  async intact(
+    root: string,
+    manifest: ReleaseManifest,
+    natives: ReadonlyMap<string, string>,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    const name = ReleaseManifest.releaseName(manifest);
+    const linked = Object.keys(manifest.requires.native).map(
+      (native) => `apps/web/node_modules/${native}`,
+    );
+    for (const native of Object.keys(manifest.requires.native)) {
+      const target = await readlink(
+        path.join(root, "apps/web/node_modules", native),
+      ).catch(() => null);
+      if (target === null || target !== natives.get(native))
+        return {
+          ok: false,
+          message: `Release ${name} does not link ${native} to this image's copy, so it was not started.`,
+        };
+    }
+    const tree = await ReleaseTree.digest(
+      root,
+      new Set([MANIFEST_FILE, SIGNATURE_FILE, ...linked]),
+    ).catch((error: unknown) => ({
+      sha256: `unreadable (${error instanceof Error ? error.message : String(error)})`,
+      entries: 0,
+    }));
+    if (
+      tree.sha256 !== manifest.tree.sha256 ||
+      tree.entries !== manifest.tree.entries
+    )
+      return {
+        ok: false,
+        message: `Release ${name} is not the tree its signed manifest describes (${tree.entries} entries, digest ${tree.sha256}, where ${manifest.tree.entries} and ${manifest.tree.sha256} were signed): a file in it was changed, removed or added, so it was not started.`,
+      };
+    return { ok: true };
   },
 
   /** Installed release names, newest build first. Staging leftovers are not releases. */

@@ -28,6 +28,7 @@ export function testManifest(
       size: 1234,
       sha256: "0".repeat(64),
     },
+    tree: { sha256: "1".repeat(64), entries: 1 },
     ...overrides,
   };
 }

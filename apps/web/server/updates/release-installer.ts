@@ -17,6 +17,7 @@ import { BundleArchive } from "./bundle-archive";
 import { BuildInfo } from "./build-info";
 import { ImageAbi } from "./image-abi";
 import { NativeArtifacts } from "./native-artifacts";
+import { ReleaseTree } from "./release-tree";
 import { ReleaseManifest } from "./release-manifest";
 import { ReleaseSignature, type TrustRoot } from "./release-signature";
 import { MANIFEST_FILE, ReleaseStore, SIGNATURE_FILE } from "./release-store";
@@ -105,8 +106,16 @@ export async function installRelease({
       `Release ${name} needs ${missing.join("; ")}. Pull ${manifest.requires.image} and recreate the container to get it.`,
     );
   await mkdir(releases, { recursive: true, mode: 0o755 });
-  const installed = await ReleaseStore.verified(releases, name, trust);
-  if (installed.ok) return { ok: true, name };
+  /** Whether release `name` is already installed here, whole. */
+  const alreadyInstalled = async () => {
+    const installed = await ReleaseStore.verified(releases, name, trust);
+    return (
+      installed.ok &&
+      (await ReleaseStore.intact(installed.root, installed.manifest, locations))
+        .ok
+    );
+  };
+  if (await alreadyInstalled()) return { ok: true, name };
 
   // This attempt's own folder: another install running at the same time never shares a path.
   let attempt: string;
@@ -179,6 +188,14 @@ export async function installRelease({
       return failed(
         `The bundle of release ${name} carries native binaries (${binaries.slice(0, 5).join(", ")}${binaries.length > 5 ? ", …" : ""}), which only the image may provide. Nothing was installed.`,
       );
+    const unpackedTree = await ReleaseTree.digest(staging);
+    if (
+      unpackedTree.sha256 !== manifest.tree.sha256 ||
+      unpackedTree.entries !== manifest.tree.entries
+    )
+      return failed(
+        `The bundle of release ${name} unpacks to another tree than its signed manifest describes. Nothing was installed.`,
+      );
     const tree = ReleaseDirectory.check(staging);
     if (!tree.ok)
       return failed(
@@ -211,7 +228,11 @@ export async function installRelease({
         return failed(
           `The bundle of release ${name} carries ${native}, which the image provides.`,
         );
-      await mkdir(path.dirname(link), { recursive: true, mode: 0o755 });
+      // The bundle's own folder for it: one the installer made would not be in the signed tree.
+      if (!(await lstat(path.dirname(link)).catch(() => null))?.isDirectory())
+        return failed(
+          `The bundle of release ${name} has no ${path.relative(staging, path.dirname(link))} folder for the native packages the image provides.`,
+        );
       await symlink(location, link);
     }
     // Created, never written over: a bundle holding these names is refused.
@@ -231,7 +252,7 @@ export async function installRelease({
         error instanceof Error &&
         "code" in error &&
         (error.code === "ENOTEMPTY" || error.code === "EEXIST") &&
-        (await ReleaseStore.verified(releases, name, trust)).ok
+        (await alreadyInstalled())
       )
         return { ok: true, name };
       throw error;

@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  writeFile,
+  symlink,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ReleaseManifest } from "./release-manifest";
 import { ReleaseSignature, type TrustRoot } from "./release-signature";
 import { MANIFEST_FILE, ReleaseStore, SIGNATURE_FILE } from "./release-store";
+import { ReleaseTree } from "./release-tree";
 import { testManifest } from "./updates-testing";
 
 let releases: string;
@@ -82,4 +90,39 @@ test("pruning keeps the newest releases and those still needed, and removes stag
   expect((await readdir(releases)).sort()).toEqual(
     [oldest, ...names.slice(2)].sort(),
   );
+});
+
+test("an installed release is intact only as its signed tree, with natives linked to the image", async () => {
+  const name = "edge-150-aaaaaaaaaaaa";
+  const root = path.join(releases, name);
+  await mkdir(path.join(root, "apps/web/server"), { recursive: true });
+  await writeFile(path.join(root, "apps/web/server/start.ts"), "// server\n");
+  await mkdir(path.join(root, "apps/web/node_modules"));
+  const manifest = testManifest(150, {
+    requires: { ...testManifest(150).requires, native: { sharp: "0.35.4" } },
+    tree: await ReleaseTree.digest(root),
+  });
+  await symlink("/image/sharp", path.join(root, "apps/web/node_modules/sharp"));
+  await writeFile(path.join(root, MANIFEST_FILE), "{}");
+  const natives = new Map([["sharp", "/image/sharp"]]);
+  expect(await ReleaseStore.intact(root, manifest, natives)).toEqual({
+    ok: true,
+  });
+  expect(
+    (
+      await ReleaseStore.intact(
+        root,
+        manifest,
+        new Map([["sharp", "/elsewhere"]]),
+      )
+    ).ok,
+  ).toBe(false);
+  await writeFile(path.join(root, "apps/web/server/start.ts"), "// changed\n");
+  expect((await ReleaseStore.intact(root, manifest, natives)).ok).toBe(false);
+  await writeFile(path.join(root, "apps/web/server/start.ts"), "// server\n");
+  await writeFile(path.join(root, "apps/web/server/extra.ts"), "");
+  expect((await ReleaseStore.intact(root, manifest, natives)).ok).toBe(false);
+  await rm(path.join(root, "apps/web/server/extra.ts"));
+  await rm(path.join(root, "apps/web/server/start.ts"));
+  expect((await ReleaseStore.intact(root, manifest, natives)).ok).toBe(false);
 });

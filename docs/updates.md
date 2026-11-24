@@ -99,6 +99,15 @@ linked from the image, and only then is it renamed to `releases/<build>`. The su
 hands over to it. Any failure leaves the running server as it was and the staging directory
 removed; a release that never becomes ready is abandoned as any handover is.
 
+Before any installed release starts, at boot or for a rollback, the supervisor checks it again:
+its manifest's signature, and the whole tree against the tree digest the manifest signed
+(`ReleaseTree`: every file's content and executable bit, every folder, every link target, so a
+changed, missing or extra entry shows), leaving out only the installer's copy of the manifest and
+the native links, which must lead to the image's copies. A release that fails is not started; the
+supervisor starts the built-in release instead and says why. The manifest carries one digest and
+an entry count rather than a list of files: about 100 bytes, where a list would be some 3 MiB for
+24,000 entries. The check reads the whole release (about 190 MiB): it is what boot costs.
+
 Rollback hands over to the previous installed release. The installation keeps the three newest
 releases and any release a server still runs.
 
