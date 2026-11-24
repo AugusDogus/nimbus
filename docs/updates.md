@@ -114,7 +114,8 @@ does not offer its own bundle as an update.
 
 Setting it up once:
 
-1. `bun scripts/release-keys.ts <key id>` prints a public key entry and a private key.
+1. `bun scripts/release-keys.ts <key id> --private-key-file <path>` prints the public key entry and
+   writes the private key to a new file only you can read (mode 600), never to the terminal.
 2. Add the entry to `apps/web/release-keys.json` and commit it: images built from then on trust it.
 3. Create the environment `release-signing`, limited to main and `v*` tags, with the secret
    `NIMBUS_RELEASE_SIGNING_KEY` (the private key) and the variable `NIMBUS_RELEASE_KEY_ID`.
