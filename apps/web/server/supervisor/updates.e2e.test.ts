@@ -15,6 +15,11 @@ import {
 import { ReleaseSignature } from "../updates/release-signature";
 import { ReleaseTree } from "../updates/release-tree";
 import { ControlClient } from "./control-client";
+import {
+  buildSignedRelease,
+  web,
+  writeBuiltInInfo,
+} from "./updates-e2e-testing";
 
 /**
  * In-app updates with real processes (see docs/updates.md): from the built-in release to a signed
@@ -23,8 +28,6 @@ import { ControlClient } from "./control-client";
  * was; a rollback; and a restart that keeps the installed release. Needs the built client
  * (`bun run build`); it builds its own bundle, which takes about a minute.
  */
-const web = path.resolve(import.meta.dir, "../..");
-const repo = path.resolve(web, "../..");
 const built = existsSync(path.join(web, "dist/index.html"));
 const MiB = 1024 * 1024;
 const filmSize = 48 * MiB;
@@ -281,64 +284,13 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
       },
     });
 
-    // The built-in release: this checkout, as build 100.
-    const commit = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: repo })
-      .stdout.toString()
-      .trim();
-    await Bun.write(
-      BuildInfo.file(web),
-      BuildInfo.encode({
-        repository: "example/nimbus",
-        commit,
-        sequence: 100,
-        channel: "edge",
-        image: "ghcr.io/example/nimbus:edge",
-      }),
+    // The built-in release: this checkout, as build 100; build 101 by the real bundle builder.
+    await writeBuiltInInfo(100);
+    const { manifest, archive } = await buildSignedRelease(
+      root,
+      101,
+      privateKey,
     );
-    // Build 101 by the real bundle builder.
-    const out = path.join(root, "out-101");
-    const builder = Bun.spawnSync(
-      [
-        process.execPath,
-        "scripts/release-bundle.ts",
-        "--out",
-        out,
-        "--sequence",
-        "101",
-        "--repository",
-        "example/nimbus",
-        "--image",
-        "ghcr.io/example/nimbus:edge",
-      ],
-      { cwd: repo, env: { ...process.env, TMPDIR: root } },
-    );
-    if (builder.exitCode !== 0) throw new Error(builder.stderr.toString());
-    // Signed as CI's signing job signs it, by the script that holds the key.
-    const signer = Bun.spawnSync(
-      [
-        process.execPath,
-        "scripts/release-sign.ts",
-        out,
-        "--key-id",
-        "test-key",
-      ],
-      {
-        cwd: repo,
-        env: {
-          PATH: process.env.PATH ?? "",
-          NIMBUS_RELEASE_SIGNING_KEY:
-            Buffer.from(privateKey).toString("base64"),
-        },
-      },
-    );
-    if (signer.exitCode !== 0) throw new Error(signer.stderr.toString());
-    const manifest = ReleaseManifest.parse(
-      new Uint8Array(
-        await Bun.file(path.join(out, "manifest.json")).arrayBuffer(),
-      ),
-    );
-    if (!manifest.ok) throw new Error(manifest.error.message);
-    const archive = path.join(out, manifest.value.bundle.file);
     // Unpacked once, so the other builds are copies of it.
     const tree = path.join(root, "tree-101");
     await mkdir(tree);
@@ -347,7 +299,7 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
       tree,
     );
     if (!unpacked.ok) throw new Error(unpacked.error.message);
-    bundle101 = { manifest: manifest.value, archive, tree };
+    bundle101 = { manifest, archive, tree };
 
     port = await freePort();
     origin = `http://localhost:${port}`;
