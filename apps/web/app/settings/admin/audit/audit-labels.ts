@@ -59,4 +59,8 @@ export const auditLabels: Record<AuditAction, string> = {
   "app_password.revoked": "Revoked app password",
   "webdav.auth_failed": "WebDAV sign-in failed",
   "setting.changed": "Changed server setting",
+  "update.installed": "Updated Nimbus",
+  "update.install_failed": "Nimbus update failed",
+  "update.rolled_back": "Rolled back Nimbus",
+  "update.rollback_failed": "Nimbus rollback failed",
 };

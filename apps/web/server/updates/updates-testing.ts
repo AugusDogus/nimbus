@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from "../supervisor/protocol";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -26,7 +27,7 @@ export function testManifest(
     notes: [{ commit, subject: "Show the build in settings" }],
     requires: {
       bun: "1.4.4",
-      supervisorProtocol: 2,
+      supervisorProtocol: PROTOCOL_VERSION,
       native: { sharp: "0.35.4" },
       image: "ghcr.io/example/nimbus:edge",
     },

@@ -24,7 +24,20 @@ import { publishRelease } from "../updates/release-installer";
 import { UpdateStore } from "../updates/update-store";
 import { Credentials, type Ids } from "./credentials";
 import { ReleaseDirectory } from "./release-directory";
-import { PROTOCOL_VERSION, Protocol, WorkerEnv } from "./protocol";
+import {
+  PROTOCOL_VERSION,
+  Protocol,
+  WorkerEnv,
+  type SupervisorMessage,
+} from "./protocol";
+import {
+  UpdateRequestLimits,
+  type UpdateOutcome,
+  type UpdatePanel,
+  type UpdateRequest,
+} from "./update-protocol";
+import { UpdateSchedule } from "../updates/update-schedule";
+import type { HandoverEvent } from "./handover-stream";
 import { parseSettings } from "./settings";
 import { TestSeams } from "./test-seams";
 import { Users } from "./users";
@@ -128,6 +141,9 @@ function release(
   return ReleaseDirectory.resolve(seams.releasesDir, name);
 }
 
+/** How to send each running server a message, by pid: for the audit of automatic updates. */
+const workers = new Map<number, (message: SupervisorMessage) => void>();
+
 /** Whether `release` is an installed one, which is verified again before every start. */
 const installed = (release: Release) =>
   path.dirname(release.root) === path.resolve(releases);
@@ -192,7 +208,17 @@ const spawn: SpawnWorker = (request, onMessage) => {
           checked = true;
         }
         const message = Protocol.parseWorkerMessage(value);
-        if (message) onMessage(message);
+        // Update requests are answered here, by the updater; the rest is the supervisor's.
+        if (message?.kind === "update-request")
+          void answerUpdate(
+            (reply) => {
+              if (started.exitCode === null && started.signalCode === null)
+                started.send(reply);
+            },
+            message.id,
+            message.request,
+          );
+        else if (message) onMessage(message);
         else
           log(
             `ignored a message from ${request.release.name} (pid ${started.pid}) it does not understand; the release and the supervisor may not match`,
@@ -200,6 +226,11 @@ const spawn: SpawnWorker = (request, onMessage) => {
       },
     });
     child = started;
+    workers.set(started.pid, (reply) => {
+      if (started.exitCode === null && started.signalCode === null)
+        started.send(reply);
+    });
+    void started.exited.then(() => workers.delete(started.pid));
     for (const message of early.splice(0)) started.send(message);
     return started.exited;
   })();
@@ -666,17 +697,62 @@ async function handOver(
 }
 
 /** The install or rollback under way, from its start through its handover. */
-let updating: "install" | "rollback" | null = null;
+let updating: {
+  kind: "install" | "rollback";
+  by: UpdateOutcome["by"];
+  startedAt: number;
+  /** Who follows its progress: servers relaying it to an administrator's page. */
+  listeners: Set<(event: HandoverEvent) => void>;
+} | null = null;
+/** How the last install or rollback ended, for the update page. */
+let lastOutcome: UpdateOutcome | null = null;
+
+/** Where the install or rollback under way is, as the update page shows it. */
+function operationNow() {
+  if (!updating) return null;
+  const now = supervisor.status();
+  return {
+    kind: updating.kind,
+    by: updating.by,
+    startedAt: new Date(updating.startedAt).toISOString(),
+    // Before its handover, an install downloads, verifies and publishes.
+    stage: now.phase === "serving" ? "preparing" : now.phase,
+    seconds: Math.round((Date.now() - updating.startedAt) / 1000),
+    starting: now.starting
+      ? { release: now.starting.release, pid: now.starting.pid }
+      : null,
+    readyTimeoutSeconds,
+  };
+}
+
+/** The update page's state. */
+function panel(): UpdatePanel {
+  return {
+    ...updater.status(),
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    operation: operationNow(),
+    lastOutcome,
+  };
+}
 
 /**
  * Run one install or rollback at a time, through to the end of its handover: a second request
- * meanwhile is told one is running, and never starts another installer beside it.
+ * meanwhile is told one is running, and never starts another installer beside it. Its progress
+ * goes to `follow` and to everyone following it; its outcome is kept for the update page and, for
+ * one the schedule started, recorded in the audit log by the active server.
  */
 async function oneAtATime(
   what: "install" | "rollback",
   run: () => Promise<
     { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
   >,
+  {
+    by = "administrator",
+    follow,
+  }: {
+    by?: UpdateOutcome["by"];
+    follow?: (event: HandoverEvent) => void;
+  } = {},
 ): Promise<
   { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
 > {
@@ -685,15 +761,159 @@ async function oneAtATime(
       ok: false,
       error: {
         kind: "busy",
-        message: `An ${updating === "install" ? "update" : "rollback"} is already under way; wait until it has finished, then try again.`,
+        message: `An ${updating.kind === "install" ? "update" : "rollback"} is already under way; wait until it has finished, then try again.`,
       },
     };
-  updating = what;
+  const current = {
+    kind: what,
+    by,
+    startedAt: Date.now(),
+    listeners: new Set<(event: HandoverEvent) => void>(follow ? [follow] : []),
+  };
+  updating = current;
+  const tell = (event: HandoverEvent) => {
+    for (const listener of current.listeners) listener(event);
+  };
+  tell({ kind: "started", release: null, readyTimeoutSeconds });
+  const ticker = setInterval(() => {
+    const now = operationNow();
+    if (now)
+      tell({
+        kind: "progress",
+        seconds: now.seconds,
+        phase: now.stage,
+        starting: now.starting,
+      });
+  }, 2_000);
   try {
-    return await run();
+    const outcome = await run();
+    const after = supervisor.status().active?.release ?? "";
+    lastOutcome = {
+      kind: what,
+      by,
+      ok: outcome.ok,
+      release: after,
+      message: outcome.ok
+        ? `${what === "install" ? "Updated" : "Rolled back"} to ${outcome.value.to}.`
+        : outcome.error.message,
+      at: new Date().toISOString(),
+    };
+    if (by === "schedule") {
+      const active = supervisor.status().active;
+      const send = active ? workers.get(active.pid) : undefined;
+      send?.({
+        kind: "update-audit",
+        entry: {
+          action:
+            what === "install"
+              ? outcome.ok
+                ? "update.installed"
+                : "update.install_failed"
+              : outcome.ok
+                ? "update.rolled_back"
+                : "update.rollback_failed",
+          release: after,
+          message: lastOutcome.message,
+        },
+      });
+    }
+    tell(
+      outcome.ok
+        ? { kind: "done", ok: true, report: outcome.value }
+        : { kind: "done", ok: false, error: outcome.error },
+    );
+    return outcome;
   } finally {
+    clearInterval(ticker);
     updating = null;
   }
+}
+
+/** Requests of each kind answered lately, for UpdateRequestLimits. */
+const answered = new Map<UpdateRequest["kind"], number[]>();
+function withinLimit(kind: UpdateRequest["kind"]) {
+  const { count, windowMs } = UpdateRequestLimits[kind];
+  const now = Date.now();
+  const recent = (answered.get(kind) ?? []).filter((at) => now - at < windowMs);
+  if (recent.length >= count) {
+    answered.set(kind, recent);
+    return false;
+  }
+  recent.push(now);
+  answered.set(kind, recent);
+  return true;
+}
+
+/**
+ * Answer a server's update request (see update-protocol.ts), already validated: a closed set,
+ * none naming a release, a path or a URL. An install takes only what the last check offered, a
+ * rollback only the recorded previous release, both through the verified paths.
+ */
+async function answerUpdate(
+  reply: (message: SupervisorMessage) => void,
+  id: number,
+  request: UpdateRequest,
+) {
+  const answer = (result: { ok: true } | { ok: false; message: string }) =>
+    reply({
+      kind: "update-answer",
+      id,
+      answer: result.ok ? { ok: true, panel: panel() } : result,
+    });
+  if (!withinLimit(request.kind))
+    return answer({
+      ok: false,
+      message:
+        "Too many update requests in a short time, so this one was not carried out. Nothing was changed; wait a minute and try again.",
+    });
+  switch (request.kind) {
+    case "status":
+      return answer({ ok: true });
+    case "check": {
+      const checked = await updater.check();
+      return answer(checked.ok ? { ok: true } : checked);
+    }
+    case "schedule":
+      return answer(
+        await updater.setSchedule({ mode: request.mode, hour: request.hour }),
+      );
+    case "install":
+    case "rollback": {
+      if (updating)
+        return answer({
+          ok: false,
+          message: `An ${updating.kind === "install" ? "update" : "rollback"} is already under way; wait until it has finished, then try again.`,
+        });
+      await oneAtATime(
+        request.kind,
+        request.kind === "install" ? installUpdate : rollBack,
+        { follow: (event) => reply({ kind: "update-event", id, event }) },
+      );
+      return;
+    }
+  }
+}
+
+/**
+ * The schedule (UpdateSchedule): every ten minutes, a check when one is due, and at the quiet
+ * hour, for `install`, the day's one automatic install of what that check offered.
+ */
+async function scheduled() {
+  if (updating || stopping) return;
+  const status = updater.status();
+  if (status.unavailable || status.source.kind === "off") return;
+  let due = UpdateSchedule.due({ now: new Date(), ...updater.scheduling() });
+  if (due?.kind === "check") {
+    const checked = await updater.check();
+    if (!checked.ok) log(`the scheduled check failed: ${checked.message}`);
+    due = UpdateSchedule.due({ now: new Date(), ...updater.scheduling() });
+  }
+  if (due?.kind !== "install" || updating || stopping) return;
+  const marked = await updater.markAutomatic(due.day);
+  if (!marked.ok)
+    return log(`the scheduled install did not start: ${marked.message}`);
+  log("installing the offered release at the quiet hour, as the schedule says");
+  await oneAtATime("install", installUpdate, { by: "schedule" });
 }
 
 /** Install what the last check offered, then hand over to it. */
@@ -744,6 +964,8 @@ function rollBack() {
   });
 }
 log(`serving; control socket ${socketPath}`);
+setTimeout(() => void scheduled(), 60_000).unref();
+setInterval(() => void scheduled(), 10 * 60_000).unref();
 
 process.on("SIGHUP", () => {
   void reserved((reservation) => handOver({ kind: "same" }, reservation)).then(

@@ -11,6 +11,7 @@ import {
 import { ReleaseSignature, type TrustRoot } from "./release-signature";
 import { ReleaseStore } from "./release-store";
 import { createUpdater, type RunInstaller } from "./updater";
+import { PROTOCOL_VERSION } from "../supervisor/protocol";
 import { installTestRelease, testManifest } from "./updates-testing";
 
 let scratch: string;
@@ -98,7 +99,7 @@ const updater = (
       origin: "configured",
     },
     trust: { ok: true, value: trust },
-    supervisorProtocol: 2,
+    supervisorProtocol: PROTOCOL_VERSION,
     runInstaller,
     log: (line) => lines.push(line),
   });
@@ -360,4 +361,20 @@ test("a state that cannot be read starts the built-in release and installs nothi
   await offer(release(130));
   const refused = await unreadable.install();
   expect(refused.ok || refused.message).toContain("could not be read");
+});
+
+test("the schedule is kept in the state and shown in the status", async () => {
+  const first = await updater();
+  expect(first.status().schedule).toEqual({ mode: "notify", hour: 4 });
+  expect(await first.setSchedule({ mode: "install", hour: 3 })).toEqual({
+    ok: true,
+  });
+  expect(await first.markAutomatic("2026-11-24")).toEqual({ ok: true });
+  const again = await updater();
+  expect(again.status().schedule).toEqual({ mode: "install", hour: 3 });
+  expect(again.scheduling()).toMatchObject({
+    schedule: { mode: "install", hour: 3 },
+    lastAutomatic: "2026-11-24",
+    offered: false,
+  });
 });

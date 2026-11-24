@@ -23,6 +23,7 @@ import { ReleaseTree } from "./release-tree";
 import { ReleaseSignature, type TrustRoot } from "./release-signature";
 import type { UpdateSource } from "./update-source";
 import { testManifest } from "./updates-testing";
+import { PROTOCOL_VERSION } from "../supervisor/protocol";
 
 let scratch: string;
 let served: Map<string, Uint8Array<ArrayBuffer>>;
@@ -105,7 +106,7 @@ async function publish(
   await writeFile(path.join(root, "apps/web/server/start.ts"), "// server\n");
   await writeFile(
     path.join(root, "apps/web/release.json"),
-    '{ "supervisorProtocol": 2 }\n',
+    `{ "supervisorProtocol": ${PROTOCOL_VERSION} }\n`,
   );
   await writeFile(
     path.join(root, "apps/web/build-info.json"),
@@ -154,7 +155,7 @@ async function install(
     signature: published.signature,
     trust,
     builtInRoot,
-    supervisorProtocol: 2,
+    supervisorProtocol: PROTOCOL_VERSION,
   };
   try {
     const staged = await stageRelease({ staging, source, ...request });

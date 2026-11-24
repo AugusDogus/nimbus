@@ -40,6 +40,7 @@ import { Transfers } from "./libraries/transfers";
 import { searchIndexed } from "./search-bridge";
 import { GET as readiness } from "./routes/health";
 import { Supervision, type LifecycleMessage } from "./supervisor/supervision";
+import { UpdateRequests } from "./updates/update-requests";
 import { ServerRun } from "@nimbus/api/server-run";
 import { InstallationLock } from "./installation-lock";
 import { MigrationGate } from "./db/migration-gate";
@@ -585,6 +586,16 @@ async function settleFor(
 }
 
 if (supervision.kind === "supervised") {
+  UpdateRequests.connect(supervision.updates);
+  // What the schedule installed at its quiet hour, recorded by the server serving then.
+  supervision.updates.onAudit((entry) =>
+    recordAudit({
+      action: entry.action,
+      actor: { type: "system" },
+      target: { type: "release", id: entry.release || "unchanged" },
+      details: { message: entry.message.slice(0, 500), scheduled: true },
+    }),
+  );
   supervision.onLifecycle((message) => {
     switch (message.kind) {
       case "drain":

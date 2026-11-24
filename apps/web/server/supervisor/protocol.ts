@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  requestId,
+  updateAudit,
+  updatePanel,
+  updateRequest,
+} from "./update-protocol";
 
 /**
  * Messages between the supervisor (supervisor.ts) and the servers it runs (start.ts, called
@@ -18,9 +24,10 @@ import { z } from "zod";
  * The supervisor ships in the image and workers may come from newer releases, so both name the
  * protocol version they speak: a worker refuses to run under another, and the supervisor starts
  * no release whose `apps/web/release.json` names another (see ReleaseDirectory). Version 2
- * replaced `alone` and `fence-done` with `recover`, `fence-release` and `recovered`.
+ * replaced `alone` and `fence-done` with `recover`, `fence-release` and `recovered`; version 3
+ * added the update requests of the administration page (see update-protocol.ts).
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 const scope = z.object({ space: z.string().min(1), path: z.string() });
 const scopes = z.tuple([scope], scope);
@@ -60,6 +67,23 @@ const supervisorMessage = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("scopes-granted"), id: z.number() }),
   /** Another worker stopped or rechecks transfers. */
   z.object({ kind: z.literal("transfer-signal"), signal: transferSignal }),
+  /** The answer to update request `id`: the update page's state, or why not. */
+  z.object({
+    kind: z.literal("update-answer"),
+    id: requestId,
+    answer: z.discriminatedUnion("ok", [
+      z.object({ ok: z.literal(true), panel: updatePanel }),
+      z.object({ ok: z.literal(false), message: z.string() }),
+    ]),
+  }),
+  /** How the install or rollback of request `id` goes: a HandoverStream event, `done` last. */
+  z.object({
+    kind: z.literal("update-event"),
+    id: requestId,
+    event: z.unknown(),
+  }),
+  /** An automatic install or rollback ended: the active worker records it in the audit log. */
+  z.object({ kind: z.literal("update-audit"), entry: updateAudit }),
 ]);
 export type SupervisorMessage = z.infer<typeof supervisorMessage>;
 
@@ -90,6 +114,12 @@ const workerMessage = z.discriminatedUnion("kind", [
   /** Every change recovery `id`'s owner left is settled. */
   z.object({ kind: z.literal("recovered"), id: z.number() }),
   z.object({ kind: z.literal("transfer-signal"), signal: transferSignal }),
+  /** One of the closed set of update requests (see update-protocol.ts), answered by `id`. */
+  z.strictObject({
+    kind: z.literal("update-request"),
+    id: requestId,
+    request: updateRequest,
+  }),
 ]);
 export type WorkerMessage = z.infer<typeof workerMessage>;
 

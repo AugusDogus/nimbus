@@ -56,5 +56,5 @@ test("this repository's own release says the protocol the code speaks", async ()
 test("the protocol changed with the recovery messages", () => {
   // Version 1 had `alone` and `fence-done`; version 2 has `recover`, `fence-release` and
   // `recovered`. A worker of one never runs under a supervisor of the other.
-  expect(PROTOCOL_VERSION).toBe(2);
+  expect(PROTOCOL_VERSION).toBe(3);
 });

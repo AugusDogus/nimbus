@@ -77,6 +77,11 @@ function parse(line: string): HandoverEvent | null {
   } catch {
     return null;
   }
+  return parseEvent(value);
+}
+
+/** `value` as an event, or null when it is not one. */
+function parseEvent(value: unknown): HandoverEvent | null {
   const parsed = event.safeParse(value);
   if (!parsed.success) return null;
   const read = parsed.data;
@@ -89,6 +94,8 @@ function parse(line: string): HandoverEvent | null {
 }
 
 export const HandoverStream = {
+  parseEvent,
+
   /** Stream `outcome` as it settles, with progress from `status` meanwhile. */
   respond(
     release: string | null,

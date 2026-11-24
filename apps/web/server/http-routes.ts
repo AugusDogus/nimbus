@@ -31,6 +31,7 @@ import * as shareThumbnail from "./routes/share-thumbnail";
 import * as trpc from "./routes/trpc";
 import * as libraryApi from "./routes/library-api";
 import * as upload from "./routes/upload";
+import * as updates from "./routes/updates";
 import { RequestBody } from "./request-body";
 
 const none = () => ({});
@@ -64,6 +65,10 @@ const routes = ({ shell, mode }: PageContext): Route[] => [
     POST: RequestBody.capped(RequestBody.smallJsonBytes, backups.POST),
   }),
   route("/api/backups/:name", ([name]) => ({ name }), backupFile),
+  route("/api/admin/updates", none, {
+    GET: updates.GET,
+    POST: RequestBody.capped(RequestBody.smallJsonBytes, updates.POST),
+  }),
   route("/api/file-request/upload/*?", none, fileRequestUpload),
   route("/api/file-request/:token", ([token]) => ({ token }), fileRequest),
   route("/api/files/archive", none, filesArchive),

@@ -6,6 +6,7 @@ import { ImageAbi } from "./image-abi";
 import type { BuildInfo } from "./build-info";
 import { UpdateOffer, type ReleaseIdentity } from "./update-offer";
 import { UpdateSource } from "./update-source";
+import type { UpdateSchedule } from "./update-schedule";
 
 /**
  * The supervisor's side of updates (see docs/updates.md): which release to start, checking the
@@ -31,6 +32,8 @@ export type UpdateStatus = {
   } | null;
   /** The release a rollback returns to, if any. */
   previous: string | null;
+  /** When updates are looked for and installed on their own. */
+  schedule: UpdateSchedule;
 };
 
 export type InstallRequest = {
@@ -238,6 +241,7 @@ export async function createUpdater({
       lastCheck: state.lastCheck,
       available,
       previous: state.previous,
+      schedule: state.schedule,
     };
   };
 
@@ -438,6 +442,22 @@ export async function createUpdater({
           ? raised(current, builtInSequence)
           : current,
       ),
+
+    /** Set when updates are looked for and installed on their own. */
+    setSchedule: (schedule: UpdateSchedule): Promise<Done> =>
+      save((current) => ({ ...current, schedule })),
+
+    /** Record that the automatic install of `day` is being tried, so it is tried once that day. */
+    markAutomatic: (day: string): Promise<Done> =>
+      save((current) => ({ ...current, lastAutomatic: day })),
+
+    /** What the schedule needs to decide: when the source was last asked, and what it offered. */
+    scheduling: () => ({
+      schedule: state.schedule,
+      lastCheckAt: state.lastCheck?.at ?? null,
+      lastAutomatic: state.lastAutomatic,
+      offered: offered !== null,
+    }),
 
     /** Record that a handover to installed release `name` is starting (see ReleaseState). */
     markPending: (name: string): Promise<Done> =>

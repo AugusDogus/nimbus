@@ -65,6 +65,10 @@ export const auditActions = [
   "app_password.revoked",
   "webdav.auth_failed",
   "setting.changed",
+  "update.installed",
+  "update.install_failed",
+  "update.rolled_back",
+  "update.rollback_failed",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -87,7 +91,8 @@ export type AuditTarget = {
     | "mcp_client"
     | "library"
     | "device"
-    | "setting";
+    | "setting"
+    | "release";
   id: string;
   label?: string;
 };

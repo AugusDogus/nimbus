@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Subprocess } from "bun";
 import { z } from "zod";
+import { PROTOCOL_VERSION } from "./protocol";
 import { getAccess } from "@nimbus/api/access";
 import { openDatabase } from "../db/connection";
 import { createDriveStore } from "../drive-store";
@@ -245,7 +246,7 @@ async function writeSlowRelease(release: string) {
   await mkdir(path.join(release, "apps/web/server"), { recursive: true });
   await Bun.write(
     path.join(release, "apps/web/release.json"),
-    JSON.stringify({ supervisorProtocol: 2 }),
+    JSON.stringify({ supervisorProtocol: PROTOCOL_VERSION }),
   );
   await Bun.write(
     path.join(release, "apps/web/server/start.ts"),
