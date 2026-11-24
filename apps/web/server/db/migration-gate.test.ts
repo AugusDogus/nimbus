@@ -181,3 +181,30 @@ test("a migration recorded under a known time but applied with other SQL is refu
   expect(newer.kind).toBe("unsafe");
   if (newer.kind === "unsafe") expect(newer.migrations[0]).toContain(last);
 });
+
+test("a migration's safety is recorded once, when it is applied, and a later start never rewrites it", async () => {
+  await declare([]);
+  const { sqlite } = openDatabase(":memory:");
+  migrateDatabase(sqlite, { migrationsFolder: folder });
+  // A later start whose declaration says otherwise, as a changed or hostile file would.
+  await declare(await lastTags(1));
+  migrateDatabase(sqlite, { migrationsFolder: folder });
+  expect(MigrationGate.newerRelease(sqlite, await olderRelease(1)).kind).toBe(
+    "unsafe",
+  );
+});
+
+test("a safety record that does not carry the applied migration's hash counts as unsafe", async () => {
+  await declare(await lastTags(1));
+  const { sqlite } = openDatabase(":memory:");
+  migrateDatabase(sqlite, { migrationsFolder: folder });
+  expect(MigrationGate.newerRelease(sqlite, await olderRelease(1)).kind).toBe(
+    "safe",
+  );
+  sqlite.run(
+    'UPDATE "__drizzle_migrations" SET hash = \'other\' WHERE created_at = (SELECT MAX(created_at) FROM "__drizzle_migrations")',
+  );
+  expect(MigrationGate.newerRelease(sqlite, await olderRelease(1)).kind).toBe(
+    "unsafe",
+  );
+});

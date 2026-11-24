@@ -148,18 +148,23 @@ export function migrateDatabase(
     `CREATE TABLE IF NOT EXISTS "${historyTable}" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`,
   );
   sqlite.run(
-    `CREATE TABLE IF NOT EXISTS "${safetyTable}" (created_at integer PRIMARY KEY, tag text NOT NULL, live_safe integer NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS "${safetyTable}" (created_at integer PRIMARY KEY, tag text NOT NULL, live_safe integer NOT NULL, hash text)`,
   );
-  // What this release knows of every migration, for older releases to read; a later release's
-  // own record of a migration it shares with this one is the same.
+  const columns = sqlite
+    .query<{ name: string }, []>(`PRAGMA table_info("${safetyTable}")`)
+    .all();
+  if (!columns.some((column) => column.name === "hash"))
+    sqlite.run(`ALTER TABLE "${safetyTable}" ADD COLUMN hash text`);
+  // Whether each migration is safe beside an older server, as the release that applies it
+  // declares, with the hash of what it applied: written in the migration's own transaction,
+  // once, and never rewritten by a later start.
   const safe = liveSafeTags(migrationsFolder);
-  const record = sqlite.prepare(
-    `INSERT INTO "${safetyTable}" (created_at, tag, live_safe) VALUES (?, ?, ?) ON CONFLICT (created_at) DO UPDATE SET tag = excluded.tag, live_safe = excluded.live_safe`,
+  const tags = new Map(
+    journalOf(migrationsFolder).map((entry) => [entry.when, entry.tag]),
   );
-  sqlite.transaction(() => {
-    for (const entry of journalOf(migrationsFolder))
-      record.run(entry.when, entry.tag, safe.has(entry.tag) ? 1 : 0);
-  })();
+  const record = sqlite.prepare(
+    `INSERT OR IGNORE INTO "${safetyTable}" (created_at, tag, live_safe, hash) VALUES (?, ?, ?, ?)`,
+  );
   const { pending } = migrationPlan(sqlite, migrationsFolder);
   if (pending.length) {
     sqlite.run("PRAGMA foreign_keys = OFF");
@@ -172,6 +177,13 @@ export function migrateDatabase(
           sqlite.run(
             `INSERT INTO "${historyTable}" ("hash", "created_at") VALUES (?, ?)`,
             [migration.hash, migration.folderMillis],
+          );
+          const tag = tags.get(migration.folderMillis) ?? "";
+          record.run(
+            migration.folderMillis,
+            tag,
+            safe.has(tag) ? 1 : 0,
+            migration.hash,
           );
         }
         const violations = sqlite.query("PRAGMA foreign_key_check").all();

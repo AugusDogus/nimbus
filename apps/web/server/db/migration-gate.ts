@@ -115,17 +115,24 @@ export const MigrationGate = {
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'nimbus_migration_safety'",
       )
       .get();
+    const appliedHash = new Map(
+      rows.map((row) => [Number(row.created_at), row.hash]),
+    );
     const describe = (when: number) => {
       const row = recorded
         ? sqlite
-            .query<{ tag: string; live_safe: number }, [number]>(
-              "SELECT tag, live_safe FROM nimbus_migration_safety WHERE created_at = ?",
+            .query<
+              { tag: string; live_safe: number; hash: string | null },
+              [number]
+            >(
+              "SELECT tag, live_safe, hash FROM nimbus_migration_safety WHERE created_at = ?",
             )
             .get(when)
         : null;
       return {
         tag: row?.tag ?? `one applied at ${new Date(when).toISOString()}`,
-        safe: row?.live_safe === 1,
+        // Safe only as recorded for the very SQL that was applied.
+        safe: row?.live_safe === 1 && row.hash === appliedHash.get(when),
       };
     };
     const newer = applied.map(describe);
