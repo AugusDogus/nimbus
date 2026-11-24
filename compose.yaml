@@ -13,6 +13,8 @@ services:
     volumes:
       - nimbus-data:/data
       - nimbus-config:/config
+      # Releases installed from Settings, kept when the container is recreated.
+      - nimbus-releases:/var/lib/nimbus
     restart: unless-stopped
     # A stop lets responses finish for NIMBUS_STOP_SECONDS (30), so allow a little longer.
     stop_grace_period: 35s
@@ -23,3 +25,4 @@ services:
 volumes:
   nimbus-data:
   nimbus-config:
+  nimbus-releases:
