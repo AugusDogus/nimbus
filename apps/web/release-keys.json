@@ -1,4 +1,9 @@
 {
-  "$comment": "The public keys this image trusts to sign release bundles (see docs/updates.md). Empty: this image installs no update. Add a key with bun scripts/release-keys.ts.",
-  "keys": []
+  "$comment": "The public keys this image trusts to sign release bundles (see docs/updates.md). With no keys an image installs no update. Add a key with bun scripts/release-keys.ts.",
+  "keys": [
+    {
+      "id": "release-2026",
+      "publicKey": "yHaPmwwEzE1SJ0VsmiBr+ez/bqGrjtdo85ZF0eyUsp0="
+    }
+  ]
 }
