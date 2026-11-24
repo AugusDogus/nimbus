@@ -12,6 +12,7 @@ import { z } from "zod";
 import { ReleaseManifest } from "./release-manifest";
 import { ReleaseSignature, type TrustRoot } from "./release-signature";
 import { ReleaseTree } from "./release-tree";
+import { UpdateSchedule } from "./update-schedule";
 
 /**
  * The installed releases (see docs/updates.md): `<releases>/<name>/` for each, holding the
@@ -36,6 +37,10 @@ export type ReleaseState = {
   watermarks: Record<string, number>;
   /** When the update source was last asked, and what it answered. */
   lastCheck: { at: string; outcome: string } | null;
+  /** When updates are looked for and installed on their own (UpdateSchedule). */
+  schedule: UpdateSchedule;
+  /** The day an automatic install was last tried (UpdateSchedule.day), at most once a day. */
+  lastAutomatic: string | null;
 };
 
 const stateSchema = z.object({
@@ -44,6 +49,9 @@ const stateSchema = z.object({
   pending: z.string().nullable(),
   watermarks: z.record(z.string(), z.number().int().nonnegative()),
   lastCheck: z.object({ at: z.string(), outcome: z.string() }).nullable(),
+  // Absent from states written before schedules existed.
+  schedule: UpdateSchedule.schema.default(UpdateSchedule.standard),
+  lastAutomatic: z.string().nullable().default(null),
 });
 
 export const MANIFEST_FILE = "release-manifest.json";
@@ -60,6 +68,8 @@ export const ReleaseStore = {
     pending: null,
     watermarks: {},
     lastCheck: null,
+    schedule: UpdateSchedule.standard,
+    lastAutomatic: null,
   }),
 
   /** The key of `identity`'s watermark. */

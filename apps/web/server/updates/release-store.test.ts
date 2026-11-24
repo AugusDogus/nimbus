@@ -54,12 +54,21 @@ test("the state round-trips, and a damaged state file is reported, not guessed",
     pending: null,
     watermarks: { "example/nimbus edge": 101 },
     lastCheck: null,
+    schedule: { mode: "install", hour: 3 } as const,
+    lastAutomatic: "2026-11-24",
   };
   await ReleaseStore.write(releases, state);
   expect(await ReleaseStore.read(releases, ReleaseStore.empty())).toEqual({
     ok: true,
     value: state,
   });
+  // A state from before schedules existed has the standard one.
+  await writeFile(
+    path.join(releases, "state.json"),
+    JSON.stringify({ ...state, schedule: undefined, lastAutomatic: undefined }),
+  );
+  const older = await ReleaseStore.read(releases, ReleaseStore.empty());
+  expect(older.ok && older.value.schedule).toEqual({ mode: "notify", hour: 4 });
   await writeFile(path.join(releases, "state.json"), "{ not json");
   expect((await ReleaseStore.read(releases, ReleaseStore.empty())).ok).toBe(
     false,
