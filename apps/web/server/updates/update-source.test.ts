@@ -42,6 +42,15 @@ test("off turns updates off, and a configured source must be a plain https URL",
   expect(UpdateSource.fromEnvironment("http://127.0.0.1:8080/", build).ok).toBe(
     true,
   );
+  // What was set is never repeated: it may carry a secret, as a user and password.
+  for (const refused of [
+    "https://user:hunter2@mirror.example.test/",
+    "ftp://hunter2.example.test/",
+    "hunter2",
+  ]) {
+    const result = UpdateSource.fromEnvironment(refused, build);
+    expect(result.ok || result.message).not.toContain("hunter2");
+  }
 });
 
 test("only plain file names are fetched from a source", () => {
@@ -162,14 +171,50 @@ test("addresses a redirect may not lead to", () => {
     "fe80::1",
     "fd00::1",
     "::ffff:127.0.0.1",
+    // The same addresses as URL parsers write them, and other IPv6 forms of IPv4 ones.
+    "::ffff:7f00:1",
+    "0:0:0:0:0:ffff:a9fe:a9fe",
+    "::ffff:0:a00:1",
+    "::7f00:1",
+    "64:ff9b::a9fe:a9fe",
+    "2002:c0a8:101::1",
+    "::",
+    "ff02::1",
+    "2001:db8::1",
+    new URL("https://[::ffff:169.254.169.254]/").hostname.slice(1, -1),
   ])
     expect({ address, public: UpdateSource.publicAddress(address) }).toEqual({
       address,
       public: false,
     });
-  for (const address of ["140.82.112.3", "2606:4700::6810:84e5"])
+  for (const address of [
+    "140.82.112.3",
+    "2606:4700::6810:84e5",
+    "::ffff:8c52:7003",
+  ])
     expect({ address, public: UpdateSource.publicAddress(address) }).toEqual({
       address,
       public: true,
     });
+});
+
+test("a source that cannot be reached is named by its file alone, without the transport's own text", async () => {
+  const probe = Bun.listen({
+    hostname: "127.0.0.1",
+    port: 0,
+    socket: { data: () => undefined },
+  });
+  const closed = probe.port;
+  probe.stop(true);
+  const fetched = await UpdateSource.fetchBytes(
+    new URL(`http://127.0.0.1:${closed}/manifest.json`),
+    { maxBytes: 1000, timeoutMs: 5000 },
+  );
+  expect(fetched.ok).toBe(false);
+  if (!fetched.ok) {
+    expect(fetched.error.message).toContain("manifest.json");
+    expect(fetched.error.message).not.toContain(String(closed));
+    expect(fetched.error.message).not.toContain("127.0.0.1");
+    expect(fetched.error.message).not.toMatch(/ECONN|Unable to connect|errno/i);
+  }
 });

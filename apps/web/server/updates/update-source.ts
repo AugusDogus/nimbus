@@ -48,7 +48,48 @@ const blockedV4: [string, number][] = [
   ["224.0.0.0", 3],
 ];
 
-/** Whether `address` (an IP literal) is a public address a redirect may lead to. */
+/** IPv6 `address` as its 16 bytes, or null when it is not one (a zone index included). */
+function ipv6(address: string): number[] | null {
+  if (address.includes("%")) return null;
+  let text = address.toLowerCase();
+  // A trailing dotted IPv4 part stands for the last two groups.
+  const dotted = /^(.*:)(\d+\.\d+\.\d+\.\d+)$/.exec(text);
+  if (dotted) {
+    const value = ipv4(dotted[2] ?? "");
+    if (value === null) return null;
+    text = `${dotted[1]}${Math.floor(value / 65536).toString(16)}:${(value % 65536).toString(16)}`;
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const groups = (part: string | undefined): string[] =>
+    part ? part.split(":") : [];
+  const head = groups(halves[0]);
+  const tail = groups(halves[1]);
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
+  const all = [
+    ...head,
+    ...Array<string>(halves.length === 1 ? 0 : missing).fill("0"),
+    ...tail,
+  ];
+  const bytes: number[] = [];
+  for (const group of all) {
+    if (!/^[0-9a-f]{1,4}$/.test(group)) return null;
+    const value = Number.parseInt(group, 16);
+    bytes.push(value >> 8, value & 0xff);
+  }
+  return bytes;
+}
+
+/** Whether the IPv4 address in `bytes` (four of them) is public. */
+const publicV4Bytes = (bytes: number[]) => publicAddress(bytes.join("."));
+
+/**
+ * Whether `address` (an IP literal) is a public address a redirect may lead to. IPv6 forms of
+ * IPv4 addresses (mapped, translated, compatible, NAT64, 6to4) are judged by the IPv4 address they
+ * carry, however they are written; other IPv6 addresses must be global unicast, outside the
+ * documentation, Teredo and discard ranges.
+ */
 function publicAddress(address: string): boolean {
   const kind = isIP(address);
   if (kind === 4) {
@@ -60,15 +101,39 @@ function publicAddress(address: string): boolean {
       return value >= start && value < start + size;
     });
   }
-  if (kind === 6) {
-    const lower = address.toLowerCase();
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower)?.[1];
-    if (mapped) return publicAddress(mapped);
-    if (lower === "::" || lower === "::1") return false;
-    // Link-local fe80::/10, unique local fc00::/7, multicast ff00::/8.
-    return !/^(fe[89ab]|f[cd]|ff)/.test(lower);
+  if (kind !== 6) return false;
+  const bytes = ipv6(address);
+  if (!bytes) return false;
+  const zero = (from: number, to: number) =>
+    bytes.slice(from, to).every((byte) => byte === 0);
+  const last4 = bytes.slice(12, 16);
+  // ::ffff:a.b.c.d (mapped) and ::ffff:0:a.b.c.d (translated).
+  if (zero(0, 10) && bytes[10] === 0xff && bytes[11] === 0xff)
+    return publicV4Bytes(last4);
+  if (zero(0, 8) && bytes[8] === 0xff && bytes[9] === 0xff && zero(10, 12))
+    return publicV4Bytes(last4);
+  // ::a.b.c.d (compatible), and :: and ::1 among them.
+  if (zero(0, 12)) return zero(12, 15) ? false : publicV4Bytes(last4);
+  // 64:ff9b::/96 (NAT64) and 64:ff9b:1::/48 (its local use).
+  if (
+    bytes[0] === 0 &&
+    bytes[1] === 0x64 &&
+    bytes[2] === 0xff &&
+    bytes[3] === 0x9b
+  )
+    return zero(4, 12) ? publicV4Bytes(last4) : false;
+  // 2002::/16 (6to4) carries an IPv4 address in its next four bytes.
+  if (bytes[0] === 0x20 && bytes[1] === 0x02)
+    return publicV4Bytes(bytes.slice(2, 6));
+  const first = bytes[0] ?? 0;
+  // Only global unicast, 2000::/3.
+  if ((first & 0xe0) !== 0x20) return false;
+  // 2001::/32 (Teredo) and 2001:db8::/32 (documentation).
+  if (first === 0x20 && bytes[1] === 0x01) {
+    if (bytes[2] === 0 && bytes[3] === 0) return false;
+    if (bytes[2] === 0x0d && bytes[3] === 0xb8) return false;
   }
-  return false;
+  return true;
 }
 
 /** Whether `url` is https and every address its host has is public; why not otherwise. */
@@ -120,7 +185,8 @@ export const UpdateSource = {
       } catch {
         return {
           ok: false,
-          message: `NIMBUS_UPDATE_SOURCE must be off or an https URL; got ${configured}.`,
+          message:
+            "NIMBUS_UPDATE_SOURCE is set to something that is not a URL, so updates are off. Set it to off or to an https URL.",
         };
       }
       // Plain http only to this machine, as a test source or a local mirror behind a proxy.
@@ -130,7 +196,8 @@ export const UpdateSource = {
       )
         return {
           ok: false,
-          message: `NIMBUS_UPDATE_SOURCE must use https (plain http only for localhost); got ${configured}.`,
+          message:
+            "NIMBUS_UPDATE_SOURCE must be an https URL (plain http only for localhost), so updates are off. Change it to an https URL.",
         };
       if (base.username || base.password || base.search || base.hash)
         return {
@@ -199,8 +266,12 @@ export const UpdateSource = {
           signal,
         });
       } catch (error) {
+        // The transport's own text may name the address or what is behind it, so it is not shown.
         return fail(
-          `Could not fetch ${named} (${error instanceof Error ? error.message.replaceAll(url.host, "the source") : String(error)}).`,
+          error instanceof Error &&
+            (error.name === "TimeoutError" || error.name === "AbortError")
+            ? `Could not fetch ${named}: it did not answer within ${Math.round(timeoutMs / 1000)} seconds. Try again later; if it keeps failing, check the server's network access.`
+            : `Could not fetch ${named}: the connection failed. Try again later; if it keeps failing, check the server's network access and NIMBUS_UPDATE_SOURCE.`,
         );
       }
       const location = response.headers.get("location");
