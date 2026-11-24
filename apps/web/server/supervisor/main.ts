@@ -284,6 +284,9 @@ async function prepare(name: string) {
   return resolved;
 }
 
+// The image's own build, recorded before anything serves (see Updater.recordFloor).
+const floor = await updater.recordFloor();
+if (!floor.ok) log(floor.message);
 const chosen = await updater.startRelease();
 if (chosen) {
   startWith = { name: chosen.name, root: chosen.root };

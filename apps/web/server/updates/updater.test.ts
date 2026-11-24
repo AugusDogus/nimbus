@@ -86,11 +86,12 @@ const noInstaller: RunInstaller = async () => ({
 const updater = (
   runInstaller: RunInstaller = noInstaller,
   disabled: string | null = null,
+  imageBuild: BuildInfo = build,
 ) =>
   createUpdater({
     releases,
     disabled,
-    builtIn: { root: image, build },
+    builtIn: { root: image, build: imageBuild },
     source: {
       kind: "url",
       base: new URL(`http://127.0.0.1:${server.port}/`),
@@ -316,4 +317,47 @@ test("a release being switched to that no longer verifies is not started; the la
   });
   expect((await (await updater()).startRelease())?.name).toBe(before);
   expect(lines.join("\n")).toContain(target);
+});
+
+test("whether an install is still newer is decided in the same write that reserves it", async () => {
+  await offer(release(120));
+  const newer = await installTestRelease(releases, release(125), {
+    privateKey,
+    natives: natives(),
+  });
+  let racing: Promise<unknown> = Promise.resolve(null);
+  const raced = await updater(async () => {
+    // Build 125 starts running as this install finishes: its record is queued, not yet written.
+    racing = raced.ran(newer);
+    return { ok: true, name: ReleaseManifest.releaseName(release(120)) };
+  });
+  expect((await raced.resolve(newer)).ok).toBe(true);
+  expect((await raced.check()).ok).toBe(true);
+  const outcome = await raced.install();
+  expect(await racing).toEqual({ ok: true });
+  expect(outcome.ok || outcome.message).toContain("no longer newer");
+});
+
+test("the image's own build is recorded as the floor before anything serves, so an older image cannot go below it", async () => {
+  const first = await updater();
+  expect(await first.recordFloor()).toEqual({ ok: true });
+  const written = await ReleaseStore.read(releases, ReleaseStore.empty());
+  expect(written.ok && written.value.watermarks["example/nimbus edge"]).toBe(
+    100,
+  );
+  // An older image pulled later: build 95 is newer than it, but not than what ran here.
+  const older = await updater(noInstaller, null, { ...build, sequence: 90 });
+  await offer(release(95));
+  const checked = await older.check();
+  expect(checked.ok && checked.status.available).toBeNull();
+});
+
+test("a state that cannot be read starts the built-in release and installs nothing, without stopping startup", async () => {
+  await rm(releases, { recursive: true, force: true });
+  await mkdir(path.join(releases, "state.json"), { recursive: true });
+  const unreadable = await updater();
+  expect(await unreadable.startRelease()).toBeNull();
+  await offer(release(130));
+  const refused = await unreadable.install();
+  expect(refused.ok || refused.message).toContain("could not be read");
 });

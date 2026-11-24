@@ -167,3 +167,10 @@ test("pruning removes only installed releases, never other folders it finds", as
   ])
     expect(left).toContain(name);
 });
+
+test("a state file that cannot be read is reported like a damaged one, not thrown", async () => {
+  await mkdir(path.join(releases, "state.json"));
+  const read = await ReleaseStore.read(releases, ReleaseStore.empty());
+  expect(read.ok).toBe(false);
+  if (!read.ok) expect(read.message).toContain("could not be read");
+});

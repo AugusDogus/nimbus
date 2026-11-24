@@ -88,7 +88,11 @@ export const ReleaseStore = {
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT")
         return { ok: true, value: fallback };
-      throw error;
+      // Unreadable is as unknown as damaged: the same refusal, never a stopped startup.
+      return {
+        ok: false,
+        message: `${path.join(releases, STATE_FILE)} could not be read (${error instanceof Error && "code" in error ? String(error.code) : "unknown error"}), so Nimbus does not know which release ran last. It starts the image's built-in release; check the file's owner and permissions, or remove it to start afresh, which forgets which releases ran here.`,
+      };
     }
     let value: unknown;
     try {

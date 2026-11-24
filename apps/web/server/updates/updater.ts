@@ -103,14 +103,13 @@ export async function createUpdater({
   const stateProblem = read.ok
     ? null
     : `${read.message} Until then Nimbus installs no update and rolls nothing back: without its record of what ran, it cannot tell an update from a downgrade.`;
-  /** The highest sequence run of this image's identity, the built-in release's included. */
-  const watermark = () =>
+  /** The highest sequence run of this image's identity in `of`, the built-in release's included. */
+  const watermarkOf = (of: ReleaseState) =>
     Math.max(
       builtInSequence,
-      identity
-        ? (state.watermarks[ReleaseStore.watermarkKey(identity)] ?? 0)
-        : 0,
+      identity ? (of.watermarks[ReleaseStore.watermarkKey(identity)] ?? 0) : 0,
     );
+  const watermark = () => watermarkOf(state);
   /** Installed releases' manifests, as verified when they were chosen. */
   const known = new Map<string, ReleaseManifest>();
   let offered: Offered | null = null;
@@ -130,13 +129,18 @@ export async function createUpdater({
 
   /** Writes, one after another. */
   let writing: Promise<unknown> = Promise.resolve();
-  /** Write `change(state)` as the new state, after any write under way; memory follows disk. */
+  /**
+   * Write `change(state)` as the new state, after any write under way; memory follows disk. The
+   * change sees the state as it stands when its turn comes, and may refuse instead, writing
+   * nothing, so a decision and the write it leads to are one step.
+   */
   const save = (
-    change: (current: ReleaseState) => ReleaseState,
+    change: (current: ReleaseState) => ReleaseState | { refused: string },
   ): Promise<Done> => {
     const written = writing.then(async (): Promise<Done> => {
       if (stateProblem) return { ok: false, message: stateProblem };
       const next = change(state);
+      if ("refused" in next) return { ok: false, message: next.refused };
       if (next === state) return { ok: true };
       try {
         await ReleaseStore.write(releases, next);
@@ -381,13 +385,13 @@ export async function createUpdater({
         signature: Buffer.from(signature).toString("base64"),
       });
       if (!installed.ok) return installed;
-      if (manifest.build.sequence <= watermark())
-        return {
-          ok: false,
-          message: `Build ${manifest.build.sequence} was installed but is no longer newer than what ran here meanwhile (build ${watermark()}), so it was not started.`,
-        };
+      // Compared and reserved in one write, against what ran by the time its turn comes.
       const reserved = await save((current) =>
-        raised(current, manifest.build.sequence),
+        manifest.build.sequence <= watermarkOf(current)
+          ? {
+              refused: `Build ${manifest.build.sequence} was installed but is no longer newer than what ran here meanwhile (build ${watermarkOf(current)}), so it was not started.`,
+            }
+          : raised(current, manifest.build.sequence),
       );
       if (!reserved.ok) return reserved;
       known.set(installed.name, manifest);
@@ -421,6 +425,19 @@ export async function createUpdater({
             },
       );
     },
+
+    /**
+     * Record the image's own build as run, before any server starts: a newer image pulled once
+     * keeps its floor when an older one is started later.
+     */
+    recordFloor: (): Promise<Done> =>
+      save((current) =>
+        identity &&
+        builtInSequence >
+          (current.watermarks[ReleaseStore.watermarkKey(identity)] ?? 0)
+          ? raised(current, builtInSequence)
+          : current,
+      ),
 
     /** Record that a handover to installed release `name` is starting (see ReleaseState). */
     markPending: (name: string): Promise<Done> =>
