@@ -380,3 +380,26 @@ test("a release of another repository or channel than the image's is not install
     [],
   );
 });
+
+test("an installed release counts as installed only when its signed manifest is the one asked for", async () => {
+  const first = await publish(testManifest(120));
+  expect((await install(first)).ok).toBe(true);
+  // Signed too, with the same name, but saying something else.
+  const other = await publish({
+    ...testManifest(120),
+    notes: [{ commit: "d".repeat(40), subject: "Another release" }],
+  });
+  expect(ReleaseManifest.releaseName(other.manifest)).toBe(
+    ReleaseManifest.releaseName(first.manifest),
+  );
+  const refused = await install(other);
+  expect(refused.ok).toBe(false);
+  if (!refused.ok) expect(refused.error.message).toContain("already installed");
+  // What was installed stays as it was.
+  const name = ReleaseManifest.releaseName(first.manifest);
+  expect(
+    await Bun.file(
+      path.join(scratch, "releases", name, "release-manifest.json"),
+    ).text(),
+  ).toBe(new TextDecoder().decode(first.bytes));
+});

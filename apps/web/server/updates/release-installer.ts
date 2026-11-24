@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
+import { constants } from "node:fs";
 import {
   lstat,
   mkdir,
   mkdtemp,
   open,
+  readFile,
   rename,
   rm,
   symlink,
@@ -117,16 +119,30 @@ export async function installRelease({
       `Release ${name} needs ${missing.join("; ")}. Pull ${manifest.requires.image} and recreate the container to get it.`,
     );
   await mkdir(releases, { recursive: true, mode: 0o755 });
-  /** Whether release `name` is already installed here, whole. */
-  const alreadyInstalled = async () => {
+  /**
+   * Whether release `name` is already installed here, whole, from these very manifest bytes:
+   * `other` when a release of that name was installed from another signed manifest.
+   */
+  const alreadyInstalled = async (): Promise<"same" | "other" | "none"> => {
     const installed = await ReleaseStore.verified(releases, name, trust);
+    if (!installed.ok) return "none";
+    const bytes = await readFile(path.join(installed.root, MANIFEST_FILE), {
+      flag: constants.O_RDONLY | constants.O_NOFOLLOW,
+    }).catch(() => null);
+    if (!bytes || !Buffer.from(manifestBytes).equals(bytes)) return "other";
     return (
-      installed.ok &&
-      (await ReleaseStore.intact(installed.root, installed.manifest, locations))
-        .ok
-    );
+      await ReleaseStore.intact(installed.root, installed.manifest, locations)
+    ).ok
+      ? "same"
+      : "none";
   };
-  if (await alreadyInstalled()) return { ok: true, name };
+  const otherCopy = () =>
+    failed(
+      `A different release named ${name} is already installed, from another signed manifest, so this one was not installed and the installed one was left as it is. Check the update source; if it republished this build, remove ${path.join(releases, name)} and install again.`,
+    );
+  const before = await alreadyInstalled();
+  if (before === "same") return { ok: true, name };
+  if (before === "other") return otherCopy();
 
   // This attempt's own folder: another install running at the same time never shares a path.
   let attempt: string;
@@ -262,10 +278,12 @@ export async function installRelease({
       if (
         error instanceof Error &&
         "code" in error &&
-        (error.code === "ENOTEMPTY" || error.code === "EEXIST") &&
-        (await alreadyInstalled())
-      )
-        return { ok: true, name };
+        (error.code === "ENOTEMPTY" || error.code === "EEXIST")
+      ) {
+        const now = await alreadyInstalled();
+        if (now === "same") return { ok: true, name };
+        if (now === "other") return otherCopy();
+      }
       throw error;
     }
     return { ok: true, name };
