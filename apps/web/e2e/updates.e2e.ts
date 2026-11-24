@@ -128,14 +128,14 @@ test("up to date, a check finds an update with its changes, and Update now insta
   await page.goto("/settings/admin");
   const updates = section(page);
   await expect(updates.getByText("Nimbus is up to date")).toBeVisible();
-  await expect(updates.getByText("build 100 (ccccccc) · edge")).toBeVisible();
+  await expect(updates.getByText("Build 100 (ccccccc) · edge")).toBeVisible();
   await updates.getByRole("button", { name: "Check now" }).click();
   await expect(
-    updates.getByText("build 101 (ddddddd) is available"),
+    updates.getByText("Build 101 (ddddddd) is available"),
   ).toBeVisible();
   const changes = updates.getByRole("list", { name: "Changes in this update" });
-  await expect(changes.getByRole("listitem")).toHaveCount(9);
-  await expect(changes).toContainText("and 2 more");
+  await expect(changes.getByRole("listitem")).toHaveCount(7);
+  await expect(changes).toContainText("and 4 more");
   await updates.getByRole("button", { name: "Update now" }).click();
   await expect(
     updates.getByText("Updated to build 101 (ddddddd)"),

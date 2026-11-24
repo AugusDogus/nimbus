@@ -73,6 +73,12 @@ const build = (sequence: number | null, commit: string | null) =>
     ? "a build without a number"
     : `build ${sequence}${commit ? ` (${commit.slice(0, 7)})` : ""}`;
 
+/** `build` at the start of a heading or label. */
+const Build = (sequence: number | null, commit: string | null) => {
+  const text = build(sequence, commit);
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+};
+
 const time = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
     dateStyle: "medium",
@@ -261,7 +267,7 @@ export function UpdateSettings() {
             }
           >
             <p className="text-sm font-medium tabular-nums sm:text-right">
-              {build(data.running.sequence, data.running.commit)}
+              {Build(data.running.sequence, data.running.commit)}
               {data.channel ? ` · ${data.channel}` : ""}
             </p>
           </SettingsRow>
@@ -301,7 +307,7 @@ export function UpdateSettings() {
               <div className="sm:flex sm:justify-end">
                 <Button
                   size="compact"
-                  variant="ghost"
+                  variant="tertiary"
                   onClick={() =>
                     setConfirmation({
                       title: "Roll back Nimbus?",
@@ -475,7 +481,7 @@ function Status({
             <p className="text-sm font-medium text-destructive">
               The last update did not happen
             </p>
-            <p className="max-w-prose text-pretty text-sm text-muted-foreground">
+            <p className="max-w-prose text-pretty break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
               {outcome.message}
             </p>
           </div>
@@ -485,7 +491,7 @@ function Status({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
               <p className="text-sm font-medium">
-                {build(available.build.sequence, available.build.commit)} is
+                {Build(available.build.sequence, available.build.commit)} is
                 available
               </p>
               <p className="text-xs text-muted-foreground">
@@ -501,7 +507,7 @@ function Status({
               aria-label="Changes in this update"
               className="space-y-1 border-l border-border/60 pl-3"
             >
-              {available.notes.slice(0, 8).map((note) => (
+              {available.notes.slice(0, 6).map((note) => (
                 <li
                   key={note.commit}
                   className="text-pretty text-sm text-muted-foreground"
@@ -509,9 +515,9 @@ function Status({
                   {note.subject}
                 </li>
               ))}
-              {available.notes.length > 8 && (
+              {available.notes.length > 6 && (
                 <li className="text-sm text-muted-foreground">
-                  and {available.notes.length - 8} more
+                  and {available.notes.length - 6} more
                 </li>
               )}
             </ul>
@@ -520,7 +526,7 @@ function Status({
       ) : available?.kind === "needs-newer-image" ? (
         <div className="space-y-1" role="status">
           <p className="text-sm font-medium">
-            {build(available.build.sequence, available.build.commit)} needs a
+            {Build(available.build.sequence, available.build.commit)} needs a
             newer image
           </p>
           <p className="max-w-prose text-pretty text-sm text-muted-foreground">
