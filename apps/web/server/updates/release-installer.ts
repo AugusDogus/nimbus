@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   mkdir,
   open,
@@ -101,20 +100,27 @@ export async function installRelease({
       },
     );
     if (!fetched.ok) return failed(fetched.error.message);
-    const hash = createHash("sha256");
-    let size = 0;
     const file = await open(download, "wx", 0o600);
     try {
-      for await (const chunk of fetched.value) {
-        hash.update(chunk);
-        size += chunk.byteLength;
-        await file.write(chunk);
-      }
+      for await (const chunk of fetched.value)
+        // A write may take only part of a chunk, as near a full disk or a file size limit.
+        for (let offset = 0; offset < chunk.byteLength;) {
+          const { bytesWritten } = await file.write(chunk, offset);
+          if (bytesWritten === 0)
+            throw Object.assign(
+              new Error("No byte of the bundle could be written."),
+              {
+                code: "ENOSPC",
+              },
+            );
+          offset += bytesWritten;
+        }
       await file.sync();
     } finally {
       await file.close();
     }
-    const sha256 = hash.digest("hex");
+    // What is on disk is what gets unpacked, so that is what is compared.
+    const { size, sha256 } = await BundleArchive.digest(download);
     if (size !== manifest.bundle.size || sha256 !== manifest.bundle.sha256)
       return failed(
         `The bundle of release ${name} arrived as ${size} bytes with SHA-256 ${sha256}, not the ${manifest.bundle.size} bytes and ${manifest.bundle.sha256} its signed manifest names: it was cut short or changed. Nothing was installed; check again later.`,

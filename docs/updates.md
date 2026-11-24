@@ -50,23 +50,31 @@ build provenance attestation to every bundle for anyone who wants to check it by
 supervisor does not depend on it. The trust root lists keys by id, so a key is rotated by
 shipping an image that trusts the new key alongside the old one, then one that trusts only the new.
 
-**Privileges: the supervisor, the update store and the servers run as different users.** Before,
-the supervisor and the servers ran as the same user (`PUID`), so a compromised server could have
-rewritten the releases it would be started from next. Now the entrypoint starts the supervisor as
-a dedicated user (`nimbus-update`, uid 1100, no login, not in `PGID`'s group) holding only the
-capabilities to change user (`setuid`, `setgid`), and the supervisor starts every server through
-`setpriv` as `PUID:PGID` with no capabilities at all. The supervisor's downloads and unpacking run
-in a child process as `nimbus-update` with no capabilities either. Releases live in
-`<config>/releases`, owned by `nimbus-update` and readable by everyone; the config root itself
-becomes `root:PGID` with mode `1775` (sticky, as `/tmp`), so the servers still create their files
-there (the database and its journals, backups, caches) but cannot rename, replace or remove what
-they do not own, such as `releases`. The image's own files are root's and read-only to both.
+**Privileges: not separated yet.** Today the supervisor and the servers run as one user (`PUID`),
+so a compromised server could rewrite an installed release and have its code run at the next
+handover or restart. Installed releases are verified again before every start, against the
+signed manifest kept inside them, but files a server changes after that check, or modules it
+loads later, are not caught. The plan, not built yet because it changes how the image runs and
+can only be tested in CI's image check:
 
-**Persistence.** Installed releases live under the config root, so they survive a container being
+- the entrypoint starts the supervisor as a dedicated user (`nimbus-update`, uid 1100, no login,
+  not in `PGID`'s group) holding only `setuid` and `setgid`, and the supervisor starts every
+  server through `setpriv` as `PUID:PGID` with no capabilities (both checked by hand in a user
+  namespace: the supervisor's effective set is exactly those two, the server's is empty);
+- the installer runs as `nimbus-update` with no capabilities;
+- the supervisor's lock and the releases move into `<config>/supervisor/`, owned by
+  `nimbus-update`; the config root becomes `root:PGID` with mode `1775` (sticky, as `/tmp`), so the
+  servers still create their files there but cannot rename, replace or remove what they do not
+  own. That changes the config folder's owner and mode on the host;
+- the supervisor can no longer open the servers' lease files, so it checks for servers left
+  running by asking a short helper started as `PUID`.
+
+**Persistence.** Installed releases live in `<config>/releases` (or NIMBUS_RELEASES_DIR), so they survive a container being
 recreated. On start the supervisor runs the newest installed release that this image can run and
-whose signed manifest still verifies, falling back to the built-in release. A server refuses to
-start on a database that a newer release migrated (one with migrations it does not know), and
-says what to do, rather than run older code against a newer schema.
+whose signed manifest still verifies, falling back to the built-in release, which it also starts
+when the image's own build is as new or newer (a newer image was pulled). Not built yet: a server
+refusing to start on a database a newer release migrated, as can happen when the container is
+recreated from an older image while a newer release's migrations are in the database.
 
 ## Rules
 
@@ -82,7 +90,8 @@ An update is offered only when every one of these holds:
    is reported as needing a newer image, with the image tag to pull.
 
 Installing then streams the bundle to a staging file, refuses more bytes than the manifest's size,
-and compares the SHA-256 before anything is unpacked. Unpacking accepts only regular files,
+writes every byte it received (a write near a full disk may take only part of a chunk), and
+compares the size and SHA-256 of the file as it is on disk before anything is unpacked. Unpacking accepts only regular files,
 directories and symbolic links whose targets stay inside the release, refuses absolute paths and
 `..`, and writes into `releases/.staging-<build>`; the tree is checked (the server's entry point,
 `release.json` naming this supervisor protocol, the manifest's build), the native modules are
@@ -92,6 +101,29 @@ removed; a release that never becomes ready is abandoned as any handover is.
 
 Rollback hands over to the previous installed release. The installation keeps the three newest
 releases and any release a server still runs.
+
+## Publishing
+
+The `bundle` job in `.github/workflows/ci.yml` runs for every push to main (the `edge` channel) and
+every `v*` tag (`stable`) once `verify` passed. It builds the bundle with
+`scripts/release-bundle.ts`, signs its manifest, starts it once as a real server
+(`scripts/release-smoke.ts`), attaches a build provenance attestation, and uploads it with its
+manifest and signature to the release `channel-<channel>`, replacing the previous ones there. The
+image built from the same commit carries the same sequence (the workflow's run number), so it
+does not offer its own bundle as an update.
+
+Setting it up once:
+
+1. `bun scripts/release-keys.ts <key id>` prints a public key entry and a private key.
+2. Add the entry to `apps/web/release-keys.json` and commit it: images built from then on trust it.
+3. Create the environment `release-signing`, limited to main and `v*` tags, with the secret
+   `NIMBUS_RELEASE_SIGNING_KEY` (the private key) and the variable `NIMBUS_RELEASE_KEY_ID`.
+
+Until then the job builds and tests the bundle but publishes nothing, and images trust no key.
+
+A fork or mirror that signs with its own key points `NIMBUS_RELEASE_KEYS_FILE` at its own trust
+root file instead of rebuilding the image. That file must belong to root or the supervisor's user
+and be writable by nobody else, or Nimbus trusts no key at all.
 
 ## What the server sends
 
@@ -125,11 +157,12 @@ client, a share) gains nothing over updates: the data root holds no part of the 
 Bundles are staged and unpacked under the config root, which users cannot reach through Nimbus.
 
 **An attacker who controls a Nimbus server process** (remote code execution as `PUID`) can read
-the data and the database, as before. They cannot rewrite the releases or the supervisor, so a
-restart of the container or a handover does not keep their code running: the next server starts
-from a verified release. They can ask the supervisor over IPC to check, install or roll back, but
-only to releases that verify, so at most they can make it install a newer signed release, or go
-back to one already installed.
+the data and the database, as before. Today they can also write the installed releases, since the
+supervisor runs as the same user: a release they change no longer verifies at the next start, but
+one they change after that check, or a module loaded later, runs their code again. The privilege
+separation above is what closes that. They cannot make the supervisor install anything unsigned:
+the supervisor and the installer verify every manifest against the image's trust root, which a
+server cannot change, and the control socket is not reachable from a server's network.
 
 **An attacker who controls the update source and serves a release that needs a newer image**
 gets it reported, not installed.
@@ -138,5 +171,7 @@ gets it reported, not installed.
 
 - Freeze attacks beyond showing the time of the last check.
 - A malicious but validly signed release.
-- Hosts that run Nimbus without the image's entrypoint: the privilege separation needs it, and
-  without it the supervisor and the servers run as one user, as before.
+- A compromised server rewriting installed releases, until the privilege separation above is built.
+- Redirects: a source may redirect a fetch anywhere, as GitHub does to its storage. Integrity does
+  not depend on where bytes come from, but an administrator who configures a hostile source lets it
+  make the server request any address.

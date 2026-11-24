@@ -42,6 +42,18 @@ RUN bun run build
 # The server runs from source with Bun; it needs only production dependencies and the built client.
 RUN rm -rf node_modules apps/*/node_modules packages/*/node_modules .turbo apps/*/.turbo packages/*/.turbo \
     && bun install --frozen-lockfile --production
+# Which build this is, so it can take part in in-app updates (docs/updates.md). CI passes these;
+# an image built without them has no build metadata and looks for no update.
+ARG NIMBUS_REPOSITORY=""
+ARG NIMBUS_COMMIT=""
+ARG NIMBUS_SEQUENCE=""
+ARG NIMBUS_CHANNEL=""
+ARG NIMBUS_IMAGE=""
+RUN if [ -n "$NIMBUS_SEQUENCE" ]; then \
+      printf '{"repository":"%s","commit":"%s","sequence":%s,"channel":"%s","image":"%s"}\n' \
+        "$NIMBUS_REPOSITORY" "$NIMBUS_COMMIT" "$NIMBUS_SEQUENCE" "$NIMBUS_CHANNEL" "$NIMBUS_IMAGE" \
+        > apps/web/build-info.json; \
+    fi
 
 FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d
 # pdftoppm renders PDF thumbnails; Debian ships its security updates.

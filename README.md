@@ -198,6 +198,8 @@ Set the deployment values in `apps/web/.env` before startup. For PDF and video t
 | `NIMBUS_MAX_DRAINING`         | Container only. Replaced servers kept finishing their responses at once, from `1` to `8`. One more makes the oldest stop now. Default `2`. |
 | `NIMBUS_READY_TIMEOUT_SECONDS` | Container only. Seconds a new server may take to migrate, index the drive and pass its health check before a restart is abandoned and the running server keeps serving. Default `300`. |
 | `NIMBUS_STOP_SECONDS`         | Container only. Seconds every server may finish its responses when the container stops. Keep it below the container's stop timeout. Default `30`. |
+| `NIMBUS_UPDATE_SOURCE`        | Container only. Where [in-app updates](#in-app-updates) come from: `off`, or an https URL of a mirror. Default: the releases of the repository and channel the image was built from. |
+| `NIMBUS_RELEASE_KEYS_FILE`    | Container only. A file of release keys to trust instead of the image's, for a fork or mirror that signs its own releases. It must belong to root and be writable by nobody else. |
 
 Startup fails with a message naming the problem when an optional integration is only partly configured or a setting has an invalid value, such as `NIMBUS_MCP_ENABLED=no` or an unsafe `NIMBUS_HOMES_PATH`, so a typo cannot silently turn email, single sign-on, or MCP off.
 
@@ -454,6 +456,20 @@ Set `net.ipv4.tcp_migrate_req=1` for the container, as `compose.yaml` does (`doc
 A release whose pending database migrations are not declared safe beside the running server (`apps/web/drizzle/live-safe.json`) is not handed over: the supervisor stops every server, cutting what they still send after `NIMBUS_STOP_SECONDS`, then starts the new release alone. If that release then fails to start, the supervisor keeps retrying it and never goes back to the older release by itself, since the older code may not run on the migrated database; requests are refused meanwhile and the log says so. Fix what the new release's log names, or go back by hand: stop the container, restore the backup Nimbus took before migrating from `<config root>/backups`, and start the older image. One Nimbus at a time may use a config root: a second server or container on it stops at startup with a message saying so.
 
 Replacing the container, as pulling a new image does, still interrupts Nimbus: connections are refused until the new container is ready, and responses still running when the container stops are cut after `NIMBUS_STOP_SECONDS`, after which players usually resume from where they stopped. Keep the container's stop timeout above that, as `stop_grace_period: 35s` in `compose.yaml` does (`docker run --stop-timeout 35`). A host reboot interrupts Nimbus the same way.
+
+### In-app updates
+
+An image built by CI can update itself to a newer signed release of its channel without pulling a new image, and without downtime, as a restart does:
+
+```bash
+docker compose exec nimbus bun server/supervisor/control.ts update check
+docker compose exec nimbus bun server/supervisor/control.ts update install
+docker compose exec nimbus bun server/supervisor/control.ts update rollback
+```
+
+`check` asks the update source for the newest release and says whether it is newer, already installed, or needs a newer image (and which to pull). `install` downloads it, verifies its signature and digest, and hands over to it; if anything fails, the running server keeps serving and nothing is left behind. `rollback` returns to the release that ran before. Installed releases are kept in `<config root>/releases`, so they survive the container being recreated; a newer image's own release takes precedence over older installed ones.
+
+Checking sends plain HTTPS requests for two small files, and installing fetches the bundle, with nothing about your installation, its users or files. `NIMBUS_UPDATE_SOURCE=off` turns this off. How releases are signed and verified, and what an attacker could and could not do, is in [docs/updates.md](docs/updates.md).
 
 ### Application upgrades
 

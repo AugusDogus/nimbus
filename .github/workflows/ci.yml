@@ -66,7 +66,7 @@ jobs:
   build:
     name: build and budgets
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -74,10 +74,17 @@ jobs:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - run: bun run build
+      # As on a production host (see README, "Restarts without downtime"): connections queued on
+      # a server leaving the port move to the next one instead of being reset.
+      - run: sudo sysctl -w net.ipv4.tcp_migrate_req=1
       # Hands the port over between real servers under the supervisor while films stream; it
       # needs the built client, so it is skipped in the unit job and runs here.
       - run: bun test apps/web/server/supervisor/handover.e2e.test.ts
         timeout-minutes: 3
+      # Updates from the built-in release to a signed bundle it builds itself, and every way an
+      # update can fail, each leaving the running server serving.
+      - run: bun test apps/web/server/supervisor/updates.e2e.test.ts
+        timeout-minutes: 8
       # Public pages must load no module of the signed-in app.
       - run: bun scripts/page-modules.ts
       - run: bun scripts/first-load-js.ts --budget scripts/first-load-js-budget.json
@@ -238,6 +245,14 @@ jobs:
       set-meta-labels: true
       # The version label the deployable tags would give it, not "unverified".
       meta-labels: org.opencontainers.image.version=${{ needs.meta.outputs.version }}
+      # Its build metadata for in-app updates (docs/updates.md): main is the edge channel and
+      # v* tags the stable one; other builds get none and look for no update.
+      build-args: |
+        NIMBUS_REPOSITORY=${{ github.repository }}
+        NIMBUS_COMMIT=${{ github.sha }}
+        NIMBUS_SEQUENCE=${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.run_number || '' }}
+        NIMBUS_CHANNEL=${{ github.ref == 'refs/heads/main' && 'edge' || 'stable' }}
+        NIMBUS_IMAGE=ghcr.io/${{ github.repository }}:${{ github.ref == 'refs/heads/main' && 'edge' || 'latest' }}
     secrets:
       registry-auths: |
         - registry: ghcr.io
@@ -293,3 +308,80 @@ jobs:
             fi
             echo "$tag -> $DIGEST"
           done
+
+  # The release bundle for in-app updates (docs/updates.md), behind the same gate as the image:
+  # built from this commit, signed with the release key, started once as a real server, given a
+  # build provenance attestation, and published as the newest release of its channel
+  # (channel-edge for main, channel-stable for v* tags), the default update source of the image
+  # built from the same commit. The signing key lives in the release-signing environment, which
+  # only this job may use; restrict that environment to main and v* tags in the repository's
+  # settings. Without a key the job builds and tests the bundle but publishes nothing.
+  bundle:
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    needs: [verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release-signing
+    concurrency:
+      group: bundle-${{ github.ref == 'refs/heads/main' && 'edge' || 'stable' }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      CHANNEL: ${{ github.ref == 'refs/heads/main' && 'edge' || 'stable' }}
+      IMAGE: ghcr.io/${{ github.repository }}:${{ github.ref == 'refs/heads/main' && 'edge' || 'latest' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The commits since the channel's previous build become the bundle's notes.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Find the channel's previous build
+        id: previous
+        run: |
+          commit=$(gh release download "channel-$CHANNEL" --pattern manifest.json --output - 2>/dev/null | jq -r '.build.commit // empty' || true)
+          if [ -n "$commit" ] && git cat-file -e "$commit^{commit}" 2>/dev/null; then
+            echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build and sign the bundle
+        env:
+          NIMBUS_RELEASE_SIGNING_KEY: ${{ secrets.NIMBUS_RELEASE_SIGNING_KEY }}
+          KEY_ID: ${{ vars.NIMBUS_RELEASE_KEY_ID }}
+          PREVIOUS: ${{ steps.previous.outputs.commit }}
+        run: |
+          args=(--out bundle --sequence "$GITHUB_RUN_NUMBER" --channel "$CHANNEL" --repository "$GITHUB_REPOSITORY" --image "$IMAGE")
+          [ -z "$PREVIOUS" ] || args+=(--previous-commit "$PREVIOUS")
+          if [ -n "$NIMBUS_RELEASE_SIGNING_KEY" ] && [ -n "$KEY_ID" ]; then args+=(--key-id "$KEY_ID"); fi
+          bun scripts/release-bundle.ts "${args[@]}"
+      - name: Start the bundle as a server
+        run: bun scripts/release-smoke.ts bundle
+      - name: Attest the bundle's provenance
+        if: ${{ hashFiles('bundle/manifest.sig') != '' }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: bundle/*.tar.gz
+      # The bundle first, its signature next and the manifest last, so a manifest is never
+      # published before what it names. A check between two uploads can still see a new
+      # signature beside the old manifest; it fails and the next check succeeds.
+      - name: Publish as the channel's newest release
+        if: ${{ hashFiles('bundle/manifest.sig') != '' }}
+        run: |
+          release="channel-$CHANNEL"
+          gh release view "$release" >/dev/null 2>&1 \
+            || gh release create "$release" --prerelease --title "Nimbus $CHANNEL channel" \
+                 --notes "The newest signed release bundle of the $CHANNEL channel, which Nimbus installs from Settings. Replaced by every build."
+          file=$(jq -r .bundle.file bundle/manifest.json)
+          gh release upload "$release" "bundle/$file" --clobber
+          gh release upload "$release" bundle/manifest.sig --clobber
+          gh release upload "$release" bundle/manifest.json --clobber
+          # Keep the three newest bundles beside it; installations fetch only the newest.
+          gh release view "$release" --json assets --jq '.assets[].name' \
+            | grep -E '^nimbus-.*\.tar\.gz$' | sort -t- -k3 -n | head -n -3 \
+            | while read -r old; do gh release delete-asset "$release" "$old" --yes; done
