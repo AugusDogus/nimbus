@@ -200,7 +200,6 @@ Set the deployment values in `apps/web/.env` before startup. For PDF and video t
 | `NIMBUS_READY_TIMEOUT_SECONDS` | Container only. Seconds a new server may take to migrate, index the drive and pass its health check before a restart is abandoned and the running server keeps serving. Default `300`. |
 | `NIMBUS_STOP_SECONDS`         | Container only. Seconds every server may finish its responses when the container stops. Keep it below the container's stop timeout. Default `30`. |
 | `NIMBUS_UPDATE_SOURCE`        | Container only. Where [in-app updates](#in-app-updates) come from: `off`, or an https URL of a mirror. Default: the releases of the repository and channel the image was built from. |
-| `NIMBUS_RELEASE_KEYS_FILE`    | Container only. A file of release keys to trust instead of the image's, for a fork or mirror that signs its own releases. It must belong to root and be writable by nobody else. |
 
 Startup fails with a message naming the problem when an optional integration is only partly configured or a setting has an invalid value, such as `NIMBUS_MCP_ENABLED=no` or an unsafe `NIMBUS_HOMES_PATH`, so a typo cannot silently turn email, single sign-on, or MCP off.
 

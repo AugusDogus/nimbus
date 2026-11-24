@@ -178,7 +178,7 @@ function startSupervisor(prefix: string[] = []) {
         NIMBUS_SUPERVISOR_SOCKET: socket,
         NIMBUS_READY_TIMEOUT_SECONDS: "20",
         NIMBUS_UPDATE_SOURCE: `http://127.0.0.1:${source.port}/`,
-        NIMBUS_RELEASE_KEYS_FILE: path.join(root, "keys.json"),
+        NIMBUS_TEST_RELEASE_KEYS_FILE: path.join(root, "keys.json"),
         // One user here; the split is tested in users.e2e.test.ts.
         NIMBUS_UPDATES_WITH_ONE_USER: "1",
       },

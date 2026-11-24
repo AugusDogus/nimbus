@@ -10,6 +10,7 @@ import { installRelease } from "../updates/release-installer";
 import { TrustRoot } from "../updates/trust-root";
 import { UpdateSource } from "../updates/update-source";
 import { PROTOCOL_VERSION } from "./protocol";
+import { TestSeams } from "./test-seams";
 
 const request = z.object({
   releases: z.string().startsWith("/"),
@@ -36,7 +37,10 @@ if (!parsed.success)
   answer({ ok: false, message: "The installer got no valid request." });
 else {
   const builtInRoot = path.resolve(import.meta.dir, "../../../..");
-  const trust = await TrustRoot.load(builtInRoot);
+  const trust = await TrustRoot.load(
+    builtInRoot,
+    TestSeams.fromEnvironment(process.env, builtInRoot).keysFile,
+  );
   if (!trust.ok) answer({ ok: false, message: trust.message });
   else {
     const source = UpdateSource.fromEnvironment(parsed.data.source, null);

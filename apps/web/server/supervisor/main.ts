@@ -270,7 +270,7 @@ const updater = await createUpdater({
   source: source.ok
     ? source.value
     : { kind: "off", reason: `Updates are off: ${source.message}` },
-  trust: await TrustRoot.load(builtIn.root),
+  trust: await TrustRoot.load(builtIn.root, seams.keysFile),
   supervisorProtocol: PROTOCOL_VERSION,
   runInstaller,
   log,
