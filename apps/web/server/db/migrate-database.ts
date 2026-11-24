@@ -1,5 +1,7 @@
 import type { Database as SQLite } from "bun:sqlite";
 import { readMigrationFiles, type MigrationMeta } from "drizzle-orm/migrator";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const defaultMigrationsFolder = fileURLToPath(
@@ -7,6 +9,63 @@ const defaultMigrationsFolder = fileURLToPath(
 );
 /** Drizzle's history table, so databases migrated by drizzle-kit stay compatible. */
 const historyTable = "__drizzle_migrations";
+/**
+ * Every migration a release knows, by Drizzle's timestamp, and whether that release declared it
+ * safe beside an older server (drizzle/live-safe.json). An older release finds here whether a
+ * migration it does not know was meant to run beside it (see MigrationGate.newerRelease).
+ */
+export const safetyTable = "nimbus_migration_safety";
+
+/** The tags this folder declares safe beside an older server; none when it declares none. */
+function liveSafeTags(migrationsFolder: string) {
+  try {
+    const declared: unknown = JSON.parse(
+      readFileSync(path.join(migrationsFolder, "live-safe.json"), "utf8"),
+    );
+    return new Set(
+      typeof declared === "object" &&
+        declared !== null &&
+        "safeBesideOlderServer" in declared &&
+        Array.isArray(declared.safeBesideOlderServer)
+        ? declared.safeBesideOlderServer.filter(
+            (tag: unknown) => typeof tag === "string",
+          )
+        : [],
+    );
+  } catch {
+    return new Set<string>();
+  }
+}
+
+/** The folder's journal: each migration's tag and Drizzle timestamp. */
+function journalOf(migrationsFolder: string): { tag: string; when: number }[] {
+  try {
+    const journal: unknown = JSON.parse(
+      readFileSync(path.join(migrationsFolder, "meta/_journal.json"), "utf8"),
+    );
+    if (
+      typeof journal !== "object" ||
+      journal === null ||
+      !("entries" in journal)
+    )
+      return [];
+    const entries: unknown = journal.entries;
+    return Array.isArray(entries)
+      ? entries.flatMap((entry: unknown) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          "tag" in entry &&
+          "when" in entry &&
+          typeof entry.tag === "string" &&
+          typeof entry.when === "number"
+            ? [{ tag: entry.tag, when: entry.when }]
+            : [],
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 export type MigrationOptions = { migrationsFolder?: string };
 
@@ -88,6 +147,19 @@ export function migrateDatabase(
   sqlite.run(
     `CREATE TABLE IF NOT EXISTS "${historyTable}" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`,
   );
+  sqlite.run(
+    `CREATE TABLE IF NOT EXISTS "${safetyTable}" (created_at integer PRIMARY KEY, tag text NOT NULL, live_safe integer NOT NULL)`,
+  );
+  // What this release knows of every migration, for older releases to read; a later release's
+  // own record of a migration it shares with this one is the same.
+  const safe = liveSafeTags(migrationsFolder);
+  const record = sqlite.prepare(
+    `INSERT INTO "${safetyTable}" (created_at, tag, live_safe) VALUES (?, ?, ?) ON CONFLICT (created_at) DO UPDATE SET tag = excluded.tag, live_safe = excluded.live_safe`,
+  );
+  sqlite.transaction(() => {
+    for (const entry of journalOf(migrationsFolder))
+      record.run(entry.when, entry.tag, safe.has(entry.tag) ? 1 : 0);
+  })();
   const { pending } = migrationPlan(sqlite, migrationsFolder);
   if (pending.length) {
     sqlite.run("PRAGMA foreign_keys = OFF");

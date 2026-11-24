@@ -103,3 +103,59 @@ test("this repository declares only migrations it has", async () => {
     declared.safeBesideOlderServer.filter((tag) => !tags.has(tag)),
   ).toEqual([]);
 });
+
+/** A copy of the migrations as an older release has them: without its last `count`. */
+async function olderRelease(count: number) {
+  const older = path.join(directory, `older-${count}`);
+  await cp(folder, older, { recursive: true });
+  const journal = path.join(older, "meta/_journal.json");
+  const { entries } = journalSchema.parse(await Bun.file(journal).json());
+  await writeFile(
+    journal,
+    JSON.stringify({
+      version: "7",
+      dialect: "sqlite",
+      entries: entries.slice(0, -count),
+    }),
+  );
+  return older;
+}
+
+test("the same release finds nothing newer", async () => {
+  const { sqlite } = openDatabase(":memory:");
+  migrateDatabase(sqlite, { migrationsFolder: folder });
+  expect(MigrationGate.newerRelease(sqlite, folder)).toEqual({ kind: "none" });
+});
+
+test("an older release may run on migrations the newer one declared safe beside it", async () => {
+  const newest = await lastTags(2);
+  await declare(newest);
+  const { sqlite } = openDatabase(":memory:");
+  migrateDatabase(sqlite, { migrationsFolder: folder });
+  expect(MigrationGate.newerRelease(sqlite, await olderRelease(2))).toEqual({
+    kind: "safe",
+    migrations: newest,
+  });
+});
+
+test("an older release refuses a database with a newer migration not declared safe beside it", async () => {
+  const newest = await lastTags(2);
+  await declare(newest.slice(0, 1));
+  const { sqlite } = openDatabase(":memory:");
+  migrateDatabase(sqlite, { migrationsFolder: folder });
+  expect(MigrationGate.newerRelease(sqlite, await olderRelease(2))).toEqual({
+    kind: "unsafe",
+    migrations: newest,
+  });
+});
+
+test("a newer migration nothing records the safety of counts as unsafe", async () => {
+  await declare(await lastTags(1));
+  const { sqlite } = openDatabase(":memory:");
+  migrateDatabase(sqlite, { migrationsFolder: folder });
+  sqlite.run("DROP TABLE nimbus_migration_safety");
+  const newer = MigrationGate.newerRelease(sqlite, await olderRelease(1));
+  expect(newer.kind).toBe("unsafe");
+  if (newer.kind === "unsafe")
+    expect(newer.migrations[0]).toStartWith("one applied at ");
+});

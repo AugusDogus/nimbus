@@ -15,7 +15,11 @@ import { getTableName, is } from "drizzle-orm";
 import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { openDatabase } from "./connection";
 import * as schema from "./schema";
-import { migrateDatabase, upgradeDatabase } from "./migrate-database";
+import {
+  migrateDatabase,
+  safetyTable,
+  upgradeDatabase,
+} from "./migrate-database";
 
 const migrationsFolder = fileURLToPath(
   new URL("../../drizzle", import.meta.url),
@@ -250,10 +254,11 @@ test("upgrading discards inode-keyed version records, which cannot be mapped to 
 test("the schema declares every table the migrations create", () => {
   migrateDatabase(client);
   const created = client
-    .query<{ name: string }, []>(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '__drizzle_migrations' ORDER BY name",
+    .query<{ name: string }, [string]>(
+      // The migrator's own bookkeeping: Drizzle's history, and what each migration's safety was.
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('__drizzle_migrations', ?) ORDER BY name",
     )
-    .all()
+    .all(safetyTable)
     .map((table) => table.name);
   const declared = Object.values(schema)
     .filter((value) => is(value, SQLiteTable))

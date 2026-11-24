@@ -58,7 +58,64 @@ function pendingTags(sqlite: SQLite, folder: string) {
     .map((entry) => entry.tag);
 }
 
+/**
+ * Whether the database holds migrations this release does not know, applied by a newer release:
+ * `safe` when every one of them was declared safe beside an older server, as the release that
+ * applied them recorded (see safetyTable), so this older release may run on it; `unsafe` when one
+ * was not, or nothing says, so running would risk misreading or damaging data.
+ */
+export type NewerRelease =
+  | { kind: "none" }
+  | { kind: "safe"; migrations: string[] }
+  | { kind: "unsafe"; migrations: string[] };
+
 export const MigrationGate = {
+  /** Compare the database's history with this release's journal (see NewerRelease). */
+  newerRelease(sqlite: SQLite, folder = defaultFolder): NewerRelease {
+    const history = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'",
+      )
+      .get();
+    if (!history) return { kind: "none" };
+    const known = new Set(
+      journal
+        .parse(readJson(path.join(folder, "meta/_journal.json")))
+        .entries.map((entry) => entry.when),
+    );
+    const applied = sqlite
+      .query<{ created_at: number | string }, []>(
+        'SELECT created_at FROM "__drizzle_migrations"',
+      )
+      .all()
+      .map((row) => Number(row.created_at))
+      .filter((when) => !known.has(when));
+    if (!applied.length) return { kind: "none" };
+    const recorded = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'nimbus_migration_safety'",
+      )
+      .get();
+    const describe = (when: number) => {
+      const row = recorded
+        ? sqlite
+            .query<{ tag: string; live_safe: number }, [number]>(
+              "SELECT tag, live_safe FROM nimbus_migration_safety WHERE created_at = ?",
+            )
+            .get(when)
+        : null;
+      return {
+        tag: row?.tag ?? `one applied at ${new Date(when).toISOString()}`,
+        safe: row?.live_safe === 1,
+      };
+    };
+    const newer = applied.map(describe);
+    const migrations = newer.map((migration) => migration.tag);
+    return newer.every((migration) => migration.safe)
+      ? { kind: "safe", migrations }
+      : { kind: "unsafe", migrations };
+  },
+
   check(sqlite: SQLite, folder = defaultFolder): MigrationGateResult {
     const pending = pendingTags(sqlite, folder);
     if (!pending.length) return { kind: "none" };

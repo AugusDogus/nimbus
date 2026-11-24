@@ -139,6 +139,20 @@ if (supervision.kind === "standalone") {
   }
 }
 DatabaseFiles.requireWritable(client, databasePath);
+// A newer release may have migrated this database, as when the container is recreated from an
+// older image or rolled back across a migration. Running older code on a newer schema is safe
+// only for migrations that release declared safe beside an older server.
+const newer = MigrationGate.newerRelease(client);
+if (newer.kind === "unsafe") {
+  console.error(
+    `Nimbus did not start: a newer Nimbus release migrated this database (${newer.migrations.join(", ")}), and this older release could misread or damage what those migrations changed. Nothing was changed. Run the newer release again: pull the image it came with, or if it was installed in Settings, recreate the container as before and the supervisor starts it. To go back to this release instead, restore the backup taken before those migrations from ${path.join(getConfigRoot(), "backups")} and start again.`,
+  );
+  process.exit(1);
+}
+if (newer.kind === "safe")
+  console.info(
+    `Nimbus runs on a database a newer release migrated (${newer.migrations.join(", ")}); that release declared those migrations safe beside an older server.`,
+  );
 // Beside an older server, only migrations the release declares safe beside it may run; any
 // other means a full restart, which the supervisor makes instead of this handover.
 if (replacing) {
