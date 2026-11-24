@@ -14,13 +14,33 @@ export type ImageAbi = {
  * - `offer`: newer than anything run on the channel, and this image can run it.
  * - `current`: not newer than what this installation already ran; never installed by a check.
  * - `needs-newer-image`: newer, but this image lacks what it needs.
- * - `other-channel`: published for another channel than the image's.
+ * - `other-release`: a release of another repository or channel than the image's.
  */
 export type UpdateOffer =
   | { kind: "offer"; manifest: ReleaseManifest }
   | { kind: "current"; manifest: ReleaseManifest }
   | { kind: "needs-newer-image"; manifest: ReleaseManifest; reasons: string[] }
-  | { kind: "other-channel"; manifest: ReleaseManifest };
+  | {
+      kind: "other-release";
+      manifest: ReleaseManifest;
+      identity: ReleaseIdentity;
+    };
+
+/**
+ * Which releases an image takes: those of the repository it was built from, on its channel. A
+ * release of another repository or channel is never offered, installed or started, whoever
+ * signed it, and each identity has its own downgrade watermark.
+ */
+export type ReleaseIdentity = { repository: string; channel: string };
+
+/** Whether `manifest` is a release of `identity`, or why not. */
+function sameIdentity(manifest: ReleaseManifest, identity: ReleaseIdentity) {
+  if (manifest.build.repository !== identity.repository)
+    return `it is a release of ${manifest.build.repository}, where this image runs releases of ${identity.repository}`;
+  if (manifest.build.channel !== identity.channel)
+    return `it is on the ${manifest.build.channel} channel, where this image follows ${identity.channel}`;
+  return null;
+}
 
 /** Why `image` cannot run a release that needs `requires`; empty when it can. */
 function missing(requires: ReleaseManifest["requires"], image: ImageAbi) {
@@ -45,22 +65,23 @@ function missing(requires: ReleaseManifest["requires"], image: ImageAbi) {
 
 export const UpdateOffer = {
   missing,
+  sameIdentity,
 
   decide({
     manifest,
-    channel,
+    identity,
     highestRun,
     image,
   }: {
     manifest: ReleaseManifest;
-    /** The image's channel. */
-    channel: string;
-    /** The highest sequence any release this installation ran on the channel had. */
+    /** The image's repository and channel. */
+    identity: ReleaseIdentity;
+    /** The highest sequence any release of that identity this installation ran had. */
     highestRun: number;
     image: ImageAbi;
   }): UpdateOffer {
-    if (manifest.build.channel !== channel)
-      return { kind: "other-channel", manifest };
+    if (sameIdentity(manifest, identity) !== null)
+      return { kind: "other-release", manifest, identity };
     if (manifest.build.sequence <= highestRun)
       return { kind: "current", manifest };
     const reasons = missing(manifest.requires, image);
@@ -79,8 +100,8 @@ export const UpdateOffer = {
         return `Nimbus is up to date: the newest release on the ${offer.manifest.build.channel} channel is ${build}, which this installation already runs or ran.`;
       case "needs-newer-image":
         return `Nimbus ${build} is available but needs ${offer.reasons.join("; ")}. Pull ${offer.manifest.requires.image} and recreate the container to get it; Nimbus keeps running the current release until then.`;
-      case "other-channel":
-        return `The update source offers ${build} for the ${offer.manifest.build.channel} channel, not this image's channel, so it was not offered. Check NIMBUS_UPDATE_SOURCE.`;
+      case "other-release":
+        return `The update source offers ${build} of ${offer.manifest.build.repository} on the ${offer.manifest.build.channel} channel, but this image runs releases of ${offer.identity.repository} on ${offer.identity.channel}, so it was not offered. Check NIMBUS_UPDATE_SOURCE.`;
     }
   },
 } as const;

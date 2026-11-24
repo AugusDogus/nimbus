@@ -4,7 +4,7 @@ import { ReleaseSignature, type TrustRoot } from "./release-signature";
 import { ReleaseStore, type ReleaseState } from "./release-store";
 import { ImageAbi } from "./image-abi";
 import type { BuildInfo } from "./build-info";
-import { UpdateOffer } from "./update-offer";
+import { UpdateOffer, type ReleaseIdentity } from "./update-offer";
 import { UpdateSource } from "./update-source";
 
 /**
@@ -73,18 +73,22 @@ export async function createUpdater({
   now?: () => Date;
 }) {
   const builtInSequence = builtIn.build?.sequence ?? 0;
+  /** The releases this image takes: those of its repository and channel. */
+  const identity: ReleaseIdentity | null = builtIn.build
+    ? { repository: builtIn.build.repository, channel: builtIn.build.channel }
+    : null;
   await mkdir(releases, { recursive: true, mode: 0o755 });
-  const read = await ReleaseStore.read(
-    releases,
-    ReleaseStore.empty(builtInSequence),
-  );
+  const read = await ReleaseStore.read(releases, ReleaseStore.empty());
   if (!read.ok) log(read.message);
-  let state: ReleaseState = read.ok
-    ? {
-        ...read.value,
-        highestRun: Math.max(read.value.highestRun, builtInSequence),
-      }
-    : ReleaseStore.empty(builtInSequence);
+  let state: ReleaseState = read.ok ? read.value : ReleaseStore.empty();
+  /** The highest sequence run of this image's identity, the built-in release's included. */
+  const watermark = () =>
+    Math.max(
+      builtInSequence,
+      identity
+        ? (state.watermarks[ReleaseStore.watermarkKey(identity)] ?? 0)
+        : 0,
+    );
   /** Installed releases' manifests, as verified when they were chosen. */
   const known = new Map<string, ReleaseManifest>();
   let offered: Offered | null = null;
@@ -110,8 +114,20 @@ export async function createUpdater({
   /** Installed release `name` if it verifies and this image can run it, else why not. */
   const runnable = async (name: string) => {
     if (!trust.ok) return { ok: false as const, message: trust.message };
+    if (!identity)
+      return {
+        ok: false as const,
+        message:
+          "this image has no build metadata, so it does not know which releases are its own",
+      };
     const verified = await ReleaseStore.verified(releases, name, trust.value);
     if (!verified.ok) return verified;
+    const other = UpdateOffer.sameIdentity(verified.manifest, identity);
+    if (other !== null)
+      return {
+        ok: false as const,
+        message: `release ${name} is not this image's: ${other}`,
+      };
     const { abi, locations } = await ImageAbi.read(
       builtIn.root,
       supervisorProtocol,
@@ -199,7 +215,7 @@ export async function createUpdater({
     > {
       if (unavailable) return { ok: false, message: unavailable };
       if (source.kind === "off") return { ok: false, message: source.reason };
-      if (!trust.ok || !builtIn.build)
+      if (!trust.ok || !identity)
         return { ok: false, message: "Updates are unavailable." };
       const at = now().toISOString();
       const fail = async (message: string) => {
@@ -237,8 +253,8 @@ export async function createUpdater({
       );
       const offer = UpdateOffer.decide({
         manifest: parsed.value,
-        channel: builtIn.build.channel,
-        highestRun: state.highestRun,
+        identity,
+        highestRun: watermark(),
         image: abi,
       });
       const message = UpdateOffer.describe(offer);
@@ -310,7 +326,15 @@ export async function createUpdater({
         ...state,
         current: name,
         previous: state.current,
-        highestRun: Math.max(state.highestRun, sequence),
+        watermarks: identity
+          ? {
+              ...state.watermarks,
+              [ReleaseStore.watermarkKey(identity)]: Math.max(
+                watermark(),
+                sequence,
+              ),
+            }
+          : state.watermarks,
       });
     },
 

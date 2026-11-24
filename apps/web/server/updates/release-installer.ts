@@ -95,6 +95,17 @@ export async function installRelease({
   if (!parsed.ok) return failed(parsed.error.message);
   const manifest = parsed.value;
   const name = ReleaseManifest.releaseName(manifest);
+  // Only a release of the image's own repository and channel, whoever signed it.
+  const image = await BuildInfo.read(path.join(builtInRoot, "apps/web"));
+  if (!image.ok || !image.value)
+    return failed(
+      "This image has no build metadata, so it does not know which releases are its own. Nothing was installed.",
+    );
+  const other = UpdateOffer.sameIdentity(manifest, image.value);
+  if (other !== null)
+    return failed(
+      `Release ${name} is not this image's: ${other}. Nothing was installed.`,
+    );
   const { abi, locations } = await ImageAbi.read(
     builtInRoot,
     supervisorProtocol,

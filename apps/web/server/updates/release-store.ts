@@ -22,8 +22,11 @@ export type ReleaseState = {
   current: string | null;
   /** The release that ran before `current`, which a rollback returns to; null for built-in. */
   previous: string | null;
-  /** The highest build sequence any release here ran: no check offers one at or below it. */
-  highestRun: number;
+  /**
+   * The highest build sequence any release ran here, by repository and channel (see
+   * ReleaseIdentity and `watermarkKey`): no check offers one at or below it.
+   */
+  watermarks: Record<string, number>;
   /** When the update source was last asked, and what it answered. */
   lastCheck: { at: string; outcome: string } | null;
 };
@@ -31,7 +34,7 @@ export type ReleaseState = {
 const stateSchema = z.object({
   current: z.string().nullable(),
   previous: z.string().nullable(),
-  highestRun: z.number().int().nonnegative(),
+  watermarks: z.record(z.string(), z.number().int().nonnegative()),
   lastCheck: z.object({ at: z.string(), outcome: z.string() }).nullable(),
 });
 
@@ -42,12 +45,16 @@ const STATE_FILE = "state.json";
 const KEEP = 3;
 
 export const ReleaseStore = {
-  empty: (highestRun: number): ReleaseState => ({
+  empty: (): ReleaseState => ({
     current: null,
     previous: null,
-    highestRun,
+    watermarks: {},
     lastCheck: null,
   }),
+
+  /** The key of `identity`'s watermark. */
+  watermarkKey: (identity: { repository: string; channel: string }) =>
+    `${identity.repository} ${identity.channel}`,
 
   /** The state, or `fallback` when none was written yet. A damaged state file is an error. */
   async read(

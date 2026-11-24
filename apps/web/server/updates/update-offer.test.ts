@@ -12,7 +12,7 @@ test("a newer release this image can run is offered", () => {
   expect(
     UpdateOffer.decide({
       manifest: testManifest(11),
-      channel: "edge",
+      identity: { repository: "example/nimbus", channel: "edge" },
       highestRun: 10,
       image,
     }).kind,
@@ -24,7 +24,7 @@ test("a release no newer than one already run is never offered, however it is si
     expect(
       UpdateOffer.decide({
         manifest: testManifest(sequence),
-        channel: "edge",
+        identity: { repository: "example/nimbus", channel: "edge" },
         highestRun: 10,
         image,
       }).kind,
@@ -42,7 +42,7 @@ test("a newer release that needs another image is reported with what it needs an
   });
   const offer = UpdateOffer.decide({
     manifest,
-    channel: "edge",
+    identity: { repository: "example/nimbus", channel: "edge" },
     highestRun: 10,
     image,
   });
@@ -59,11 +59,17 @@ test("a newer release that needs another image is reported with what it needs an
   );
 });
 
-test("a release for another channel is not offered", () => {
-  const manifest = testManifest(20);
-  manifest.build = { ...manifest.build, channel: "stable" };
-  expect(
-    UpdateOffer.decide({ manifest, channel: "edge", highestRun: 10, image })
-      .kind,
-  ).toBe("other-channel");
+test("a release of another channel or repository is not offered", () => {
+  for (const other of [{ channel: "stable" }, { repository: "example/fork" }]) {
+    const manifest = testManifest(20);
+    manifest.build = { ...manifest.build, ...other };
+    expect(
+      UpdateOffer.decide({
+        manifest,
+        identity: { repository: "example/nimbus", channel: "edge" },
+        highestRun: 10,
+        image,
+      }).kind,
+    ).toBe("other-release");
+  }
 });

@@ -46,21 +46,21 @@ async function installed(sequence: number, as?: string) {
 }
 
 test("the state round-trips, and a damaged state file is reported, not guessed", async () => {
-  const fresh = await ReleaseStore.read(releases, ReleaseStore.empty(100));
-  expect(fresh).toEqual({ ok: true, value: ReleaseStore.empty(100) });
+  const fresh = await ReleaseStore.read(releases, ReleaseStore.empty());
+  expect(fresh).toEqual({ ok: true, value: ReleaseStore.empty() });
   const state = {
     current: "edge-101-x",
     previous: null,
-    highestRun: 101,
+    watermarks: { "example/nimbus edge": 101 },
     lastCheck: null,
   };
   await ReleaseStore.write(releases, state);
-  expect(await ReleaseStore.read(releases, ReleaseStore.empty(100))).toEqual({
+  expect(await ReleaseStore.read(releases, ReleaseStore.empty())).toEqual({
     ok: true,
     value: state,
   });
   await writeFile(path.join(releases, "state.json"), "{ not json");
-  expect((await ReleaseStore.read(releases, ReleaseStore.empty(100))).ok).toBe(
+  expect((await ReleaseStore.read(releases, ReleaseStore.empty())).ok).toBe(
     false,
   );
 });

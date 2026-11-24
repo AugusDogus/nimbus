@@ -58,6 +58,17 @@ beforeEach(async () => {
   privateKey = key.privateKey;
   // The image: its built-in release provides sharp 0.35.4.
   builtInRoot = path.join(scratch, "image");
+  await mkdir(path.join(builtInRoot, "apps/web"), { recursive: true });
+  await writeFile(
+    path.join(builtInRoot, "apps/web/build-info.json"),
+    JSON.stringify({
+      repository: "example/nimbus",
+      commit: "c".repeat(40),
+      sequence: 100,
+      channel: "edge",
+      image: "ghcr.io/example/nimbus:edge",
+    }),
+  );
   await mkdir(path.join(builtInRoot, "apps/web/node_modules/sharp"), {
     recursive: true,
   });
@@ -348,4 +359,24 @@ test("two installs at once, from a mirror that serves each a different bundle, e
     ).text(),
   ).toBe("the signed bundle\n");
   expect(await leftovers()).toEqual([]);
+});
+
+test("a release of another repository or channel than the image's is not installed, however signed", async () => {
+  for (const [sequence, other] of [
+    [113, { repository: "example/fork" }],
+    [114, { channel: "stable" }],
+  ] as const) {
+    const manifest = testManifest(sequence);
+    const published = await publish({
+      ...manifest,
+      build: { ...manifest.build, ...other },
+    });
+    const installed = await install(published);
+    expect(installed.ok || installed.error.message).toContain(
+      "not this image's",
+    );
+  }
+  expect(await readdir(path.join(scratch, "releases")).catch(() => [])).toEqual(
+    [],
+  );
 });
