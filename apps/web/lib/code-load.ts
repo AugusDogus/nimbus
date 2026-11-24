@@ -181,6 +181,13 @@ export const CodeLoad = {
   },
 
   reloadForUpdate,
+  /**
+   * The server says it now runs another build, as after an update from Settings: the next move
+   * to another page loads it in full (see `reloadForUpdate`). Code this page loaded stays as it is.
+   */
+  serverUpdated() {
+    updated = true;
+  },
   /** For the router to wait on while the page reloads, so the page stays as it is meanwhile. */
   reloading: () => (reloading ? unloading : undefined),
 

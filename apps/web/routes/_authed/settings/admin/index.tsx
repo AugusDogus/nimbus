@@ -2,6 +2,7 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { AdminSettings } from "@/app/settings/admin/admin-settings";
 import { BackupSettings } from "@/app/settings/admin/backup-settings";
+import { UpdateSettings } from "@/app/settings/admin/update-settings";
 import { trpc } from "@/lib/trpc";
 
 export const Route = createFileRoute("/_authed/settings/admin/")({
@@ -12,6 +13,7 @@ export const Route = createFileRoute("/_authed/settings/admin/")({
     return (
       <div className="space-y-8">
         <AdminSettings />
+        <UpdateSettings />
         <BackupSettings />
       </div>
     );
