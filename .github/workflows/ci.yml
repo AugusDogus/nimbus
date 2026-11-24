@@ -85,6 +85,22 @@ jobs:
       # update can fail, each leaving the running server serving.
       - run: bun test apps/web/server/supervisor/updates.e2e.test.ts
         timeout-minutes: 8
+      # The user split (docs/updates.md): the image's entrypoint as root of a user namespace with
+      # mapped ids, so the supervisor and its servers really run as users of their own. It needs
+      # unprivileged user namespaces (see the unit job) and subordinate ids for the runner's user,
+      # and fails here rather than skip without them.
+      - name: Allow user namespaces with mapped ids for the user split test
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          command -v newuidmap >/dev/null || sudo apt-get install -y --no-install-recommends uidmap
+          grep -q "^$(id -un):" /etc/subuid || sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$(id -un)"
+          unshare --map-auto --map-root-user --mount true
+      - run: bun test apps/web/server/supervisor/split.e2e.test.ts
+        timeout-minutes: 6
+        env:
+          NIMBUS_REQUIRE_SPLIT_TEST: "1"
       # Public pages must load no module of the signed-in app.
       - run: bun scripts/page-modules.ts
       - run: bun scripts/first-load-js.ts --budget scripts/first-load-js-budget.json
@@ -260,13 +276,38 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+  # The pushed image, run as it is deployed (scripts/image-check.sh): started as root with PUID and
+  # PGID, restarted, started with --user, and the channel's previous image on the state it left.
+  # Pull requests push no image, so it runs on pushes and manual runs; publish waits for it.
+  image-check:
+    if: ${{ github.event_name != 'pull_request' }}
+    needs: [image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check the image
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+        run: |
+          repo="ghcr.io/${GITHUB_REPOSITORY,,}"
+          scripts/image-check.sh "$repo@$DIGEST" "$repo:edge"
+
   # The only step that makes an image deployable. It needs verify, so it runs only when every
   # check passed for this commit, and it tags the exact manifest the image job pushed, so the
   # digest, labels, provenance and signatures are the ones built. Manual runs re-apply only
   # :unverified, to exercise this path from a branch.
   publish:
     if: ${{ github.event_name != 'pull_request' }}
-    needs: [verify, meta, image]
+    needs: [verify, meta, image, image-check]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     concurrency:
