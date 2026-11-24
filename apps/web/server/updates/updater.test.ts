@@ -402,3 +402,26 @@ test("a store that cannot be trusted gives nothing: no state, no release, only t
   const resolved = await untrusted.resolve(own);
   expect(resolved.ok || resolved.message).toContain("not laid out");
 });
+
+test("a floor or activation that cannot be written turns installs and rollbacks off for the run", async () => {
+  const own = await installTestRelease(releases, release(195), {
+    privateKey,
+    natives: natives(),
+  });
+  await ranLast(own);
+  const unwritable = await updater();
+  await chmod(releases, 0o555);
+  try {
+    if (process.getuid?.() === 0) return;
+    expect((await unwritable.recordFloor()).ok).toBe(false);
+    expect(unwritable.blocked()).toContain("could not record");
+    expect(unwritable.status().unavailable).toContain("could not record");
+    await offer(release(196));
+    const installed = await unwritable.install();
+    expect(installed.ok || installed.message).toContain("could not record");
+    const back = await unwritable.rollbackTarget();
+    expect(back.ok || back.message).toContain("could not record");
+  } finally {
+    await chmod(releases, 0o755);
+  }
+});

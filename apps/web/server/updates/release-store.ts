@@ -1,11 +1,5 @@
 import { constants } from "node:fs";
-import {
-  open,
-  readdir,
-  readlink,
-  rename,
-  rm,
-} from "node:fs/promises";
+import { open, readdir, readlink, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { ReleaseManifest } from "./release-manifest";

@@ -684,6 +684,10 @@ async function handOver(
     return supervisor.handover(builtIn.name, reservation);
   if (target.kind === "named")
     return supervisor.handover(target.name, reservation);
+  // With updates off (a damaged or unwritable state, one user), nothing installed is handed over
+  // to by name or rolled back to: only what boot chose runs.
+  const off = updater.blocked();
+  if (off) return { ok: false, error: { kind: "update-failed", message: off } };
   // An installed release is verified again for every handover, and refused if it fails: never
   // started from an earlier check, and what was verified is what starts.
   const { name } = target;

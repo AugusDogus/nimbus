@@ -140,7 +140,21 @@ export async function createUpdater({
           ? "This image has no build metadata (build-info.json), so it does not know its channel. Use an image built by CI."
           : null;
   /** Why nothing may install or roll back now. */
-  const blocked = unavailable ?? stateProblem;
+  /**
+   * Why the watermark could not be kept this run: a floor or an activation that could not be
+   * written. Then nothing installs or rolls back until the supervisor starts again.
+   */
+  let unrecorded: string | null = null;
+  const blocked = () => unavailable ?? stateProblem ?? unrecorded;
+  /** Write `change`, and turn updates off for the run when the write fails. */
+  const record = async (
+    change: (current: ReleaseState) => ReleaseState,
+  ): Promise<Done> => {
+    const written = await save(change);
+    if (!written.ok)
+      unrecorded ??= `Nimbus could not record which release runs (${written.message}), so it installs and rolls back nothing until it restarts; the running release keeps serving.`;
+    return written;
+  };
 
   /** Writes, one after another. */
   let writing: Promise<unknown> = Promise.resolve();
@@ -251,7 +265,7 @@ export async function createUpdater({
         source.kind === "off"
           ? source
           : { kind: "url", url: source.base.href, origin: source.origin },
-      unavailable: blocked,
+      unavailable: blocked(),
       lastCheck: state.lastCheck,
       available,
       previous: state.previous,
@@ -382,7 +396,8 @@ export async function createUpdater({
     async install(): Promise<
       { ok: true; name: string } | { ok: false; message: string }
     > {
-      if (blocked) return { ok: false, message: blocked };
+      const off = blocked();
+      if (off) return { ok: false, message: off };
       if (source.kind === "off") return { ok: false, message: source.reason };
       if (!offered)
         return {
@@ -431,7 +446,7 @@ export async function createUpdater({
         available = null;
       }
       // Compared with the state as it stands when this write's turn comes, not when it was asked.
-      return save((current) =>
+      return record((current) =>
         current.current === name && current.pending !== name
           ? current
           : {
@@ -449,7 +464,7 @@ export async function createUpdater({
      * keeps its floor when an older one is started later.
      */
     recordFloor: (): Promise<Done> =>
-      save((current) =>
+      record((current) =>
         identity &&
         builtInSequence >
           (current.watermarks[ReleaseStore.watermarkKey(identity)] ?? 0)
@@ -473,6 +488,9 @@ export async function createUpdater({
       offered: offered !== null,
     }),
 
+    /** Why nothing may install, roll back or be handed over to by name now, or null. */
+    blocked,
+
     /** Record that a handover to installed release `name` is starting (see ReleaseState). */
     markPending: (name: string): Promise<Done> =>
       save((current) => ({ ...current, pending: name })),
@@ -489,7 +507,8 @@ export async function createUpdater({
     > {
       // After any record still being written, such as the activation of the release now running.
       await writing;
-      if (stateProblem) return { ok: false, message: stateProblem };
+      const off = stateProblem ?? unrecorded;
+      if (off) return { ok: false, message: off };
       if (state.previous === null && state.current === null)
         return {
           ok: false,
