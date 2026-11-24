@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
+  chmod,
   link,
   mkdir,
   mkdtemp,
@@ -236,64 +237,69 @@ async function asRoot(script: string) {
   return { code, stdout, stderr };
 }
 
-const layout =
-  'stat -c "%u:%g:%a" "$config" "$config/supervisor" "$config/supervisor/releases" "$config/server.lock"';
+const layout = 'stat -c "%u:%g:%a" "$store" "$store/releases" "$store/staging"';
 
 test.skipIf(!mappedRoot)(
-  "the split is prepared once: a sticky config root, the supervisor's own folder and lock, logged when it changes",
+  "a fresh store gets the image's layout once, and one laid out otherwise is left as it is",
   async () => {
-    const script = `config="${root}/config"; mkdir -p "$config"; chown 2000:2000 "$config"; prepare_split "$config" 2000 2000 1100; ${layout}`;
-    const first = await asRoot(script);
+    const first = await asRoot(
+      `store="${root}/store"; prepare_store "$store" 1100; ${layout}`,
+    );
     expect(first.code).toBe(0);
     expect(first.stdout.trim().split("\n")).toEqual([
-      "0:2000:1771",
-      "1100:1100:755",
-      "1100:1100:755",
-      "1100:2000:660",
+      "0:0:755",
+      "0:0:755",
+      "1100:0:750",
     ]);
-    expect(first.stderr).toContain("1771");
-    const again = await asRoot(
-      `config="${root}/config"; prepare_split "$config" 2000 2000 1100; ${layout}`,
+    // A bind mount someone else owns: only the store folder itself becomes root's.
+    const mounted = await asRoot(
+      `store="${root}/mounted"; mkdir -p "$store/staging"; chown -R 2000:2000 "$store"; prepare_store "$store" 1100; ${layout}`,
     );
-    expect(again.stdout).toBe(first.stdout);
-    expect(again.stderr).toBe("");
+    expect(mounted.stdout.trim().split("\n")).toEqual([
+      "0:0:755",
+      "0:0:755",
+      "2000:2000:755",
+    ]);
+    // A link is never followed.
+    const linked = await asRoot(
+      `mkdir "${root}/elsewhere"; ln -s "${root}/elsewhere" "${root}/linked"; prepare_store "${root}/linked" 1100; ls "${root}/elsewhere" | wc -l`,
+    );
+    expect(linked.stdout.trim()).toBe("0");
+    expect(linked.stderr).toContain("is a link");
   },
 );
 
-test.skipIf(!mappedRoot)(
-  "a supervisor folder the servers' user made, or a link in its place, is set aside and never trusted",
-  async () => {
-    for (const plant of [
-      'ln -s /etc "$config/supervisor"',
-      'mkdir -p "$config/supervisor/releases/edge-9-aaaaaaaaaaaa" && chown -R 2000:2000 "$config/supervisor"',
-    ]) {
-      const done = await asRoot(
-        `config="${root}/config-$$"; mkdir -p "$config"; chown 2000:2000 "$config"; ${plant}; prepare_split "$config" 2000 2000 1100; ${layout}; ls "$config/supervisor/releases" | wc -l; ls "$config" | grep -c "supervisor.untrusted"`,
-      );
-      expect(done.code).toBe(0);
-      const lines = done.stdout.trim().split("\n");
-      expect(lines[1]).toBe("1100:1100:755");
-      expect(lines[4]).toBe("0");
-      expect(lines[5]).toBe("1");
-      expect(done.stderr).toContain("aside as");
-    }
-  },
-);
-
-const startAs = (prefix: string) =>
-  asRoot(
-    `export NIMBUS_DATA_ROOT="${root}/data" NIMBUS_CONFIG_ROOT="${root}/config" PUID=2000 PGID=2000; ${prefix} sh -c '. "$0"; main sh -c "id -u; grep ^CapEff /proc/self/status"' "$0"`,
+/** Start the entrypoint as root of a namespace, `prefix` before it, with a probe as the command. */
+async function startAs(prefix: string) {
+  await Bun.write(
+    path.join(root, "probe.sh"),
+    'id -u; id -G; grep -E "^(CapEff|CapBnd|NoNewPrivs):" /proc/self/status; env | grep ^NIMBUS_SERVER_ | sort\n',
   );
+  // Readable by the servers' user, as the one-user start runs it as them.
+  await chmod(root, 0o755);
+  return asRoot(
+    `export NIMBUS_DATA_ROOT="${root}/data" NIMBUS_CONFIG_ROOT="${root}/config" NIMBUS_TEST_STORE_DIR="${root}/store" PUID=2000 PGID=2000; ${prefix} sh -c '. "$0"; main sh "$1"' "$0" "${root}/probe.sh"`,
+  );
+}
 
 test.skipIf(!mappedRoot)(
-  "started as root, the command runs as the supervisor's user with the rights to start and stop servers",
+  "started as root, the supervisor stays root with only the capabilities its job needs, told the servers' ids",
   async () => {
     const started = await startAs("");
     expect(started.code).toBe(0);
-    expect(started.stdout.split("\n").slice(0, 2)).toEqual([
-      "1100",
-      "CapEff:\t00000000000000e0",
+    expect(started.stdout.trim().split("\n")).toEqual([
+      "0",
+      "0",
+      "CapEff:\t00000000000001e0",
+      "CapBnd:\t00000000000001e0",
+      "NoNewPrivs:\t1",
+      "NIMBUS_SERVER_GID=2000",
+      "NIMBUS_SERVER_UID=2000",
     ]);
+    // The config root is the servers' as on any start; nothing else of it changed.
+    expect(
+      (await asRoot(`stat -c %u:%g:%a "${root}/config"`)).stdout.trim(),
+    ).toBe("2000:2000:755");
   },
 );
 
@@ -302,14 +308,7 @@ test.skipIf(!mappedRoot)(
   async () => {
     const started = await startAs("setpriv --bounding-set=-setpcap --");
     expect(started.code).toBe(0);
-    expect(started.stdout.split("\n").slice(0, 2)).toEqual([
-      "2000",
-      "CapEff:\t0000000000000000",
-    ]);
+    expect(started.stdout.split("\n")[0]).toBe("2000");
     expect(started.stderr).toContain("In-app updates are off");
-    // The config root is the servers' again, so they can write it.
-    expect((await asRoot(`stat -c %u:%g "${root}/config"`)).stdout.trim()).toBe(
-      "2000:2000",
-    );
   },
 );

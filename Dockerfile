@@ -69,6 +69,15 @@ ENV NODE_ENV=production NIMBUS_DATA_ROOT=/data NIMBUS_CONFIG_ROOT=/config PORT=3
 COPY --from=build /app /app
 COPY --chmod=755 scripts/docker-entrypoint.sh /usr/local/bin/nimbus-entrypoint
 RUN mkdir /data /config && chown 1000:1000 /data /config
+# In-app updates (docs/updates.md): a user of their own for the installer, with no login and no
+# process but an install's, and the store installed releases live in. The store and its releases
+# are root's; only staging, where the installer unpacks, is the update user's, and closed to the
+# servers' user. Mount a volume at /var/lib/nimbus to keep installed releases across recreation.
+RUN groupadd --system --gid 1100 nimbus-update \
+    && useradd --system --uid 1100 --gid 1100 --no-create-home --home-dir /nonexistent \
+       --shell /usr/sbin/nologin nimbus-update \
+    && install -d -o root -g root -m 755 /var/lib/nimbus /var/lib/nimbus/releases \
+    && install -d -o 1100 -g root -m 750 /var/lib/nimbus/staging
 WORKDIR /app/apps/web
 EXPOSE 3000
 VOLUME ["/data", "/config"]

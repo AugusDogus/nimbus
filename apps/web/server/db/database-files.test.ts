@@ -83,17 +83,3 @@ test.skipIf(asRoot)(
     );
   },
 );
-
-test("a config root the entrypoint shares (sticky, not this user's, closed to others) is left as it is", () => {
-  const uid = process.getuid?.() ?? 1000;
-  const shared = { uid: 0, mode: 0o41771 };
-  expect(DatabaseFiles.sharedConfigRoot(shared, uid)).toBe(true);
-  // Anything else is made private as before: this user's own, not sticky, or open to others.
-  for (const other of [
-    { uid, mode: 0o41771 },
-    { uid: 0, mode: 0o40771 },
-    { uid: 0, mode: 0o41775 },
-    { uid: 0, mode: 0o41777 },
-  ])
-    expect(DatabaseFiles.sharedConfigRoot(other, uid)).toBe(false);
-});
