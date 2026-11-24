@@ -1,9 +1,9 @@
 import {
+  lstat,
   mkdir,
   open,
   rename,
   rm,
-  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -153,18 +153,31 @@ export async function installRelease({
       );
     for (const [native, location] of locations) {
       const link = path.join(staging, "apps/web/node_modules", native);
-      if (await stat(link).catch(() => null))
+      // Never written through a link the bundle put on the way.
+      for (
+        let folder = path.dirname(link);
+        folder !== staging;
+        folder = path.dirname(folder)
+      )
+        if ((await lstat(folder).catch(() => null))?.isSymbolicLink())
+          return failed(
+            `The bundle of release ${name} holds ${path.relative(staging, folder)}, which is a link: the installer does not link native packages through it.`,
+          );
+      if (await lstat(link).catch(() => null))
         return failed(
           `The bundle of release ${name} carries ${native}, which the image provides.`,
         );
       await mkdir(path.dirname(link), { recursive: true, mode: 0o755 });
       await symlink(location, link);
     }
+    // Created, never written over: a bundle holding these names is refused.
     await writeFile(path.join(staging, MANIFEST_FILE), manifestBytes, {
       mode: 0o644,
+      flag: "wx",
     });
     await writeFile(path.join(staging, SIGNATURE_FILE), signature, {
       mode: 0o644,
+      flag: "wx",
     });
     await rename(staging, path.join(releases, name));
     return { ok: true, name };

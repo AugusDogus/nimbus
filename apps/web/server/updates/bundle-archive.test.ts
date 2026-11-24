@@ -201,3 +201,89 @@ test("a cut-off archive is refused", async () => {
   const unpacked = await unpackFile(cut, path.join(scratch, "cut-into"));
   expect(unpacked.ok).toBe(false);
 });
+
+test("a link that leads out only through another link is refused once the tree is complete", async () => {
+  const work = path.join(scratch, "chain");
+  await mkdir(path.join(work, "a/b"), { recursive: true });
+  // Each target stays inside when read as text; followed, `s` is `a`, and three levels up from it
+  // is outside.
+  await symlink("..", path.join(work, "a/b/s"));
+  await symlink("s/../../..", path.join(work, "a/b/T"));
+  const archive = gnuArchive(work, ["a"]);
+  const into = path.join(scratch, "chain-into");
+  const unpacked = await unpackFile(archive, into);
+  expect(unpacked.ok).toBe(false);
+  if (!unpacked.ok)
+    expect(unpacked.error.message).toContain("leads outside the release");
+});
+
+test("PAX headers count toward the entry limit, and deep paths and huge PAX records are refused", async () => {
+  const work = path.join(scratch, "limits");
+  const long = "n".repeat(120);
+  await mkdir(path.join(work, "d"), { recursive: true });
+  for (const index of [1, 2, 3])
+    await writeFile(path.join(work, "d", `${long}-${index}`), "x");
+  const archive = gnuArchive(work, ["d"]);
+  const capped = await BundleArchive.unpack(
+    Bun.file(archive).stream(),
+    await fresh("capped"),
+    {
+      maxEntries: 5,
+    },
+  );
+  expect(capped.ok).toBe(false);
+  if (!capped.ok) expect(capped.error.message).toContain("more entries");
+  const deep = path.join(scratch, "deep");
+  const parts = Array.from({ length: 140 }, (_, index) => `${index}`);
+  await mkdir(path.join(deep, ...parts), { recursive: true });
+  const deepArchive = gnuArchive(deep, ["0"]);
+  const tooDeep = await BundleArchive.unpack(
+    Bun.file(deepArchive).stream(),
+    await fresh("deep"),
+  );
+  expect(tooDeep.ok).toBe(false);
+  if (!tooDeep.ok) expect(tooDeep.error.message).toContain("deeper");
+  const huge = path.join(scratch, "huge");
+  await mkdir(huge);
+  await writeFile(path.join(huge, "f"), "x");
+  const hugeArchive = gnuArchive(
+    huge,
+    ["f"],
+    [`--pax-option=comment:=${"c".repeat(80_000)}`],
+  );
+  const paxTooLarge = await BundleArchive.unpack(
+    Bun.file(hugeArchive).stream(),
+    await fresh("huge"),
+  );
+  expect(paxTooLarge.ok).toBe(false);
+  if (!paxTooLarge.ok) expect(paxTooLarge.error.message).toContain("PAX");
+});
+
+test("a large file comes out whole", async () => {
+  const work = path.join(scratch, "large");
+  await mkdir(work);
+  const content = new Uint8Array(24 * 1024 * 1024);
+  for (let index = 0; index < content.byteLength; index += 4096)
+    content[index] = index % 251;
+  await writeFile(path.join(work, "large.bin"), content);
+  const archive = path.join(scratch, "large.tar.gz");
+  await BundleArchive.write(work, archive);
+  const into = await fresh("large-into");
+  expect(
+    (await BundleArchive.unpack(Bun.file(archive).stream(), into)).ok,
+  ).toBe(true);
+  const back = new Uint8Array(
+    await Bun.file(path.join(into, "large.bin")).arrayBuffer(),
+  );
+  expect(back.byteLength).toBe(content.byteLength);
+  expect(Buffer.compare(back, content)).toBe(0);
+});
+
+async function fresh(name: string) {
+  const folder = path.join(
+    scratch,
+    `${name}-${Math.random().toString(36).slice(2)}`,
+  );
+  await mkdir(folder);
+  return folder;
+}

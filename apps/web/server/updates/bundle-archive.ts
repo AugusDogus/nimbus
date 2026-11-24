@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import {
   lstat,
   mkdir,
+  open,
   readdir,
   readlink,
+  realpath,
   symlink,
-  writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 
@@ -24,6 +25,9 @@ const BLOCK = 512;
 /** Well beyond any release: 2 GiB unpacked, 200,000 entries. */
 const MAX_TOTAL_BYTES = 2 * 1024 ** 3;
 const MAX_ENTRIES = 200_000;
+/** Folders deep a path may be, and how large a PAX record, well beyond any release. */
+const MAX_DEPTH = 128;
+const MAX_PAX_BYTES = 64 * 1024;
 
 const encoder = new TextEncoder();
 
@@ -197,12 +201,14 @@ export const BundleArchive = {
 
   /**
    * Unpack the gzip-compressed tar `source` into the empty directory `into`, refusing anything a
-   * release does not hold (see above). Leaves partial content on failure: the caller removes
-   * `into`.
+   * release does not hold (see above). File bodies go to disk as they arrive. Once every entry
+   * is written, every link is followed as the kernel would and must end inside `into`. Leaves
+   * partial content on failure: the caller removes `into`.
    */
   async unpack(
     source: ReadableStream<Uint8Array<ArrayBuffer>>,
     into: string,
+    { maxEntries = MAX_ENTRIES }: { maxEntries?: number } = {},
   ): Promise<
     { ok: true; entries: number } | { ok: false; error: ArchiveError }
   > {
@@ -213,8 +219,7 @@ export const BundleArchive = {
     const queue: Uint8Array[] = [];
     let queued = 0;
     let done = false;
-    /** Exactly `length` more bytes of the tar, or null at its end. */
-    const take = async (length: number) => {
+    const fill = async (length: number) => {
       while (queued < length && !done) {
         const next = await reader.read();
         if (next.done) done = true;
@@ -223,20 +228,43 @@ export const BundleArchive = {
           queued += next.value.byteLength;
         }
       }
+    };
+    /** Up to `length` bytes, as they are queued: fewer only at the end of the tar. */
+    const takeSome = async (length: number) => {
+      await fill(1);
+      const head = queue[0];
+      if (!head) return null;
+      const part = head.subarray(0, Math.min(length, head.byteLength));
+      if (part.byteLength === head.byteLength) queue.shift();
+      else queue[0] = head.subarray(part.byteLength);
+      queued -= part.byteLength;
+      return part;
+    };
+    /** Exactly `length` bytes, or null at the end of the tar. Only for headers and PAX records. */
+    const take = async (length: number) => {
+      await fill(length);
       if (queued < length) return null;
       const out = new Uint8Array(length);
-      let filled = 0;
-      while (filled < length) {
-        const head = queue[0];
-        if (!head) break;
-        const part = head.subarray(0, length - filled);
+      for (let filled = 0; filled < length;) {
+        const part = await takeSome(length - filled);
+        if (!part) return null;
         out.set(part, filled);
         filled += part.byteLength;
-        if (part.byteLength === head.byteLength) queue.shift();
-        else queue[0] = head.subarray(part.byteLength);
       }
-      queued -= length;
       return out;
+    };
+    /** Pass `length` bytes to `sink` as they arrive; false when the tar ends first. */
+    const pump = async (
+      length: number,
+      sink: (part: Uint8Array) => Promise<void>,
+    ) => {
+      for (let left = length; left > 0;) {
+        const part = await takeSome(Math.min(left, 1024 * 1024));
+        if (!part) return false;
+        await sink(part);
+        left -= part.byteLength;
+      }
+      return true;
     };
     const text = (block: Uint8Array, offset: number, width: number) => {
       const field = block.subarray(offset, offset + width);
@@ -264,12 +292,15 @@ export const BundleArchive = {
     for (;;) {
       const block = await take(BLOCK);
       if (!block) return fail("The archive ended without its end marker.");
-      if (block.every((byte) => byte === 0)) return { ok: true, entries };
+      if (block.every((byte) => byte === 0)) break;
       let sum = 0;
       for (let index = 0; index < BLOCK; index++)
         sum += index >= 148 && index < 156 ? 32 : (block[index] ?? 0);
       if (sum !== number(block, 148, 8))
         return fail("An archive header's checksum does not match.");
+      // Every header counts, PAX records too, so a stream of them cannot run on unbounded.
+      if (++entries > maxEntries)
+        return fail("The archive holds more entries than a release may.");
       const type = text(block, 156, 1) || "0";
       const size = number(block, 124, 12);
       if (!Number.isSafeInteger(size) || size < 0)
@@ -277,13 +308,19 @@ export const BundleArchive = {
       total += size;
       if (total > MAX_TOTAL_BYTES)
         return fail("The archive unpacks to more than a release may hold.");
-      const body = await take(size + ((BLOCK - (size % BLOCK)) % BLOCK));
-      if (!body) return fail("The archive is cut off inside an entry.");
-      const content = body.subarray(0, size);
+      const padding = (BLOCK - (size % BLOCK)) % BLOCK;
       if (type === "x") {
+        if (size > MAX_PAX_BYTES)
+          return fail(
+            `An archive PAX record is ${size} bytes, more than the ${MAX_PAX_BYTES} a release needs.`,
+          );
+        const record = await take(size + padding);
+        if (!record) return fail("The archive is cut off inside an entry.");
         pax = {};
-        for (const record of new TextDecoder().decode(content).split("\n")) {
-          const match = /^\d+ (path|linkpath)=(.*)$/.exec(record);
+        for (const line of new TextDecoder()
+          .decode(record.subarray(0, size))
+          .split("\n")) {
+          const match = /^\d+ (path|linkpath)=(.*)$/.exec(line);
           if (match?.[1] === "path") pax.path = match[2];
           if (match?.[1] === "linkpath") pax.linkpath = match[2];
         }
@@ -292,40 +329,94 @@ export const BundleArchive = {
       const name = (pax.path ?? text(block, 0, 100)).replace(/\/$/, "");
       const linkname = pax.linkpath ?? text(block, 157, 100);
       pax = {};
-      if (++entries > MAX_ENTRIES)
-        return fail("The archive holds more entries than a release may.");
       if (!plainPath(name))
         return fail(
           `The archive names ${JSON.stringify(name)}, which is outside a release.`,
+        );
+      if (name.split("/").length > MAX_DEPTH)
+        return fail(
+          `The archive names ${name.slice(0, 200)}…, deeper than ${MAX_DEPTH} folders, more than a release holds.`,
         );
       if (await throughLink(name))
         return fail(`The archive writes ${name} through a symbolic link.`);
       const target = path.join(into, name);
       switch (type) {
         case "5":
-          await mkdir(target, { recursive: true, mode: 0o755 });
-          break;
-        case "0":
-          await mkdir(path.dirname(target), { recursive: true, mode: 0o755 });
-          await writeFile(target, content, {
-            flag: "wx",
-            mode: number(block, 100, 8) & 0o111 ? 0o755 : 0o644,
-          });
-          break;
         case "2":
-          if (!linkInside(name, linkname))
+          if (size !== 0)
             return fail(
-              `The archive's link ${name} leads outside the release.`,
+              `The archive gives ${name} content, which a folder or link has none of.`,
             );
-          await mkdir(path.dirname(target), { recursive: true, mode: 0o755 });
-          await symlink(linkname, target);
+          if (type === "5")
+            await mkdir(target, { recursive: true, mode: 0o755 });
+          else {
+            if (!linkInside(name, linkname))
+              return fail(
+                `The archive's link ${name} leads outside the release.`,
+              );
+            await mkdir(path.dirname(target), { recursive: true, mode: 0o755 });
+            await symlink(linkname, target);
+          }
+          if (padding) return fail("An archive entry is malformed.");
           break;
+        case "0": {
+          await mkdir(path.dirname(target), { recursive: true, mode: 0o755 });
+          const file = await open(
+            target,
+            "wx",
+            number(block, 100, 8) & 0o111 ? 0o755 : 0o644,
+          );
+          try {
+            const whole = await pump(size, async (part) => {
+              for (let offset = 0; offset < part.byteLength;) {
+                const { bytesWritten } = await file.write(part, offset);
+                if (bytesWritten === 0)
+                  throw Object.assign(
+                    new Error(`No byte of ${name} could be written.`),
+                    {
+                      code: "ENOSPC",
+                    },
+                  );
+                offset += bytesWritten;
+              }
+            });
+            if (!whole) return fail("The archive is cut off inside an entry.");
+          } finally {
+            await file.close();
+          }
+          if (padding && !(await take(padding)))
+            return fail("The archive is cut off inside an entry.");
+          break;
+        }
         default:
           return fail(
             `The archive holds ${name} as entry type ${JSON.stringify(type)}; a release holds only files, folders and links.`,
           );
       }
     }
+    // Text checks cannot see a link that leads out through another link: follow each one.
+    const root = await realpath(into);
+    const links: string[] = [];
+    const walk = async (relative: string) => {
+      for (const entry of await readdir(path.join(into, relative), {
+        withFileTypes: true,
+      })) {
+        const name = relative ? `${relative}/${entry.name}` : entry.name;
+        if (entry.isSymbolicLink()) links.push(name);
+        else if (entry.isDirectory()) await walk(name);
+      }
+    };
+    await walk("");
+    for (const name of links) {
+      const resolved = await realpath(path.join(into, name)).catch(() => null);
+      if (resolved === null)
+        return fail(
+          `The archive's link ${name} leads nowhere; a release has no dangling links.`,
+        );
+      if (resolved !== root && !resolved.startsWith(`${root}/`))
+        return fail(`The archive's link ${name} leads outside the release.`);
+    }
+    return { ok: true, entries };
   },
 
   /** SHA-256 and size of a file, streamed. */

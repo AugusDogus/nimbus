@@ -6,6 +6,7 @@ import {
   readdir,
   readlink,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -259,4 +260,26 @@ test("a releases folder it cannot write installs nothing and says why", async ()
   } finally {
     await chmod(releases, 0o755);
   }
+});
+
+test("a bundle that already holds the installer's own files, or a link where it links natives, is refused", async () => {
+  const preset = await publish(testManifest(109), {
+    tree: async (root) => {
+      await mkdir(path.join(root, "elsewhere"), { recursive: true });
+      await symlink(
+        "elsewhere/manifest",
+        path.join(root, "release-manifest.json"),
+      );
+    },
+  });
+  expect((await install(preset)).ok).toBe(false);
+  const linked = await publish(testManifest(110), {
+    tree: async (root) => {
+      await mkdir(path.join(root, "modules"), { recursive: true });
+      await symlink("../../modules", path.join(root, "apps/web/node_modules"));
+    },
+  });
+  const installed = await install(linked);
+  expect(installed.ok || installed.error.message).toContain("is a link");
+  expect(await leftovers()).toEqual([]);
 });
