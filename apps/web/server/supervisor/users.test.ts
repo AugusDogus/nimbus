@@ -1,71 +1,81 @@
 import { expect, test } from "bun:test";
 import { Users } from "./users";
 
-const status = (effective: string) => `Name:\tbun\nCapEff:\t${effective}\n`;
+const root = { euid: 0, oneUserUpdates: false };
 
-test("split: the entrypoint named the servers' user and left the supervisor the rights to switch to it and signal it", () => {
-  const users = Users.fromEnvironment(
-    { NIMBUS_SERVER_UID: "2000", NIMBUS_SERVER_GID: "2001" },
-    { uid: 1100, status: status("00000000000000e0") },
-  );
-  expect(users.kind).toBe("split");
-  expect(users.server(["bun", "server/start.ts"])).toEqual([
+test("started as root with the servers' ids: servers as PUID:PGID, the installer as the update user", () => {
+  expect(
+    Users.fromEnvironment(
+      { NIMBUS_SERVER_UID: "2000", NIMBUS_SERVER_GID: "2001" },
+      root,
+    ),
+  ).toEqual({
+    kind: "split",
+    server: { uid: 2000, gid: 2001 },
+    update: { uid: 1100, gid: 1100 },
+    updatesOff: null,
+  });
+  expect(Users.dropTo({ uid: 2000, gid: 2001 }, ["bun", "start.ts"])).toEqual([
     "setpriv",
     "--reuid=2000",
     "--regid=2001",
     "--clear-groups",
     "--inh-caps=-all",
     "--ambient-caps=-all",
+    "--bounding-set=-all",
+    "--no-new-privs",
     "--",
     "bun",
-    "server/start.ts",
+    "start.ts",
   ]);
-  expect(users.unprivileged(["bun", "installer.ts"])).toEqual([
-    "setpriv",
-    "--inh-caps=-all",
-    "--ambient-caps=-all",
-    "--",
-    "bun",
-    "installer.ts",
-  ]);
-  expect(users.updatesOff).toBeNull();
 });
 
-test("one user, as under --user, or without the rights to switch and signal: updates are off and say how to turn them on", () => {
-  for (const [environment, effective] of [
-    [{}, "0000000000000000"],
-    [
-      { NIMBUS_SERVER_UID: "2000", NIMBUS_SERVER_GID: "2000" },
-      "0000000000000000",
-    ],
-    [
-      { NIMBUS_SERVER_UID: "1100", NIMBUS_SERVER_GID: "2000" },
-      "00000000000000e0",
-    ],
-    // Able to switch to the servers' user but not to stop its servers.
-    [
-      { NIMBUS_SERVER_UID: "2000", NIMBUS_SERVER_GID: "2000" },
-      "00000000000000c0",
-    ],
-  ] as const) {
-    const users = Users.fromEnvironment(environment, {
-      uid: 1100,
-      status: status(effective),
-    });
-    expect(users.kind).toBe("single");
-    expect(users.server(["bun", "server/start.ts"])).toEqual([
-      "bun",
-      "server/start.ts",
-    ]);
-    expect(users.updatesOff).toContain("PUID and PGID");
-  }
+test("as root, ids that are not canonical numbers in range refuse to start rather than run servers as root", () => {
+  for (const value of [
+    "",
+    "0",
+    "-1",
+    "02000",
+    "2000 ",
+    "1e3",
+    "4294967295",
+    "0x7d0",
+  ])
+    expect(
+      Users.fromEnvironment(
+        { NIMBUS_SERVER_UID: value, NIMBUS_SERVER_GID: "2000" },
+        root,
+      ).kind,
+    ).toBe("refused");
+  expect(Users.fromEnvironment({}, root).kind).toBe("refused");
 });
 
-test("updates with one user only when asked to, for development and tests", () => {
+test("an update user that is not one of its own turns updates off, servers still dropped", () => {
   const users = Users.fromEnvironment(
-    { NIMBUS_UPDATES_WITH_ONE_USER: "1" },
-    { uid: 1000, status: status("0000000000000000") },
+    {
+      NIMBUS_SERVER_UID: "1100",
+      NIMBUS_SERVER_GID: "1100",
+    },
+    root,
   );
-  expect(users.kind).toBe("single");
-  expect(users.updatesOff).toBeNull();
+  expect(users).toMatchObject({
+    kind: "split",
+    server: { uid: 1100, gid: 1100 },
+    update: null,
+  });
+  if (users.kind === "split")
+    expect(users.updatesOff).toContain("ids of its own");
+});
+
+test("started as another user, as with --user: one user, updates off unless a test asks", () => {
+  const single = Users.fromEnvironment(
+    { NIMBUS_SERVER_UID: "2000", NIMBUS_SERVER_GID: "2000" },
+    { euid: 1000, oneUserUpdates: false },
+  );
+  expect(single.kind).toBe("single");
+  if (single.kind === "single")
+    expect(single.updatesOff).toContain("PUID and PGID");
+  expect(
+    Users.fromEnvironment({}, { euid: 1000, oneUserUpdates: true }),
+  ).toEqual({ kind: "single", updatesOff: null });
 });

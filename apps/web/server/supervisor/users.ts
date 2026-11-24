@@ -1,108 +1,98 @@
-import { readFileSync } from "node:fs";
+import type { Ids } from "./credentials";
 
 /**
- * Which users the supervisor and the servers run as (see docs/updates.md).
+ * Which users the supervisor, its servers and its installer run as (see docs/updates.md),
+ * decided once, here, from canonical numeric ids:
  *
- * `split`: the container entrypoint, started as root, runs the supervisor as a user of its own
- * holding only the capabilities to switch user and signal its servers (setuid, setgid, kill), and names the servers' user
- * (NIMBUS_SERVER_UID and NIMBUS_SERVER_GID, PUID and PGID). The servers then start as that user
- * with no capabilities, so they cannot change the releases the supervisor installs.
- *
- * `single`: everything runs as one user, as when the container is started with `--user`. A
- * server could then rewrite the release it would run next, so in-app updates are off, unless
- * NIMBUS_UPDATES_WITH_ONE_USER=1 asks for them anyway, as development and tests do.
+ * - `split`: started as root, as the image's entrypoint starts it. The supervisor stays root
+ *   with a fixed, small job (verify releases, start children with dropped privileges, pass
+ *   signals); servers run as `server` (PUID:PGID) and the installer as `update`, each through
+ *   `setpriv` with no capabilities, no supplementary groups, an empty bounding set and
+ *   `no_new_privs`. `update` is null, and updates off, when the update user's ids are not ones
+ *   of their own.
+ * - `single`: started as another user, as with `docker run --user`: everything runs as that one
+ *   user, so a server could rewrite the release it would run next, and updates are off unless a
+ *   test in a source checkout asks for them (TestSeams).
+ * - `refused`: started as root without the servers' ids: it would run servers as root, so the
+ *   supervisor does not start.
  */
 export type Users =
   | {
       kind: "split";
-      serverUid: number;
-      serverGid: number;
-      /** `command` run as the servers' user with no capabilities. */
-      server: (command: string[]) => string[];
-      /** `command` run as the supervisor's own user with no capabilities. */
-      unprivileged: (command: string[]) => string[];
-      updatesOff: null;
-    }
-  | {
-      kind: "single";
-      server: (command: string[]) => string[];
-      unprivileged: (command: string[]) => string[];
-      /** Why in-app updates are off, and how to turn them on; null when asked for anyway. */
+      server: Ids;
+      update: Ids | null;
       updatesOff: string | null;
-    };
+    }
+  | { kind: "single"; updatesOff: string | null }
+  | { kind: "refused"; message: string };
 
-/** CAP_KILL (5), CAP_SETGID (6) and CAP_SETUID (7) in a CapEff mask: to start and stop servers. */
-const SWITCH_USER = 0xe0n;
-
-const id = (value: string | undefined) => {
+/** An id given as canonical decimal digits, from 1 to 4294967294; null otherwise. */
+function id(value: string | undefined) {
+  if (value === undefined || !/^[1-9]\d{0,9}$/.test(value)) return null;
   const parsed = Number(value);
-  return value !== undefined && /^\d+$/.test(value) && parsed > 0
-    ? parsed
-    : null;
-};
+  return parsed <= 4_294_967_294 ? parsed : null;
+}
+
+const DEFAULT_UPDATE_ID = "1100";
 
 export const Users = {
   fromEnvironment(
     env: Record<string, string | undefined>,
-    self: { uid: number; status: string },
+    self: { euid: number; oneUserUpdates: boolean },
   ): Users {
-    const serverUid = id(env.NIMBUS_SERVER_UID);
-    const serverGid = id(env.NIMBUS_SERVER_GID);
-    const effective = /^CapEff:\s*([0-9a-f]+)$/m.exec(self.status)?.[1];
-    const canSwitch =
-      effective !== undefined &&
-      (BigInt(`0x${effective}`) & SWITCH_USER) === SWITCH_USER;
+    if (self.euid !== 0)
+      return {
+        kind: "single",
+        updatesOff: self.oneUserUpdates
+          ? null
+          : "In-app updates are off: every Nimbus process runs as one user (as when the container is started with --user), so a server could rewrite the release it would run next. To turn them on, start the container as root and give the user with PUID and PGID instead of --user.",
+      };
+    const uid = id(env.NIMBUS_SERVER_UID);
+    const gid = id(env.NIMBUS_SERVER_GID);
+    if (uid === null || gid === null)
+      return {
+        kind: "refused",
+        message:
+          "Nimbus did not start: its supervisor runs as root but was not told which user to run servers as (NIMBUS_SERVER_UID and NIMBUS_SERVER_GID, numbers from 1 to 4294967294), and it never runs servers as root. Start it through the image's entrypoint, which sets them from PUID and PGID.",
+      };
+    const server = { uid, gid };
+    const updateUid = id(env.NIMBUS_UPDATE_UID ?? DEFAULT_UPDATE_ID);
+    const updateGid = id(env.NIMBUS_UPDATE_GID ?? DEFAULT_UPDATE_ID);
     if (
-      serverUid !== null &&
-      serverGid !== null &&
-      serverUid !== self.uid &&
-      canSwitch
+      updateUid === null ||
+      updateGid === null ||
+      updateUid === uid ||
+      updateGid === gid ||
+      updateUid === gid ||
+      updateGid === uid
     )
       return {
         kind: "split",
-        serverUid,
-        serverGid,
-        server: (command) => [
-          "setpriv",
-          `--reuid=${serverUid}`,
-          `--regid=${serverGid}`,
-          "--clear-groups",
-          "--inh-caps=-all",
-          "--ambient-caps=-all",
-          "--",
-          ...command,
-        ],
-        unprivileged: (command) => [
-          "setpriv",
-          "--inh-caps=-all",
-          "--ambient-caps=-all",
-          "--",
-          ...command,
-        ],
-        updatesOff: null,
+        server,
+        update: null,
+        updatesOff: `In-app updates are off: the update user (NIMBUS_UPDATE_UID and NIMBUS_UPDATE_GID, default ${DEFAULT_UPDATE_ID}) must be ids of its own, other than PUID and PGID. Servers still run as ${uid}:${gid}. Unset them, or set other numbers.`,
       };
     return {
-      kind: "single",
-      server: (command) => command,
-      unprivileged: (command) => command,
-      updatesOff:
-        env.NIMBUS_UPDATES_WITH_ONE_USER === "1"
-          ? null
-          : "In-app updates are off: every Nimbus process runs as one user (as when the container is started with --user), so a server could rewrite the release it would run next. To turn them on, start the container as root and give the user with PUID and PGID instead of --user; the entrypoint then runs the supervisor and the servers as users of their own.",
+      kind: "split",
+      server,
+      update: { uid: updateUid, gid: updateGid },
+      updatesOff: null,
     };
   },
 
-  /** This process's users. */
-  current(): Users {
-    let status = "";
-    try {
-      status = readFileSync("/proc/self/status", "utf8");
-    } catch {
-      status = "";
-    }
-    return Users.fromEnvironment(process.env, {
-      uid: process.getuid?.() ?? -1,
-      status,
-    });
+  /** `command` run as `ids` with nothing more: no capability, group or way to gain either. */
+  dropTo(ids: Ids, command: string[]): string[] {
+    return [
+      "setpriv",
+      `--reuid=${ids.uid}`,
+      `--regid=${ids.gid}`,
+      "--clear-groups",
+      "--inh-caps=-all",
+      "--ambient-caps=-all",
+      "--bounding-set=-all",
+      "--no-new-privs",
+      "--",
+      ...command,
+    ];
   },
 } as const;

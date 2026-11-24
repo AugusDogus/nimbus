@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
 import type { Server, Subprocess } from "bun";
 import { z } from "zod";
@@ -16,15 +16,16 @@ import {
 } from "./updates-e2e-testing";
 
 /**
- * The user split (see docs/updates.md) with real processes, as far as a user namespace allows
- * without a container: the image's entrypoint runs as root of a namespace with mapped ids, with
- * PUID and PGID 2000, and starts the supervisor as 1100. Checked from inside that namespace:
- * which users and capabilities the supervisor and its servers have, the config root's layout,
- * that the servers' user cannot change what the supervisor installs, a restart, and an install.
- * Then, as a container started with --user, one user and updates off. The release keys are
- * bound over the built-in file inside the namespace, as an image built with a key has them.
- * Needs the built client and `unshare --map-auto`; CI sets NIMBUS_REQUIRE_SPLIT_TEST=1 so a
- * runner without them fails instead of skipping.
+ * The user split (see docs/updates.md, Privileges) with real processes, as far as a user
+ * namespace allows without a container: the image's entrypoint runs as root of a namespace with
+ * mapped ids, PUID and PGID 2000, and execs the supervisor as root with its four capabilities.
+ * Checked from inside that namespace: the users and capabilities of the supervisor and its
+ * servers, the update store's layout, that neither the servers' user nor the update user can
+ * change what runs, a restart and an install verified before they start, an install staged by
+ * the update user and published by root with no process of that user left, and then, as a
+ * container started with --user, one user and updates off. Bun runs from a copy the namespace's
+ * users can execute, wherever it is installed. Needs the built client and `unshare --map-auto`;
+ * CI sets NIMBUS_REQUIRE_SPLIT_TEST=1 so a runner without them fails instead of skipping.
  */
 const built = existsSync(path.join(web, "dist/index.html"));
 const entrypoint = path.join(repo, "scripts/docker-entrypoint.sh");
@@ -36,7 +37,7 @@ const namespaces =
     "--mount",
     "sh",
     "-c",
-    'd=$(mktemp -d) && touch "$d/a" "$d/b" && mount --bind "$d/a" "$d/b" && setpriv --reuid=2000 --regid=2000 --clear-groups true; s=$?; umount "$d/b" 2>/dev/null; rm -rf "$d"; exit $s',
+    "mount -t tmpfs tmpfs /mnt && setpriv --reuid=2000 --regid=2000 --clear-groups true",
   ]).exitCode === 0;
 const required = process.env.NIMBUS_REQUIRE_SPLIT_TEST === "1";
 const secret = "split-e2e-secret-0123456789abcdef01234567";
@@ -48,6 +49,8 @@ let source: Server<undefined>;
 const published = new Map<string, Uint8Array<ArrayBuffer>>();
 let supervisor: Subprocess<"ignore", "pipe", "pipe"> | null = null;
 let log = "";
+/** Bun, copied where every user of the namespace may run it. */
+let bun = process.execPath;
 
 /** Run `command` as root of the supervisor's namespaces. */
 async function inside(command: string[]) {
@@ -85,12 +88,21 @@ const asServer = (script: string) =>
     script,
   ]);
 
-const control = (...args: string[]) =>
+/** `script` as the update user, inside. */
+const asUpdate = (script: string) =>
   inside([
-    process.execPath,
-    path.join(web, "server/supervisor/control.ts"),
-    ...args,
+    "setpriv",
+    "--reuid=1100",
+    "--regid=1100",
+    "--clear-groups",
+    "--",
+    "sh",
+    "-c",
+    script,
   ]);
+
+const control = (...args: string[]) =>
+  inside([bun, path.join(web, "server/supervisor/control.ts"), ...args]);
 
 const statusSchema = z.object({
   phase: z.string(),
@@ -116,6 +128,7 @@ async function credentials(pid: number) {
     inheritable: field("CapInh"),
     permitted: field("CapPrm"),
     effective: field("CapEff"),
+    bounding: field("CapBnd"),
     ambient: field("CapAmb"),
     noNewPrivs: field("NoNewPrivs"),
   };
@@ -160,10 +173,24 @@ const environment = (config: string, data: string, socket: string) => ({
   NIMBUS_SUPERVISOR_SOCKET: socket,
   NIMBUS_READY_TIMEOUT_SECONDS: "20",
   NIMBUS_UPDATE_SOURCE: `http://127.0.0.1:${source.port}/`,
+  NIMBUS_TEST_RELEASE_KEYS_FILE: path.join(root, "keys.json"),
 });
 
 const config = () => path.join(root, "config");
-const installed = () => path.join(config(), "supervisor/releases");
+const store = () => path.join(root, "store");
+const releases = () => path.join(store(), "releases");
+
+/** How many processes of the update user run, seen from inside. */
+const updateUserProcesses = async () =>
+  Number(
+    (
+      await inside([
+        "sh",
+        "-c",
+        "for f in /proc/[0-9]*/status; do awk '/^Uid:/ { print $2 }' \"$f\" 2>/dev/null; done | grep -cx 1100",
+      ])
+    ).stdout.trim(),
+  );
 
 describe.skipIf(!built || (!namespaces && !required))(
   "the user split with real processes",
@@ -176,9 +203,13 @@ describe.skipIf(!built || (!namespaces && !required))(
           "This machine gives no user namespace with mapped ids (`unshare --map-auto --map-root-user --mount`), so the user split cannot be tested here; NIMBUS_REQUIRE_SPLIT_TEST=1 asks for it. Give the user subordinate ids (/etc/subuid, /etc/subgid) and allow unprivileged user namespaces.",
         );
       root = await mkdtemp("/var/tmp/nimbus-split-");
-      // The supervisor's and the servers' users reach it, as they reach a container's volumes.
+      // The servers' and the update user reach it, as they reach a container's volumes.
       await chmod(root, 0o755);
       await mkdir(path.join(root, "data"));
+      await mkdir(path.join(root, "bin"));
+      bun = path.join(root, "bin/bun");
+      await copyFile(process.execPath, bun);
+      await chmod(bun, 0o755);
       const key = await ReleaseSignature.generate("test-key");
       await Bun.write(
         path.join(root, "keys.json"),
@@ -188,18 +219,15 @@ describe.skipIf(!built || (!namespaces && !required))(
       await writeBuiltInInfo(100);
       const bundle = await buildSignedRelease(root, 101, key.privateKey);
       release101 = ReleaseManifest.releaseName(bundle.manifest);
-      const signature = await Bun.file(
-        path.join(path.dirname(bundle.archive), "manifest.sig"),
-      ).arrayBuffer();
-      published.set(
-        "manifest.json",
-        new Uint8Array(
-          await Bun.file(
-            path.join(path.dirname(bundle.archive), "manifest.json"),
-          ).arrayBuffer(),
-        ),
-      );
-      published.set("manifest.sig", new Uint8Array(signature));
+      for (const file of ["manifest.json", "manifest.sig"])
+        published.set(
+          file,
+          new Uint8Array(
+            await Bun.file(
+              path.join(path.dirname(bundle.archive), file),
+            ).arrayBuffer(),
+          ),
+        );
       published.set(
         bundle.manifest.bundle.file,
         new Uint8Array(await Bun.file(bundle.archive).arrayBuffer()),
@@ -223,15 +251,11 @@ describe.skipIf(!built || (!namespaces && !required))(
       probe.stop(true);
       origin = `http://localhost:${port}`;
 
-      // Root of a new user and mount namespace: the release keys in place, a private /tmp, a
-      // folder for the control socket that only the supervisor's user enters; then the image's
-      // entrypoint, as a container starts it.
+      // Root of a new user and mount namespace with a private /tmp, then the image's entrypoint,
+      // as a container starts it.
       const setup = [
         "set -e",
-        `mount --bind "${path.join(root, "keys.json")}" "${path.join(web, "release-keys.json")}"`,
         "mount -t tmpfs tmpfs /tmp",
-        `mkdir -m 700 "${path.join(root, "run")}"`,
-        `chown 1100:1100 "${path.join(root, "run")}"`,
         'exec sh "$0" "$@"',
       ].join("\n");
       const child = Bun.spawn(
@@ -244,7 +268,7 @@ describe.skipIf(!built || (!namespaces && !required))(
           "-c",
           setup,
           entrypoint,
-          process.execPath,
+          bun,
           "server/supervisor/main.ts",
         ],
         {
@@ -255,6 +279,7 @@ describe.skipIf(!built || (!namespaces && !required))(
               path.join(root, "data"),
               path.join(root, "run/control.sock"),
             ),
+            NIMBUS_TEST_STORE_DIR: store(),
             PUID: "2000",
             PGID: "2000",
           },
@@ -267,6 +292,8 @@ describe.skipIf(!built || (!namespaces && !required))(
     }, 240_000);
 
     afterAll(async () => {
+      if (process.env.NIMBUS_E2E_SUPERVISOR_LOG)
+        await Bun.write(process.env.NIMBUS_E2E_SUPERVISOR_LOG, log);
       if (supervisor && supervisor.exitCode === null) {
         await inside(["kill", "-KILL", String(supervisor.pid)]);
         await supervisor.exited;
@@ -287,15 +314,16 @@ describe.skipIf(!built || (!namespaces && !required))(
         ]);
     });
 
-    test("the supervisor runs as its own user able only to start and stop servers, which run as PUID:PGID with nothing more", async () => {
+    test("the supervisor stays root with only its four capabilities, and servers run as PUID:PGID with nothing more", async () => {
       expect(await credentials(supervisor?.pid ?? 0)).toEqual({
-        uid: "1100\t1100\t1100\t1100",
-        gid: "1100\t1100\t1100\t1100",
+        uid: "0\t0\t0\t0",
+        gid: "0\t0\t0\t0",
         groups: "",
-        inheritable: "00000000000000e0",
-        permitted: "00000000000000e0",
-        effective: "00000000000000e0",
-        ambient: "00000000000000e0",
+        inheritable: "0000000000000000",
+        permitted: "00000000000001e0",
+        effective: "00000000000001e0",
+        bounding: "00000000000001e0",
+        ambient: "0000000000000000",
         noNewPrivs: "1",
       });
       const server = await active();
@@ -307,66 +335,121 @@ describe.skipIf(!built || (!namespaces && !required))(
         inheritable: "0000000000000000",
         permitted: "0000000000000000",
         effective: "0000000000000000",
+        bounding: "0000000000000000",
         ambient: "0000000000000000",
         noNewPrivs: "1",
       });
       expect(log).not.toContain("In-app updates are off");
     });
 
-    test("the config root is shared without letting the servers' user replace what the supervisor owns", async () => {
+    test("the store is root's and staging the update user's: neither they nor the servers' user can change what runs", async () => {
       const layout = await inside([
         "stat",
         "-c",
         "%u:%g:%a",
-        config(),
-        path.join(config(), "supervisor"),
-        installed(),
-        path.join(config(), "server.lock"),
+        store(),
+        releases(),
+        path.join(store(), "staging"),
       ]);
       expect(layout.stdout.trim().split("\n")).toEqual([
-        "0:2000:1771",
-        "1100:1100:755",
-        "1100:1100:755",
-        "1100:2000:660",
+        "0:0:755",
+        "0:0:755",
+        "1100:0:750",
       ]);
+      // The config root stays the servers', as on any start.
+      expect(
+        (await inside(["stat", "-c", "%u:%g", config()])).stdout.trim(),
+      ).toBe("2000:2000");
       for (const attempt of [
-        `touch "${installed()}/planted"`,
-        `mkdir "${installed()}/edge-999-aaaaaaaaaaaa"`,
-        `mv "${config()}/supervisor" "${config()}/elsewhere"`,
-        `rm -f "${config()}/server.lock"`,
+        `touch "${releases()}/planted"`,
+        `mkdir "${releases()}/edge-999-aaaaaaaaaaaa"`,
+        `ls "${store()}/staging"`,
+        `touch "${store()}/staging/planted"`,
       ])
         expect((await asServer(attempt)).code).not.toBe(0);
+      for (const attempt of [
+        `touch "${releases()}/planted"`,
+        `echo "{}" > "${releases()}/state.json"`,
+        `touch "${store()}/planted"`,
+      ])
+        expect((await asUpdate(attempt)).code).not.toBe(0);
     });
 
-    test("a restart and an install run their servers as PUID:PGID, and the installed release is the supervisor's alone", async () => {
+    test("restarts and an install verify before they start; root publishes its own copy and no process of the update user is left", async () => {
+      const verifiedLines = () =>
+        log.split(`verified ${release101} in`).length - 1;
       const before = await active();
-      const restarted = await control("restart");
-      expect(restarted.code).toBe(0);
+      expect((await control("restart")).code).toBe(0);
       const after = await active();
       expect(after.pid).not.toBe(before.pid);
       expect((await credentials(after.pid)).uid).toBe("2000\t2000\t2000\t2000");
 
+      // A process of the update user left running, as a compromised installer might leave one.
+      const planted = Bun.spawn(
+        [
+          "nsenter",
+          "-t",
+          String(supervisor?.pid ?? 0),
+          "-U",
+          "-m",
+          "--",
+          "setpriv",
+          "--reuid=1100",
+          "--regid=1100",
+          "--clear-groups",
+          "--",
+          "sleep",
+          "600",
+        ],
+        { stdio: ["ignore", "ignore", "ignore"] },
+      );
+      await waitFor("the planted process", async () =>
+        (await updateUserProcesses()) > 0 ? true : null,
+      );
       expect((await control("update", "check")).code).toBe(0);
       const install = await control("update", "install");
       expect(install.code).toBe(0);
+      expect(await planted.exited).not.toBe(0);
+      expect(await updateUserProcesses()).toBe(0);
       const updated = await active();
       expect(updated.release).toBe(release101);
       expect((await credentials(updated.pid)).uid).toBe(
         "2000\t2000\t2000\t2000",
       );
-      const tree = path.join(installed(), release101);
+      const tree = path.join(releases(), release101);
       expect(
         (await inside(["readlink", `/proc/${updated.pid}/cwd`])).stdout.trim(),
       ).toBe(path.join(tree, "apps/web"));
-      expect((await inside(["stat", "-c", "%u", tree])).stdout.trim()).toBe(
-        "1100",
-      );
+      expect(
+        (
+          await inside([
+            "stat",
+            "-c",
+            "%u:%a",
+            tree,
+            path.join(tree, "apps/web/server/start.ts"),
+          ])
+        ).stdout
+          .trim()
+          .split("\n"),
+      ).toEqual(["0:755", "0:644"]);
+      // Nothing of the install is left in staging.
+      expect(
+        (await inside(["ls", "-A", path.join(store(), "staging")])).stdout,
+      ).not.toContain("release");
       for (const attempt of [
         `echo changed >> "${tree}/apps/web/server/start.ts"`,
         `rm -rf "${tree}"`,
-        `mv "${tree}" "${installed()}/moved"`,
-      ])
+        `mv "${tree}" "${releases()}/moved"`,
+      ]) {
         expect((await asServer(attempt)).code).not.toBe(0);
+        expect((await asUpdate(attempt)).code).not.toBe(0);
+      }
+      // Verified when it took over, and again for a restart of it.
+      const once = verifiedLines();
+      expect(once).toBeGreaterThan(0);
+      expect((await control("restart")).code).toBe(0);
+      expect(verifiedLines()).toBeGreaterThan(once);
       expect(await health()).toBe(true);
     }, 180_000);
 

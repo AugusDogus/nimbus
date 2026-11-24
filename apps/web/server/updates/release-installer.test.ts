@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   chmod,
+  link,
   mkdir,
   mkdtemp,
   readdir,
@@ -17,7 +18,7 @@ import {
   ReleaseManifest,
   type ReleaseManifest as Manifest,
 } from "./release-manifest";
-import { installRelease } from "./release-installer";
+import { publishRelease, stageRelease } from "./release-installer";
 import { ReleaseTree } from "./release-tree";
 import { ReleaseSignature, type TrustRoot } from "./release-signature";
 import type { UpdateSource } from "./update-source";
@@ -139,19 +140,36 @@ async function publish(
   };
 }
 
-const install = (
+/** Staged as the installer stages it, then published as root publishes it, as in production. */
+async function install(
   published: Awaited<ReturnType<typeof publish>>,
   releases = path.join(scratch, "releases"),
-) =>
-  installRelease({
-    releases,
-    source,
+  between: (staging: string) => Promise<unknown> = async () => undefined,
+) {
+  const staging = path.join(scratch, "staging");
+  await mkdir(staging, { recursive: true });
+  await mkdir(releases, { recursive: true });
+  const request = {
     manifest: published.bytes,
     signature: published.signature,
     trust,
     builtInRoot,
     supervisorProtocol: 2,
-  });
+  };
+  try {
+    const staged = await stageRelease({ staging, source, ...request });
+    if (!staged.ok) return staged;
+    await between(staging);
+    return await publishRelease({
+      staging,
+      releases,
+      owner: process.getuid?.() ?? 0,
+      ...request,
+    });
+  } finally {
+    await rm(path.join(staging, "release"), { recursive: true, force: true });
+  }
+}
 
 const leftovers = async () =>
   (await readdir(path.join(scratch, "releases")).catch(() => [])).filter(
@@ -268,9 +286,7 @@ test("a releases folder it cannot write installs nothing and says why", async ()
     const installed = await install(await publish(testManifest(108)), releases);
     expect(installed.ok).toBe(false);
     if (!installed.ok && process.getuid?.() !== 0)
-      expect(installed.error.message).toContain(
-        "may not write the releases folder",
-      );
+      expect(installed.error.message).toContain("Check their owners");
   } finally {
     await chmod(releases, 0o755);
   }
@@ -402,4 +418,26 @@ test("an installed release counts as installed only when its signed manifest is 
       path.join(scratch, "releases", name, "release-manifest.json"),
     ).text(),
   ).toBe(new TextDecoder().decode(first.bytes));
+});
+
+test("a staged tree changed after the installer checked it is refused in root's copy", async () => {
+  const published = await publish(testManifest(121));
+  const changed = await install(published, undefined, (staging) =>
+    writeFile(
+      path.join(staging, "release/apps/web/server/start.ts"),
+      "// changed after staging\n",
+    ),
+  );
+  expect(changed.ok).toBe(false);
+  if (!changed.ok) expect(changed.error.message).toContain("another tree");
+  const linked = await install(published, undefined, (staging) =>
+    link(
+      path.join(staging, "release/apps/web/server/start.ts"),
+      path.join(staging, "release/apps/web/server/twin.ts"),
+    ),
+  );
+  expect(linked.ok).toBe(false);
+  if (!linked.ok) expect(linked.error.message).toContain("hard link");
+  expect(await leftovers()).toEqual([]);
+  expect(await readdir(path.join(scratch, "releases"))).toEqual([]);
 });

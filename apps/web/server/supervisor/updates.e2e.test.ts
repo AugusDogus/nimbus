@@ -181,8 +181,9 @@ function startSupervisor(prefix: string[] = []) {
         NIMBUS_TEST_RELEASE_KEYS_FILE: path.join(root, "keys.json"),
         // Unsigned releases a restart may name; a rollback must never pick one.
         NIMBUS_TEST_RELEASES_DIR: path.join(root, "test-releases"),
-        // One user here; the split is tested in users.e2e.test.ts.
-        NIMBUS_UPDATES_WITH_ONE_USER: "1",
+        // One user here; the split is tested in split.e2e.test.ts.
+        NIMBUS_TEST_UPDATES_WITH_ONE_USER: "1",
+        NIMBUS_TEST_STORE_DIR: path.join(root, "store"),
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -257,6 +258,12 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     );
     await mkdir(path.join(root, "data/films"), { recursive: true });
     await mkdir(path.join(root, "config"));
+    // The update store, laid out as the image lays it out.
+    await mkdir(path.join(root, "store/releases"), { recursive: true });
+    await mkdir(path.join(root, "store/staging"), { mode: 0o750 });
+    await chmod(root, 0o755);
+    await chmod(path.join(root, "store"), 0o755);
+    await chmod(path.join(root, "store/staging"), 0o750);
     await mkdir(path.join(root, "control"), { mode: 0o700 });
     socket = path.join(root, "control/control.sock");
     // A film whose byte i is i % 251, so every byte can be checked.
@@ -324,6 +331,9 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
   }, 240_000);
 
   afterAll(async () => {
+    // For a run that failed: the supervisor's own account of it.
+    if (process.env.NIMBUS_E2E_SUPERVISOR_LOG)
+      await Bun.write(process.env.NIMBUS_E2E_SUPERVISOR_LOG, log);
     supervisor?.kill("SIGKILL");
     await supervisor?.exited;
     await source?.stop(true);
@@ -442,7 +452,7 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     const offered = await variant(107, bundle101.tree);
     await publish(offered.manifest, offered.bytes);
     expect((await ControlClient.checkForUpdate(socket)).status).toBe(200);
-    const stateFile = path.join(root, "config/supervisor/releases/state.json");
+    const stateFile = path.join(root, "store/releases/state.json");
     const before = await Bun.file(stateFile).text();
     const restart = ControlClient.handover(socket, null);
     await waitFor("the restart to start", async () =>
@@ -454,9 +464,9 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     expect((await restart)?.ok).toBe(true);
     // Nothing was downloaded, reserved or marked as being switched to.
     expect(await Bun.file(stateFile).text()).toBe(before);
-    expect(
-      await readdir(path.join(root, "config/supervisor/releases")),
-    ).not.toContain(ReleaseManifest.releaseName(offered.manifest));
+    expect(await readdir(path.join(root, "store/releases"))).not.toContain(
+      ReleaseManifest.releaseName(offered.manifest),
+    );
   }, 120_000);
 
   test("a newer release installs, and a rollback returns to the one before", async () => {
@@ -497,7 +507,7 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
       );
     expect(await active()).toBe(before);
     expect(await health()).toBe(200);
-    const left = await readdir(path.join(root, "config/supervisor/releases"));
+    const left = await readdir(path.join(root, "store/releases"));
     expect(left).not.toContain(ReleaseManifest.releaseName(next.manifest));
   }, 120_000);
   test("a rollback starts only the installed release that ran before, verified, never one of the same name elsewhere", async () => {
@@ -505,14 +515,12 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     const state = z
       .object({ previous: z.string().nullable() })
       .parse(
-        await Bun.file(
-          path.join(root, "config/supervisor/releases/state.json"),
-        ).json(),
+        await Bun.file(path.join(root, "store/releases/state.json")).json(),
       );
     const previous = state.previous;
     if (!previous) throw new Error("Nothing ran before the running release.");
     // The installed copy is gone; an unsigned release of that name waits elsewhere.
-    const installed = path.join(root, "config/supervisor/releases", previous);
+    const installed = path.join(root, "store/releases", previous);
     const aside = path.join(root, "aside");
     expect(Bun.spawnSync(["mv", installed, aside]).exitCode).toBe(0);
     await mkdir(path.join(root, "test-releases"), { recursive: true });
@@ -542,12 +550,7 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     supervisor?.kill("SIGTERM");
     expect(await supervisor?.exited).toBe(0);
     await Bun.write(
-      path.join(
-        root,
-        "config/supervisor/releases",
-        damaged,
-        "apps/web/server/start.ts",
-      ),
+      path.join(root, "store/releases", damaged, "apps/web/server/start.ts"),
       "// replaced\n",
     );
     const started = performance.now();

@@ -10,18 +10,19 @@
  * over to a fresh server of the same release. SIGTERM and SIGINT drain every server within
  * NIMBUS_STOP_SECONDS and exit, as a container stop needs.
  */
-import { existsSync } from "node:fs";
-import { chmod, mkdir, readFile, rm } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { chmod, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { ServerRun } from "@nimbus/api/server-run";
-import { InstallationLock } from "../installation-lock";
-import { getConfigRoot } from "../storage-paths";
 import { ControlSocket } from "./control-socket";
 import { HandoverStream } from "./handover-stream";
 import { BuildInfo } from "../updates/build-info";
 import { TrustRoot } from "../updates/trust-root";
 import { UpdateSource } from "../updates/update-source";
 import { createUpdater, type RunInstaller } from "../updates/updater";
+import { publishRelease } from "../updates/release-installer";
+import { UpdateStore } from "../updates/update-store";
+import { Credentials, type Ids } from "./credentials";
 import { ReleaseDirectory } from "./release-directory";
 import { PROTOCOL_VERSION, Protocol, WorkerEnv } from "./protocol";
 import { parseSettings } from "./settings";
@@ -68,18 +69,39 @@ const builtIn: Release = {
   root: path.resolve(import.meta.dir, "../../../.."),
 };
 
-const configRoot = getConfigRoot();
-/** Who runs what (Users): the servers, unless all is one user, have a user of their own. */
-const users = Users.current();
-if (users.updatesOff) log(users.updatesOff);
-/**
- * Installed releases (see docs/updates.md): only the updater puts releases here, only signed
- * ones, and each is verified again before it starts.
- */
-const releases = path.join(configRoot, "supervisor/releases");
 /** What tests inject from a source checkout; see TestSeams. */
 const seams = TestSeams.fromEnvironment(process.env, builtIn.root);
 if (seams.refused) log(seams.refused);
+/** Who runs what, decided once (Users). */
+const users = Users.fromEnvironment(process.env, {
+  euid: process.geteuid?.() ?? -1,
+  oneUserUpdates: seams.oneUserUpdates,
+});
+if (users.kind === "refused") {
+  console.error(users.message);
+  process.exit(1);
+}
+if (users.updatesOff) log(users.updatesOff);
+/** The servers' ids when they have their own, which every server is checked to run as. */
+const serverIds: Ids | null = users.kind === "split" ? users.server : null;
+const updateIds: Ids | null = users.kind === "split" ? users.update : null;
+const asServer = (command: string[]) =>
+  serverIds ? Users.dropTo(serverIds, command) : command;
+const asUpdateUser = (command: string[]) =>
+  updateIds ? Users.dropTo(updateIds, command) : command;
+const self = process.getuid?.() ?? -1;
+/**
+ * Installed releases (see docs/updates.md, The update store): only root writes them, only signed
+ * ones, each copied and checked by root before it is published, and checked again before every
+ * start.
+ */
+const store = UpdateStore.at(seams.storeDir ?? UpdateStore.image);
+const releases = store.releases;
+const storeChecked = await UpdateStore.check(store, {
+  owner: users.kind === "split" ? 0 : self,
+  update: updateIds?.uid ?? self,
+});
+if (!storeChecked.ok && !users.updatesOff) log(storeChecked.message);
 /** Installed releases verified for the handover under way, by name (see `prepare`). */
 const prepared = new Map<string, Release>();
 /** What the first server starts from: an installed release, or the built-in one. */
@@ -106,39 +128,96 @@ function release(
   return ReleaseDirectory.resolve(seams.releasesDir, name);
 }
 
+/** Whether `release` is an installed one, which is verified again before every start. */
+const installed = (release: Release) =>
+  path.dirname(release.root) === path.resolve(releases);
+
+/**
+ * Start a server of `request.release`. An installed release is verified first, every time: a
+ * first start, a handover, a restart after a crash or SIGHUP. With users of their own, the
+ * server runs as PUID:PGID with nothing more, and is checked to: one that is not is stopped at
+ * its first message, before the supervisor acts on anything it says.
+ */
 const spawn: SpawnWorker = (request, onMessage) => {
-  const child = Bun.spawn(users.server([process.execPath, "server/start.ts"]), {
-    cwd: path.join(request.release.root, "apps/web"),
-    env: {
-      ...process.env,
-      [WorkerEnv.protocol]: String(PROTOCOL_VERSION),
-      [WorkerEnv.release]: request.release.name,
-      [WorkerEnv.predecessor]: request.predecessor ? "1" : "0",
-      [WorkerEnv.previousAssets]: request.previousAssets.join(":"),
-      [WorkerEnv.supervisorPid]: String(process.pid),
-      [ServerRun.env.id]: run.id,
-      [ServerRun.env.startedAt]: String(run.startedAt),
-      [ServerRun.env.process]: request.processId,
-    },
-    stdio: ["ignore", "inherit", "inherit"],
-    ipc(value) {
-      const message = Protocol.parseWorkerMessage(value);
-      if (message) onMessage(message);
-      else
+  let child: ReturnType<typeof Bun.spawn> | null = null;
+  let stopped: NodeJS.Signals | null = null;
+  const early: Parameters<ReturnType<SpawnWorker>["send"]>[0][] = [];
+  const exited = (async (): Promise<number | null> => {
+    if (installed(request.release)) {
+      const checking = performance.now();
+      const verified = await updater.resolve(request.release.name);
+      if (!verified.ok || verified.root !== request.release.root) {
         log(
-          `ignored a message from ${request.release.name} (pid ${child.pid}) it does not understand; the release and the supervisor may not match`,
+          `did not start ${request.release.name}: ${verified.ok ? "it is not where it was verified" : verified.message}`,
         );
-    },
-  });
+        return 1;
+      }
+      log(
+        `verified ${request.release.name} in ${Math.round(performance.now() - checking)} ms before starting it`,
+      );
+    }
+    if (stopped) return null;
+    let checked = serverIds === null;
+    const started = Bun.spawn(asServer([process.execPath, "server/start.ts"]), {
+      cwd: path.join(request.release.root, "apps/web"),
+      env: {
+        ...process.env,
+        [WorkerEnv.protocol]: String(PROTOCOL_VERSION),
+        [WorkerEnv.release]: request.release.name,
+        [WorkerEnv.predecessor]: request.predecessor ? "1" : "0",
+        [WorkerEnv.previousAssets]: request.previousAssets.join(":"),
+        [WorkerEnv.supervisorPid]: String(process.pid),
+        [ServerRun.env.id]: run.id,
+        [ServerRun.env.startedAt]: String(run.startedAt),
+        [ServerRun.env.process]: request.processId,
+      },
+      stdio: ["ignore", "inherit", "inherit"],
+      ipc(value) {
+        if (!checked) {
+          const wrong = serverIds
+            ? Credentials.dropped(
+                Credentials.parse(
+                  readFileSync(`/proc/${started.pid}/status`, "utf8"),
+                ),
+                serverIds,
+              )
+            : null;
+          if (wrong) {
+            log(
+              `stopped ${request.release.name} (pid ${started.pid}) without acting on it: ${wrong}, not ${serverIds?.uid}:${serverIds?.gid} with nothing more`,
+            );
+            started.kill("SIGKILL");
+            return;
+          }
+          checked = true;
+        }
+        const message = Protocol.parseWorkerMessage(value);
+        if (message) onMessage(message);
+        else
+          log(
+            `ignored a message from ${request.release.name} (pid ${started.pid}) it does not understand; the release and the supervisor may not match`,
+          );
+      },
+    });
+    child = started;
+    for (const message of early.splice(0)) started.send(message);
+    return started.exited;
+  })();
   return {
-    pid: child.pid,
+    get pid() {
+      return child?.pid ?? 0;
+    },
     send(message) {
       // A worker that already exited has nobody to tell.
-      if (child.exitCode === null && child.signalCode === null)
+      if (!child) early.push(message);
+      else if (child.exitCode === null && child.signalCode === null)
         child.send(message);
     },
-    kill: (signal) => child.kill(signal),
-    exited: child.exited,
+    kill(signal) {
+      if (child) child.kill(signal);
+      else stopped = signal;
+    },
+    exited,
   };
 };
 
@@ -176,34 +255,31 @@ function portInUse(): string | null {
   }
 }
 
-// One supervisor per installation, for its whole life; see InstallationLock.
-await mkdir(configRoot, { recursive: true });
-const installation = InstallationLock.acquire(configRoot);
-if (!installation.ok) {
-  console.error(installation.error.message);
-  process.exit(1);
-}
-// Servers a supervisor that died left behind still hold the port and the database. Their leases
-// are their user's, so with a user of their own that user waits for them (leases.ts).
-if (users.kind === "split") {
-  const waiter = Bun.spawn(
-    users.server([process.execPath, "server/supervisor/leases.ts"]),
-    {
-      cwd: path.join(builtIn.root, "apps/web"),
-      stdio: ["ignore", "inherit", "inherit"],
-    },
-  );
-  const code = await waiter.exited;
-  if (code !== 0) {
-    console.error(
-      `Nimbus did not start: it could not tell whether server processes of an earlier start still run (the check exited with ${code}; its reason is above).`,
-    );
-    process.exit(1);
+// One supervisor per installation, for its whole life (see InstallationLock), held by a helper
+// running as the servers' user, whose config root it is (installation.ts).
+const installation = Bun.spawn(
+  asServer([process.execPath, "server/supervisor/installation.ts"]),
+  {
+    cwd: path.join(builtIn.root, "apps/web"),
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "inherit",
+  },
+);
+{
+  const reader = installation.stdout.getReader();
+  let said = "";
+  for (;;) {
+    const read = await reader.read();
+    if (read.done) break;
+    said += new TextDecoder().decode(read.value);
+    if (said.includes('{"held":true}')) break;
   }
-} else {
-  const earlier = await InstallationLock.awaitLeases(configRoot);
-  if (!earlier.ok) {
-    console.error(`Nimbus did not start: ${earlier.error.message}`);
+  reader.releaseLock();
+  if (!said.includes('{"held":true}')) {
+    console.error(
+      `Nimbus did not start: it could not hold its installation (the helper exited with ${await installation.exited}; its reason is above).`,
+    );
     process.exit(1);
   }
 }
@@ -227,27 +303,88 @@ const source = UpdateSource.fromEnvironment(
 );
 if (!source.ok) log(`updates are off: ${source.message}`);
 
-/** The installer process (installer.ts), so downloads and unpacking never run in here. */
+/** The installer's answer: data, checked, never a path or a command. */
 const installerAnswer = z.union([
   z.object({ ok: z.literal(true), name: z.string() }),
   z.object({ ok: z.literal(false), message: z.string() }),
 ]);
-const runInstaller: RunInstaller = async (request) => {
+/** At most this much of what the installer says is read, and of each line it logs. */
+const INSTALLER_OUTPUT_BYTES = 64 * 1024;
+const printable = (text: string, length: number) =>
+  text.replace(/[^\x20-\x7e\u00a0-\uffff]/g, " ").slice(0, length);
+
+/** Run installer.ts for `request`, as the update user, with only what it needs. */
+async function installer(
+  request:
+    | {
+        kind: "stage";
+        source: string;
+        manifest: string;
+        signature: string;
+      }
+    | { kind: "clean" },
+): Promise<{ ok: true } | { ok: false; message: string }> {
   const child = Bun.spawn(
-    users.unprivileged([process.execPath, "server/supervisor/installer.ts"]),
+    asUpdateUser([
+      process.execPath,
+      path.join(builtIn.root, "apps/web/server/supervisor/installer.ts"),
+    ]),
     {
-      cwd: path.join(builtIn.root, "apps/web"),
+      cwd: store.staging,
+      // No secret of the application, and a home of its own.
+      env: {
+        PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+        HOME: store.staging,
+        TMPDIR: store.staging,
+        NODE_ENV: "production",
+        BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+        ...(seams.keysFile
+          ? { [TestSeams.names.keysFile]: seams.keysFile }
+          : {}),
+      },
       stdin: "pipe",
       stdout: "pipe",
-      stderr: "inherit",
+      stderr: "pipe",
     },
   );
-  void child.stdin.write(JSON.stringify(request));
+  const fail = (message: string) => ({ ok: false as const, message });
+  if (updateIds) {
+    // Checked before it is given anything to do: setpriv has run once it is no longer root.
+    let wrong: string | null = "it did not start";
+    for (let tries = 0; tries < 100 && child.exitCode === null; tries++) {
+      const credentials = await Credentials.read(child.pid);
+      if (credentials && !credentials.uids.includes(0)) {
+        wrong = Credentials.dropped(credentials, updateIds);
+        break;
+      }
+      await Bun.sleep(20);
+    }
+    if (wrong) {
+      child.kill("SIGKILL");
+      await child.exited;
+      return fail(
+        `The installer was not started as the update user with nothing more (${wrong}), so nothing was installed.`,
+      );
+    }
+  }
+  void child.stdin.write(
+    JSON.stringify({ ...request, staging: store.staging }),
+  );
   void child.stdin.end();
-  const [code, output] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-  ]);
+  const logged = (async () => {
+    let text = "";
+    for await (const chunk of child.stderr) {
+      if (text.length < INSTALLER_OUTPUT_BYTES)
+        text += new TextDecoder().decode(chunk);
+    }
+    for (const line of text.split("\n").filter(Boolean).slice(0, 50))
+      log(`installer: ${printable(line, 300)}`);
+  })();
+  let output = "";
+  for await (const chunk of child.stdout)
+    if (output.length < INSTALLER_OUTPUT_BYTES)
+      output += new TextDecoder().decode(chunk);
+  const [code] = await Promise.all([child.exited, logged]);
   let value: unknown;
   try {
     value = JSON.parse(output.trim().split("\n").at(-1) ?? "");
@@ -255,17 +392,94 @@ const runInstaller: RunInstaller = async (request) => {
     value = null;
   }
   const answer = installerAnswer.safeParse(value);
-  return answer.success
-    ? answer.data
-    : {
+  if (!answer.success)
+    return fail(
+      `The installer exited with code ${code} without saying how it went. Nothing was installed.`,
+    );
+  return answer.data.ok
+    ? { ok: true }
+    : fail(printable(answer.data.message, 1000));
+}
+
+/**
+ * Stop every process of the update user, as root: once none is left, nothing can change the
+ * staged tree while root copies it. Each pass signals them all at once from a process of that
+ * user (`kill(-1)`, which the kernel applies in one sweep, so a process forking cannot slip
+ * through), then waits and looks again; one left after ten passes fails the install.
+ */
+async function stopUpdateUser(
+  ids: Ids,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  for (let pass = 0; pass < 10; pass++) {
+    const left = await Credentials.processesOf(ids.uid);
+    if (!left.length) return { ok: true };
+    await Bun.spawn(
+      Users.dropTo(ids, [
+        process.execPath,
+        "-e",
+        "process.kill(-1, 'SIGKILL')",
+      ]),
+      {
+        stdio: ["ignore", "ignore", "ignore"],
+        env: { PATH: process.env.PATH ?? "" },
+      },
+    ).exited;
+    await Bun.sleep(100);
+  }
+  const left = await Credentials.processesOf(ids.uid);
+  return left.length
+    ? {
         ok: false,
-        message: `The installer exited with code ${code} without saying how it went. Nothing new runs; the releases folder holds at most an unfinished staging copy, removed at the next install.`,
-      };
+        message: `Processes of the update user (${left.join(", ")}) still ran after being stopped ten times, so nothing was published: what they staged could still change. Restart the container.`,
+      }
+    : { ok: true };
+}
+
+/**
+ * Install as docs/updates.md describes: the installer stages the release as the update user;
+ * root stops every process of that user, copies and checks the staged tree, and publishes it;
+ * the installer then removes what it staged.
+ */
+const runInstaller: RunInstaller = async (request) => {
+  const manifest = new Uint8Array(Buffer.from(request.manifest, "base64"));
+  const signature = new Uint8Array(Buffer.from(request.signature, "base64"));
+  const trust = await TrustRoot.load(builtIn.root, seams.keysFile);
+  if (!trust.ok) return { ok: false, message: trust.message };
+  try {
+    const staged = await installer({
+      kind: "stage",
+      source: request.source,
+      manifest: request.manifest,
+      signature: request.signature,
+    });
+    if (!staged.ok) return staged;
+    if (updateIds) {
+      const stopped = await stopUpdateUser(updateIds);
+      if (!stopped.ok) return stopped;
+    }
+    const published = await publishRelease({
+      staging: store.staging,
+      releases,
+      owner: updateIds?.uid ?? self,
+      manifest,
+      signature,
+      trust: trust.value,
+      builtInRoot: builtIn.root,
+      supervisorProtocol: PROTOCOL_VERSION,
+    });
+    return published.ok
+      ? published
+      : { ok: false, message: published.error.message };
+  } finally {
+    const cleaned = await installer({ kind: "clean" });
+    if (!cleaned.ok)
+      log(`could not remove the staged release: ${cleaned.message}`);
+  }
 };
 
 const updater = await createUpdater({
   releases,
-  disabled: users.updatesOff,
+  disabled: users.updatesOff ?? (storeChecked.ok ? null : storeChecked.message),
   builtIn: { root: builtIn.root, build: build.ok ? build.value : null },
   source: source.ok
     ? source.value
@@ -556,4 +770,12 @@ const stop = (signal: string) => {
     });
 };
 process.on("SIGTERM", () => stop("SIGTERM"));
+// Without its helper the installation is no longer held: another supervisor could start on it.
+void installation.exited.then((code) => {
+  if (stopping) return;
+  log(
+    `the helper holding the installation exited (code ${code}), so this supervisor stops rather than run without holding it; the container restarts it`,
+  );
+  stop("lost installation lock");
+});
 process.on("SIGINT", () => stop("SIGINT"));

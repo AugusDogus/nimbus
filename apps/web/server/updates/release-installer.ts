@@ -19,6 +19,7 @@ import { BundleArchive } from "./bundle-archive";
 import { BuildInfo } from "./build-info";
 import { ImageAbi } from "./image-abi";
 import { NativeArtifacts } from "./native-artifacts";
+import { ReleaseCopy } from "./release-copy";
 import { ReleaseTree } from "./release-tree";
 import { ReleaseManifest } from "./release-manifest";
 import { ReleaseSignature, type TrustRoot } from "./release-signature";
@@ -63,34 +64,24 @@ const describe = (error: unknown) => {
   if (code === "ENOSPC" || code === "EFBIG")
     return "the disk holding the releases is full or limits how large a file may grow. Free space on it, then install again";
   if (code === "EACCES" || code === "EPERM")
-    return "the supervisor may not write the releases folder. Check its owner, then install again";
+    return "the update store's folders do not let this step write where it must. Check their owners (see docs/updates.md), then install again";
   return error instanceof Error ? error.message : String(error);
 };
 
-/**
- * Install the release `manifest` describes, which `signature` signs (see docs/updates.md):
- * download its bundle beside the releases, compare its size and SHA-256, unpack it into a staging
- * folder, check the tree, link the image's native packages, and only then rename it into place.
- * Every failure removes what it wrote; the running servers never see any of it.
- */
-export async function installRelease({
-  releases,
-  source,
+/** What checking a signed manifest against this image gives: the manifest, or why not. */
+async function signedFor({
   manifest: manifestBytes,
   signature,
   trust,
   builtInRoot,
   supervisorProtocol,
 }: {
-  releases: string;
-  source: Extract<UpdateSource, { kind: "url" }>;
   manifest: Uint8Array<ArrayBuffer>;
   signature: Uint8Array<ArrayBuffer>;
   trust: TrustRoot;
   builtInRoot: string;
   supervisorProtocol: number;
-}): Promise<{ ok: true; name: string } | { ok: false; error: InstallError }> {
-  // Verified again here, whoever asked: only a signed release is ever written.
+}) {
   const signed = await ReleaseSignature.verify(trust, manifestBytes, signature);
   if (!signed.ok) return failed(signed.error.message);
   const parsed = ReleaseManifest.parse(manifestBytes);
@@ -118,7 +109,154 @@ export async function installRelease({
     return failed(
       `Release ${name} needs ${missing.join("; ")}. Pull ${manifest.requires.image} and recreate the container to get it.`,
     );
-  await mkdir(releases, { recursive: true, mode: 0o755 });
+  return { ok: true as const, manifest, name, locations };
+}
+
+/** Whether `tree` is release `manifest` describes, as signed; why not otherwise. */
+async function sameTree(tree: string, manifest: ReleaseManifest, name: string) {
+  const binaries = await NativeArtifacts.find(tree);
+  if (binaries.length)
+    return `The bundle of release ${name} carries native binaries (${binaries.slice(0, 5).join(", ")}${binaries.length > 5 ? ", …" : ""}), which only the image may provide. Nothing was installed.`;
+  const digest = await ReleaseTree.digest(tree);
+  if (
+    digest.sha256 !== manifest.tree.sha256 ||
+    digest.entries !== manifest.tree.entries
+  )
+    return `The bundle of release ${name} unpacks to another tree than its signed manifest describes. Nothing was installed.`;
+  const checked = ReleaseDirectory.check(tree);
+  if (!checked.ok)
+    return `The bundle of release ${name} is not a release: ${checked.reason}.`;
+  const build = await BuildInfo.read(path.join(tree, "apps/web"));
+  if (
+    !build.ok ||
+    !build.value ||
+    build.value.commit !== manifest.build.commit ||
+    build.value.sequence !== manifest.build.sequence ||
+    build.value.channel !== manifest.build.channel
+  )
+    return `The bundle of release ${name} describes another build than its manifest. Nothing was installed.`;
+  return null;
+}
+
+/**
+ * Stage the release `manifest` describes, which `signature` signs (see docs/updates.md): the
+ * installer's part, run as the update user, which alone touches the network and the bundle's
+ * bytes. Downloads the bundle into `staging`, compares its size and SHA-256, unpacks it into
+ * `<staging>/release` and checks that tree. Nothing it leaves is trusted: root copies and checks
+ * it again before anything of it can run (`publishRelease`).
+ */
+export async function stageRelease({
+  staging,
+  source,
+  ...request
+}: {
+  staging: string;
+  source: Extract<UpdateSource, { kind: "url" }>;
+  manifest: Uint8Array<ArrayBuffer>;
+  signature: Uint8Array<ArrayBuffer>;
+  trust: TrustRoot;
+  builtInRoot: string;
+  supervisorProtocol: number;
+}): Promise<{ ok: true; name: string } | { ok: false; error: InstallError }> {
+  const checked = await signedFor(request);
+  if (!checked.ok) return checked;
+  const { manifest, name } = checked;
+  const tree = path.join(staging, "release");
+  try {
+    // An earlier attempt's leftovers are this user's own.
+    await rm(tree, { recursive: true, force: true });
+    const fetched = await UpdateSource.fetch(
+      UpdateSource.url(source, manifest.bundle.file),
+      {
+        maxBytes: manifest.bundle.size,
+        timeoutMs: DOWNLOAD_TIMEOUT_MS,
+      },
+    );
+    if (!fetched.ok) return failed(fetched.error.message);
+    // Opened once and unlinked at once: the bytes hashed and the bytes unpacked are read through
+    // this one descriptor, and no path leads to them meanwhile.
+    const downloadPath = path.join(
+      await mkdtemp(path.join(staging, "download-")),
+      "bundle.tar.gz",
+    );
+    const download = await open(downloadPath, "wx+", 0o600);
+    try {
+      await unlink(downloadPath);
+      await rm(path.dirname(downloadPath), { recursive: true, force: true });
+      let written = 0;
+      for await (const chunk of fetched.value)
+        // A write may take only part of a chunk, as near a full disk or a file size limit.
+        for (let offset = 0; offset < chunk.byteLength;) {
+          const { bytesWritten } = await download.write(
+            chunk,
+            offset,
+            chunk.byteLength - offset,
+            written,
+          );
+          if (bytesWritten === 0)
+            throw Object.assign(
+              new Error("No byte of the bundle could be written."),
+              { code: "ENOSPC" },
+            );
+          offset += bytesWritten;
+          written += bytesWritten;
+        }
+      await download.sync();
+      // What is on disk is what gets unpacked, so that is what is compared.
+      const hash = createHash("sha256");
+      let size = 0;
+      for await (const chunk of readFrom(download)) {
+        hash.update(chunk);
+        size += chunk.byteLength;
+      }
+      const sha256 = hash.digest("hex");
+      if (size !== manifest.bundle.size || sha256 !== manifest.bundle.sha256)
+        return failed(
+          `The bundle of release ${name} arrived as ${size} bytes with SHA-256 ${sha256}, not the ${manifest.bundle.size} bytes and ${manifest.bundle.sha256} its signed manifest names: it was cut short or changed. Nothing was installed; check again later.`,
+        );
+      await mkdir(tree, { mode: 0o755 });
+      const unpacked = await BundleArchive.unpack(readFrom(download), tree);
+      if (!unpacked.ok)
+        return failed(
+          `The bundle of release ${name} could not be unpacked: ${unpacked.error.message}`,
+        );
+    } finally {
+      await download.close();
+    }
+    const wrong = await sameTree(tree, manifest, name);
+    if (wrong) return failed(wrong);
+    return { ok: true, name };
+  } catch (error) {
+    return failed(`Release ${name} was not installed: ${describe(error)}.`);
+  }
+}
+
+/**
+ * Publish a staged release: root's part, once the installer exited and no process of the update
+ * user (`owner`) is left. Copies `<staging>/release` into a folder of its own under `releases`
+ * (ReleaseCopy), checks that copy against the signed manifest, links the image's native
+ * packages, writes the manifest and signature root verified itself, and only then renames it
+ * into place. Every failure removes what it wrote; `releases` and its state are unchanged.
+ */
+export async function publishRelease({
+  staging,
+  releases,
+  owner,
+  ...request
+}: {
+  staging: string;
+  releases: string;
+  owner: number;
+  manifest: Uint8Array<ArrayBuffer>;
+  signature: Uint8Array<ArrayBuffer>;
+  trust: TrustRoot;
+  builtInRoot: string;
+  supervisorProtocol: number;
+}): Promise<{ ok: true; name: string } | { ok: false; error: InstallError }> {
+  const checked = await signedFor(request);
+  if (!checked.ok) return checked;
+  const { manifest, name, locations } = checked;
+  const { manifest: manifestBytes, signature, trust } = request;
   /**
    * Whether release `name` is already installed here, whole, from these very manifest bytes:
    * `other` when a release of that name was installed from another signed manifest.
@@ -144,135 +282,60 @@ export async function installRelease({
   if (before === "same") return { ok: true, name };
   if (before === "other") return otherCopy();
 
-  // This attempt's own folder: another install running at the same time never shares a path.
   let attempt: string;
   try {
     attempt = await mkdtemp(path.join(releases, `.install-${name}-`));
   } catch (error) {
     return failed(`Release ${name} was not installed: ${describe(error)}.`);
   }
-  const staging = path.join(attempt, "release");
-  const cleanUp = () => rm(attempt, { recursive: true, force: true });
+  const copy = path.join(attempt, "release");
   try {
-    const fetched = await UpdateSource.fetch(
-      UpdateSource.url(source, manifest.bundle.file),
-      {
-        maxBytes: manifest.bundle.size,
-        timeoutMs: DOWNLOAD_TIMEOUT_MS,
-      },
-    );
-    if (!fetched.ok) return failed(fetched.error.message);
-    // Opened once and unlinked at once: the bytes hashed and the bytes unpacked are read through
-    // this one descriptor, and no path leads to them meanwhile.
-    const downloadPath = path.join(attempt, "bundle.tar.gz");
-    const download = await open(downloadPath, "wx+", 0o600);
-    try {
-      await unlink(downloadPath);
-      let written = 0;
-      for await (const chunk of fetched.value)
-        // A write may take only part of a chunk, as near a full disk or a file size limit.
-        for (let offset = 0; offset < chunk.byteLength;) {
-          const { bytesWritten } = await download.write(
-            chunk,
-            offset,
-            chunk.byteLength - offset,
-            written,
-          );
-          if (bytesWritten === 0)
-            throw Object.assign(
-              new Error("No byte of the bundle could be written."),
-              {
-                code: "ENOSPC",
-              },
-            );
-          offset += bytesWritten;
-          written += bytesWritten;
-        }
-      await download.sync();
-      // What is on disk is what gets unpacked, so that is what is compared.
-      const hash = createHash("sha256");
-      let size = 0;
-      for await (const chunk of readFrom(download)) {
-        hash.update(chunk);
-        size += chunk.byteLength;
-      }
-      const sha256 = hash.digest("hex");
-      if (size !== manifest.bundle.size || sha256 !== manifest.bundle.sha256)
-        return failed(
-          `The bundle of release ${name} arrived as ${size} bytes with SHA-256 ${sha256}, not the ${manifest.bundle.size} bytes and ${manifest.bundle.sha256} its signed manifest names: it was cut short or changed. Nothing was installed; check again later.`,
-        );
-      await mkdir(staging, { mode: 0o755 });
-      const unpacked = await BundleArchive.unpack(readFrom(download), staging);
-      if (!unpacked.ok)
-        return failed(
-          `The bundle of release ${name} could not be unpacked: ${unpacked.error.message}`,
-        );
-    } finally {
-      await download.close();
-    }
-    const binaries = await NativeArtifacts.find(staging);
-    if (binaries.length)
-      return failed(
-        `The bundle of release ${name} carries native binaries (${binaries.slice(0, 5).join(", ")}${binaries.length > 5 ? ", …" : ""}), which only the image may provide. Nothing was installed.`,
-      );
-    const unpackedTree = await ReleaseTree.digest(staging);
-    if (
-      unpackedTree.sha256 !== manifest.tree.sha256 ||
-      unpackedTree.entries !== manifest.tree.entries
-    )
-      return failed(
-        `The bundle of release ${name} unpacks to another tree than its signed manifest describes. Nothing was installed.`,
-      );
-    const tree = ReleaseDirectory.check(staging);
-    if (!tree.ok)
-      return failed(
-        `The bundle of release ${name} is not a release: ${tree.reason}.`,
-      );
-    const build = await BuildInfo.read(path.join(staging, "apps/web"));
-    if (
-      !build.ok ||
-      !build.value ||
-      build.value.commit !== manifest.build.commit ||
-      build.value.sequence !== manifest.build.sequence ||
-      build.value.channel !== manifest.build.channel
-    )
-      return failed(
-        `The bundle of release ${name} describes another build than its manifest. Nothing was installed.`,
-      );
+    const copied = await ReleaseCopy.copy(path.join(staging, "release"), copy, {
+      owner,
+      limits: ReleaseCopy.limits,
+    });
+    if (!copied.ok)
+      return failed(`Release ${name} was not installed: ${copied.message}`);
+    // Checked again in root's own copy, whatever the installer said of the staged one.
+    const wrong = await sameTree(copy, manifest, name);
+    if (wrong) return failed(wrong);
     for (const [native, location] of locations) {
-      const link = path.join(staging, "apps/web/node_modules", native);
+      const link = path.join(copy, "apps/web/node_modules", native);
       // Never written through a link the bundle put on the way.
       for (
         let folder = path.dirname(link);
-        folder !== staging;
+        folder !== copy;
         folder = path.dirname(folder)
       )
         if ((await lstat(folder).catch(() => null))?.isSymbolicLink())
           return failed(
-            `The bundle of release ${name} holds ${path.relative(staging, folder)}, which is a link: the installer does not link native packages through it.`,
+            `The bundle of release ${name} holds ${path.relative(copy, folder)}, which is a link: native packages are not linked through it.`,
           );
       if (await lstat(link).catch(() => null))
         return failed(
           `The bundle of release ${name} carries ${native}, which the image provides.`,
         );
-      // The bundle's own folder for it: one the installer made would not be in the signed tree.
+      // The bundle's own folder for it: one made here would not be in the signed tree.
       if (!(await lstat(path.dirname(link)).catch(() => null))?.isDirectory())
         return failed(
-          `The bundle of release ${name} has no ${path.relative(staging, path.dirname(link))} folder for the native packages the image provides.`,
+          `The bundle of release ${name} has no ${path.relative(copy, path.dirname(link))} folder for the native packages the image provides.`,
         );
       await symlink(location, link);
     }
-    // Created, never written over: a bundle holding these names is refused.
-    await writeFile(path.join(staging, MANIFEST_FILE), manifestBytes, {
+    // The bytes root verified, created, never written over: a bundle holding these names fails.
+    await writeFile(path.join(copy, MANIFEST_FILE), manifestBytes, {
       mode: 0o644,
       flag: "wx",
     });
-    await writeFile(path.join(staging, SIGNATURE_FILE), signature, {
+    await writeFile(path.join(copy, SIGNATURE_FILE), signature, {
       mode: 0o644,
       flag: "wx",
     });
+    const intact = await ReleaseStore.intact(copy, manifest, locations);
+    if (!intact.ok)
+      return failed(`Release ${name} was not installed: ${intact.message}`);
     try {
-      await rename(staging, path.join(releases, name));
+      await rename(copy, path.join(releases, name));
     } catch (error) {
       // Another install of this release finished first: keep its copy if it verifies.
       if (
@@ -290,6 +353,6 @@ export async function installRelease({
   } catch (error) {
     return failed(`Release ${name} was not installed: ${describe(error)}.`);
   } finally {
-    await cleanUp();
+    await rm(attempt, { recursive: true, force: true });
   }
 }
