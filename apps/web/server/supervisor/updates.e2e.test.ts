@@ -543,6 +543,43 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     expect(await health()).toBe(200);
   }, 120_000);
 
+  test("after a crash an installed release is verified again before it restarts, and one changed meanwhile is not started", async () => {
+    const running = await active();
+    if (!running || running === "built-in")
+      throw new Error("No installed release runs.");
+    const verified = () => log.split(`verified ${running} in`).length - 1;
+    const pidOf = async () => (await status()).active?.pid ?? 0;
+    const first = await pidOf();
+    const before = verified();
+    process.kill(first, "SIGKILL");
+    const second = await waitFor("the restart after the crash", async () => {
+      const pid = await pidOf();
+      return pid && pid !== first ? pid : null;
+    });
+    expect(verified()).toBeGreaterThan(before);
+    // Changed while it runs, then crashed: the restart refuses it until it is whole again.
+    const file = path.join(
+      root,
+      "store/releases",
+      running,
+      "apps/web/server/start.ts",
+    );
+    const original = await Bun.file(file).text();
+    await Bun.write(file, `${original}\n// changed\n`);
+    process.kill(second, "SIGKILL");
+    await waitFor("the changed release to be refused", async () =>
+      log.includes(`did not start ${running}`) ? true : null,
+    );
+    await Bun.write(file, original);
+    const third = await waitFor("the restart once it is whole", async () => {
+      const pid = await pidOf();
+      return pid && pid !== second ? pid : null;
+    });
+    expect(third).not.toBe(second);
+    expect(await active()).toBe(running);
+    expect(await health()).toBe(200);
+  }, 120_000);
+
   test("a damaged installed release is not started: the supervisor falls back to the built-in one", async () => {
     const damaged = await active();
     if (!damaged || damaged === "built-in")
