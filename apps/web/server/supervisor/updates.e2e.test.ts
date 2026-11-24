@@ -436,6 +436,27 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     expect(await health()).toBe(200);
   }, 180_000);
 
+  test("an install asked for while a restart is under way is busy at once and changes nothing", async () => {
+    const offered = await variant(107, bundle101.tree);
+    await publish(offered.manifest, offered.bytes);
+    expect((await ControlClient.checkForUpdate(socket)).status).toBe(200);
+    const stateFile = path.join(root, "config/supervisor/releases/state.json");
+    const before = await Bun.file(stateFile).text();
+    const restart = ControlClient.handover(socket, null);
+    await waitFor("the restart to start", async () =>
+      (await status()).phase === "handing-over" ? true : null,
+    );
+    const refused = await ControlClient.update(socket, "install");
+    expect(refused?.ok).toBe(false);
+    if (refused && !refused.ok) expect(refused.error.kind).toBe("busy");
+    expect((await restart)?.ok).toBe(true);
+    // Nothing was downloaded, reserved or marked as being switched to.
+    expect(await Bun.file(stateFile).text()).toBe(before);
+    expect(
+      await readdir(path.join(root, "config/supervisor/releases")),
+    ).not.toContain(ReleaseManifest.releaseName(offered.manifest));
+  }, 120_000);
+
   test("a newer release installs, and a rollback returns to the one before", async () => {
     const before = await active();
     const next = await variant(105, bundle101.tree);

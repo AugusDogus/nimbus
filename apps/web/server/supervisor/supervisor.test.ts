@@ -670,4 +670,27 @@ describe("the supervisor", () => {
     second.exit(0);
     await stopping;
   });
+
+  test("a reserved handover makes every other one busy until it ends, and a busy one starts nothing", async () => {
+    const h = harness();
+    await h.serving();
+    const reserved = h.supervisor.reserve();
+    if (!reserved.ok) throw new Error(reserved.error.message);
+    // Another restart, update or rollback meanwhile: busy, and nothing starts.
+    for (const name of ["b", null]) {
+      const other = await h.supervisor.handover(name);
+      expect(other.ok || other.error.kind).toBe("busy");
+    }
+    expect(h.supervisor.reserve().ok).toBe(false);
+    expect(h.workers).toHaveLength(1);
+    // The owner hands over with its reservation, which ends with the handover.
+    const handing = h.supervisor.handover("b", reserved.value);
+    h.ready(await h.started(1));
+    expect((await handing).ok).toBe(true);
+    const next = h.supervisor.reserve();
+    expect(next.ok).toBe(true);
+    // One given up changes nothing either, and frees the supervisor.
+    if (next.ok) next.value.release();
+    expect((await h.handover("a", 2)).to).toBe("a");
+  });
 });

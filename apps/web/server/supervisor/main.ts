@@ -32,6 +32,7 @@ import { z } from "zod";
 import {
   createSupervisor,
   type HandoverReport,
+  type HandoverReservation,
   type Release,
   type SpawnWorker,
 } from "./supervisor";
@@ -347,7 +348,10 @@ const control = Bun.serve({
       // Streamed, a line every few seconds: a handover lasts as long as the new server's
       // startup, and Bun resets a Unix socket connection idle for 10 seconds.
       const release = url.searchParams.get("release");
-      return streamed(release, handOver(release));
+      return streamed(
+        release,
+        reserved((reservation) => handOver(release, reservation)),
+      );
     }
     if (request.method === "GET" && url.pathname === "/update")
       return Response.json(updater.status(), { headers: closing });
@@ -382,9 +386,32 @@ function streamed(
   });
 }
 
+/**
+ * Run `step` holding the next handover (see HandoverReservation): when the supervisor is busy
+ * the answer is busy at once, before anything was downloaded, reserved or written.
+ */
+async function reserved(
+  step: (
+    reservation: HandoverReservation,
+  ) => Promise<
+    { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
+  >,
+): Promise<
+  { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
+> {
+  const reservation = supervisor.reserve();
+  if (!reservation.ok) return reservation;
+  try {
+    return await step(reservation.value);
+  } finally {
+    reservation.value.release();
+  }
+}
+
 /** Hand over to `name`, verifying it first if it is an installed release, and record it. */
 async function handOver(
   name: string | null,
+  reservation: HandoverReservation,
 ): Promise<
   { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
 > {
@@ -418,7 +445,7 @@ async function handOver(
         error: { kind: "update-failed", message: marked.message },
       };
   }
-  const outcome = await supervisor.handover(name);
+  const outcome = await supervisor.handover(name, reservation);
   if (!outcome.ok && managed) {
     const now = supervisor.status();
     if (now.phase === "serving" && now.active?.release !== managed)
@@ -459,43 +486,45 @@ async function oneAtATime(
 }
 
 /** Install what the last check offered, then hand over to it. */
-async function installUpdate(): Promise<
-  { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
-> {
-  const installed = await updater.install();
-  if (!installed.ok)
-    return {
-      ok: false,
-      error: { kind: "update-failed", message: installed.message },
-    };
-  const outcome = await handOver(installed.name);
-  if (outcome.ok)
-    await updater.prune(
-      [supervisor.status().active, ...supervisor.status().draining].flatMap(
-        (worker) => (worker ? [worker.release] : []),
-      ),
-    );
-  return outcome;
+function installUpdate() {
+  return reserved(async (reservation) => {
+    const installed = await updater.install();
+    if (!installed.ok)
+      return {
+        ok: false,
+        error: { kind: "update-failed", message: installed.message },
+      };
+    const outcome = await handOver(installed.name, reservation);
+    if (outcome.ok)
+      await updater.prune(
+        [supervisor.status().active, ...supervisor.status().draining].flatMap(
+          (worker) => (worker ? [worker.release] : []),
+        ),
+      );
+    return outcome;
+  });
 }
 
 /** Hand back to the release that ran before the current one. */
-async function rollBack(): Promise<
-  { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
-> {
-  const target = await updater.rollbackTarget();
-  if (!target.ok)
-    return {
-      ok: false,
-      error: { kind: "update-failed", message: target.message },
-    };
-  return handOver(target.name ?? builtIn.name);
+function rollBack() {
+  return reserved(async (reservation) => {
+    const target = await updater.rollbackTarget();
+    if (!target.ok)
+      return {
+        ok: false,
+        error: { kind: "update-failed", message: target.message },
+      };
+    return handOver(target.name ?? builtIn.name, reservation);
+  });
 }
 log(`serving; control socket ${socketPath}`);
 
 process.on("SIGHUP", () => {
-  void supervisor.handover(null).then((outcome) => {
-    if (!outcome.ok) log(`SIGHUP restart refused: ${outcome.error.message}`);
-  });
+  void reserved((reservation) => handOver(null, reservation)).then(
+    (outcome) => {
+      if (!outcome.ok) log(`SIGHUP restart refused: ${outcome.error.message}`);
+    },
+  );
 });
 let stopping = false;
 const stop = (signal: string) => {

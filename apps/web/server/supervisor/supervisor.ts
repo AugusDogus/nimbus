@@ -152,6 +152,12 @@ export type HandoverReport = {
 
 type HandoverOutcome = Outcome<HandoverReport, HandoverError>;
 
+/**
+ * The right to the next handover, taken before anything is written for it (see `reserve`):
+ * every other handover is busy until it is used or given up.
+ */
+export type HandoverReservation = { readonly token: symbol; release(): void };
+
 /** A release to start, with the earlier builds whose assets it keeps serving. */
 type Launch = { release: Release; previousAssets: string[] };
 
@@ -272,6 +278,8 @@ export function createSupervisor(deps: {
   let nextRecovery = 1;
   let nextProcess = 1;
   let restartDelay = settings.restartMs.initial;
+  /** The reservation every handover but its owner's is refused for; see `reserve`. */
+  let reserved: symbol | null = null;
   const iso = (time: number) => new Date(time).toISOString();
   const named = (worker: Worker) =>
     `${worker.release.name} (pid ${worker.process.pid})`;
@@ -770,6 +778,52 @@ export function createSupervisor(deps: {
     }
   }
 
+  /** A handover as `handover` describes it, once any reservation allowed it. */
+  function handoverNow(name: string | null): Promise<HandoverOutcome> {
+    const current = state;
+    if (current.kind !== "serving")
+      return Promise.resolve(
+        busy(
+          current.kind === "stopping"
+            ? "The container is stopping, so nothing new starts."
+            : current.kind === "handing-over"
+              ? `A handover to ${current.candidate.worker.release.name} is under way; try again once it finished.`
+              : "Nimbus is not serving yet; try again once it is.",
+        ),
+      );
+    const previous = current.active;
+    const found =
+      name === null
+        ? { ok: true as const, release: previous.release }
+        : deps.release(name);
+    if (!found.ok)
+      return Promise.resolve({
+        ok: false,
+        error: {
+          kind: "unknown-release",
+          message: `Release ${name} may not start: ${found.reason}. Nothing was changed; ${previous.release.name} keeps serving.`,
+        },
+      });
+    const { release } = found;
+    const previousAssets =
+      release.root === previous.release.root
+        ? previous.previousAssets
+        : [deps.distOf(previous.release), ...previous.previousAssets].slice(
+            0,
+            2,
+          );
+    return new Promise((settle) =>
+      startCandidate(
+        { release, previousAssets },
+        { kind: "handover", from: previous.release, started: now(), settle },
+        {
+          release: previous.release,
+          previousAssets: previous.previousAssets,
+        },
+      ),
+    );
+  }
+
   return {
     /** Start the first worker and wait until it serves; an error value if it never does. */
     start(): Promise<Outcome<void, HandoverError>> {
@@ -792,52 +846,53 @@ export function createSupervisor(deps: {
     },
 
     /**
-     * Replace the active worker with one of release `name`, or of the active worker's own
-     * release when `name` is null, without closing the port.
+     * Reserve the next handover while serving, so its owner can record what it is about to do
+     * first, such as the release it switches to, knowing no other handover starts meanwhile and
+     * that a busy answer comes now, before anything was written. Ends when its handover settles,
+     * or when `release` gives it up.
      */
-    handover(name: string | null): Promise<HandoverOutcome> {
-      const current = state;
-      if (current.kind !== "serving")
+    reserve(): Outcome<HandoverReservation, HandoverError> {
+      if (reserved !== null)
+        return busy(
+          "An update, rollback or restart is being prepared; try again once it finished.",
+        );
+      if (state.kind !== "serving")
+        return busy(
+          state.kind === "handing-over"
+            ? `A handover to ${state.candidate.worker.release.name} is under way; try again once it finished.`
+            : "Nimbus is not serving yet; try again once it is.",
+        );
+      const token = Symbol("handover reservation");
+      reserved = token;
+      return {
+        ok: true,
+        value: {
+          token,
+          release() {
+            if (reserved === token) reserved = null;
+          },
+        },
+      };
+    },
+
+    /**
+     * Replace the active worker with one of release `name`, or of the active worker's own
+     * release when `name` is null, without closing the port. While a handover is reserved, only
+     * its owner's (with `reservation`) runs; its outcome ends the reservation.
+     */
+    handover(
+      name: string | null,
+      reservation?: HandoverReservation,
+    ): Promise<HandoverOutcome> {
+      if (reserved !== null && reservation?.token !== reserved)
         return Promise.resolve(
           busy(
-            current.kind === "stopping"
-              ? "The container is stopping, so nothing new starts."
-              : current.kind === "handing-over"
-                ? `A handover to ${current.candidate.worker.release.name} is under way; try again once it finished.`
-                : "Nimbus is not serving yet; try again once it is.",
+            "An update, rollback or restart is being prepared; try again once it finished.",
           ),
         );
-      const previous = current.active;
-      const found =
-        name === null
-          ? { ok: true as const, release: previous.release }
-          : deps.release(name);
-      if (!found.ok)
-        return Promise.resolve({
-          ok: false,
-          error: {
-            kind: "unknown-release",
-            message: `Release ${name} may not start: ${found.reason}. Nothing was changed; ${previous.release.name} keeps serving.`,
-          },
-        });
-      const { release } = found;
-      const previousAssets =
-        release.root === previous.release.root
-          ? previous.previousAssets
-          : [deps.distOf(previous.release), ...previous.previousAssets].slice(
-              0,
-              2,
-            );
-      return new Promise((settle) =>
-        startCandidate(
-          { release, previousAssets },
-          { kind: "handover", from: previous.release, started: now(), settle },
-          {
-            release: previous.release,
-            previousAssets: previous.previousAssets,
-          },
-        ),
-      );
+      const outcome = handoverNow(name);
+      if (reservation) void outcome.finally(() => reservation.release());
+      return outcome;
     },
 
     /** Drain every worker within the stop time and wait for them, as a container stop needs. */
