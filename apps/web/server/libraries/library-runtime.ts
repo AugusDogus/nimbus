@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "../db";
 import { reconcileIntervalMs } from "../search-protocol";
 import { driveStore } from "../services";
+import { EventLoopStalls } from "../event-loop-stalls";
 import { LibraryCatalog } from "./library-catalog";
 import { PairingOrigin, type LibraryContext } from "./library-context";
 
@@ -41,14 +42,15 @@ const logFailure = (error: unknown) =>
  */
 export function watchLibraryCatalogs() {
   const ctx = libraryRuntime();
-  void LibraryCatalog.reconcileAll(ctx).catch(logFailure);
+  const scan = () =>
+    EventLoopStalls.track("library catalog scan", () =>
+      LibraryCatalog.reconcileAll(ctx),
+    ).catch(logFailure);
+  void scan();
   const unsubscribe = subscribeFileEvents((event) =>
     LibraryCatalog.noteChange(ctx, event.path),
   );
-  const timer = setInterval(
-    () => void LibraryCatalog.reconcileAll(ctx).catch(logFailure),
-    reconcileIntervalMs(),
-  );
+  const timer = setInterval(() => void scan(), reconcileIntervalMs());
   timer.unref();
   return () => {
     unsubscribe();

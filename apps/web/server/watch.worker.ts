@@ -1,3 +1,4 @@
+import { EventLoopStalls } from "./event-loop-stalls";
 import { watch } from "node:fs";
 import { access, constants } from "node:fs/promises";
 import path from "node:path";
@@ -180,13 +181,14 @@ export const startFileWatch = (
   let moreLogged = false;
   let recheck: ReturnType<typeof setTimeout> | null = null;
 
-  const flush = () => {
-    for (const event of pending.values()) {
-      emit(event);
-    }
-    pending.clear();
-    timer = null;
-  };
+  const flush = () =>
+    EventLoopStalls.track("delivery of watched file changes", () => {
+      for (const event of pending.values()) {
+        emit(event);
+      }
+      pending.clear();
+      timer = null;
+    });
 
   const listener = (event: string, relativePath: string | null) => {
     if (!relativePath) {
@@ -225,9 +227,12 @@ export const startFileWatch = (
   /** Start watching; a failure to start is handled like any other watch error. */
   const start = () => {
     try {
-      const started: Watcher = watchTree(root, (event, filename) => {
-        if (watcher === started) listener(event, filename);
-      });
+      // Bun adds a watch for every folder of the drive before this returns.
+      const started: Watcher = EventLoopStalls.track("file watch setup", () =>
+        watchTree(root, (event, filename) => {
+          if (watcher === started) listener(event, filename);
+        }),
+      );
       started.on("error", (error) => {
         if (watcher === started) fail(error);
       });

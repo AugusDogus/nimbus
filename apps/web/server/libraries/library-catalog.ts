@@ -1,3 +1,4 @@
+import { EventLoopStalls } from "../event-loop-stalls";
 import { createHmac, hkdfSync } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
@@ -640,7 +641,9 @@ export const LibraryCatalog = {
     if (!marked || settleTimer) return;
     settleTimer = setTimeout(() => {
       settleTimer = null;
-      void LibraryCatalog.reconcileDirty(ctx).catch((error: unknown) =>
+      void EventLoopStalls.track("library catalog update", () =>
+        LibraryCatalog.reconcileDirty(ctx),
+      ).catch((error: unknown) =>
         console.error(
           `Nimbus could not update a library catalog: ${error instanceof Error ? error.name : typeof error}. Paired devices see the change at their next library request.`,
         ),

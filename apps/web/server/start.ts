@@ -43,6 +43,7 @@ import { Supervision, type LifecycleMessage } from "./supervisor/supervision";
 import { ServerRun } from "@nimbus/api/server-run";
 import { InstallationLock } from "./installation-lock";
 import { MigrationGate } from "./db/migration-gate";
+import { EventLoopStalls } from "./event-loop-stalls";
 import { UploadClaims } from "./mcp/upload-claims";
 import { NEEDS_FULL_RESTART_EXIT } from "./supervisor/protocol";
 import { GuessBudgets } from "./guess-budgets";
@@ -54,6 +55,9 @@ ServerRun.current();
 const supervised = Supervision.fromProcess();
 if (!supervised.ok) throw new Error(supervised.error.message);
 const supervision = supervised.value;
+// One line whenever this server's event loop was blocked for over a second, naming the
+// background job that was running if one was; see EventLoopStalls.
+if (process.env.NODE_ENV !== "test") EventLoopStalls.start();
 /**
  * Work only one server may do, which `active` starts: the server taking new connections scans
  * library catalogs and runs the hourly cleanup. A server with no predecessor is active from
@@ -178,7 +182,9 @@ const store = createDriveStore(db);
 // whoever recorded them has died. Beside other servers it recovers nothing at startup; the
 // supervisor asks it to settle each server's changes once that server has exited.
 if (!replacing) {
-  for (const recovered of await PendingChanges.recover(store, getDataRoot()))
+  for (const recovered of await EventLoopStalls.track("crash recovery", () =>
+    PendingChanges.recover(store, getDataRoot()),
+  ))
     (recovered.outcome === "unclear" ? console.warn : console.info)(
       PendingChanges.describe(recovered),
     );
@@ -189,7 +195,9 @@ const homesContainer = await Homes.prepare(store, homesPath);
 if (homesContainer.kind === "refused") throw new Error(homesContainer.message);
 if (homesContainer.created)
   console.info(`Nimbus created ${homesContainer.path} to hold home folders.`);
-for (const home of await Homes.backfill(store))
+for (const home of await EventLoopStalls.track("home folder setup", () =>
+  Homes.backfill(store),
+))
   if (home.kind === "failed") console.error(home.message);
   else console.info(`Nimbus created the home folder ${home.path}.`);
 let stopCatalogs: (() => void) | null = null;
@@ -392,8 +400,12 @@ console.info(`Nimbus is ready at http://localhost:${server.port}`);
 let pendingCleanup: Promise<void> | undefined;
 function cleanup() {
   pendingCleanup ??= Promise.all([
-    cleanExpiredData(store, getDataRoot()),
-    purgeAuditEvents(db, auditRetentionDays),
+    EventLoopStalls.track("retention cleanup", () =>
+      cleanExpiredData(store, getDataRoot()),
+    ),
+    EventLoopStalls.track("audit log purge", () =>
+      purgeAuditEvents(db, auditRetentionDays),
+    ),
   ])
     .then(() => undefined)
     .catch((error: unknown) =>
@@ -402,7 +414,9 @@ function cleanup() {
         error,
       ),
     )
-    .then(() => backups().runIfDue())
+    .then(() =>
+      EventLoopStalls.track("daily backup check", () => backups().runIfDue()),
+    )
     .then((backup) => {
       if (backup)
         recordAudit({
@@ -566,7 +580,10 @@ if (supervision.kind === "supervised") {
         active.resolve();
         return;
       case "recover":
-        void settleFor(message);
+        void EventLoopStalls.track(
+          "settling of an exited server's unfinished changes",
+          () => settleFor(message),
+        );
         return;
     }
   });
