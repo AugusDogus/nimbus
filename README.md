@@ -443,7 +443,7 @@ docker compose exec nimbus bun server/supervisor/control.ts restart
 docker compose exec nimbus bun server/supervisor/control.ts status
 ```
 
-The new server starts beside the running one, builds its search index, applies pending migrations and passes its health check, and only then takes new connections. If it never gets that far, it is stopped and the running server keeps serving. Once it serves, the old server stops taking connections and finishes what it had started:
+The new server starts beside the running one, builds its search index, applies pending migrations and passes its health check, and only then takes new connections. If it never gets that far within `NIMBUS_READY_TIMEOUT_SECONDS`, it is stopped and the running server keeps serving. `restart` waits for that outcome, which on a large drive can take a while, says every 5 seconds what the new server is doing, and exits 0 only once the new server serves. Once it serves, the old server stops taking connections and finishes what it had started:
 
 - **Not interrupted:** a film or any other download already playing continues to its last byte from the server that started it, for up to `NIMBUS_DRAIN_HOURS`; the next request, such as a seek, goes to the new server. Uploads, page loads and API calls carry on. Media addresses, Undo, WebDAV locks and MCP upload links keep working.
 - **Reconnected:** live updates in open pages and MCP event streams end and reconnect to the new server at once.

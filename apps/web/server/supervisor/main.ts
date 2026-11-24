@@ -3,7 +3,8 @@
  * restarted or updated without closing its port. `bun server/supervisor/main.ts` from apps/web.
  *
  * Control: the Unix socket at NIMBUS_SUPERVISOR_SOCKET (see settings.ts), in a directory only
- * this user may enter, answers `GET /status` and `POST /handover[?release=<name>]`. Nothing
+ * this user may enter, answers `GET /status` and `POST /handover[?release=<name>]` (streamed;
+ * see HandoverStream). Nothing
  * listens on the network for it; `bun server/supervisor/control.ts` talks to it. SIGHUP hands
  * over to a fresh server of the same release. SIGTERM and SIGINT drain every server within
  * NIMBUS_STOP_SECONDS and exit, as a container stop needs.
@@ -14,6 +15,7 @@ import { ServerRun } from "@nimbus/api/server-run";
 import { InstallationLock } from "../installation-lock";
 import { getConfigRoot } from "../storage-paths";
 import { ControlSocket } from "./control-socket";
+import { HandoverStream } from "./handover-stream";
 import { ReleaseDirectory } from "./release-directory";
 import { PROTOCOL_VERSION, Protocol, WorkerEnv } from "./protocol";
 import { parseSettings } from "./settings";
@@ -166,24 +168,20 @@ if (!started.ok) {
 
 const control = Bun.serve({
   unix: socketPath,
-  async fetch(request, server) {
-    // A handover answers once the new server listens, which can take its whole startup.
-    server.timeout(request, 0);
+  async fetch(request) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/status")
-      return Response.json(supervisor.status());
+      return Response.json({
+        ...supervisor.status(),
+        readyTimeoutSeconds: settings.value.readyTimeoutMs / 1000,
+      });
     if (request.method === "POST" && url.pathname === "/handover") {
-      const outcome = await supervisor.handover(
-        url.searchParams.get("release"),
-      );
-      if (outcome.ok) return Response.json(outcome.value);
-      return Response.json(outcome.error, {
-        status:
-          outcome.error.kind === "busy"
-            ? 409
-            : outcome.error.kind === "unknown-release"
-              ? 404
-              : 503,
+      // Streamed, a line every few seconds: a handover lasts as long as the new server's
+      // startup, and Bun resets a Unix socket connection idle for 10 seconds.
+      const release = url.searchParams.get("release");
+      return HandoverStream.respond(release, supervisor.handover(release), {
+        status: () => supervisor.status(),
+        readyTimeoutSeconds: settings.value.readyTimeoutMs / 1000,
       });
     }
     return new Response(

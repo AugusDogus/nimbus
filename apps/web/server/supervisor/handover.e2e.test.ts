@@ -21,6 +21,7 @@ import { DevicePairing } from "../libraries/device-pairing";
 import { Libraries } from "../libraries/libraries";
 import type { LibraryContext } from "../libraries/library-context";
 import { PairedDevices } from "../libraries/paired-devices";
+import { HandoverStream } from "./handover-stream";
 
 /**
  * The supervisor with real Nimbus servers: a film streamed before an update plays to its last
@@ -235,11 +236,48 @@ const handover = async () => {
     method: "POST",
     unix: socket,
   });
-  expect(response.status).toBe(200);
+  expect((await HandoverStream.read(response))?.ok).toBe(true);
 };
 
 let device: { token: string; id: string; itemId: string };
 let sessionCookie: string;
+
+/**
+ * A release whose server takes 12 seconds to get ready, longer than any idle timeout a socket
+ * might have, as a large installation's search index does. It speaks just enough of the
+ * supervisor's protocol: ready, settle nothing, drain and exit.
+ */
+async function writeSlowRelease(release: string) {
+  await mkdir(path.join(release, "apps/web/server"), { recursive: true });
+  await Bun.write(
+    path.join(release, "apps/web/release.json"),
+    JSON.stringify({ supervisorProtocol: 2 }),
+  );
+  await Bun.write(
+    path.join(release, "apps/web/server/start.ts"),
+    `const startedAt = Date.now();
+     process.on("disconnect", () => process.exit(0));
+     process.on("message", (message) => {
+       if (message.kind === "recover") {
+         for (const held of message.fence)
+           process.send({ kind: "fence-release", id: message.id, grant: held.grant });
+         process.send({ kind: "recovered", id: message.id });
+       }
+       if (message.kind === "drain") {
+         server.stop();
+         process.send({ kind: "drained", forced: false });
+         process.exit(0);
+       }
+     });
+     await Bun.sleep(12_000);
+     const server = Bun.serve({
+       port: Number(process.env.PORT),
+       reusePort: true,
+       fetch: () => new Response("slow release"),
+     });
+     process.send({ kind: "ready", build: null, startupMs: Date.now() - startedAt });`,
+  );
+}
 
 describe.skipIf(!built)("handover with real servers", () => {
   beforeAll(async () => {
@@ -251,6 +289,7 @@ describe.skipIf(!built)("handover with real servers", () => {
     port = await freePort();
     origin = `http://localhost:${port}`;
     socket = path.join(root, "control", "control.sock");
+    await writeSlowRelease(path.join(root, "releases", "slow"));
     supervisor = Bun.spawn([process.execPath, "server/supervisor/main.ts"], {
       cwd: web,
       env: {
@@ -263,6 +302,7 @@ describe.skipIf(!built)("handover with real servers", () => {
         NIMBUS_CONFIG_ROOT: configRoot,
         NIMBUS_SUPERVISOR_SOCKET: socket,
         NIMBUS_READY_TIMEOUT_SECONDS: "60",
+        NIMBUS_RELEASES_DIR: path.join(root, "releases"),
       },
       stdio: ["ignore", "pipe", "inherit"],
     });
@@ -482,6 +522,35 @@ describe.skipIf(!built)("handover with real servers", () => {
     expect(after.status).toBe(401);
   }, 60_000);
 
+  test("a restart whose server takes longer than 10 seconds to get ready is reported as it goes and when done", async () => {
+    const restart = (release: string) =>
+      Bun.spawn(
+        [process.execPath, "server/supervisor/control.ts", "restart", release],
+        {
+          cwd: web,
+          env: { ...process.env, NIMBUS_SUPERVISOR_SOCKET: socket },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+    const slow = restart("slow");
+    const [code, out, err] = await Promise.all([
+      slow.exited,
+      new Response(slow.stdout).text(),
+      new Response(slow.stderr).text(),
+    ]);
+    const said = `${out}\n${err}`;
+    expect(said).not.toContain("Could not reach");
+    expect(code).toBe(0);
+    expect(said).toContain("still starting slow");
+    expect(said).toContain('"to": "slow"');
+    expect(await (await fetch(`${origin}/`)).text()).toBe("slow release");
+    // Back to the real server for the tests after this one.
+    const back = restart("built-in");
+    expect(await back.exited).toBe(0);
+    expect((await status()).phase).toBe("serving");
+  }, 90_000);
+
   test("a second supervisor on the same installation refuses to start, even on another port", async () => {
     const second = Bun.spawn([process.execPath, "server/supervisor/main.ts"], {
       cwd: web,
@@ -521,6 +590,7 @@ describe.skipIf(!built)("handover with real servers", () => {
       NIMBUS_CONFIG_ROOT: path.join(root, "config"),
       NIMBUS_SUPERVISOR_SOCKET: socket,
       NIMBUS_READY_TIMEOUT_SECONDS: "60",
+      NIMBUS_RELEASES_DIR: path.join(root, "releases"),
     };
     const next = Bun.spawn([process.execPath, "server/supervisor/main.ts"], {
       cwd: web,

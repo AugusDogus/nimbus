@@ -486,9 +486,14 @@ async function handover(release: string | null): Promise<Report | string> {
       : `http://supervisor/handover?release=${encodeURIComponent(release)}`,
     { method: "POST", unix: control },
   );
-  const body: unknown = await response.json();
-  const report = reportOf(body);
-  return response.ok && report ? report : JSON.stringify(body);
+  // One JSON object per line as the handover goes; the last says how it went.
+  const lines = (await response.text()).trim().split("\n");
+  const last: unknown = JSON.parse(lines.at(-1) ?? "null");
+  const report =
+    isRecord(last) && last.kind === "done" && last.ok === true
+      ? reportOf(last.report)
+      : null;
+  return report ?? JSON.stringify(last);
 }
 
 const work = [
