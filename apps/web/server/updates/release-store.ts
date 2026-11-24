@@ -1,4 +1,5 @@
 import {
+  lstat,
   open,
   readdir,
   readFile,
@@ -233,7 +234,18 @@ export const ReleaseStore = {
         await rm(path.join(releases, entry), { recursive: true, force: true });
         removed.push(entry);
       }
-    const installed = await ReleaseStore.installed(releases);
+    // Only what this store installed: a release name and a signed manifest of its own.
+    const installed: string[] = [];
+    for (const name of await ReleaseStore.installed(releases))
+      if (
+        /^[a-z][a-z0-9-]{0,31}-\d+-[0-9a-f]{12}$/.test(name) &&
+        (
+          await lstat(path.join(releases, name, MANIFEST_FILE)).catch(
+            () => null,
+          )
+        )?.isFile()
+      )
+        installed.push(name);
     for (const name of installed.slice(KEEP))
       if (!keep.has(name)) {
         await rm(path.join(releases, name), { recursive: true, force: true });

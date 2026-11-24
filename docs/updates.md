@@ -69,12 +69,19 @@ can only be tested in CI's image check:
 - the supervisor can no longer open the servers' lease files, so it checks for servers left
   running by asking a short helper started as `PUID`.
 
-**Persistence.** Installed releases live in `<config>/releases` (or NIMBUS_RELEASES_DIR), so they survive a container being
+**Persistence.** Installed releases live in `<config>/releases`, which only the updater writes, so they survive a container being
 recreated. On start the supervisor runs the newest installed release that this image can run and
 whose signed manifest still verifies, falling back to the built-in release, which it also starts
 when the image's own build is as new or newer (a newer image was pulled). Not built yet: a server
 refusing to start on a database a newer release migrated, as can happen when the container is
 recreated from an older image while a newer release's migrations are in the database.
+
+**Releases placed by hand.** `control.ts restart <name>` can also start a release an operator
+put in NIMBUS_RELEASES_DIR, unsigned. That folder is never the installed releases' folder, and is
+used only when it lies outside the data root (and does not hold it), and when it and every folder
+above it belong to root or the supervisor's user and are writable by nobody else (a sticky folder
+such as /tmp may be on the way). Otherwise it is ignored, with a log line saying why. Pruning
+removes only installed releases: a release name with a signed manifest of its own.
 
 ## Rules
 

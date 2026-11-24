@@ -15,11 +15,13 @@ import { chmod, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { ServerRun } from "@nimbus/api/server-run";
 import { InstallationLock } from "../installation-lock";
+import { getDataRoot } from "@nimbus/api/data-root";
 import { getConfigRoot } from "../storage-paths";
 import { ControlSocket } from "./control-socket";
 import { HandoverStream } from "./handover-stream";
 import { BuildInfo } from "../updates/build-info";
 import { TrustRoot } from "../updates/trust-root";
+import { ManualReleases } from "../updates/trusted-path";
 import { UpdateSource } from "../updates/update-source";
 import { createUpdater, type RunInstaller } from "../updates/updater";
 import { ReleaseDirectory } from "./release-directory";
@@ -75,14 +77,25 @@ const releases = path.join(configRoot, "releases");
  * Releases an operator placed by hand, unsigned, in NIMBUS_RELEASES_DIR: never the installed
  * releases' folder, so a name there is never mistaken for an installed release.
  */
-const manualReleases =
-  releasesDir && path.resolve(releasesDir) !== path.resolve(releases)
-    ? releasesDir
-    : null;
-if (releasesDir && !manualReleases)
-  log(
-    `NIMBUS_RELEASES_DIR names the installed releases' folder (${releases}), which holds only signed releases; it is ignored. Point it at another folder for releases placed by hand.`,
-  );
+async function manualFolder(folder: string | null) {
+  if (!folder) return null;
+  if (path.resolve(folder) === path.resolve(releases)) {
+    log(
+      `NIMBUS_RELEASES_DIR names the installed releases' folder (${releases}), which holds only signed releases; it is ignored. Point it at another folder for releases placed by hand.`,
+    );
+    return null;
+  }
+  // Releases there run unsigned, so only root or this user may be able to change them.
+  const checked = await ManualReleases.folder(folder, getDataRoot());
+  if (!checked.ok) {
+    log(
+      `NIMBUS_RELEASES_DIR is ignored, so no release placed by hand can start: ${checked.message}. Use a folder outside the data root that only root or the supervisor's user can write, on a path nobody else can change.`,
+    );
+    return null;
+  }
+  return checked.real;
+}
+const manualReleases = await manualFolder(releasesDir);
 /** Installed releases verified for the handover under way, by name (see `prepare`). */
 const prepared = new Map<string, Release>();
 /** What the first server starts from: an installed release, or the built-in one. */

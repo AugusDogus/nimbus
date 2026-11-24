@@ -127,3 +127,14 @@ test("an installed release is intact only as its signed tree, with natives linke
   await rm(path.join(root, "apps/web/server/start.ts"));
   expect((await ReleaseStore.intact(root, manifest, natives)).ok).toBe(false);
 });
+
+test("pruning removes only installed releases, never other folders it finds", async () => {
+  for (const sequence of [181, 182, 183, 184]) await installed(sequence);
+  await mkdir(path.join(releases, "photos"));
+  await mkdir(path.join(releases, "edge-1-aaaaaaaaaaaa"));
+  await ReleaseStore.prune(releases, new Set());
+  const left = await readdir(releases);
+  expect(left).toContain("photos");
+  // Named like one, but with no signed manifest: not a release this store installed.
+  expect(left).toContain("edge-1-aaaaaaaaaaaa");
+});
