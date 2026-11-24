@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Server } from "bun";
@@ -143,5 +143,95 @@ test("a check offers nothing from another repository, even signed with this imag
   if (checked.ok) {
     expect(checked.status.available).toBeNull();
     expect(checked.status.lastCheck?.outcome).toContain("example/fork");
+  }
+});
+
+/** Serve `manifest` as the newest release, signed. */
+async function offer(manifest: Manifest) {
+  const bytes = ReleaseManifest.encode(manifest);
+  served.set("manifest.json", bytes);
+  served.set(
+    "manifest.sig",
+    await ReleaseSignature.sign(privateKey, "test-key", bytes),
+  );
+}
+
+test("with a damaged state file the built-in release runs and nothing installs until the file is dealt with", async () => {
+  const own = await installTestRelease(releases, release(101), {
+    privateKey,
+    natives: natives(),
+  });
+  await ranLast(own);
+  await writeFile(path.join(releases, "state.json"), "{ damaged");
+  const damaged = await updater();
+  expect(await damaged.startRelease()).toBeNull();
+  await offer(release(102));
+  expect((await damaged.check()).ok).toBe(true);
+  const refused = await damaged.install();
+  expect(refused.ok || refused.message).toContain("state.json");
+  expect(damaged.status().unavailable).toContain("state.json");
+});
+
+test("a release no longer newer by the time it is installed is not activated, and its sequence is reserved before it is", async () => {
+  await offer(release(120));
+  const reached = Promise.withResolvers<void>();
+  const proceed = Promise.withResolvers<void>();
+  let installs = 0;
+  const slow = await updater(async () => {
+    installs++;
+    reached.resolve();
+    await proceed.promise;
+    return { ok: true, name: ReleaseManifest.releaseName(release(120)) };
+  });
+  expect((await slow.check()).ok).toBe(true);
+  const installing = slow.install();
+  await reached.promise;
+  // Meanwhile a newer build ran here: 120 is no longer an update.
+  const newer = await installTestRelease(releases, release(125), {
+    privateKey,
+    natives: natives(),
+  });
+  expect((await slow.resolve(newer)).ok).toBe(true);
+  expect(await slow.ran(newer)).toEqual({ ok: true });
+  proceed.resolve();
+  const outcome = await installing;
+  expect(outcome.ok || outcome.message).toContain("no longer newer");
+  expect(installs).toBe(1);
+  // An install that is still newer is reserved durably before the caller hands over.
+  await offer(release(130));
+  const fast = await updater(async () => ({
+    ok: true,
+    name: ReleaseManifest.releaseName(release(130)),
+  }));
+  expect((await fast.check()).ok).toBe(true);
+  expect((await fast.install()).ok).toBe(true);
+  const written = await ReleaseStore.read(releases, ReleaseStore.empty());
+  expect(written.ok && written.value.watermarks["example/nimbus edge"]).toBe(
+    130,
+  );
+});
+
+test("a state that cannot be written fails the step that needed it, and writes never interleave", async () => {
+  const own = await installTestRelease(releases, release(140), {
+    privateKey,
+    natives: natives(),
+  });
+  const writer = await updater();
+  expect((await writer.resolve(own)).ok).toBe(true);
+  const [first, second] = await Promise.all([
+    writer.ran(own),
+    writer.ran(null),
+  ]);
+  expect(first).toEqual({ ok: true });
+  expect(second).toEqual({ ok: true });
+  expect((await ReleaseStore.read(releases, ReleaseStore.empty())).ok).toBe(
+    true,
+  );
+  await chmod(releases, 0o555);
+  try {
+    const failed = await writer.ran(own);
+    if (process.getuid?.() !== 0) expect(failed.ok).toBe(false);
+  } finally {
+    await chmod(releases, 0o755);
   }
 });

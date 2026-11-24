@@ -19,7 +19,7 @@ export type UpdateStatus = {
   source:
     | { kind: "off"; reason: string }
     | { kind: "url"; url: string; origin: string };
-  /** Why updates cannot run at all, such as an image that trusts no key. */
+  /** Why nothing can install or roll back now, such as an image that trusts no key. */
   unavailable: string | null;
   lastCheck: ReleaseState["lastCheck"];
   /** What the last check found, if anything newer. */
@@ -49,6 +49,8 @@ type Offered = {
   bytes: Uint8Array<ArrayBuffer>;
   signature: Uint8Array<ArrayBuffer>;
 };
+
+type Done = { ok: true } | { ok: false; message: string };
 
 const MAX_SIGNATURE_BYTES = 4096;
 const CHECK_TIMEOUT_MS = 30_000;
@@ -81,6 +83,13 @@ export async function createUpdater({
   const read = await ReleaseStore.read(releases, ReleaseStore.empty());
   if (!read.ok) log(read.message);
   let state: ReleaseState = read.ok ? read.value : ReleaseStore.empty();
+  /**
+   * Why the state cannot be trusted: then the watermark is unknown, so the built-in release runs,
+   * nothing installs or rolls back, and the damaged file is left for an administrator.
+   */
+  const stateProblem = read.ok
+    ? null
+    : `${read.message} Until then Nimbus installs no update and rolls nothing back: without its record of what ran, it cannot tell an update from a downgrade.`;
   /** The highest sequence run of this image's identity, the built-in release's included. */
   const watermark = () =>
     Math.max(
@@ -101,15 +110,47 @@ export async function createUpdater({
       : !builtIn.build
         ? "This image has no build metadata (build-info.json), so it does not know its channel. Use an image built by CI."
         : null;
+  /** Why nothing may install or roll back now. */
+  const blocked = unavailable ?? stateProblem;
 
-  const save = async (next: ReleaseState) => {
-    state = next;
-    await ReleaseStore.write(releases, state).catch((error: unknown) =>
-      log(
-        `could not record the update state in ${releases} (${error instanceof Error ? error.message : String(error)}); it is kept until the supervisor stops`,
-      ),
-    );
+  /** Writes, one after another. */
+  let writing: Promise<unknown> = Promise.resolve();
+  /** Write `change(state)` as the new state, after any write under way; memory follows disk. */
+  const save = (
+    change: (current: ReleaseState) => ReleaseState,
+  ): Promise<Done> => {
+    const written = writing.then(async (): Promise<Done> => {
+      if (stateProblem) return { ok: false, message: stateProblem };
+      const next = change(state);
+      if (next === state) return { ok: true };
+      try {
+        await ReleaseStore.write(releases, next);
+      } catch (error) {
+        const message = `Nimbus could not record the update state in ${releases} (${error instanceof Error ? error.message : String(error)}), so this step did not happen. Check that the folder is writable.`;
+        log(message);
+        return { ok: false, message };
+      }
+      state = next;
+      return { ok: true };
+    });
+    writing = written;
+    return written;
   };
+  /** `state` with `sequence` as this identity's watermark, if higher. */
+  const raised = (current: ReleaseState, sequence: number): ReleaseState =>
+    identity
+      ? {
+          ...current,
+          watermarks: {
+            ...current.watermarks,
+            [ReleaseStore.watermarkKey(identity)]: Math.max(
+              builtInSequence,
+              current.watermarks[ReleaseStore.watermarkKey(identity)] ?? 0,
+              sequence,
+            ),
+          },
+        }
+      : current;
 
   /** Installed release `name` if it verifies and this image can run it, else why not. */
   const runnable = async (name: string) => {
@@ -174,7 +215,7 @@ export async function createUpdater({
         source.kind === "off"
           ? source
           : { kind: "url", url: source.base.href, origin: source.origin },
-      unavailable,
+      unavailable: blocked,
       lastCheck: state.lastCheck,
       available,
       previous: state.previous,
@@ -184,10 +225,11 @@ export async function createUpdater({
   return {
     /**
      * The release servers start from at boot: the one that ran last, unless the image's built-in
-     * release is as new or newer (a newer image was pulled), or it no longer verifies. Null for
-     * the built-in one.
+     * release is as new or newer (a newer image was pulled), it no longer verifies, or the state
+     * is damaged. Null for the built-in one.
      */
     async startRelease(): Promise<{ name: string; root: string } | null> {
+      if (stateProblem) return null;
       if (state.current === null) return null;
       const chosen = await runnable(state.current);
       if (!chosen.ok) {
@@ -200,7 +242,11 @@ export async function createUpdater({
         log(
           `starting the image's built-in release (build ${builtInSequence}): it is as new as or newer than ${state.current}`,
         );
-        await save({ ...state, current: null, previous: state.current });
+        await save((current) => ({
+          ...current,
+          current: null,
+          previous: current.current,
+        }));
         return null;
       }
       return { name: state.current, root: chosen.root };
@@ -218,24 +264,23 @@ export async function createUpdater({
       if (!trust.ok || !identity)
         return { ok: false, message: "Updates are unavailable." };
       const at = now().toISOString();
+      // When the check is recorded is for the administrator; a damaged state is not rewritten.
+      const record = (outcome: string) =>
+        stateProblem
+          ? Promise.resolve()
+          : save((current) => ({ ...current, lastCheck: { at, outcome } }));
       const fail = async (message: string) => {
-        await save({ ...state, lastCheck: { at, outcome: message } });
+        await record(message);
         return { ok: false as const, message };
       };
       const bytes = await UpdateSource.fetchBytes(
         UpdateSource.url(source, "manifest.json"),
-        {
-          maxBytes: MAX_MANIFEST_BYTES,
-          timeoutMs: CHECK_TIMEOUT_MS,
-        },
+        { maxBytes: MAX_MANIFEST_BYTES, timeoutMs: CHECK_TIMEOUT_MS },
       );
       if (!bytes.ok) return fail(bytes.error.message);
       const signature = await UpdateSource.fetchBytes(
         UpdateSource.url(source, "manifest.sig"),
-        {
-          maxBytes: MAX_SIGNATURE_BYTES,
-          timeoutMs: CHECK_TIMEOUT_MS,
-        },
+        { maxBytes: MAX_SIGNATURE_BYTES, timeoutMs: CHECK_TIMEOUT_MS },
       );
       if (!signature.ok) return fail(signature.error.message);
       const signed = await ReleaseSignature.verify(
@@ -275,15 +320,19 @@ export async function createUpdater({
               message,
             }
           : null;
-      await save({ ...state, lastCheck: { at, outcome: message } });
+      await record(message);
       return { ok: true, status: status() };
     },
 
-    /** Install what the last check offered; the caller hands over to the name it returns. */
+    /**
+     * Install what the last check offered. Once installed it is checked to be newer still than
+     * anything run meanwhile, and its sequence is recorded durably as run before the caller hands
+     * over to the name it returns: a failure after this never lets an older release back in.
+     */
     async install(): Promise<
       { ok: true; name: string } | { ok: false; message: string }
     > {
-      if (unavailable) return { ok: false, message: unavailable };
+      if (blocked) return { ok: false, message: blocked };
       if (source.kind === "off") return { ok: false, message: source.reason };
       if (!offered)
         return {
@@ -303,13 +352,22 @@ export async function createUpdater({
         manifest: Buffer.from(bytes).toString("base64"),
         signature: Buffer.from(signature).toString("base64"),
       });
-      if (installed.ok) known.set(installed.name, manifest);
+      if (!installed.ok) return installed;
+      if (manifest.build.sequence <= watermark())
+        return {
+          ok: false,
+          message: `Build ${manifest.build.sequence} was installed but is no longer newer than what ran here meanwhile (build ${watermark()}), so it was not started.`,
+        };
+      const reserved = await save((current) =>
+        raised(current, manifest.build.sequence),
+      );
+      if (!reserved.ok) return reserved;
+      known.set(installed.name, manifest);
       return installed;
     },
 
     /** Record that servers now run `name` (null for built-in), after a handover to it. */
-    async ran(name: string | null) {
-      if (name === state.current) return;
+    async ran(name: string | null): Promise<Done> {
       const sequence =
         name === null
           ? builtInSequence
@@ -322,26 +380,30 @@ export async function createUpdater({
         offered = null;
         available = null;
       }
-      await save({
-        ...state,
-        current: name,
-        previous: state.current,
-        watermarks: identity
-          ? {
-              ...state.watermarks,
-              [ReleaseStore.watermarkKey(identity)]: Math.max(
-                watermark(),
-                sequence,
-              ),
-            }
-          : state.watermarks,
-      });
+      // Compared with the state as it stands when this write's turn comes, not when it was asked.
+      return save((current) =>
+        current.current === name
+          ? current
+          : {
+              ...raised(current, sequence),
+              current: name,
+              previous: current.current,
+            },
+      );
     },
 
     /** The release a rollback returns to: the one that ran before, or the built-in one. */
-    rollbackTarget(): { name: string | null } | null {
-      if (state.previous === null && state.current === null) return null;
-      return { name: state.previous };
+    rollbackTarget():
+      | { ok: true; name: string | null }
+      | { ok: false; message: string } {
+      if (stateProblem) return { ok: false, message: stateProblem };
+      if (state.previous === null && state.current === null)
+        return {
+          ok: false,
+          message:
+            "There is no earlier release to roll back to: the built-in release runs and nothing ran before it.",
+        };
+      return { ok: true, name: state.previous };
     },
 
     /** Remove installed releases no longer needed; `running` are ones servers still run. */

@@ -1,10 +1,10 @@
 import {
+  open,
   readdir,
   readFile,
   readlink,
   rename,
   rm,
-  writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -41,6 +41,7 @@ const stateSchema = z.object({
 export const MANIFEST_FILE = "release-manifest.json";
 export const SIGNATURE_FILE = "release-manifest.sig";
 const STATE_FILE = "state.json";
+let writes = 0;
 /** Installed releases kept beyond the current and the previous one. */
 const KEEP = 3;
 
@@ -86,14 +87,27 @@ export const ReleaseStore = {
         };
   },
 
-  /** Write the state whole: a crash leaves the old state or the new one. */
+  /**
+   * Write the state whole and durably: a crash or power loss leaves the old state or the new
+   * one. Each write has a temporary file of its own; the caller keeps writes in order.
+   */
   async write(releases: string, state: ReleaseState) {
     const file = path.join(releases, STATE_FILE);
-    const temporary = `${file}.${process.pid}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, {
-      mode: 0o644,
-    });
+    const temporary = `${file}.${process.pid}.${++writes}.tmp`;
+    const handle = await open(temporary, "wx", 0o644);
+    try {
+      await handle.writeFile(`${JSON.stringify(state, null, 2)}\n`);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
     await rename(temporary, file);
+    const folder = await open(releases, "r");
+    try {
+      await folder.sync();
+    } finally {
+      await folder.close();
+    }
   },
 
   /**

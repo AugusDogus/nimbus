@@ -382,14 +382,10 @@ async function rollBack(): Promise<
   { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
 > {
   const target = updater.rollbackTarget();
-  if (!target)
+  if (!target.ok)
     return {
       ok: false,
-      error: {
-        kind: "update-failed",
-        message:
-          "There is no earlier release to roll back to: the built-in release runs and nothing ran before it.",
-      },
+      error: { kind: "update-failed", message: target.message },
     };
   return handOver(target.name ?? builtIn.name);
 }

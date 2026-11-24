@@ -108,6 +108,16 @@ supervisor starts the built-in release instead and says why. The manifest carrie
 an entry count rather than a list of files: about 100 bytes, where a list would be some 3 MiB for
 24,000 entries. The check reads the whole release (about 190 MiB): it is what boot costs.
 
+The watermark (the highest sequence run, kept per repository and channel in
+`releases/state.json`) only rises. Once a release is installed it is checked again against the
+watermark, since another release may have run meanwhile, and its sequence is written to the state
+durably (fsync of the file and its folder) before the handover starts, so no failure after that
+lets an older build be offered again. State writes are made one at a time, each through a
+temporary file of its own, and a write that fails fails the step that needed it. If the state
+file is damaged, the supervisor starts the built-in release and installs and rolls back nothing,
+since it can no longer tell an update from a downgrade; it says so, and leaves the file for an
+administrator to remove (which restarts the watermark from the image's own build).
+
 Rollback hands over to the previous installed release. The installation keeps the three newest
 releases and any release a server still runs.
 
