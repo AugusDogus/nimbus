@@ -1,13 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   chmod,
-  link,
   mkdir,
   mkdtemp,
   realpath,
   rm,
   symlink,
-  writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -121,88 +119,6 @@ test("refuses a config root that reaches the data root through a symbolic link",
   expect(
     (await sh(`check_roots "${root}/data" "${root}/config" && echo ok`)).stdout,
   ).toBe("ok\n");
-});
-
-test("a symbolic link in place of .nimbus is never followed", async () => {
-  const data = path.join(root, "data");
-  await mkdir(path.join(data, "Projects/versions/ab"), { recursive: true });
-  await mkdir(path.join(data, "Projects/uploads"), { recursive: true });
-  await writeFile(path.join(data, "Projects/uploads/a.bin"), "user file");
-  await symlink(path.join(data, "Projects"), path.join(data, ".nimbus"));
-  const { stdout } = await sh(
-    `state_entries 4242 4242 "${root}/config" "${data}"`,
-  );
-  expect(stdout).toBe("");
-});
-
-test("startup re-owns only what Nimbus writes, never a user file or an inode it shares", async () => {
-  const data = path.join(root, "data");
-  const config = path.join(root, "config");
-  const files: Record<string, string> = {
-    "config/db.sqlite": "db",
-    "config/db.sqlite-wal": "wal",
-    "config/backups/nimbus-20260101T000000Z.sqlite": "backup",
-    "config/cache/ab/thumb.webp": "thumb",
-    "config/unrelated.txt": "not Nimbus's",
-    "data/Projects/readme.txt": "user file",
-    "data/users/bob/linked.txt": "finished upload",
-    "data/.nimbus/uploads/partial.bin": "unfinished upload",
-    // DATABASE_URL may keep a legacy database in .nimbus beside a separate config root.
-    "data/.nimbus/db.sqlite": "legacy db",
-    "data/.nimbus/db.sqlite-wal": "legacy wal",
-    "data/.nimbus/trash/0001/old.txt": "trashed user file",
-    "data/.nimbus/versions/ab/ab01": "saved version",
-  };
-  for (const [name, text] of Object.entries(files)) {
-    await mkdir(path.dirname(path.join(root, name)), { recursive: true });
-    await writeFile(path.join(root, name), text);
-  }
-  // A finished upload keeps its staging name as a hardlink for a day.
-  await link(
-    path.join(data, "users/bob/linked.txt"),
-    path.join(data, ".nimbus/uploads/finished.bin"),
-  );
-  await link(
-    path.join(data, "Projects/readme.txt"),
-    path.join(config, "cache/ab/planted.webp"),
-  );
-  await symlink(path.join(data, "Projects"), path.join(config, "cache/link"));
-  // Owned by someone else, so everything Nimbus owns is listed.
-  const { code, stdout } = await sh(
-    `state_entries 4242 4242 "${config}" "${data}"`,
-  );
-  expect(code).toBe(0);
-  const listed = stdout
-    .split("\0")
-    .filter(Boolean)
-    .map((entry) => path.relative(root, entry))
-    .sort();
-  expect(listed).toEqual(
-    [
-      "config",
-      "config/backups",
-      "config/backups/nimbus-20260101T000000Z.sqlite",
-      "config/cache",
-      "config/cache/ab",
-      "config/cache/ab/thumb.webp",
-      "config/db.sqlite",
-      "config/db.sqlite-wal",
-      "data/.nimbus",
-      "data/.nimbus/db.sqlite",
-      "data/.nimbus/db.sqlite-wal",
-      "data/.nimbus/trash",
-      "data/.nimbus/uploads",
-      "data/.nimbus/uploads/partial.bin",
-      "data/.nimbus/versions",
-      "data/.nimbus/versions/ab",
-    ].sort(),
-  );
-  // Entries already owned by the target user are skipped.
-  const uid = process.getuid?.() ?? 0;
-  const gid = process.getgid?.() ?? 0;
-  expect(
-    await sh(`state_entries ${uid} ${gid} "${config}" "${data}" | wc -c`),
-  ).toMatchObject({ code: 0, stdout: "0\n" });
 });
 
 /** Whether this machine gives an unprivileged user a namespace with many mapped ids. */
@@ -324,5 +240,65 @@ test.skipIf(!mappedRoot)(
     expect(
       (await asRoot(`ls -A "${root}"`)).stdout.trim().split("\n").sort(),
     ).toEqual(["probe.sh"]);
+  },
+);
+
+test.skipIf(!mappedRoot)(
+  "only the data and config roots themselves become PUID:PGID's, never what is in them",
+  async () => {
+    const prepared = await asRoot(
+      `mkdir -p "${root}/data/films" "${root}/config/backups"; touch "${root}/data/films/film.mkv" "${root}/config/db.sqlite"; chown -R 3000:3000 "${root}/data" "${root}/config"`,
+    );
+    expect(prepared.code).toBe(0);
+    expect((await startAs("")).code).toBe(0);
+    const owners = await asRoot(
+      `stat -c %u:%g "${root}/data" "${root}/config" "${root}/data/films" "${root}/data/films/film.mkv" "${root}/config/db.sqlite" "${root}/config/backups"`,
+    );
+    expect(owners.stdout.trim().split("\n")).toEqual([
+      "2000:2000",
+      "2000:2000",
+      "3000:3000",
+      "3000:3000",
+      "3000:3000",
+      "3000:3000",
+    ]);
+  },
+);
+
+test.skipIf(!mappedRoot)(
+  "a root under a folder the servers' user could change is left as it is, and said so",
+  async () => {
+    // The config root inside the data root's .nimbus, which the servers' user owns: a link
+    // swapped in there could lead a chown anywhere.
+    await asRoot(
+      `mkdir -p "${root}/data/.nimbus/config"; chown 2000:2000 "${root}/data" "${root}/data/.nimbus"; chown 3000:3000 "${root}/data/.nimbus/config"`,
+    );
+    const started = await asRoot(
+      `export NIMBUS_DATA_ROOT="${root}/data" NIMBUS_CONFIG_ROOT="${root}/data/.nimbus/config" NIMBUS_TEST_STORE_DIR="${root}/store" PUID=2000 PGID=2000; sh -c '. "$0"; main true' "$0"`,
+    );
+    expect(started.stderr).toContain("left the owner");
+    expect(
+      (
+        await asRoot(`stat -c %u:%g "${root}/data/.nimbus/config"`)
+      ).stdout.trim(),
+    ).toBe("3000:3000");
+  },
+);
+
+test.skipIf(!mappedRoot)(
+  "the test store is honoured only from a source checkout",
+  async () => {
+    // The entrypoint as an image has it: no .git above it.
+    await mkdir(path.join(root, "image/bin"), { recursive: true });
+    const copy = path.join(root, "image/bin/nimbus-entrypoint");
+    await Bun.write(copy, await Bun.file(entrypoint).text());
+    const started = await asRoot(
+      `export NIMBUS_DATA_ROOT="${root}/data" NIMBUS_CONFIG_ROOT="${root}/config" NIMBUS_TEST_STORE_DIR="${root}/store" PUID=2000 PGID=2000; sh -c '. "$0"; main true' "${copy}"`,
+    );
+    expect(started.code).toBe(0);
+    expect(await Bun.file(path.join(root, "store/releases")).exists()).toBe(
+      false,
+    );
+    expect((await asRoot(`ls -d "${root}/store" 2>&1`)).code).not.toBe(0);
   },
 );

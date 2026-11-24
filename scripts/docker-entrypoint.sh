@@ -40,34 +40,34 @@ check_pair() {
   esac
 }
 
-# Print, NUL-separated, the entries Nimbus writes itself that do not belong to $1:$2: the
-# config root with its database, backups and thumbnail cache, and the .nimbus folder with
-# its own directories, unfinished uploads, and a database kept there by DATABASE_URL.
-# Trashed items and saved versions are user content and keep their owner. Regular files are
-# listed only with a link count of 1, so an inode shared with a user file (a finished upload,
-# a version) is never re-owned, and symbolic links are never followed.
-state_entries() {
-  uid=$1
-  gid=$2
-  config=$3
-  internal=$4/.nimbus
-  foreign() {
-    find "$@" \( ! -uid "$uid" -o ! -gid "$gid" \) -print0
-  }
-  database() {
-    for name in db.sqlite db.sqlite-wal db.sqlite-shm db.sqlite-journal; do
-      [ ! -e "$1/$name" ] || foreign "$1/$name" -maxdepth 0 -type f -links 1
-    done
-  }
-  [ ! -d "$config" ] || foreign "$config" -maxdepth 0 -type d
-  database "$config"
-  [ ! -d "$config/backups" ] || foreign "$config/backups" -maxdepth 1 \( -type d -o -type f -links 1 \)
-  [ ! -d "$config/cache" ] || foreign "$config/cache" \( -type d -o -type f -links 1 \)
-  if [ -d "$internal" ] && [ ! -L "$internal" ]; then
-    foreign "$internal" -maxdepth 1 -type d
-    [ "$internal" = "$config" ] || database "$internal"
-    [ ! -d "$internal/versions" ] || foreign "$internal/versions" -mindepth 1 -maxdepth 1 -type d
-    [ ! -d "$internal/uploads" ] || foreign "$internal/uploads" -mindepth 1 -maxdepth 1 -type f -links 1
+# Give root folder $1 itself, nothing in it, to $2:$3 (see docs/updates.md, Privileges), after
+# resolving it physically, and only when no folder above it, up to one root owns, could be
+# changed by that user: otherwise a link swapped in there could lead the change anywhere. Leaves
+# it as it is and says so when it cannot. Ownership inside a root is never changed as root.
+own_root() {
+  dir=$1
+  uid=$2
+  gid=$3
+  if ! real=$(cd -P -- "$dir" 2>/dev/null && pwd -P); then
+    printf 'Nimbus left the owner of %s as it is: it could not resolve it.\n' "$dir" >&2
+    return 0
+  fi
+  above=$real
+  while [ "$above" != / ]; do
+    above=$(dirname -- "$above")
+    details=$(stat -c '%u %g %a' -- "$above")
+    owner=${details%% *}
+    rest=${details#* }
+    group=${rest%% *}
+    mode=$((0${rest#* }))
+    if [ "$owner" = "$uid" ] || { [ "$group" = "$gid" ] && [ $((mode & 020)) -ne 0 ]; } || [ $((mode & 002)) -ne 0 ]; then
+      printf 'Nimbus left the owner of %s as it is: %s above it can be changed by %s:%s, so changing ownership through it is not safe. Give %s to %s:%s yourself if Nimbus cannot write it.\n' "$real" "$above" "$uid" "$gid" "$real" "$uid" "$gid" >&2
+      return 0
+    fi
+    [ "$owner" != 0 ] || break
+  done
+  if [ "$(stat -c '%u:%g' -- "$real")" != "$uid:$gid" ] && ! chown -- "$uid:$gid" "$real"; then
+    printf 'Nimbus could not give %s to %s:%s. Make sure that user can write to it.\n' "$real" "$uid" "$gid" >&2
   fi
 }
 
@@ -129,12 +129,9 @@ main() {
   check_roots "${NIMBUS_DATA_ROOT-/data}" "${NIMBUS_CONFIG_ROOT-/config}"
   mkdir -p -- "$config" "$data"
 
-  # Only the data root itself is re-owned, so Nimbus can create .nimbus and the home folders.
-  if [ "$(stat -c '%u:%g' -- "$data")" != "$uid:$gid" ] && ! chown -h -- "$uid:$gid" "$data"; then
-    printf 'Nimbus could not give %s to %s:%s. Make sure that user can write to it.\n' "$data" "$uid" "$gid" >&2
-  fi
-  state_entries "$uid" "$gid" "$config" "$data" | xargs -0r chown -h -- "$uid:$gid" ||
-    fail "could not give Nimbus's state in $config and $data/.nimbus to $uid:$gid. File contents are unchanged, but some ownership may have changed. Check the volume's permissions and ID mapping, then restart."
+  # Only the two roots themselves become PUID:PGID's, so Nimbus can create what it needs in them.
+  own_root "$data" "$uid" "$gid"
+  own_root "$config" "$uid" "$gid"
 
   export HOME=/tmp
   # The supervisor stays root with only what its job needs (see docs/updates.md, Privileges):
@@ -143,9 +140,14 @@ main() {
   # privileges for every child it starts. Without setpcap or kill, everything runs as PUID:PGID.
   caps=-all,+setuid,+setgid,+setpcap,+kill
   if [ "$split" = 1 ]; then
-    # 1100 is the image's update user (see the Dockerfile).
-    prepare_store "${NIMBUS_TEST_STORE_DIR:-/var/lib/nimbus}" 1100 ||
-      printf 'In-app updates are off: Nimbus could not prepare its update store %s. Installed releases still start if they verify.\n' "${NIMBUS_TEST_STORE_DIR:-/var/lib/nimbus}" >&2
+    # 1100 is the image's update user (see the Dockerfile). A test store only from a checkout,
+    # as the supervisor's test seams (TestSeams).
+    store=/var/lib/nimbus
+    if [ -n "${NIMBUS_TEST_STORE_DIR:-}" ] && [ -e "$(dirname -- "$0")/../.git" ]; then
+      store=$NIMBUS_TEST_STORE_DIR
+    fi
+    prepare_store "$store" 1100 ||
+      printf 'In-app updates are off: Nimbus could not prepare its update store %s. Installed releases still start if they verify.\n' "$store" >&2
     exec setpriv --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set="$caps" --no-new-privs \
       -- env NIMBUS_SERVER_UID="$uid" NIMBUS_SERVER_GID="$gid" "$@"
   fi
