@@ -302,3 +302,46 @@ test("a bundle carrying a native binary is refused, so a bundle stays portable",
   expect(installed.ok || installed.error.message).toContain("codec.node");
   expect(await leftovers()).toEqual([]);
 });
+
+test("two installs at once, from a mirror that serves each a different bundle, each check only their own bytes", async () => {
+  const published = await publish(testManifest(112), {
+    tree: async (root) => {
+      await writeFile(
+        path.join(root, "apps/web/server/marker.txt"),
+        "the signed bundle\n",
+      );
+    },
+  });
+  const good = served.get(published.manifest.bundle.file);
+  if (!good) throw new Error("nothing served");
+  // The same length, other bytes: what a hostile mirror sends the second request.
+  const evil = good.slice();
+  evil[evil.byteLength - 100] ^= 0xff;
+  let requests = 0;
+  served.set(published.manifest.bundle.file, new Uint8Array(0));
+  server.reload({
+    fetch(request) {
+      const name = new URL(request.url).pathname.slice(1);
+      if (name !== published.manifest.bundle.file)
+        return new Response("not found", { status: 404 });
+      requests++;
+      return new Response(requests % 2 === 1 ? good : evil);
+    },
+  });
+  const [first, second] = await Promise.all([
+    install(published),
+    install(published),
+  ]);
+  const outcomes = [first, second];
+  expect(outcomes.filter((outcome) => outcome.ok)).toHaveLength(1);
+  const refused = outcomes.find((outcome) => !outcome.ok);
+  if (refused && !refused.ok)
+    expect(refused.error.message).toContain("cut short or changed");
+  const name = ReleaseManifest.releaseName(published.manifest);
+  expect(
+    await Bun.file(
+      path.join(scratch, "releases", name, "apps/web/server/marker.txt"),
+    ).text(),
+  ).toBe("the signed bundle\n");
+  expect(await leftovers()).toEqual([]);
+});

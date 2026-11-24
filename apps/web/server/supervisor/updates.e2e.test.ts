@@ -485,7 +485,15 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     const next = await variant(105, bundle101.tree);
     await publish(next.manifest, next.bytes);
     expect((await ControlClient.checkForUpdate(socket)).status).toBe(200);
-    expect((await ControlClient.update(socket, "install"))?.ok).toBe(true);
+    // Asked twice at once: one install runs, through its handover; the other is told so.
+    const both = await Promise.all([
+      ControlClient.update(socket, "install"),
+      ControlClient.update(socket, "install"),
+    ]);
+    expect(both.filter((done) => done?.ok)).toHaveLength(1);
+    const turnedAway = both.find((done) => done && !done.ok);
+    if (turnedAway && !turnedAway.ok)
+      expect(turnedAway.error.kind).toBe("busy");
     expect(await active()).toBe(ReleaseManifest.releaseName(next.manifest));
     expect((await ControlClient.update(socket, "rollback"))?.ok).toBe(true);
     expect(await active()).toBe(before);

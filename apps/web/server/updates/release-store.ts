@@ -146,7 +146,11 @@ export const ReleaseStore = {
       throw error;
     }
     for (const entry of entries)
-      if (entry.startsWith(".staging-") || entry.startsWith(".download-")) {
+      if (
+        entry.startsWith(".install-") ||
+        entry.startsWith(".staging-") ||
+        entry.startsWith(".download-")
+      ) {
         await rm(path.join(releases, entry), { recursive: true, force: true });
         removed.push(entry);
       }

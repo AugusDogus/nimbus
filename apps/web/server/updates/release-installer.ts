@@ -1,11 +1,15 @@
+import { createHash } from "node:crypto";
 import {
   lstat,
   mkdir,
+  mkdtemp,
   open,
   rename,
   rm,
   symlink,
+  unlink,
   writeFile,
+  type FileHandle,
 } from "node:fs/promises";
 import path from "node:path";
 import { ReleaseDirectory } from "../supervisor/release-directory";
@@ -25,6 +29,27 @@ const failed = (message: string): { ok: false; error: InstallError } => ({
   ok: false,
   error: { kind: "install-failed", message },
 });
+
+/** The whole of `file` from its start, read by position through its descriptor. */
+function readFrom(file: FileHandle) {
+  let position = 0;
+  return new ReadableStream<Uint8Array<ArrayBuffer>>({
+    async pull(controller) {
+      const buffer = new Uint8Array(1024 * 1024);
+      const { bytesRead } = await file.read(
+        buffer,
+        0,
+        buffer.byteLength,
+        position,
+      );
+      if (bytesRead === 0) controller.close();
+      else {
+        position += bytesRead;
+        controller.enqueue(buffer.subarray(0, bytesRead));
+      }
+    },
+  });
+}
 
 /** A bundle download may take this long; a stalled one fails rather than wait forever. */
 const DOWNLOAD_TIMEOUT_MS = 30 * 60_000;
@@ -83,16 +108,16 @@ export async function installRelease({
   const installed = await ReleaseStore.verified(releases, name, trust);
   if (installed.ok) return { ok: true, name };
 
-  const download = path.join(releases, `.download-${name}.tar.gz`);
-  const staging = path.join(releases, `.staging-${name}`);
-  const cleanUp = () =>
-    Promise.all([
-      rm(download, { force: true }),
-      rm(staging, { recursive: true, force: true }),
-    ]);
-  await cleanUp();
+  // This attempt's own folder: another install running at the same time never shares a path.
+  let attempt: string;
   try {
-    // The bundle, never more than the manifest's size, hashed as it arrives.
+    attempt = await mkdtemp(path.join(releases, `.install-${name}-`));
+  } catch (error) {
+    return failed(`Release ${name} was not installed: ${describe(error)}.`);
+  }
+  const staging = path.join(attempt, "release");
+  const cleanUp = () => rm(attempt, { recursive: true, force: true });
+  try {
     const fetched = await UpdateSource.fetch(
       UpdateSource.url(source, manifest.bundle.file),
       {
@@ -101,12 +126,22 @@ export async function installRelease({
       },
     );
     if (!fetched.ok) return failed(fetched.error.message);
-    const file = await open(download, "wx", 0o600);
+    // Opened once and unlinked at once: the bytes hashed and the bytes unpacked are read through
+    // this one descriptor, and no path leads to them meanwhile.
+    const downloadPath = path.join(attempt, "bundle.tar.gz");
+    const download = await open(downloadPath, "wx+", 0o600);
     try {
+      await unlink(downloadPath);
+      let written = 0;
       for await (const chunk of fetched.value)
         // A write may take only part of a chunk, as near a full disk or a file size limit.
         for (let offset = 0; offset < chunk.byteLength;) {
-          const { bytesWritten } = await file.write(chunk, offset);
+          const { bytesWritten } = await download.write(
+            chunk,
+            offset,
+            chunk.byteLength - offset,
+            written,
+          );
           if (bytesWritten === 0)
             throw Object.assign(
               new Error("No byte of the bundle could be written."),
@@ -115,27 +150,30 @@ export async function installRelease({
               },
             );
           offset += bytesWritten;
+          written += bytesWritten;
         }
-      await file.sync();
+      await download.sync();
+      // What is on disk is what gets unpacked, so that is what is compared.
+      const hash = createHash("sha256");
+      let size = 0;
+      for await (const chunk of readFrom(download)) {
+        hash.update(chunk);
+        size += chunk.byteLength;
+      }
+      const sha256 = hash.digest("hex");
+      if (size !== manifest.bundle.size || sha256 !== manifest.bundle.sha256)
+        return failed(
+          `The bundle of release ${name} arrived as ${size} bytes with SHA-256 ${sha256}, not the ${manifest.bundle.size} bytes and ${manifest.bundle.sha256} its signed manifest names: it was cut short or changed. Nothing was installed; check again later.`,
+        );
+      await mkdir(staging, { mode: 0o755 });
+      const unpacked = await BundleArchive.unpack(readFrom(download), staging);
+      if (!unpacked.ok)
+        return failed(
+          `The bundle of release ${name} could not be unpacked: ${unpacked.error.message}`,
+        );
     } finally {
-      await file.close();
+      await download.close();
     }
-    // What is on disk is what gets unpacked, so that is what is compared.
-    const { size, sha256 } = await BundleArchive.digest(download);
-    if (size !== manifest.bundle.size || sha256 !== manifest.bundle.sha256)
-      return failed(
-        `The bundle of release ${name} arrived as ${size} bytes with SHA-256 ${sha256}, not the ${manifest.bundle.size} bytes and ${manifest.bundle.sha256} its signed manifest names: it was cut short or changed. Nothing was installed; check again later.`,
-      );
-
-    await mkdir(staging, { mode: 0o755 });
-    const unpacked = await BundleArchive.unpack(
-      Bun.file(download).stream(),
-      staging,
-    );
-    if (!unpacked.ok)
-      return failed(
-        `The bundle of release ${name} could not be unpacked: ${unpacked.error.message}`,
-      );
     const binaries = await NativeArtifacts.find(staging);
     if (binaries.length)
       return failed(
@@ -185,7 +223,19 @@ export async function installRelease({
       mode: 0o644,
       flag: "wx",
     });
-    await rename(staging, path.join(releases, name));
+    try {
+      await rename(staging, path.join(releases, name));
+    } catch (error) {
+      // Another install of this release finished first: keep its copy if it verifies.
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "ENOTEMPTY" || error.code === "EEXIST") &&
+        (await ReleaseStore.verified(releases, name, trust)).ok
+      )
+        return { ok: true, name };
+      throw error;
+    }
     return { ok: true, name };
   } catch (error) {
     return failed(`Release ${name} was not installed: ${describe(error)}.`);

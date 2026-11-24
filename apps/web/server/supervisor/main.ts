@@ -286,9 +286,9 @@ const control = Bun.serve({
       );
     }
     if (request.method === "POST" && url.pathname === "/update/install")
-      return streamed(null, installUpdate());
+      return streamed(null, oneAtATime("install", installUpdate));
     if (request.method === "POST" && url.pathname === "/update/rollback")
-      return streamed(null, rollBack());
+      return streamed(null, oneAtATime("rollback", rollBack));
     return new Response(
       "Use GET /status, POST /handover[?release=<name>], GET /update, or POST /update/check, /update/install or /update/rollback.\n",
       { status: 404, headers: closing },
@@ -318,6 +318,37 @@ async function handOver(name: string | null) {
       name === builtIn.name || !prepared.has(name) ? null : name,
     );
   return outcome;
+}
+
+/** The install or rollback under way, from its start through its handover. */
+let updating: "install" | "rollback" | null = null;
+
+/**
+ * Run one install or rollback at a time, through to the end of its handover: a second request
+ * meanwhile is told one is running, and never starts another installer beside it.
+ */
+async function oneAtATime(
+  what: "install" | "rollback",
+  run: () => Promise<
+    { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
+  >,
+): Promise<
+  { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
+> {
+  if (updating)
+    return {
+      ok: false,
+      error: {
+        kind: "busy",
+        message: `An ${updating === "install" ? "update" : "rollback"} is already under way; wait until it has finished, then try again.`,
+      },
+    };
+  updating = what;
+  try {
+    return await run();
+  } finally {
+    updating = null;
+  }
 }
 
 /** Install what the last check offered, then hand over to it. */
