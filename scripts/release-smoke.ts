@@ -7,12 +7,15 @@
  * way would be missing, and this is where that shows. It unpacks the bundle, links this
  * checkout's native packages as an installation links the image's, starts the server on its own
  * data, and requires its health check, its built client and one of its hashed assets to answer.
+ * What it starts is what the manifest names: the bundle's size and SHA-256, and the unpacked
+ * tree's digest, are checked first, so the bytes tested are the bytes signed.
  */
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { BundleArchive } from "../apps/web/server/updates/bundle-archive";
 import { ReleaseManifest } from "../apps/web/server/updates/release-manifest";
+import { ReleaseTree } from "../apps/web/server/updates/release-tree";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const out = process.argv[2];
@@ -32,6 +35,21 @@ const scratch = await mkdtemp(path.join(os.tmpdir(), "nimbus-smoke-"));
 let server: ReturnType<typeof Bun.spawn> | null = null;
 let failure: string | null = null;
 try {
+  const file = path.join(out, manifest.value.bundle.file);
+  const hasher = new Bun.CryptoHasher("sha256");
+  let size = 0;
+  for await (const chunk of Bun.file(file).stream()) {
+    hasher.update(chunk);
+    size += chunk.byteLength;
+  }
+  const sha256 = hasher.digest("hex");
+  if (
+    size !== manifest.value.bundle.size ||
+    sha256 !== manifest.value.bundle.sha256
+  )
+    throw new Error(
+      `${manifest.value.bundle.file} is ${size} bytes with SHA-256 ${sha256}, not the bundle the manifest names (${manifest.value.bundle.size} bytes, ${manifest.value.bundle.sha256}); nothing was started.`,
+    );
   const tree = path.join(scratch, "release");
   await mkdir(tree);
   const unpacked = await BundleArchive.unpack(
@@ -39,6 +57,11 @@ try {
     tree,
   );
   if (!unpacked.ok) throw new Error(unpacked.error.message);
+  const digest = await ReleaseTree.digest(tree);
+  if (digest.sha256 !== manifest.value.tree.sha256)
+    throw new Error(
+      "The unpacked bundle is not the tree its manifest names; nothing was started.",
+    );
   for (const name of Object.keys(manifest.value.requires.native))
     await symlink(
       path.join(repoRoot, "apps/web/node_modules", name),
@@ -56,8 +79,10 @@ try {
   const origin = `http://127.0.0.1:${port}`;
   server = Bun.spawn([process.execPath, "server/start.ts"], {
     cwd: path.join(tree, "apps/web"),
+    // Only what a server needs: nothing of the job's own environment, such as a token.
     env: {
-      ...process.env,
+      PATH: process.env.PATH ?? "",
+      HOME: scratch,
       NODE_ENV: "production",
       PORT: String(port),
       BETTER_AUTH_URL: origin,

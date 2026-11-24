@@ -367,6 +367,8 @@ jobs:
     outputs:
       manifest-sha256: ${{ steps.digests.outputs.manifest }}
       bundle-sha256: ${{ steps.digests.outputs.bundle }}
+      artifact-id: ${{ steps.artifact.outputs.artifact-id }}
+      artifact-digest: ${{ steps.artifact.outputs.artifact-digest }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -393,8 +395,8 @@ jobs:
           args=(--out bundle --sequence "$GITHUB_RUN_NUMBER" --channel edge --repository "$GITHUB_REPOSITORY" --image "ghcr.io/$GITHUB_REPOSITORY:edge")
           [ -z "$PREVIOUS" ] || args+=(--previous-commit "$PREVIOUS")
           bun scripts/release-bundle.ts "${args[@]}"
-      - name: Start the bundle as a server
-        run: bun scripts/release-smoke.ts bundle
+      # Digested and uploaded before anything runs it: the smoke job tests a downloaded copy of
+      # this artifact, and the sign job signs that same artifact, by id and digest.
       - id: digests
         run: |
           echo "manifest=$(sha256sum bundle/manifest.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -403,11 +405,43 @@ jobs:
         with:
           subject-path: bundle/*.tar.gz
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
         with:
           name: release-bundle
           path: bundle/
           if-no-files-found: error
           retention-days: 7
+
+  # Starts a downloaded copy of the bundle artifact as a real server, in a job of its own, so what
+  # is tested is what was uploaded, and the sign job waits for it.
+  smoke:
+    needs: [bundle]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: scripts/release-smoke.ts
+          sparse-checkout-cone-mode: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.bundle.outputs.artifact-id }}
+          path: bundle
+      - name: Check the artifact is the bundle that was built
+        env:
+          MANIFEST: ${{ needs.bundle.outputs.manifest-sha256 }}
+          BUNDLE: ${{ needs.bundle.outputs.bundle-sha256 }}
+        run: |
+          [ "$(sha256sum bundle/manifest.json | cut -d' ' -f1)" = "$MANIFEST" ] || { echo "manifest.json is not the one the bundle job built."; exit 1; }
+          [ "$(sha256sum bundle/*.tar.gz | cut -d' ' -f1)" = "$BUNDLE" ] || { echo "The bundle is not the one the bundle job built."; exit 1; }
+      - name: Start the bundle as a server
+        run: bun scripts/release-smoke.ts bundle
 
   # The only job that sees the signing key, in the release-signing environment (limit it to main
   # in the repository's settings). It installs nothing and runs nothing from the bundle: it checks
@@ -415,7 +449,7 @@ jobs:
   # scripts/release-sign.ts, which imports nothing, and publishes it as the edge channel's newest
   # release. Without a key it stops before signing and publishes nothing.
   sign:
-    needs: [bundle]
+    needs: [bundle, smoke]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: release-signing
@@ -424,6 +458,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -434,11 +469,19 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
+      # The very artifact the smoke job tested: by id, its stored digest the one uploaded.
+      - name: Check the artifact is the one uploaded
+        env:
+          ARTIFACT_ID: ${{ needs.bundle.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ needs.bundle.outputs.artifact-digest }}
+        run: |
+          stored=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" --jq .digest)
+          [ "$stored" = "sha256:$ARTIFACT_DIGEST" ] || { echo "Artifact $ARTIFACT_ID has digest $stored, not the uploaded sha256:$ARTIFACT_DIGEST."; exit 1; }
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: release-bundle
+          artifact-ids: ${{ needs.bundle.outputs.artifact-id }}
           path: bundle
-      - name: Check the artifact is the bundle that was built and tested
+      - name: Check the files are the bundle that was built and tested
         env:
           MANIFEST: ${{ needs.bundle.outputs.manifest-sha256 }}
           BUNDLE: ${{ needs.bundle.outputs.bundle-sha256 }}
