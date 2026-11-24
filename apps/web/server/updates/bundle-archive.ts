@@ -150,13 +150,21 @@ export const BundleArchive = {
       for await (const chunk of gzip.readable) {
         hash.update(chunk);
         size += chunk.byteLength;
-        file.write(chunk);
+        // Buffered by the writer; a full buffer is flushed before the next write.
+        await file.write(chunk);
       }
       await file.end();
       return { size, sha256: hash.digest("hex") };
     })();
     for (const entry of entries) {
       const stats = await lstat(entry.absolute);
+      const linked = stats.isSymbolicLink()
+        ? await readlink(entry.absolute)
+        : "";
+      if (stats.isSymbolicLink() && !linkInside(entry.name, linked))
+        throw new Error(
+          `The release tree's link ${entry.name} leads outside it (to ${linked}), so no installation would accept the bundle. Remove the link from the tree.`,
+        );
       const blocks = stats.isSymbolicLink()
         ? entryBlocks(entry.name, "2", 0, 0o777, await readlink(entry.absolute))
         : stats.isDirectory()

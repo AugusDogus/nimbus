@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { z } from "zod";
 
 /**
@@ -147,19 +148,16 @@ export const ReleaseSignature = {
 
   /** A new key pair: the trust-root entry and the private key CI signs with. */
   async generate(keyId: string) {
-    const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
-      "sign",
-      "verify",
-    ]);
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    // An Ed25519 SPKI is a fixed 12-byte prefix and the 32-byte raw key.
+    const spki = publicKey.export({ format: "der", type: "spki" });
     return {
       trustEntry: {
         id: keyId,
-        publicKey: Buffer.from(
-          await crypto.subtle.exportKey("raw", pair.publicKey),
-        ).toString("base64"),
+        publicKey: spki.subarray(spki.byteLength - 32).toString("base64"),
       },
       privateKey: new Uint8Array(
-        await crypto.subtle.exportKey("pkcs8", pair.privateKey),
+        privateKey.export({ format: "der", type: "pkcs8" }),
       ),
     };
   },
