@@ -12,7 +12,28 @@ import path from "node:path";
  */
 export const ReleaseTree = {
   /** The digest of the tree at `root`, leaving out the relative paths in `exclude`. */
-  async digest(root: string, exclude: ReadonlySet<string> = new Set()) {
+  async digest(
+    root: string,
+    exclude: ReadonlySet<string> = new Set(),
+    /** When given, every entry must belong to this user and nobody else may write it. */
+    { owner }: { owner?: number } = {},
+  ) {
+    const immutable = (
+      entry: string,
+      stats: { uid: number; mode: number },
+      link: boolean,
+    ) => {
+      if (owner === undefined) return;
+      if (stats.uid !== owner)
+        throw new Error(
+          `${entry || "its folder"} belongs to user ${stats.uid}, not ${owner}`,
+        );
+      if (!link && stats.mode & 0o022)
+        throw new Error(
+          `${entry || "its folder"} is writable by others than its owner`,
+        );
+    };
+    immutable("", await lstat(root), false);
     const listing = createHash("sha256");
     let entries = 0;
     /** One buffer for every file of the walk. */
@@ -26,6 +47,7 @@ export const ReleaseTree = {
         if (exclude.has(entry)) continue;
         const absolute = path.join(root, entry);
         const stats = await lstat(absolute);
+        immutable(entry, stats, stats.isSymbolicLink());
         entries++;
         if (stats.isSymbolicLink())
           listing.update(

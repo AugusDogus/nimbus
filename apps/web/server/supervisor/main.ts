@@ -172,6 +172,21 @@ const spawn: SpawnWorker = (request, onMessage) => {
         `verified ${request.release.name} in ${Math.round(performance.now() - checking)} ms before starting it`,
       );
     }
+    // Earlier builds' assets the new server keeps serving: an installed one's verified again.
+    const previousAssets: string[] = [];
+    for (const dist of request.previousAssets) {
+      const root = path.resolve(dist, "../../..");
+      if (path.dirname(root) === path.resolve(releases)) {
+        const earlier = await updater.resolve(path.basename(root));
+        if (!earlier.ok || earlier.root !== root) {
+          log(
+            `not serving the assets of ${path.basename(root)} beside ${request.release.name}: ${earlier.ok ? "it is not where it was verified" : earlier.message}`,
+          );
+          continue;
+        }
+      }
+      previousAssets.push(dist);
+    }
     if (stopped) return null;
     let checked = serverIds === null;
     const started = Bun.spawn(asServer([process.execPath, "server/start.ts"]), {
@@ -181,7 +196,7 @@ const spawn: SpawnWorker = (request, onMessage) => {
         [WorkerEnv.protocol]: String(PROTOCOL_VERSION),
         [WorkerEnv.release]: request.release.name,
         [WorkerEnv.predecessor]: request.predecessor ? "1" : "0",
-        [WorkerEnv.previousAssets]: request.previousAssets.join(":"),
+        [WorkerEnv.previousAssets]: previousAssets.join(":"),
         [WorkerEnv.supervisorPid]: String(process.pid),
         [ServerRun.env.id]: run.id,
         [ServerRun.env.startedAt]: String(run.startedAt),
@@ -510,6 +525,9 @@ const runInstaller: RunInstaller = async (request) => {
 
 const updater = await createUpdater({
   releases,
+  storeOwner: users.kind === "split" ? 0 : self,
+  // A store whose layout was refused gives nothing: the built-in release runs alone.
+  untrusted: storeChecked.ok ? null : storeChecked.message,
   disabled: users.updatesOff ?? (storeChecked.ok ? null : storeChecked.message),
   builtIn: { root: builtIn.root, build: build.ok ? build.value : null },
   source: source.ok

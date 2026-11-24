@@ -91,6 +91,7 @@ const updater = (
 ) =>
   createUpdater({
     releases,
+    storeOwner: process.getuid?.() ?? 0,
     disabled,
     builtIn: { root: image, build: imageBuild },
     source: {
@@ -377,4 +378,27 @@ test("the schedule is kept in the state and shown in the status", async () => {
     lastAutomatic: "2026-11-24",
     offered: false,
   });
+});
+
+test("a store that cannot be trusted gives nothing: no state, no release, only the built-in one", async () => {
+  const own = await installTestRelease(releases, release(190), {
+    privateKey,
+    natives: natives(),
+  });
+  await ranLast(own);
+  const untrusted = await createUpdater({
+    releases,
+    storeOwner: process.getuid?.() ?? 0,
+    untrusted: "The update store is not laid out as Nimbus needs.",
+    disabled: null,
+    builtIn: { root: image, build },
+    source: { kind: "off", reason: "off" },
+    trust: { ok: true, value: trust },
+    supervisorProtocol: PROTOCOL_VERSION,
+    runInstaller: noInstaller,
+    log: (line) => lines.push(line),
+  });
+  expect(await untrusted.startRelease()).toBeNull();
+  const resolved = await untrusted.resolve(own);
+  expect(resolved.ok || resolved.message).toContain("not laid out");
 });

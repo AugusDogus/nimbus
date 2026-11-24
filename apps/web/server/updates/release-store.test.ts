@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -116,7 +117,9 @@ test("an installed release is intact only as its signed tree, with natives linke
   await symlink("/image/sharp", path.join(root, "apps/web/node_modules/sharp"));
   await writeFile(path.join(root, MANIFEST_FILE), "{}");
   const natives = new Map([["sharp", "/image/sharp"]]);
-  expect(await ReleaseStore.intact(root, manifest, natives)).toEqual({
+  expect(
+    await ReleaseStore.intact(root, manifest, natives, process.getuid?.() ?? 0),
+  ).toEqual({
     ok: true,
   });
   expect(
@@ -125,17 +128,45 @@ test("an installed release is intact only as its signed tree, with natives linke
         root,
         manifest,
         new Map([["sharp", "/elsewhere"]]),
+        process.getuid?.() ?? 0,
       )
     ).ok,
   ).toBe(false);
   await writeFile(path.join(root, "apps/web/server/start.ts"), "// changed\n");
-  expect((await ReleaseStore.intact(root, manifest, natives)).ok).toBe(false);
+  expect(
+    (
+      await ReleaseStore.intact(
+        root,
+        manifest,
+        natives,
+        process.getuid?.() ?? 0,
+      )
+    ).ok,
+  ).toBe(false);
   await writeFile(path.join(root, "apps/web/server/start.ts"), "// server\n");
   await writeFile(path.join(root, "apps/web/server/extra.ts"), "");
-  expect((await ReleaseStore.intact(root, manifest, natives)).ok).toBe(false);
+  expect(
+    (
+      await ReleaseStore.intact(
+        root,
+        manifest,
+        natives,
+        process.getuid?.() ?? 0,
+      )
+    ).ok,
+  ).toBe(false);
   await rm(path.join(root, "apps/web/server/extra.ts"));
   await rm(path.join(root, "apps/web/server/start.ts"));
-  expect((await ReleaseStore.intact(root, manifest, natives)).ok).toBe(false);
+  expect(
+    (
+      await ReleaseStore.intact(
+        root,
+        manifest,
+        natives,
+        process.getuid?.() ?? 0,
+      )
+    ).ok,
+  ).toBe(false);
 });
 
 test("pruning removes only installed releases, never other folders it finds", async () => {
@@ -173,4 +204,57 @@ test("a state file that cannot be read is reported like a damaged one, not throw
   const read = await ReleaseStore.read(releases, ReleaseStore.empty());
   expect(read.ok).toBe(false);
   if (!read.ok) expect(read.message).toContain("could not be read");
+});
+
+test("an installed release is intact only when the store's owner owns every entry and nobody else may write it", async () => {
+  const name = "edge-151-aaaaaaaaaaaa";
+  const root = path.join(releases, name);
+  await mkdir(path.join(root, "apps/web/server"), { recursive: true });
+  await writeFile(path.join(root, "apps/web/server/start.ts"), "// server\n");
+  const manifest = testManifest(151, {
+    requires: { ...testManifest(151).requires, native: {} },
+    tree: await ReleaseTree.digest(root),
+  });
+  const self = process.getuid?.() ?? 0;
+  expect(await ReleaseStore.intact(root, manifest, new Map(), self)).toEqual({
+    ok: true,
+  });
+  // Others could change it later, though its content is right now.
+  await chmod(path.join(root, "apps/web/server/start.ts"), 0o664);
+  const writable = await ReleaseStore.intact(root, manifest, new Map(), self);
+  expect(writable.ok || writable.message).toContain("writable");
+  await chmod(path.join(root, "apps/web/server/start.ts"), 0o644);
+  await chmod(path.join(root, "apps/web"), 0o777);
+  expect((await ReleaseStore.intact(root, manifest, new Map(), self)).ok).toBe(
+    false,
+  );
+  await chmod(path.join(root, "apps/web"), 0o755);
+  const owned = await ReleaseStore.intact(root, manifest, new Map(), self + 1);
+  expect(owned.ok || owned.message).toContain("belongs to");
+});
+
+test("the state and a release's manifest are never read through a link", async () => {
+  const elsewhere = path.join(releases, "..", `elsewhere-${Date.now()}`);
+  await mkdir(elsewhere, { recursive: true });
+  await writeFile(
+    path.join(elsewhere, "state.json"),
+    JSON.stringify(ReleaseStore.empty()),
+  );
+  await symlink(
+    path.join(elsewhere, "state.json"),
+    path.join(releases, "state.json"),
+  );
+  expect((await ReleaseStore.read(releases, ReleaseStore.empty())).ok).toBe(
+    false,
+  );
+  const name = await installed(152);
+  const real = path.join(elsewhere, "manifest.json");
+  await writeFile(
+    real,
+    await Bun.file(path.join(releases, name, MANIFEST_FILE)).bytes(),
+  );
+  await rm(path.join(releases, name, MANIFEST_FILE));
+  await symlink(real, path.join(releases, name, MANIFEST_FILE));
+  expect((await ReleaseStore.verified(releases, name, trust)).ok).toBe(false);
+  await rm(elsewhere, { recursive: true, force: true });
 });

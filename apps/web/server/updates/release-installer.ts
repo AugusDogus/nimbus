@@ -56,6 +56,9 @@ function readFrom(file: FileHandle) {
   });
 }
 
+/** Who publishes: root's copy belongs to this process's user, which must own every entry. */
+const self = process.getuid?.() ?? -1;
+
 /** A bundle download may take this long; a stalled one fails rather than wait forever. */
 const DOWNLOAD_TIMEOUT_MS = 30 * 60_000;
 
@@ -270,7 +273,12 @@ export async function publishRelease({
     }).catch(() => null);
     if (!bytes || !Buffer.from(manifestBytes).equals(bytes)) return "other";
     return (
-      await ReleaseStore.intact(installed.root, installed.manifest, locations)
+      await ReleaseStore.intact(
+        installed.root,
+        installed.manifest,
+        locations,
+        self,
+      )
     ).ok
       ? "same"
       : "none";
@@ -335,7 +343,7 @@ export async function publishRelease({
     // Fixed, whatever the umask.
     await chmod(path.join(copy, MANIFEST_FILE), 0o644);
     await chmod(path.join(copy, SIGNATURE_FILE), 0o644);
-    const intact = await ReleaseStore.intact(copy, manifest, locations);
+    const intact = await ReleaseStore.intact(copy, manifest, locations, self);
     if (!intact.ok)
       return failed(`Release ${name} was not installed: ${intact.message}`);
     try {

@@ -1,7 +1,7 @@
+import { constants } from "node:fs";
 import {
   open,
   readdir,
-  readFile,
   readlink,
   rename,
   rm,
@@ -53,6 +53,23 @@ const stateSchema = z.object({
   lastAutomatic: z.string().nullable().default(null),
 });
 
+/** A regular file's bytes, never read through a link or from a pipe or device. */
+async function readPlain(file: string): Promise<Uint8Array<ArrayBuffer>> {
+  const handle = await open(
+    file,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
+  try {
+    if (!(await handle.stat()).isFile())
+      throw Object.assign(new Error(`${file} is not a regular file`), {
+        code: "EFTYPE",
+      });
+    return new Uint8Array(await handle.readFile());
+  } finally {
+    await handle.close();
+  }
+}
+
 export const MANIFEST_FILE = "release-manifest.json";
 export const SIGNATURE_FILE = "release-manifest.sig";
 const STATE_FILE = "state.json";
@@ -84,7 +101,9 @@ export const ReleaseStore = {
   > {
     let text: string;
     try {
-      text = await readFile(path.join(releases, STATE_FILE), "utf8");
+      text = new TextDecoder().decode(
+        await readPlain(path.join(releases, STATE_FILE)),
+      );
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT")
         return { ok: true, value: fallback };
@@ -141,10 +160,8 @@ export const ReleaseStore = {
     let manifest: Uint8Array<ArrayBuffer>;
     let signature: Uint8Array<ArrayBuffer>;
     try {
-      manifest = new Uint8Array(await readFile(path.join(root, MANIFEST_FILE)));
-      signature = new Uint8Array(
-        await readFile(path.join(root, SIGNATURE_FILE)),
-      );
+      manifest = await readPlain(path.join(root, MANIFEST_FILE));
+      signature = await readPlain(path.join(root, SIGNATURE_FILE));
     } catch (error) {
       return {
         ok: false as const,
@@ -174,6 +191,8 @@ export const ReleaseStore = {
     root: string,
     manifest: ReleaseManifest,
     natives: ReadonlyMap<string, string>,
+    /** Who must own every entry: root, or the store's owner when everything is one user. */
+    owner: number,
   ): Promise<{ ok: true } | { ok: false; message: string }> {
     const name = ReleaseManifest.releaseName(manifest);
     const linked = Object.keys(manifest.requires.native).map(
@@ -189,13 +208,19 @@ export const ReleaseStore = {
           message: `Release ${name} does not link ${native} to this image's copy, so it was not started.`,
         };
     }
-    const tree = await ReleaseTree.digest(
-      root,
-      new Set([MANIFEST_FILE, SIGNATURE_FILE, ...linked]),
-    ).catch((error: unknown) => ({
-      sha256: `unreadable (${error instanceof Error ? error.message : String(error)})`,
-      entries: 0,
-    }));
+    let tree: { sha256: string; entries: number };
+    try {
+      tree = await ReleaseTree.digest(
+        root,
+        new Set([MANIFEST_FILE, SIGNATURE_FILE, ...linked]),
+        { owner },
+      );
+    } catch (error) {
+      return {
+        ok: false,
+        message: `Release ${name} cannot be trusted to stay as it was signed (${error instanceof Error ? error.message : String(error)}), so it was not started.`,
+      };
+    }
     if (
       tree.sha256 !== manifest.tree.sha256 ||
       tree.entries !== manifest.tree.entries

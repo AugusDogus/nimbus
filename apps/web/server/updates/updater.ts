@@ -60,6 +60,8 @@ const CHECK_TIMEOUT_MS = 30_000;
 
 export async function createUpdater({
   releases,
+  storeOwner,
+  untrusted = null,
   disabled,
   builtIn,
   source,
@@ -70,6 +72,13 @@ export async function createUpdater({
   now = () => new Date(),
 }: {
   releases: string;
+  /** Who owns the store and every installed release: root, or this user when all is one. */
+  storeOwner: number;
+  /**
+   * Why the store cannot be trusted (its layout was refused), or null: then nothing is read from
+   * it, neither the state nor any release, and only the built-in release runs.
+   */
+  untrusted?: string | null;
   /**
    * Why in-app updates are off for this installation whatever else holds, such as every process
    * running as one user (Users); null when they are not. Installed releases still start.
@@ -96,7 +105,10 @@ export async function createUpdater({
       `could not create ${releases} (${error instanceof Error ? error.message : String(error)}), so no update can be installed or recorded there`,
     );
   }
-  const read = await ReleaseStore.read(releases, ReleaseStore.empty());
+  // An untrusted store gives nothing: no state, no release (see `untrusted`).
+  const read = untrusted
+    ? { ok: false as const, message: untrusted }
+    : await ReleaseStore.read(releases, ReleaseStore.empty());
   if (!read.ok) log(read.message);
   let state: ReleaseState = read.ok ? read.value : ReleaseStore.empty();
   /**
@@ -176,6 +188,7 @@ export async function createUpdater({
 
   /** Installed release `name` if it verifies and this image can run it, else why not. */
   const runnable = async (name: string) => {
+    if (untrusted) return { ok: false as const, message: untrusted };
     if (!trust.ok) return { ok: false as const, message: trust.message };
     if (!identity)
       return {
@@ -207,6 +220,7 @@ export async function createUpdater({
       verified.root,
       verified.manifest,
       locations,
+      storeOwner,
     );
     if (!intact.ok) return intact;
     known.set(name, verified.manifest);
