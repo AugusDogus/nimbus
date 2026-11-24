@@ -71,6 +71,42 @@ state_entries() {
   fi
 }
 
+# Give the supervisor and the servers users of their own (see docs/updates.md), once: the config
+# root becomes root:PGID with mode 1771, so the servers ($2:$3) still create their files in it but
+# cannot rename or remove what they do not own, and nobody else can list it; the supervisor ($4)
+# gets <config>/supervisor for the releases it installs, and the installation lock. Nothing is
+# re-owned recursively. Anything already at <config>/supervisor that is not the supervisor's
+# own folder, such as a link or a folder the servers' user made, is set aside and never trusted.
+# Prints what it changed on standard error; returns non-zero if it could not.
+prepare_split() {
+  config=$1
+  uid=$2
+  gid=$3
+  update=$4
+  if [ "$(stat -c '%u:%g:%a' -- "$config")" != "0:$gid:1771" ]; then
+    chown -h -- "0:$gid" "$config" && chmod 1771 -- "$config" || return 1
+    printf 'Nimbus gave %s to root:%s with mode 1771, so its servers can no longer replace what the supervisor installs. An older image gives it back to %s.\n' "$config" "$gid" "$uid" >&2
+  fi
+  supervisor=$config/supervisor
+  if [ -L "$supervisor" ] || { [ -e "$supervisor" ] && [ "$(stat -c '%u:%F' -- "$supervisor")" != "$update:directory" ]; }; then
+    aside="$config/supervisor.untrusted-$(date -u +%Y%m%dT%H%M%SZ)"
+    mv -- "$supervisor" "$aside" || return 1
+    printf 'Nimbus set %s aside as %s: it was not made by the supervisor, so nothing in it is trusted. Remove it once you have looked at it.\n' "$supervisor" "$aside" >&2
+  fi
+  if [ ! -e "$supervisor" ]; then
+    mkdir -m 755 -- "$supervisor" && chown -h -- "$update:$update" "$supervisor" || return 1
+  fi
+  if [ ! -d "$supervisor/releases" ] || [ -L "$supervisor/releases" ]; then
+    rm -f -- "$supervisor/releases"
+    mkdir -m 755 -- "$supervisor/releases" && chown -h -- "$update:$update" "$supervisor/releases" || return 1
+  fi
+  lock=$config/server.lock
+  if [ -L "$lock" ] || { [ -e "$lock" ] && [ ! -f "$lock" ]; }; then rm -f -- "$lock" || return 1; fi
+  [ -e "$lock" ] || : > "$lock" || return 1
+  chown -h -- "$update:$gid" "$lock" && chmod 660 -- "$lock" || return 1
+  rm -f -- "$config/server.lock-journal"
+}
+
 main() {
   mask=${UMASK:-022}
   case "$mask" in
@@ -94,6 +130,15 @@ main() {
     fi
   done
 
+  # The supervisor's own user, which installs releases the servers must not be able to change.
+  update=${NIMBUS_UPDATE_UID:-1100}
+  split=1
+  case "$update" in
+    '' | *[!0-9]*) split=0 ;;
+  esac
+  if [ "$split" = 1 ] && { [ "$update" -lt 1 ] || [ "$update" = "$uid" ] || [ "$update" = "$gid" ]; }; then split=0; fi
+  [ "$split" = 1 ] || printf 'In-app updates are off: NIMBUS_UPDATE_UID=%s is not a user of its own (a number other than 0, PUID and PGID), so the supervisor and the servers run as one user. Unset it, or set another number.\n' "$update" >&2
+
   check_roots "${NIMBUS_DATA_ROOT-/data}" "${NIMBUS_CONFIG_ROOT-/config}"
   mkdir -p -- "$config" "$data"
 
@@ -101,10 +146,20 @@ main() {
   if [ "$(stat -c '%u:%g' -- "$data")" != "$uid:$gid" ] && ! chown -h -- "$uid:$gid" "$data"; then
     printf 'Nimbus could not give %s to %s:%s. Make sure that user can write to it.\n' "$data" "$uid" "$gid" >&2
   fi
-  state_entries "$uid" "$gid" "$config" "$data" | xargs -0r chown -h -- "$uid:$gid" ||
+  # Split, the config root itself is root's (prepare_split), not the servers'.
+  state_entries "$uid" "$gid" "$config" "$data" | { if [ "$split" = 1 ]; then grep -zvxF -- "$config"; else cat; fi; } | xargs -0r chown -h -- "$uid:$gid" ||
     fail "could not give Nimbus's state in $config and $data/.nimbus to $uid:$gid. File contents are unchanged, but some ownership may have changed. Check the volume's permissions and ID mapping, then restart."
 
   export HOME=/tmp
+  if [ "$split" = 1 ] && prepare_split "$config" "$uid" "$gid" "$update"; then
+    # Only the rights to start the servers as PUID:PGID and to stop them; the supervisor drops
+    # even those for them.
+    exec setpriv --reuid="$update" --regid="$update" --clear-groups \
+      --inh-caps=-all,+setuid,+setgid,+kill --ambient-caps=-all,+setuid,+setgid,+kill \
+      --bounding-set=-all,+setuid,+setgid,+kill --no-new-privs \
+      -- env NIMBUS_SERVER_UID="$uid" NIMBUS_SERVER_GID="$gid" "$@"
+  fi
+  [ "$split" = 0 ] || printf 'In-app updates are off: Nimbus could not give its supervisor a user of its own in %s, so every process runs as %s:%s. Check that the config root can be re-owned (some network file systems refuse it).\n' "$config" "$uid" "$gid" >&2
   exec setpriv --reuid="$uid" --regid="$gid" --clear-groups --no-new-privs -- "$@"
 }
 

@@ -22,6 +22,16 @@ beforeEach(async () => {
   );
 });
 afterEach(async () => {
+  // Files a namespace's mapped users own are removed from inside one first.
+  if (mappedRoot)
+    Bun.spawnSync([
+      "unshare",
+      "--map-auto",
+      "--map-root-user",
+      "rm",
+      "-rf",
+      root,
+    ]);
   await rm(root, { recursive: true, force: true });
 });
 
@@ -193,3 +203,79 @@ test("startup re-owns only what Nimbus writes, never a user file or an inode it 
     await sh(`state_entries ${uid} ${gid} "${config}" "${data}" | wc -c`),
   ).toMatchObject({ code: 0, stdout: "0\n" });
 });
+
+/** Whether this machine gives an unprivileged user a namespace with many mapped ids. */
+const mappedRoot =
+  Bun.spawnSync(["unshare", "--map-auto", "--map-root-user", "true"])
+    .exitCode === 0;
+
+/** Run `script` as root in a user namespace with mapped ids, the entrypoint's functions defined. */
+async function asRoot(script: string) {
+  const child = Bun.spawn(
+    [
+      "unshare",
+      "--map-auto",
+      "--map-root-user",
+      "sh",
+      "-c",
+      `. "$0"; ${script}`,
+      entrypoint,
+    ],
+    {
+      cwd: root,
+      env: { PATH: process.env.PATH ?? "", NIMBUS_ENTRYPOINT_FUNCTIONS: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  return { code, stdout, stderr };
+}
+
+const layout =
+  'stat -c "%u:%g:%a" "$config" "$config/supervisor" "$config/supervisor/releases" "$config/server.lock"';
+
+test.skipIf(!mappedRoot)(
+  "the split is prepared once: a sticky config root, the supervisor's own folder and lock, logged when it changes",
+  async () => {
+    const script = `config="${root}/config"; mkdir -p "$config"; chown 2000:2000 "$config"; prepare_split "$config" 2000 2000 1100; ${layout}`;
+    const first = await asRoot(script);
+    expect(first.code).toBe(0);
+    expect(first.stdout.trim().split("\n")).toEqual([
+      "0:2000:1771",
+      "1100:1100:755",
+      "1100:1100:755",
+      "1100:2000:660",
+    ]);
+    expect(first.stderr).toContain("1771");
+    const again = await asRoot(
+      `config="${root}/config"; prepare_split "$config" 2000 2000 1100; ${layout}`,
+    );
+    expect(again.stdout).toBe(first.stdout);
+    expect(again.stderr).toBe("");
+  },
+);
+
+test.skipIf(!mappedRoot)(
+  "a supervisor folder the servers' user made, or a link in its place, is set aside and never trusted",
+  async () => {
+    for (const plant of [
+      'ln -s /etc "$config/supervisor"',
+      'mkdir -p "$config/supervisor/releases/edge-9-aaaaaaaaaaaa" && chown -R 2000:2000 "$config/supervisor"',
+    ]) {
+      const done = await asRoot(
+        `config="${root}/config-$$"; mkdir -p "$config"; chown 2000:2000 "$config"; ${plant}; prepare_split "$config" 2000 2000 1100; ${layout}; ls "$config/supervisor/releases" | wc -l; ls "$config" | grep -c "supervisor.untrusted"`,
+      );
+      expect(done.code).toBe(0);
+      const lines = done.stdout.trim().split("\n");
+      expect(lines[1]).toBe("1100:1100:755");
+      expect(lines[4]).toBe("0");
+      expect(lines[5]).toBe("1");
+      expect(done.stderr).toContain("aside as");
+    }
+  },
+);
