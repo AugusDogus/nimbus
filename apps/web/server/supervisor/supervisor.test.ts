@@ -720,4 +720,21 @@ describe("the supervisor", () => {
     expect(h.supervisor.status().active?.release).toBe("a");
     expect(h.lines.join("\n")).toContain("built-in release");
   });
+
+  test("a reserved handover waits through a crash restart instead of being refused after its owner wrote what it starts", async () => {
+    const h = harness();
+    await h.serving();
+    const reserved = h.supervisor.reserve();
+    if (!reserved.ok) throw new Error(reserved.error.message);
+    // The active server crashes while the owner of the reservation records its target.
+    h.workers[0]?.exit(1);
+    await Bun.sleep(1);
+    expect(h.supervisor.status().phase).toBe("restarting");
+    const handing = h.supervisor.handover("b", reserved.value);
+    h.ready(await h.started(1));
+    h.ready(await h.started(2));
+    const outcome = await handing;
+    expect(outcome.ok).toBe(true);
+    expect(h.supervisor.status().active?.release).toBe("b");
+  });
 });

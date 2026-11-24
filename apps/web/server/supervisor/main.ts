@@ -719,6 +719,16 @@ async function handOver(
     { name, root: verified.root },
     reservation,
   );
+  // Busy after what it starts was written: the container is stopping. The record stays, so the
+  // next start runs it, consistent with the build reserved for it.
+  if (!outcome.ok && outcome.error.kind === "busy")
+    return {
+      ok: false,
+      error: {
+        kind: "update-failed",
+        message: `Release ${name} is installed and recorded as the one to start, but the supervisor was stopping or not serving in time, so it was not started now; it starts when the container next starts.`,
+      },
+    };
   if (!outcome.ok) {
     const now = supervisor.status();
     if (now.phase === "serving" && now.active?.release !== name)

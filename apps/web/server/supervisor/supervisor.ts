@@ -799,6 +799,24 @@ export function createSupervisor(deps: {
     }
   }
 
+  /**
+   * Whether the supervisor serves, waiting while a server is being started or restarted, for at
+   * most a restart's backoff and readiness together; false once it is stopping.
+   */
+  function untilServing(): Promise<boolean> {
+    const until =
+      now() + settings.readyTimeoutMs + settings.restartMs.max + 1_000;
+    return new Promise((resolve) => {
+      const look = () => {
+        if (state.kind === "serving") return resolve(true);
+        if (state.kind === "stopping" || state.kind === "idle" || now() > until)
+          return resolve(false);
+        clock.after(50, look);
+      };
+      look();
+    });
+  }
+
   /** A handover as `handover` describes it, once any reservation allowed it. */
   function handoverNow(
     name: string | Release | null,
@@ -916,7 +934,17 @@ export function createSupervisor(deps: {
             "An update, rollback or restart is being prepared; try again once it finished.",
           ),
         );
-      const outcome = handoverNow(name);
+      // A reserved handover's owner may already have written what it starts; a server being
+      // restarted meanwhile delays it rather than refusing it.
+      const outcome = reservation
+        ? untilServing().then((serving) =>
+            serving
+              ? handoverNow(name)
+              : busy(
+                  "Nimbus was stopping, or not serving again in time, so the handover did not start.",
+                ),
+          )
+        : handoverNow(name);
       if (reservation) void outcome.finally(() => reservation.release());
       return outcome;
     },
