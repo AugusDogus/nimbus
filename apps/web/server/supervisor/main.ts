@@ -19,7 +19,11 @@ import { HandoverStream } from "./handover-stream";
 import { BuildInfo } from "../updates/build-info";
 import { TrustRoot } from "../updates/trust-root";
 import { UpdateSource } from "../updates/update-source";
-import { createUpdater, type RunInstaller } from "../updates/updater";
+import {
+  createUpdater,
+  type FetchManifest,
+  type RunInstaller,
+} from "../updates/updater";
 import { publishRelease } from "../updates/release-installer";
 import { UpdateStore } from "../updates/update-store";
 import { Credentials, type Ids } from "./credentials";
@@ -360,10 +364,15 @@ if (!source.ok) log(`updates are off: ${source.message}`);
 /** The installer's answer: data, checked, never a path or a command. */
 const installerAnswer = z.union([
   z.object({ ok: z.literal(true), name: z.string() }),
+  z.object({
+    ok: z.literal(true),
+    manifest: z.base64().max(128 * 1024),
+    signature: z.base64().max(8 * 1024),
+  }),
   z.object({ ok: z.literal(false), message: z.string() }),
 ]);
 /** At most this much of what the installer says is read, and of each line it logs. */
-const INSTALLER_OUTPUT_BYTES = 64 * 1024;
+const INSTALLER_OUTPUT_BYTES = 256 * 1024;
 const printable = (text: string, length: number) =>
   text.replace(/[^\x20-\x7e\u00a0-\uffff]/g, " ").slice(0, length);
 
@@ -376,8 +385,12 @@ async function installer(
         manifest: string;
         signature: string;
       }
-    | { kind: "clean" },
-): Promise<{ ok: true } | { ok: false; message: string }> {
+    | { kind: "clean" }
+    | { kind: "fetch"; source: string },
+): Promise<
+  | { ok: true; answer: z.infer<typeof installerAnswer> }
+  | { ok: false; message: string }
+> {
   const child = Bun.spawn(
     asUpdateUser([
       process.execPath,
@@ -452,9 +465,40 @@ async function installer(
       `The installer exited with code ${code} without saying how it went. Nothing was installed.`,
     );
   return answer.data.ok
-    ? { ok: true }
+    ? { ok: true, answer: answer.data }
     : fail(printable(answer.data.message, 1000));
 }
+
+/**
+ * Run the installer for `request`, then stop whatever of the update user is left, whatever came
+ * of it: an installer leaves no process behind, even one that failed or was compromised.
+ */
+async function asUpdateUserOnce(request: Parameters<typeof installer>[0]) {
+  try {
+    return await installer(request);
+  } finally {
+    if (updateIds) {
+      const stopped = await stopUpdateUser(updateIds);
+      if (!stopped.ok) log(stopped.message);
+    }
+  }
+}
+
+/** The manifest and signature, fetched by the installer as the update user (see Updater). */
+const fetchManifest: FetchManifest = async (source) => {
+  const fetched = await asUpdateUserOnce({
+    kind: "fetch",
+    source: source.base.href,
+  });
+  if (!fetched.ok) return fetched;
+  if (!("manifest" in fetched.answer))
+    return { ok: false, message: "The installer did not send the manifest." };
+  return {
+    ok: true,
+    manifest: new Uint8Array(Buffer.from(fetched.answer.manifest, "base64")),
+    signature: new Uint8Array(Buffer.from(fetched.answer.signature, "base64")),
+  };
+};
 
 /**
  * Stop every process of the update user, as root: once none is left, nothing can change the
@@ -465,7 +509,9 @@ async function installer(
 async function stopUpdateUser(
   ids: Ids,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  for (let pass = 0; pass < 10; pass++) {
+  // At most ten passes, and never longer than ten seconds.
+  const deadline = Date.now() + 10_000;
+  for (let pass = 0; pass < 10 && Date.now() < deadline; pass++) {
     const left = await Credentials.processesOf(ids.uid);
     if (!left.length) return { ok: true };
     await Bun.spawn(
@@ -501,13 +547,14 @@ const runInstaller: RunInstaller = async (request) => {
   const trust = await TrustRoot.load(builtIn.root, seams.keysFile);
   if (!trust.ok) return { ok: false, message: trust.message };
   try {
-    const staged = await installer({
+    const staged = await asUpdateUserOnce({
       kind: "stage",
       source: request.source,
       manifest: request.manifest,
       signature: request.signature,
     });
     if (!staged.ok) return staged;
+    // Nothing of the update user may run while root reads what it staged.
     if (updateIds) {
       const stopped = await stopUpdateUser(updateIds);
       if (!stopped.ok) return stopped;
@@ -526,7 +573,7 @@ const runInstaller: RunInstaller = async (request) => {
       ? published
       : { ok: false, message: published.error.message };
   } finally {
-    const cleaned = await installer({ kind: "clean" });
+    const cleaned = await asUpdateUserOnce({ kind: "clean" });
     if (!cleaned.ok)
       log(`could not remove the staged release: ${cleaned.message}`);
   }
@@ -545,6 +592,7 @@ const updater = await createUpdater({
   trust: await TrustRoot.load(builtIn.root, seams.keysFile),
   supervisorProtocol: PROTOCOL_VERSION,
   runInstaller,
+  fetchManifest,
   log,
 });
 

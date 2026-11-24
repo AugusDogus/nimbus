@@ -58,7 +58,35 @@ type Done = { ok: true } | { ok: false; message: string };
 const MAX_SIGNATURE_BYTES = 4096;
 const CHECK_TIMEOUT_MS = 30_000;
 
+/** Fetch the source's `manifest.json` and `manifest.sig`, each within its size. */
+export type FetchManifest = (
+  source: Extract<UpdateSource, { kind: "url" }>,
+) => Promise<
+  | {
+      ok: true;
+      manifest: Uint8Array<ArrayBuffer>;
+      signature: Uint8Array<ArrayBuffer>;
+    }
+  | { ok: false; message: string }
+>;
+
+/** Fetching in this process, as the installer does (see installer.ts). */
+export const fetchManifestHere: FetchManifest = async (source) => {
+  const manifest = await UpdateSource.fetchBytes(
+    UpdateSource.url(source, "manifest.json"),
+    { maxBytes: MAX_MANIFEST_BYTES, timeoutMs: CHECK_TIMEOUT_MS },
+  );
+  if (!manifest.ok) return { ok: false, message: manifest.error.message };
+  const signature = await UpdateSource.fetchBytes(
+    UpdateSource.url(source, "manifest.sig"),
+    { maxBytes: MAX_SIGNATURE_BYTES, timeoutMs: CHECK_TIMEOUT_MS },
+  );
+  if (!signature.ok) return { ok: false, message: signature.error.message };
+  return { ok: true, manifest: manifest.value, signature: signature.value };
+};
+
 export async function createUpdater({
+  fetchManifest = fetchManifestHere,
   releases,
   storeOwner,
   untrusted = null,
@@ -89,6 +117,8 @@ export async function createUpdater({
   trust: { ok: true; value: TrustRoot } | { ok: false; message: string };
   supervisorProtocol: number;
   runInstaller: RunInstaller;
+  /** How manifests are fetched: in the installer process when the supervisor is root. */
+  fetchManifest?: FetchManifest;
   log: (line: string) => void;
   now?: () => Date;
 }) {
@@ -337,16 +367,18 @@ export async function createUpdater({
         await record(message);
         return { ok: false as const, message };
       };
-      const bytes = await UpdateSource.fetchBytes(
-        UpdateSource.url(source, "manifest.json"),
-        { maxBytes: MAX_MANIFEST_BYTES, timeoutMs: CHECK_TIMEOUT_MS },
-      );
-      if (!bytes.ok) return fail(bytes.error.message);
-      const signature = await UpdateSource.fetchBytes(
-        UpdateSource.url(source, "manifest.sig"),
-        { maxBytes: MAX_SIGNATURE_BYTES, timeoutMs: CHECK_TIMEOUT_MS },
-      );
-      if (!signature.ok) return fail(signature.error.message);
+      const fetched = await fetchManifest(source);
+      if (!fetched.ok) return fail(fetched.message);
+      // Whoever fetched them, they are bytes: bounded again here, then verified.
+      if (
+        fetched.manifest.byteLength > MAX_MANIFEST_BYTES ||
+        fetched.signature.byteLength > MAX_SIGNATURE_BYTES
+      )
+        return fail(
+          "The update source sent a manifest or signature larger than any release has, so it was not read.",
+        );
+      const bytes = { value: fetched.manifest };
+      const signature = { value: fetched.signature };
       const signed = await ReleaseSignature.verify(
         trust.value,
         bytes.value,

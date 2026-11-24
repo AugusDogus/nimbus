@@ -5,7 +5,10 @@ import path from "node:path";
 import type { Server, Subprocess } from "bun";
 import { z } from "zod";
 import { BuildInfo } from "../updates/build-info";
-import { ReleaseManifest } from "../updates/release-manifest";
+import {
+  ReleaseManifest,
+  type ReleaseManifest as Manifest,
+} from "../updates/release-manifest";
 import { ReleaseSignature } from "../updates/release-signature";
 import { ControlClient } from "./control-client";
 import {
@@ -196,6 +199,8 @@ describe.skipIf(!built || (!namespaces && !required))(
   "the user split with real processes",
   () => {
     let release101 = "";
+    let signWith: Uint8Array<ArrayBuffer> = new Uint8Array();
+    let manifest101: Manifest | null = null;
 
     beforeAll(async () => {
       if (!namespaces)
@@ -218,6 +223,8 @@ describe.skipIf(!built || (!namespaces && !required))(
       await chmod(path.join(root, "keys.json"), 0o644);
       await writeBuiltInInfo(100);
       const bundle = await buildSignedRelease(root, 101, key.privateKey);
+      signWith = key.privateKey;
+      manifest101 = bundle.manifest;
       release101 = ReleaseManifest.releaseName(bundle.manifest);
       for (const file of ["manifest.json", "manifest.sig"])
         published.set(
@@ -487,6 +494,58 @@ describe.skipIf(!built || (!namespaces && !required))(
       expect(verifiedLines()).toBeGreaterThan(once);
       expect(await health()).toBe(true);
     }, 180_000);
+
+    test("whatever an installer run comes to, no process of the update user is left after it", async () => {
+      const plant = () =>
+        Bun.spawn(
+          [
+            "nsenter",
+            "-t",
+            String(supervisor?.pid ?? 0),
+            "-U",
+            "-m",
+            "--",
+            "setpriv",
+            "--reuid=1100",
+            "--regid=1100",
+            "--clear-groups",
+            "--",
+            "sleep",
+            "600",
+          ],
+          { stdio: ["ignore", "ignore", "ignore"] },
+        );
+      // A check: the installer fetches the manifest.
+      const first = plant();
+      await waitFor("the planted process", async () =>
+        (await updateUserProcesses()) > 0 ? true : null,
+      );
+      expect((await control("update", "check")).code).toBe(0);
+      expect(await first.exited).not.toBe(0);
+      expect(await updateUserProcesses()).toBe(0);
+      // An install that fails while staging: its bundle is not there.
+      if (!manifest101) throw new Error("No manifest was built.");
+      const missing = {
+        ...manifest101,
+        build: { ...manifest101.build, sequence: 102 },
+        bundle: { ...manifest101.bundle, file: "nimbus-edge-102.tar.gz" },
+      };
+      const bytes = ReleaseManifest.encode(missing);
+      published.set("manifest.json", bytes);
+      published.set(
+        "manifest.sig",
+        await ReleaseSignature.sign(signWith, "test-key", bytes),
+      );
+      expect((await control("update", "check")).code).toBe(0);
+      const second = plant();
+      await waitFor("the planted process", async () =>
+        (await updateUserProcesses()) > 0 ? true : null,
+      );
+      expect((await control("update", "install")).code).not.toBe(0);
+      expect(await second.exited).not.toBe(0);
+      expect(await updateUserProcesses()).toBe(0);
+      expect(await health()).toBe(true);
+    }, 120_000);
 
     test("as under --user, everything runs as one user, still serving, with updates off and said why once", async () => {
       await inside(["kill", "-TERM", String(supervisor?.pid ?? 0)]);

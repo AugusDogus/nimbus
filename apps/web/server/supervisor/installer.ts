@@ -7,6 +7,7 @@
  * anything of it can run. It trusts only the image's keys, whatever the request says.
  *
  * - `stage`: download the bundle the signed manifest names into `<staging>/release`.
+ * - `fetch`: fetch the source's manifest and signature, each within its size, for root to verify.
  * - `clean`: remove what an earlier `stage` left.
  */
 import { rm } from "node:fs/promises";
@@ -15,6 +16,7 @@ import { z } from "zod";
 import { stageRelease } from "../updates/release-installer";
 import { TrustRoot } from "../updates/trust-root";
 import { UpdateSource } from "../updates/update-source";
+import { fetchManifestHere } from "../updates/updater";
 import { PROTOCOL_VERSION } from "./protocol";
 import { TestSeams } from "./test-seams";
 
@@ -31,10 +33,18 @@ const request = z.discriminatedUnion("kind", [
     signature: z.base64(),
   }),
   z.object({ kind: z.literal("clean"), staging: z.string().startsWith("/") }),
+  z.object({
+    kind: z.literal("fetch"),
+    staging: z.string().startsWith("/"),
+    source: z.string(),
+  }),
 ]);
 
 function answer(
-  outcome: { ok: true; name: string } | { ok: false; message: string },
+  outcome:
+    | { ok: true; name: string }
+    | { ok: true; manifest: string; signature: string }
+    | { ok: false; message: string },
 ): never {
   console.info(JSON.stringify(outcome));
   process.exit(outcome.ok ? 0 : 1);
@@ -56,6 +66,24 @@ if (asked.kind === "clean") {
     force: true,
   });
   answer({ ok: true, name: "" });
+}
+if (asked.kind === "fetch") {
+  const from = UpdateSource.fromEnvironment(asked.source, null);
+  if (!from.ok || from.value.kind !== "url")
+    answer({
+      ok: false,
+      message: "The installer got no update source to fetch from.",
+    });
+  const fetched = await fetchManifestHere(from.value);
+  answer(
+    fetched.ok
+      ? {
+          ok: true,
+          manifest: Buffer.from(fetched.manifest).toString("base64"),
+          signature: Buffer.from(fetched.signature).toString("base64"),
+        }
+      : fetched,
+  );
 }
 const builtInRoot = path.resolve(import.meta.dir, "../../../..");
 const trust = await TrustRoot.load(
