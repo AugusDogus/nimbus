@@ -1,4 +1,5 @@
 import type { Database as SQLite } from "bun:sqlite";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -78,19 +79,37 @@ export const MigrationGate = {
       )
       .get();
     if (!history) return { kind: "none" };
-    const known = new Set(
-      journal
-        .parse(readJson(path.join(folder, "meta/_journal.json")))
-        .entries.map((entry) => entry.when),
+    const entries = journal.parse(
+      readJson(path.join(folder, "meta/_journal.json")),
+    ).entries;
+    // This release's migrations by time, with the hash of the SQL it would apply.
+    const hashes = new Map(
+      readMigrationFiles({ migrationsFolder: folder }).map((migration) => [
+        migration.folderMillis,
+        migration.hash,
+      ]),
     );
-    const applied = sqlite
-      .query<{ created_at: number | string }, []>(
-        'SELECT created_at FROM "__drizzle_migrations"',
+    const tags = new Map(entries.map((entry) => [entry.when, entry.tag]));
+    const rows = sqlite
+      .query<{ created_at: number | string; hash: string }, []>(
+        'SELECT created_at, hash FROM "__drizzle_migrations"',
       )
-      .all()
+      .all();
+    // A migration under a time this release knows, applied with other SQL, is not this
+    // release's: what it changed is as unknown as a newer one's.
+    const changed = rows
+      .filter((row) => {
+        const own = hashes.get(Number(row.created_at));
+        return own !== undefined && own !== row.hash;
+      })
+      .map(
+        (row) =>
+          `${tags.get(Number(row.created_at)) ?? `one applied at ${new Date(Number(row.created_at)).toISOString()}`} (applied with other SQL than this release's)`,
+      );
+    const applied = rows
       .map((row) => Number(row.created_at))
-      .filter((when) => !known.has(when));
-    if (!applied.length) return { kind: "none" };
+      .filter((when) => !hashes.has(when));
+    if (!applied.length && !changed.length) return { kind: "none" };
     const recorded = sqlite
       .query<{ name: string }, []>(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'nimbus_migration_safety'",
@@ -110,8 +129,8 @@ export const MigrationGate = {
       };
     };
     const newer = applied.map(describe);
-    const migrations = newer.map((migration) => migration.tag);
-    return newer.every((migration) => migration.safe)
+    const migrations = [...changed, ...newer.map((migration) => migration.tag)];
+    return !changed.length && newer.every((migration) => migration.safe)
       ? { kind: "safe", migrations }
       : { kind: "unsafe", migrations };
   },

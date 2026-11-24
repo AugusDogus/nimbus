@@ -159,3 +159,25 @@ test("a newer migration nothing records the safety of counts as unsafe", async (
   if (newer.kind === "unsafe")
     expect(newer.migrations[0]).toStartWith("one applied at ");
 });
+
+test("a migration recorded under a known time but applied with other SQL is refused", async () => {
+  const [last] = await lastTags(1);
+  if (!last) throw new Error("This repository has no migrations.");
+  const changed = path.join(directory, "changed");
+  await cp(folder, changed, { recursive: true });
+  const file = path.join(changed, `${last}.sql`);
+  await writeFile(
+    file,
+    `${await Bun.file(file).text()}\n--> statement-breakpoint\nCREATE TABLE "gate_other_sql" ("id" integer);\n`,
+  );
+  // Declared safe by the release that applied it: that does not make it this release's.
+  await writeFile(
+    path.join(changed, "live-safe.json"),
+    JSON.stringify({ safeBesideOlderServer: [last] }),
+  );
+  const { sqlite } = openDatabase(":memory:");
+  migrateDatabase(sqlite, { migrationsFolder: changed });
+  const newer = MigrationGate.newerRelease(sqlite, folder);
+  expect(newer.kind).toBe("unsafe");
+  if (newer.kind === "unsafe") expect(newer.migrations[0]).toContain(last);
+});
