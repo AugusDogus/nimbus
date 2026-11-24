@@ -96,6 +96,9 @@ jobs:
           fi
           command -v newuidmap >/dev/null || sudo apt-get install -y --no-install-recommends uidmap
           grep -q "^$(id -un):" /etc/subuid || sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$(id -un)"
+          # The namespace's other users read the checkout, as a container's users read /app.
+          chmod o+x "$HOME" "$HOME/work" "$(dirname "$GITHUB_WORKSPACE")"
+          chmod -R o+rX "$GITHUB_WORKSPACE"
           unshare --map-auto --map-root-user --mount true
       - run: bun test apps/web/server/supervisor/split.e2e.test.ts
         timeout-minutes: 6
