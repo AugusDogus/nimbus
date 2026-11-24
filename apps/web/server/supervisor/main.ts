@@ -129,6 +129,8 @@ const supervisor = createSupervisor({
   release,
   distOf: (of) => path.join(of.root, "apps/web/dist"),
   log,
+  // What runs is recorded when it takes over, also when no request waits for it.
+  onActive: (release) => void activated(release),
 });
 
 /**
@@ -244,7 +246,16 @@ async function prepare(name: string) {
 }
 
 const chosen = await updater.startRelease();
-if (chosen) startWith = { name: chosen.name, root: chosen.root };
+if (chosen) {
+  startWith = { name: chosen.name, root: chosen.root };
+  prepared.set(chosen.name, startWith);
+}
+
+/** Record that `release` serves now: the built-in one, or a verified installed one. */
+async function activated(release: Release) {
+  if (release.name === builtIn.name) await updater.ran(null);
+  else if (prepared.has(release.name)) await updater.ran(release.name);
+}
 
 const started = await supervisor.start();
 if (!started.ok) {
@@ -310,13 +321,28 @@ function streamed(
 }
 
 /** Hand over to `name`, verifying it first if it is an installed release, and record it. */
-async function handOver(name: string | null) {
+async function handOver(
+  name: string | null,
+): Promise<
+  { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
+> {
   if (name !== null && name !== builtIn.name) await prepare(name);
+  // Written before any server stops: a full restart may migrate for it before it is active.
+  const managed = name !== null && prepared.has(name) ? name : null;
+  if (managed) {
+    const marked = await updater.markPending(managed);
+    if (!marked.ok)
+      return {
+        ok: false,
+        error: { kind: "update-failed", message: marked.message },
+      };
+  }
   const outcome = await supervisor.handover(name);
-  if (outcome.ok && name !== null)
-    await updater.ran(
-      name === builtIn.name || !prepared.has(name) ? null : name,
-    );
+  if (!outcome.ok && managed) {
+    const now = supervisor.status();
+    if (now.phase === "serving" && now.active?.release !== managed)
+      await updater.clearPending(managed);
+  }
   return outcome;
 }
 
@@ -381,7 +407,7 @@ async function installUpdate(): Promise<
 async function rollBack(): Promise<
   { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
 > {
-  const target = updater.rollbackTarget();
+  const target = await updater.rollbackTarget();
   if (!target.ok)
     return {
       ok: false,

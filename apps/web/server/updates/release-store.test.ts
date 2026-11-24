@@ -51,6 +51,7 @@ test("the state round-trips, and a damaged state file is reported, not guessed",
   const state = {
     current: "edge-101-x",
     previous: null,
+    pending: null,
     watermarks: { "example/nimbus edge": 101 },
     lastCheck: null,
   };

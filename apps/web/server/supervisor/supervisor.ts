@@ -256,6 +256,11 @@ export function createSupervisor(deps: {
   /** The built client of `release`, so the next release can serve its hashed assets. */
   distOf: (release: Release) => string;
   log: (line: string) => void;
+  /**
+   * Told whenever a worker becomes the active one, however it got there: the first start, a
+   * handover, a restart, or a full restart's retry that nobody is waiting on.
+   */
+  onActive?: (release: Release) => void;
   clock?: Clock;
 }) {
   const clock = deps.clock ?? realClock;
@@ -441,6 +446,7 @@ export function createSupervisor(deps: {
     }
     state = { kind: "serving", active: worker, draining };
     worker.process.send({ kind: "active" });
+    deps.onActive?.(worker.release);
     askToRecover();
     const report = (
       from: Release,

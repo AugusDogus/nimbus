@@ -467,7 +467,7 @@ docker compose exec nimbus bun server/supervisor/control.ts update install
 docker compose exec nimbus bun server/supervisor/control.ts update rollback
 ```
 
-`check` asks the update source for the newest release and says whether it is newer, already installed, or needs a newer image (and which to pull). `install` downloads it, verifies its signature and digest, and hands over to it; if anything fails, the running server keeps serving and nothing is left behind. `rollback` returns to the release that ran before. Installed releases are kept in `<config root>/releases`, so they survive the container being recreated; a newer image's own release takes precedence over older installed ones.
+`check` asks the update source for the newest release and says whether it is newer, already installed, or needs a newer image (and which to pull). `install` downloads it, verifies its signature and digest, and hands over to it; if anything fails, the running server keeps serving and nothing is left behind, except after a full restart for migrations not safe beside the running server, when the new release is retried and the log says how to go back. `rollback` returns to the release that ran before. Installed releases are kept in `<config root>/releases`, so they survive the container being recreated; a newer image's own release takes precedence over older installed ones.
 
 Checking sends plain HTTPS requests for two small files, and installing fetches the bundle, with nothing about your installation, its users or files. `NIMBUS_UPDATE_SOURCE=off` turns this off. How releases are signed and verified, and what an attacker could and could not do, is in [docs/updates.md](docs/updates.md).
 

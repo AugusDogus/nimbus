@@ -40,6 +40,8 @@ function harness(
 ) {
   const workers: Fake[] = [];
   const lines: string[] = [];
+  /** Every release that became active, in order, as the supervisor reports it. */
+  const activated: string[] = [];
   let clock = 1_000_000;
   const spawn: SpawnWorker = (request, onMessage) => {
     if (spawnFails())
@@ -80,6 +82,7 @@ function harness(
     },
     distOf: (release) => `${release.root}/apps/web/dist`,
     log: (line) => void lines.push(line),
+    onActive: (release) => void activated.push(release.name),
     clock: { now: () => clock, after: realClock.after },
   });
   const ready = (fake: Fake | undefined) =>
@@ -97,6 +100,7 @@ function harness(
     supervisor,
     workers,
     lines,
+    activated,
     started,
     ready,
     kinds,
@@ -622,6 +626,30 @@ describe("the supervisor", () => {
     expect(
       h.lines.some((line) => line.includes("restore the pre-migration backup")),
     ).toBe(true);
+  });
+
+  test("reports every worker that becomes active, a full restart's retry included", async () => {
+    const h = harness();
+    const first = await h.serving();
+    await h.handover("b", 1);
+    expect(h.activated).toEqual(["a", "b"]);
+    const handing = h.supervisor.handover("a");
+    const candidate = await h.started(2);
+    candidate.say({ kind: "needs-full-restart", reason: "unsafe" });
+    candidate.exit(75);
+    await Bun.sleep(1);
+    // Every server stops first, the one still draining from the first handover too.
+    first.exit(0);
+    h.workers[1]?.exit(0);
+    const fresh = await h.started(3);
+    fresh.exit(1);
+    expect((await handing).ok).toBe(false);
+    // The retry takes over later, with no caller waiting: it is reported all the same.
+    const retried = await h.started(4);
+    h.ready(retried);
+    for (let tries = 0; h.activated.length < 3 && tries < 100; tries++)
+      await Bun.sleep(1);
+    expect(h.activated).toEqual(["a", "b", "a"]);
   });
 
   test("stops by draining every worker within the stop time", async () => {

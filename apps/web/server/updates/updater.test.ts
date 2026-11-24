@@ -235,3 +235,51 @@ test("a state that cannot be written fails the step that needed it, and writes n
     await chmod(releases, 0o755);
   }
 });
+
+test("a release that was being switched to starts at boot before the last one that ran, and running it clears it", async () => {
+  const before = await installTestRelease(releases, release(160), {
+    privateKey,
+    natives: natives(),
+  });
+  const target = await installTestRelease(releases, release(161), {
+    privateKey,
+    natives: natives(),
+  });
+  await mkdir(releases, { recursive: true });
+  await ReleaseStore.write(releases, {
+    ...ReleaseStore.empty(),
+    current: before,
+    pending: target,
+  });
+  const booted = await updater();
+  expect((await booted.startRelease())?.name).toBe(target);
+  expect(await booted.ran(target)).toEqual({ ok: true });
+  const written = await ReleaseStore.read(releases, ReleaseStore.empty());
+  expect(written.ok && written.value).toMatchObject({
+    current: target,
+    pending: null,
+    previous: before,
+  });
+});
+
+test("a release being switched to that no longer verifies is not started; the last one that ran is", async () => {
+  const before = await installTestRelease(releases, release(170), {
+    privateKey,
+    natives: natives(),
+  });
+  const target = await installTestRelease(releases, release(171), {
+    privateKey,
+    natives: natives(),
+  });
+  await writeFile(
+    path.join(releases, target, "apps/web/server/start.ts"),
+    "// changed\n",
+  );
+  await ReleaseStore.write(releases, {
+    ...ReleaseStore.empty(),
+    current: before,
+    pending: target,
+  });
+  expect((await (await updater()).startRelease())?.name).toBe(before);
+  expect(lines.join("\n")).toContain(target);
+});

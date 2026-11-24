@@ -23,6 +23,12 @@ export type ReleaseState = {
   /** The release that ran before `current`, which a rollback returns to; null for built-in. */
   previous: string | null;
   /**
+   * The release a handover is switching to until it is active. A full restart stops every
+   * server first and may apply migrations the earlier release cannot run on, so this is what
+   * starts at boot if the container stops before it took over.
+   */
+  pending: string | null;
+  /**
    * The highest build sequence any release ran here, by repository and channel (see
    * ReleaseIdentity and `watermarkKey`): no check offers one at or below it.
    */
@@ -34,6 +40,7 @@ export type ReleaseState = {
 const stateSchema = z.object({
   current: z.string().nullable(),
   previous: z.string().nullable(),
+  pending: z.string().nullable(),
   watermarks: z.record(z.string(), z.number().int().nonnegative()),
   lastCheck: z.object({ at: z.string(), outcome: z.string() }).nullable(),
 });
@@ -49,6 +56,7 @@ export const ReleaseStore = {
   empty: (): ReleaseState => ({
     current: null,
     previous: null,
+    pending: null,
     watermarks: {},
     lastCheck: null,
   }),

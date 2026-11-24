@@ -230,6 +230,19 @@ export async function createUpdater({
      */
     async startRelease(): Promise<{ name: string; root: string } | null> {
       if (stateProblem) return null;
+      // A switch interrupted after every server stopped: its migrations may be applied already.
+      if (state.pending !== null) {
+        const pending = await runnable(state.pending);
+        if (pending.ok && pending.manifest.build.sequence > builtInSequence) {
+          log(
+            `starting ${state.pending}, which the supervisor was switching to when it stopped`,
+          );
+          return { name: state.pending, root: pending.root };
+        }
+        log(
+          `not starting ${state.pending}, which the supervisor was switching to: ${pending.ok ? "the image's own release is as new" : pending.message}`,
+        );
+      }
       if (state.current === null) return null;
       const chosen = await runnable(state.current);
       if (!chosen.ok) {
@@ -382,20 +395,34 @@ export async function createUpdater({
       }
       // Compared with the state as it stands when this write's turn comes, not when it was asked.
       return save((current) =>
-        current.current === name
+        current.current === name && current.pending !== name
           ? current
           : {
               ...raised(current, sequence),
               current: name,
-              previous: current.current,
+              previous:
+                current.current === name ? current.previous : current.current,
+              pending: current.pending === name ? null : current.pending,
             },
       );
     },
 
+    /** Record that a handover to installed release `name` is starting (see ReleaseState). */
+    markPending: (name: string): Promise<Done> =>
+      save((current) => ({ ...current, pending: name })),
+
+    /** Forget a handover to `name` that ended with the earlier release still serving. */
+    clearPending: (name: string): Promise<Done> =>
+      save((current) =>
+        current.pending === name ? { ...current, pending: null } : current,
+      ),
+
     /** The release a rollback returns to: the one that ran before, or the built-in one. */
-    rollbackTarget():
-      | { ok: true; name: string | null }
-      | { ok: false; message: string } {
+    async rollbackTarget(): Promise<
+      { ok: true; name: string | null } | { ok: false; message: string }
+    > {
+      // After any record still being written, such as the activation of the release now running.
+      await writing;
       if (stateProblem) return { ok: false, message: stateProblem };
       if (state.previous === null && state.current === null)
         return {

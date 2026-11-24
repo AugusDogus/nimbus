@@ -96,8 +96,15 @@ directories and symbolic links whose targets stay inside the release, refuses ab
 `..`, and writes into `releases/.staging-<build>`; the tree is checked (the server's entry point,
 `release.json` naming this supervisor protocol, the manifest's build), the native modules are
 linked from the image, and only then is it renamed to `releases/<build>`. The supervisor then
-hands over to it. Any failure leaves the running server as it was and the staging directory
-removed; a release that never becomes ready is abandoned as any handover is.
+hands over to it. Any failure before the handover, or during it, leaves the running server as it
+was and the staging directory removed; a release that never becomes ready is abandoned as any
+handover is. One exception: a release whose migrations are not safe beside an older server gets
+a full restart, which stops every server before starting it. Once that has happened the earlier
+release may not run on the database, so a new release that then fails is retried rather than
+replaced by the earlier one, and the supervisor says how to go back (restore the backup taken
+before the migration). The target is written to the state as pending before any server stops,
+and recorded as running when it takes over, also when that happens on a later retry, so a
+container stopped in between boots the target, never the earlier release.
 
 Before any installed release starts, at boot or for a rollback, the supervisor checks it again:
 its manifest's signature, and the whole tree against the tree digest the manifest signed
