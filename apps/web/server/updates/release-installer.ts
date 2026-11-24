@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -331,6 +332,9 @@ export async function publishRelease({
       mode: 0o644,
       flag: "wx",
     });
+    // Fixed, whatever the umask.
+    await chmod(path.join(copy, MANIFEST_FILE), 0o644);
+    await chmod(path.join(copy, SIGNATURE_FILE), 0o644);
     const intact = await ReleaseStore.intact(copy, manifest, locations);
     if (!intact.ok)
       return failed(`Release ${name} was not installed: ${intact.message}`);

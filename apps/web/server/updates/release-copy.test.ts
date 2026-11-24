@@ -144,3 +144,21 @@ test("a staged tree that is itself a link is not followed", async () => {
   });
   expect(result.ok).toBe(false);
 });
+
+test("modes are fixed whatever the umask, so the servers can traverse the copy", async () => {
+  const before = process.umask(0o077);
+  try {
+    expect((await copied()).ok).toBe(true);
+  } finally {
+    process.umask(before);
+  }
+  for (const folder of [
+    copy,
+    path.join(copy, "apps"),
+    path.join(copy, "apps/web"),
+  ])
+    expect((await stat(folder)).mode & 0o7777).toBe(0o755);
+  expect(
+    (await stat(path.join(copy, "apps/web/server/start.ts"))).mode & 0o7777,
+  ).toBe(0o644);
+});

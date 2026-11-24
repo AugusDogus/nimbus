@@ -18,6 +18,10 @@ import { UpdateSource } from "../updates/update-source";
 import { PROTOCOL_VERSION } from "./protocol";
 import { TestSeams } from "./test-seams";
 
+// What it stages is read by root, which has no right to read past a folder's mode: whatever
+// UMASK the container sets, staged folders are 755 and files 644 or 755.
+process.umask(0o022);
+
 const request = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("stage"),

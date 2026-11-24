@@ -2,8 +2,9 @@ import { constants, type Stats } from "node:fs";
 import {
   lstat,
   mkdir,
+  chmod,
   open,
-  readdir,
+  opendir,
   readlink,
   realpath,
   rm,
@@ -139,8 +140,9 @@ export const ReleaseCopy = {
         throw new Refused(
           `${relative} is more than ${caps.maxDepth} folders deep, deeper than a release`,
         );
-      const names = (await readdir(`/proc/self/fd/${folder.fd}`)).sort();
-      for (const name of names) {
+      // Read entry by entry, so a folder of millions stops at the cap rather than being listed.
+      for await (const dirent of await opendir(`/proc/self/fd/${folder.fd}`)) {
+        const name = dirent.name;
         if (++entries > caps.maxEntries)
           throw new Refused(
             `the staged release holds more than ${caps.maxEntries} entries`,
@@ -175,6 +177,8 @@ export const ReleaseCopy = {
           checkOwnership(entry, stats, owner);
           if (stats.isDirectory()) {
             await mkdir(destination, { mode: FOLDER_MODE });
+            // Fixed, whatever the umask.
+            await chmod(destination, FOLDER_MODE);
             await walk(handle, entry, destination, depth + 1);
           } else if (stats.isFile())
             await copyFile(handle, stats, entry, destination);
@@ -194,6 +198,7 @@ export const ReleaseCopy = {
         const stats = await top.stat();
         checkOwnership("the staged release", stats, owner);
         await mkdir(to, { mode: FOLDER_MODE });
+        await chmod(to, FOLDER_MODE);
         made = true;
         await walk(top, "", to, 1);
       } finally {
