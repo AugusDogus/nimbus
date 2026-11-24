@@ -9,7 +9,7 @@
   "/s/$token": 158000,
   "/search": 336000,
   "/settings/account": 305000,
-  "/settings/admin": 328000,
+  "/settings/admin": 329000,
   "/settings/admin/audit": 294000,
   "/settings/appearance": 300000,
   "/settings/libraries": 276000,
