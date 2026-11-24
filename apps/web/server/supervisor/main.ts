@@ -326,7 +326,7 @@ const control = Bun.serve({
       const release = url.searchParams.get("release");
       return streamed(
         release,
-        reserved((reservation) => handOver(release, reservation)),
+        reserved((reservation) => handOver(targetOf(release), reservation)),
       );
     }
     if (request.method === "GET" && url.pathname === "/update")
@@ -384,48 +384,66 @@ async function reserved(
   }
 }
 
-/** Hand over to `name`, verifying it first if it is an installed release, and record it. */
+/**
+ * What a handover starts: the running release again, the image's built-in one, an installed one
+ * (verified first, every time), or, in tests only, a release named from the test seam.
+ */
+type Target =
+  | { kind: "same" }
+  | { kind: "built-in" }
+  | { kind: "installed"; name: string }
+  | { kind: "named"; name: string };
+
+/** What a restart naming `name`, or none, starts. */
+function targetOf(name: string | null): Target {
+  if (name === null) return { kind: "same" };
+  if (name === builtIn.name) return { kind: "built-in" };
+  return /^[\w][\w.-]{0,63}$/.test(name) &&
+    existsSync(path.join(releases, name))
+    ? { kind: "installed", name }
+    : { kind: "named", name };
+}
+
+/** Hand over to `target`, verifying an installed release first and recording it. */
 async function handOver(
-  name: string | null,
+  target: Target,
   reservation: HandoverReservation,
 ): Promise<
   { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
 > {
+  if (target.kind === "same") return supervisor.handover(null, reservation);
+  if (target.kind === "built-in")
+    return supervisor.handover(builtIn.name, reservation);
+  if (target.kind === "named")
+    return supervisor.handover(target.name, reservation);
   // An installed release is verified again for every handover, and refused if it fails: never
-  // started from an earlier check, nor taken for a release placed by hand.
-  const managed =
-    name !== null &&
-    name !== builtIn.name &&
-    /^[\w][\w.-]{0,63}$/.test(name) &&
-    existsSync(path.join(releases, name))
-      ? name
-      : null;
-  if (managed) {
-    prepared.delete(managed);
-    const verified = await prepare(managed);
-    if (!verified.ok)
-      return {
-        ok: false,
-        error: {
-          kind: "update-failed",
-          message: `Release ${managed} was not started: ${verified.message}. Nothing was changed; the running release keeps serving.`,
-        },
-      };
-  }
+  // started from an earlier check, and what was verified is what starts.
+  const { name } = target;
+  prepared.delete(name);
+  const verified = await prepare(name);
+  if (!verified.ok)
+    return {
+      ok: false,
+      error: {
+        kind: "update-failed",
+        message: `Release ${name} was not started: ${verified.message}. Nothing was changed; the running release keeps serving.`,
+      },
+    };
   // Written before any server stops: a full restart may migrate for it before it is active.
-  if (managed) {
-    const marked = await updater.markPending(managed);
-    if (!marked.ok)
-      return {
-        ok: false,
-        error: { kind: "update-failed", message: marked.message },
-      };
-  }
-  const outcome = await supervisor.handover(name, reservation);
-  if (!outcome.ok && managed) {
+  const marked = await updater.markPending(name);
+  if (!marked.ok)
+    return {
+      ok: false,
+      error: { kind: "update-failed", message: marked.message },
+    };
+  const outcome = await supervisor.handover(
+    { name, root: verified.root },
+    reservation,
+  );
+  if (!outcome.ok) {
     const now = supervisor.status();
-    if (now.phase === "serving" && now.active?.release !== managed)
-      await updater.clearPending(managed);
+    if (now.phase === "serving" && now.active?.release !== name)
+      await updater.clearPending(name);
   }
   return outcome;
 }
@@ -470,7 +488,10 @@ function installUpdate() {
         ok: false,
         error: { kind: "update-failed", message: installed.message },
       };
-    const outcome = await handOver(installed.name, reservation);
+    const outcome = await handOver(
+      { kind: "installed", name: installed.name },
+      reservation,
+    );
     if (outcome.ok)
       await updater.prune(
         [supervisor.status().active, ...supervisor.status().draining].flatMap(
@@ -490,13 +511,25 @@ function rollBack() {
         ok: false,
         error: { kind: "update-failed", message: target.message },
       };
-    return handOver(target.name ?? builtIn.name, reservation);
+    if (target.name === null)
+      return handOver({ kind: "built-in" }, reservation);
+    // Only the installed release that ran before, through the verified path; never one of that
+    // name found anywhere else.
+    if (!existsSync(path.join(releases, target.name)))
+      return {
+        ok: false,
+        error: {
+          kind: "update-failed",
+          message: `The release that ran before, ${target.name}, is not installed any more, so there is nothing to roll back to. Nothing was changed; the running release keeps serving.`,
+        },
+      };
+    return handOver({ kind: "installed", name: target.name }, reservation);
   });
 }
 log(`serving; control socket ${socketPath}`);
 
 process.on("SIGHUP", () => {
-  void reserved((reservation) => handOver(null, reservation)).then(
+  void reserved((reservation) => handOver({ kind: "same" }, reservation)).then(
     (outcome) => {
       if (!outcome.ok) log(`SIGHUP restart refused: ${outcome.error.message}`);
     },

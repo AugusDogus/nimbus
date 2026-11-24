@@ -779,7 +779,9 @@ export function createSupervisor(deps: {
   }
 
   /** A handover as `handover` describes it, once any reservation allowed it. */
-  function handoverNow(name: string | null): Promise<HandoverOutcome> {
+  function handoverNow(
+    name: string | Release | null,
+  ): Promise<HandoverOutcome> {
     const current = state;
     if (current.kind !== "serving")
       return Promise.resolve(
@@ -792,16 +794,19 @@ export function createSupervisor(deps: {
         ),
       );
     const previous = current.active;
+    // A release the caller resolved, and verified, is started as it is.
     const found =
       name === null
         ? { ok: true as const, release: previous.release }
-        : deps.release(name);
+        : typeof name === "object"
+          ? { ok: true as const, release: name }
+          : deps.release(name);
     if (!found.ok)
       return Promise.resolve({
         ok: false,
         error: {
           kind: "unknown-release",
-          message: `Release ${name} may not start: ${found.reason}. Nothing was changed; ${previous.release.name} keeps serving.`,
+          message: `Release ${typeof name === "string" ? name : ""} may not start: ${found.reason}. Nothing was changed; ${previous.release.name} keeps serving.`,
         },
       });
     const { release } = found;
@@ -881,7 +886,7 @@ export function createSupervisor(deps: {
      * its owner's (with `reservation`) runs; its outcome ends the reservation.
      */
     handover(
-      name: string | null,
+      name: string | Release | null,
       reservation?: HandoverReservation,
     ): Promise<HandoverOutcome> {
       if (reserved !== null && reservation?.token !== reserved)

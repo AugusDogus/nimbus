@@ -179,6 +179,8 @@ function startSupervisor(prefix: string[] = []) {
         NIMBUS_READY_TIMEOUT_SECONDS: "20",
         NIMBUS_UPDATE_SOURCE: `http://127.0.0.1:${source.port}/`,
         NIMBUS_TEST_RELEASE_KEYS_FILE: path.join(root, "keys.json"),
+        // Unsigned releases a restart may name; a rollback must never pick one.
+        NIMBUS_TEST_RELEASES_DIR: path.join(root, "test-releases"),
         // One user here; the split is tested in users.e2e.test.ts.
         NIMBUS_UPDATES_WITH_ONE_USER: "1",
       },
@@ -498,6 +500,41 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     const left = await readdir(path.join(root, "config/supervisor/releases"));
     expect(left).not.toContain(ReleaseManifest.releaseName(next.manifest));
   }, 120_000);
+  test("a rollback starts only the installed release that ran before, verified, never one of the same name elsewhere", async () => {
+    const running = await active();
+    const state = z
+      .object({ previous: z.string().nullable() })
+      .parse(
+        await Bun.file(
+          path.join(root, "config/supervisor/releases/state.json"),
+        ).json(),
+      );
+    const previous = state.previous;
+    if (!previous) throw new Error("Nothing ran before the running release.");
+    // The installed copy is gone; an unsigned release of that name waits elsewhere.
+    const installed = path.join(root, "config/supervisor/releases", previous);
+    const aside = path.join(root, "aside");
+    expect(Bun.spawnSync(["mv", installed, aside]).exitCode).toBe(0);
+    await mkdir(path.join(root, "test-releases"), { recursive: true });
+    const impostor = path.join(root, "test-releases", previous);
+    expect(Bun.spawnSync(["cp", "-a", bundle101.tree, impostor]).exitCode).toBe(
+      0,
+    );
+    try {
+      const rolled = await ControlClient.update(socket, "rollback");
+      expect(rolled?.ok).toBe(false);
+      if (rolled && !rolled.ok) {
+        expect(rolled.error.kind).toBe("update-failed");
+        expect(rolled.error.message).toContain("not installed");
+      }
+      expect(await active()).toBe(running);
+    } finally {
+      await rm(impostor, { recursive: true, force: true });
+      expect(Bun.spawnSync(["mv", aside, installed]).exitCode).toBe(0);
+    }
+    expect(await health()).toBe(200);
+  }, 120_000);
+
   test("a damaged installed release is not started: the supervisor falls back to the built-in one", async () => {
     const damaged = await active();
     if (!damaged || damaged === "built-in")
