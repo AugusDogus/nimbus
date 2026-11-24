@@ -181,7 +181,7 @@ function startSupervisor(prefix: string[] = []) {
         NIMBUS_TEST_RELEASE_KEYS_FILE: path.join(root, "keys.json"),
         // Unsigned releases a restart may name; a rollback must never pick one.
         NIMBUS_TEST_RELEASES_DIR: path.join(root, "test-releases"),
-        // One user here; the split is tested in split.e2e.test.ts.
+        // One user here; the split is tested in split.e2e.ts.
         NIMBUS_TEST_UPDATES_WITH_ONE_USER: "1",
         NIMBUS_TEST_STORE_DIR: path.join(root, "store"),
       },

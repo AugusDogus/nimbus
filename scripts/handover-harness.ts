@@ -1,7 +1,7 @@
 /**
  * Drives traffic at Nimbus under the supervisor while it restarts without downtime, and reports
  * what clients saw. For manual runs on a test installation; the automated check is
- * apps/web/server/supervisor/handover.e2e.test.ts. Not part of the image.
+ * apps/web/server/supervisor/handover.e2e.ts. Not part of the image.
  *
  *   bun scripts/handover-harness.ts prepare --data-root /var/tmp/harness-data
  *   # start Nimbus under the supervisor on that data root, create a test account, then:

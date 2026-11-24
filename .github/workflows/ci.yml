@@ -77,13 +77,15 @@ jobs:
       # As on a production host (see README, "Restarts without downtime"): connections queued on
       # a server leaving the port move to the next one instead of being reset.
       - run: sudo sysctl -w net.ipv4.tcp_migrate_req=1
+      # The real-process tests are named *.e2e.ts, so `bun test` alone never picks them up; each
+      # runs here as its own step, named by path.
       # Hands the port over between real servers under the supervisor while films stream; it
-      # needs the built client, so it is skipped in the unit job and runs here.
-      - run: bun test apps/web/server/supervisor/handover.e2e.test.ts
+      # needs the built client.
+      - run: bun test ./apps/web/server/supervisor/handover.e2e.ts
         timeout-minutes: 3
       # Updates from the built-in release to a signed bundle it builds itself, and every way an
       # update can fail, each leaving the running server serving.
-      - run: bun test apps/web/server/supervisor/updates.e2e.test.ts
+      - run: bun test ./apps/web/server/supervisor/updates.e2e.ts
         timeout-minutes: 8
       # The user split (docs/updates.md): the image's entrypoint as root of a user namespace with
       # mapped ids, so the supervisor and its servers really run as users of their own. It needs
@@ -100,7 +102,7 @@ jobs:
           chmod o+x "$HOME" "$HOME/work" "$(dirname "$GITHUB_WORKSPACE")"
           chmod -R o+rX "$GITHUB_WORKSPACE"
           unshare --map-auto --map-root-user --mount true
-      - run: bun test apps/web/server/supervisor/split.e2e.test.ts
+      - run: bun test ./apps/web/server/supervisor/split.e2e.ts
         timeout-minutes: 6
         env:
           NIMBUS_REQUIRE_SPLIT_TEST: "1"
