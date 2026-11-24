@@ -216,6 +216,11 @@ gets it reported, not installed.
 - Freeze attacks beyond showing the time of the last check.
 - A malicious but validly signed release.
 - A compromised server rewriting installed releases, until the privilege separation above is built.
-- Redirects: a source may redirect a fetch anywhere, as GitHub does to its storage. Integrity does
-  not depend on where bytes come from, but an administrator who configures a hostile source lets it
-  make the server request any address.
+- Redirects: a source may send a fetch on, as GitHub sends release downloads to its storage, at
+  most three times, and only to https addresses whose host resolves to public addresses alone:
+  never this machine, a private or link-local network, carrier-grade NAT or a cloud metadata
+  service. The configured source itself is the administrator's choice and may be on the local
+  network, such as a mirror. A host is resolved once to check it and again by the fetch, so a
+  name whose address changes in between (DNS rebinding) is not caught; integrity never depends on
+  where bytes come from, but such a source could make the server request an address it chose.
+  Error messages name the file fetched, never the source's address.

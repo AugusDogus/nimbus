@@ -93,3 +93,83 @@ test("a fetch is cut off past its limit, and sends nothing identifying", async (
     await server.stop(true);
   }
 });
+
+test("a redirect is followed only to a public https address, a few hops at most, and errors name no source address", async () => {
+  let hops = 0;
+  let port = 0;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request): Response {
+      const name = new URL(request.url).pathname.slice(1);
+      if (name === "to-loopback")
+        return Response.redirect(`http://127.0.0.1:${port}/manifest.json`, 302);
+      if (name === "to-metadata")
+        return Response.redirect(
+          "https://169.254.169.254/latest/meta-data",
+          302,
+        );
+      if (name === "to-private")
+        return Response.redirect("https://10.1.2.3/manifest.json", 302);
+      if (name === "to-plain-http")
+        return Response.redirect(
+          "http://mirror.example.test/manifest.json",
+          302,
+        );
+      if (name === "loop") {
+        hops++;
+        return Response.redirect(`http://127.0.0.1:${port}/loop`, 302);
+      }
+      return new Response("ok");
+    },
+  });
+  port = server.port ?? 0;
+  try {
+    const base = `http://127.0.0.1:${server.port}/`;
+    for (const name of [
+      "to-loopback",
+      "to-metadata",
+      "to-private",
+      "to-plain-http",
+      "loop",
+    ]) {
+      const fetched = await UpdateSource.fetchBytes(new URL(name, base), {
+        maxBytes: 1000,
+        timeoutMs: 5000,
+      });
+      expect({ name, ok: fetched.ok }).toEqual({ name, ok: false });
+      if (!fetched.ok) {
+        expect(fetched.error.message).not.toContain(String(server.port));
+        expect(fetched.error.message).toContain(name);
+      }
+    }
+    expect(hops).toBeLessThanOrEqual(1);
+  } finally {
+    await server.stop(true);
+  }
+});
+
+test("addresses a redirect may not lead to", () => {
+  for (const address of [
+    "127.0.0.1",
+    "10.0.0.1",
+    "172.16.4.4",
+    "192.168.1.1",
+    "169.254.169.254",
+    "100.64.0.1",
+    "0.0.0.0",
+    "::1",
+    "fe80::1",
+    "fd00::1",
+    "::ffff:127.0.0.1",
+  ])
+    expect({ address, public: UpdateSource.publicAddress(address) }).toEqual({
+      address,
+      public: false,
+    });
+  for (const address of ["140.82.112.3", "2606:4700::6810:84e5"])
+    expect({ address, public: UpdateSource.publicAddress(address) }).toEqual({
+      address,
+      public: true,
+    });
+});
