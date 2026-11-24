@@ -27,6 +27,7 @@ import { createUpdater, type RunInstaller } from "../updates/updater";
 import { ReleaseDirectory } from "./release-directory";
 import { PROTOCOL_VERSION, Protocol, WorkerEnv } from "./protocol";
 import { parseSettings } from "./settings";
+import { Users } from "./users";
 import { z } from "zod";
 import {
   createSupervisor,
@@ -68,11 +69,14 @@ const builtIn: Release = {
 };
 
 const configRoot = getConfigRoot();
+/** Who runs what (Users): the servers, unless all is one user, have a user of their own. */
+const users = Users.current();
+if (users.updatesOff) log(users.updatesOff);
 /**
  * Installed releases (see docs/updates.md): only the updater puts releases here, only signed
  * ones, and each is verified again before it starts.
  */
-const releases = path.join(configRoot, "releases");
+const releases = path.join(configRoot, "supervisor/releases");
 /**
  * Releases an operator placed by hand, unsigned, in NIMBUS_RELEASES_DIR: never the installed
  * releases' folder, so a name there is never mistaken for an installed release.
@@ -126,7 +130,7 @@ function release(
 }
 
 const spawn: SpawnWorker = (request, onMessage) => {
-  const child = Bun.spawn([process.execPath, "server/start.ts"], {
+  const child = Bun.spawn(users.server([process.execPath, "server/start.ts"]), {
     cwd: path.join(request.release.root, "apps/web"),
     env: {
       ...process.env,
@@ -202,11 +206,29 @@ if (!installation.ok) {
   console.error(installation.error.message);
   process.exit(1);
 }
-// Servers a supervisor that died left behind still hold the port and the database.
-const earlier = await InstallationLock.awaitLeases(configRoot);
-if (!earlier.ok) {
-  console.error(`Nimbus did not start: ${earlier.error.message}`);
-  process.exit(1);
+// Servers a supervisor that died left behind still hold the port and the database. Their leases
+// are their user's, so with a user of their own that user waits for them (leases.ts).
+if (users.kind === "split") {
+  const waiter = Bun.spawn(
+    users.server([process.execPath, "server/supervisor/leases.ts"]),
+    {
+      cwd: path.join(builtIn.root, "apps/web"),
+      stdio: ["ignore", "inherit", "inherit"],
+    },
+  );
+  const code = await waiter.exited;
+  if (code !== 0) {
+    console.error(
+      `Nimbus did not start: it could not tell whether server processes of an earlier start still run (the check exited with ${code}; its reason is above).`,
+    );
+    process.exit(1);
+  }
+} else {
+  const earlier = await InstallationLock.awaitLeases(configRoot);
+  if (!earlier.ok) {
+    console.error(`Nimbus did not start: ${earlier.error.message}`);
+    process.exit(1);
+  }
 }
 
 const refused = portInUse();
@@ -235,7 +257,7 @@ const installerAnswer = z.union([
 ]);
 const runInstaller: RunInstaller = async (request) => {
   const child = Bun.spawn(
-    [process.execPath, "server/supervisor/installer.ts"],
+    users.unprivileged([process.execPath, "server/supervisor/installer.ts"]),
     {
       cwd: path.join(builtIn.root, "apps/web"),
       stdin: "pipe",
@@ -266,6 +288,7 @@ const runInstaller: RunInstaller = async (request) => {
 
 const updater = await createUpdater({
   releases,
+  disabled: users.updatesOff,
   builtIn: { root: builtIn.root, build: build.ok ? build.value : null },
   source: source.ok
     ? source.value

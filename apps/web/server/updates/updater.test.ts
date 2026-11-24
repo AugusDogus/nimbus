@@ -83,9 +83,13 @@ const noInstaller: RunInstaller = async () => ({
   message: "not in this test",
 });
 
-const updater = (runInstaller: RunInstaller = noInstaller) =>
+const updater = (
+  runInstaller: RunInstaller = noInstaller,
+  disabled: string | null = null,
+) =>
   createUpdater({
     releases,
+    disabled,
     builtIn: { root: image, build },
     source: {
       kind: "url",
@@ -170,6 +174,36 @@ test("with a damaged state file the built-in release runs and nothing installs u
   const refused = await damaged.install();
   expect(refused.ok || refused.message).toContain("state.json");
   expect(damaged.status().unavailable).toContain("state.json");
+});
+
+test("updates turned off for this installation check and install nothing, and a releases folder that cannot be made does not stop it", async () => {
+  await offer(release(102));
+  let installs = 0;
+  const off = await updater(async () => {
+    installs++;
+    return { ok: false, message: "not in this test" };
+  }, "In-app updates are off: one user.");
+  expect(off.status().unavailable).toBe("In-app updates are off: one user.");
+  const checked = await off.check();
+  expect(checked.ok || checked.message).toBe(
+    "In-app updates are off: one user.",
+  );
+  const installed = await off.install();
+  expect(installed.ok || installed.message).toBe(
+    "In-app updates are off: one user.",
+  );
+  expect(installs).toBe(0);
+
+  // As a container started with --user may find it: under a folder this user cannot write.
+  await mkdir(path.join(scratch, "closed"), { mode: 0o555 });
+  releases = path.join(scratch, "closed/supervisor/releases");
+  try {
+    const started = await updater(noInstaller, "off");
+    if (process.getuid?.() !== 0)
+      expect(await started.startRelease()).toBeNull();
+  } finally {
+    await chmod(path.join(scratch, "closed"), 0o755);
+  }
 });
 
 test("a release no longer newer by the time it is installed is not activated, and its sequence is reserved before it is", async () => {

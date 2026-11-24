@@ -176,6 +176,8 @@ function startSupervisor(prefix: string[] = []) {
         NIMBUS_READY_TIMEOUT_SECONDS: "20",
         NIMBUS_UPDATE_SOURCE: `http://127.0.0.1:${source.port}/`,
         NIMBUS_RELEASE_KEYS_FILE: path.join(root, "keys.json"),
+        // One user here; the split is tested in users.e2e.test.ts.
+        NIMBUS_UPDATES_WITH_ONE_USER: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -520,7 +522,7 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
       );
     expect(await active()).toBe(before);
     expect(await health()).toBe(200);
-    const left = await readdir(path.join(root, "config/releases"));
+    const left = await readdir(path.join(root, "config/supervisor/releases"));
     expect(left).not.toContain(ReleaseManifest.releaseName(next.manifest));
   }, 120_000);
   test("a damaged installed release is not started: the supervisor falls back to the built-in one", async () => {
@@ -530,7 +532,12 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     supervisor?.kill("SIGTERM");
     expect(await supervisor?.exited).toBe(0);
     await Bun.write(
-      path.join(root, "config/releases", damaged, "apps/web/server/start.ts"),
+      path.join(
+        root,
+        "config/supervisor/releases",
+        damaged,
+        "apps/web/server/start.ts",
+      ),
       "// replaced\n",
     );
     const started = performance.now();

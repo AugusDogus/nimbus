@@ -57,6 +57,7 @@ const CHECK_TIMEOUT_MS = 30_000;
 
 export async function createUpdater({
   releases,
+  disabled,
   builtIn,
   source,
   trust,
@@ -66,6 +67,11 @@ export async function createUpdater({
   now = () => new Date(),
 }: {
   releases: string;
+  /**
+   * Why in-app updates are off for this installation whatever else holds, such as every process
+   * running as one user (Users); null when they are not. Installed releases still start.
+   */
+  disabled: string | null;
   builtIn: { root: string; build: BuildInfo | null };
   source: UpdateSource;
   trust: { ok: true; value: TrustRoot } | { ok: false; message: string };
@@ -79,7 +85,14 @@ export async function createUpdater({
   const identity: ReleaseIdentity | null = builtIn.build
     ? { repository: builtIn.build.repository, channel: builtIn.build.channel }
     : null;
-  await mkdir(releases, { recursive: true, mode: 0o755 });
+  try {
+    await mkdir(releases, { recursive: true, mode: 0o755 });
+  } catch (error) {
+    // Reading finds no state then; writing it fails the step that needed it, with the reason.
+    log(
+      `could not create ${releases} (${error instanceof Error ? error.message : String(error)}), so no update can be installed or recorded there`,
+    );
+  }
   const read = await ReleaseStore.read(releases, ReleaseStore.empty());
   if (!read.ok) log(read.message);
   let state: ReleaseState = read.ok ? read.value : ReleaseStore.empty();
@@ -103,13 +116,15 @@ export async function createUpdater({
   let offered: Offered | null = null;
   let available: UpdateStatus["available"] = null;
 
-  const unavailable = !trust.ok
-    ? trust.message
-    : trust.value.keys.size === 0
-      ? "This image trusts no release key (apps/web/release-keys.json lists none), so it installs no update. Use an image built with a release key."
-      : !builtIn.build
-        ? "This image has no build metadata (build-info.json), so it does not know its channel. Use an image built by CI."
-        : null;
+  const unavailable = disabled
+    ? disabled
+    : !trust.ok
+      ? trust.message
+      : trust.value.keys.size === 0
+        ? "This image trusts no release key (apps/web/release-keys.json lists none), so it installs no update. Use an image built with a release key."
+        : !builtIn.build
+          ? "This image has no build metadata (build-info.json), so it does not know its channel. Use an image built by CI."
+          : null;
   /** Why nothing may install or roll back now. */
   const blocked = unavailable ?? stateProblem;
 
