@@ -245,14 +245,15 @@ jobs:
       set-meta-labels: true
       # The version label the deployable tags would give it, not "unverified".
       meta-labels: org.opencontainers.image.version=${{ needs.meta.outputs.version }}
-      # Its build metadata for in-app updates (docs/updates.md): main is the edge channel and
-      # v* tags the stable one; other builds get none and look for no update.
+      # Its build metadata for in-app updates (docs/updates.md): builds of main are the edge
+      # channel. Other builds, v* tags among them, get none and look for no update; a stable
+      # channel comes with a protected tag ruleset later.
       build-args: |
         NIMBUS_REPOSITORY=${{ github.repository }}
         NIMBUS_COMMIT=${{ github.sha }}
-        NIMBUS_SEQUENCE=${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && github.run_number || '' }}
-        NIMBUS_CHANNEL=${{ github.ref == 'refs/heads/main' && 'edge' || 'stable' }}
-        NIMBUS_IMAGE=ghcr.io/${{ github.repository }}:${{ github.ref == 'refs/heads/main' && 'edge' || 'latest' }}
+        NIMBUS_SEQUENCE=${{ github.ref == 'refs/heads/main' && github.run_number || '' }}
+        NIMBUS_CHANNEL=edge
+        NIMBUS_IMAGE=ghcr.io/${{ github.repository }}:edge
     secrets:
       registry-auths: |
         - registry: ghcr.io
@@ -309,29 +310,23 @@ jobs:
             echo "$tag -> $DIGEST"
           done
 
-  # The release bundle for in-app updates (docs/updates.md), behind the same gate as the image:
-  # built from this commit, signed with the release key, started once as a real server, given a
-  # build provenance attestation, and published as the newest release of its channel
-  # (channel-edge for main, channel-stable for v* tags), the default update source of the image
-  # built from the same commit. The signing key lives in the release-signing environment, which
-  # only this job may use; restrict that environment to main and v* tags in the repository's
-  # settings. Without a key the job builds and tests the bundle but publishes nothing.
+  # The release bundle for in-app updates (docs/updates.md), behind the same gate as the image,
+  # for main only (the edge channel): built from this commit, started once as a real server and
+  # given a build provenance attestation, with no secret anywhere in the job, since building
+  # installs packages. It hands the bundle on as an artifact, with its digests as outputs.
   bundle:
-    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: [verify]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    environment: release-signing
-    concurrency:
-      group: bundle-${{ github.ref == 'refs/heads/main' && 'edge' || 'stable' }}
-      cancel-in-progress: false
     permissions:
-      contents: write
+      contents: read
       id-token: write
       attestations: write
+    outputs:
+      manifest-sha256: ${{ steps.digests.outputs.manifest }}
+      bundle-sha256: ${{ steps.digests.outputs.bundle }}
     env:
-      CHANNEL: ${{ github.ref == 'refs/heads/main' && 'edge' || 'stable' }}
-      IMAGE: ghcr.io/${{ github.repository }}:${{ github.ref == 'refs/heads/main' && 'edge' || 'latest' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -346,37 +341,91 @@ jobs:
       - name: Find the channel's previous build
         id: previous
         run: |
-          commit=$(gh release download "channel-$CHANNEL" --pattern manifest.json --output - 2>/dev/null | jq -r '.build.commit // empty' || true)
+          commit=$(gh release download channel-edge --pattern manifest.json --output - 2>/dev/null | jq -r '.build.commit // empty' || true)
           if [ -n "$commit" ] && git cat-file -e "$commit^{commit}" 2>/dev/null; then
             echo "commit=$commit" >> "$GITHUB_OUTPUT"
           fi
-      - name: Build and sign the bundle
+      - name: Build the bundle
         env:
-          NIMBUS_RELEASE_SIGNING_KEY: ${{ secrets.NIMBUS_RELEASE_SIGNING_KEY }}
-          KEY_ID: ${{ vars.NIMBUS_RELEASE_KEY_ID }}
           PREVIOUS: ${{ steps.previous.outputs.commit }}
         run: |
-          args=(--out bundle --sequence "$GITHUB_RUN_NUMBER" --channel "$CHANNEL" --repository "$GITHUB_REPOSITORY" --image "$IMAGE")
+          args=(--out bundle --sequence "$GITHUB_RUN_NUMBER" --channel edge --repository "$GITHUB_REPOSITORY" --image "ghcr.io/$GITHUB_REPOSITORY:edge")
           [ -z "$PREVIOUS" ] || args+=(--previous-commit "$PREVIOUS")
-          if [ -n "$NIMBUS_RELEASE_SIGNING_KEY" ] && [ -n "$KEY_ID" ]; then args+=(--key-id "$KEY_ID"); fi
           bun scripts/release-bundle.ts "${args[@]}"
       - name: Start the bundle as a server
         run: bun scripts/release-smoke.ts bundle
-      - name: Attest the bundle's provenance
-        if: ${{ hashFiles('bundle/manifest.sig') != '' }}
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      - id: digests
+        run: |
+          echo "manifest=$(sha256sum bundle/manifest.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "bundle=$(sha256sum bundle/*.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: bundle/*.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-bundle
+          path: bundle/
+          if-no-files-found: error
+          retention-days: 7
+
+  # The only job that sees the signing key, in the release-signing environment (limit it to main
+  # in the repository's settings). It installs nothing and runs nothing from the bundle: it checks
+  # the artifact against the digests the bundle job reported, signs the manifest with
+  # scripts/release-sign.ts, which imports nothing, and publishes it as the edge channel's newest
+  # release. Without a key it stops before signing and publishes nothing.
+  sign:
+    needs: [bundle]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release-signing
+    concurrency:
+      group: release-edge
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: scripts/release-sign.ts
+          sparse-checkout-cone-mode: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-bundle
+          path: bundle
+      - name: Check the artifact is the bundle that was built and tested
+        env:
+          MANIFEST: ${{ needs.bundle.outputs.manifest-sha256 }}
+          BUNDLE: ${{ needs.bundle.outputs.bundle-sha256 }}
+        run: |
+          [ "$(sha256sum bundle/manifest.json | cut -d' ' -f1)" = "$MANIFEST" ] || { echo "manifest.json is not the one the bundle job built."; exit 1; }
+          [ "$(sha256sum bundle/*.tar.gz | cut -d' ' -f1)" = "$BUNDLE" ] || { echo "The bundle is not the one the bundle job built."; exit 1; }
+      - name: Sign the manifest
+        id: signed
+        env:
+          NIMBUS_RELEASE_SIGNING_KEY: ${{ secrets.NIMBUS_RELEASE_SIGNING_KEY }}
+          KEY_ID: ${{ vars.NIMBUS_RELEASE_KEY_ID }}
+        run: |
+          if [ -z "$NIMBUS_RELEASE_SIGNING_KEY" ] || [ -z "$KEY_ID" ]; then
+            echo "No release signing key is configured, so nothing is published (see docs/updates.md)."
+            exit 0
+          fi
+          bun scripts/release-sign.ts bundle --key-id "$KEY_ID"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
       # The bundle first, its signature next and the manifest last, so a manifest is never
       # published before what it names. A check between two uploads can still see a new
       # signature beside the old manifest; it fails and the next check succeeds.
-      - name: Publish as the channel's newest release
-        if: ${{ hashFiles('bundle/manifest.sig') != '' }}
+      - name: Publish as the edge channel's newest release
+        if: ${{ steps.signed.outputs.signed == 'true' }}
         run: |
-          release="channel-$CHANNEL"
+          release=channel-edge
           gh release view "$release" >/dev/null 2>&1 \
-            || gh release create "$release" --prerelease --title "Nimbus $CHANNEL channel" \
-                 --notes "The newest signed release bundle of the $CHANNEL channel, which Nimbus installs from Settings. Replaced by every build."
+            || gh release create "$release" --prerelease --title "Nimbus edge channel" \
+                 --notes "The newest signed release bundle of the edge channel, which Nimbus installs from Settings. Replaced by every build of main."
           file=$(jq -r .bundle.file bundle/manifest.json)
           gh release upload "$release" "bundle/$file" --clobber
           gh release upload "$release" bundle/manifest.sig --clobber

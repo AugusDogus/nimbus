@@ -305,20 +305,29 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
         "example/nimbus",
         "--image",
         "ghcr.io/example/nimbus:edge",
+      ],
+      { cwd: repo, env: { ...process.env, TMPDIR: root } },
+    );
+    if (builder.exitCode !== 0) throw new Error(builder.stderr.toString());
+    // Signed as CI's signing job signs it, by the script that holds the key.
+    const signer = Bun.spawnSync(
+      [
+        process.execPath,
+        "scripts/release-sign.ts",
+        out,
         "--key-id",
         "test-key",
       ],
       {
         cwd: repo,
         env: {
-          ...process.env,
-          TMPDIR: root,
+          PATH: process.env.PATH ?? "",
           NIMBUS_RELEASE_SIGNING_KEY:
             Buffer.from(privateKey).toString("base64"),
         },
       },
     );
-    if (builder.exitCode !== 0) throw new Error(builder.stderr.toString());
+    if (signer.exitCode !== 0) throw new Error(signer.stderr.toString());
     const manifest = ReleaseManifest.parse(
       new Uint8Array(
         await Bun.file(path.join(out, "manifest.json")).arrayBuffer(),

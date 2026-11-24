@@ -1,16 +1,14 @@
 /**
- * Builds a release bundle and its signed manifest (see docs/updates.md), from the committed tree
- * and the built client in this checkout:
+ * Builds a release bundle and its manifest (see docs/updates.md), from the committed tree and the
+ * built client in this checkout:
  *
  *   bun run build
  *   bun scripts/release-bundle.ts --out <dir> --sequence <n> --channel edge \
- *     --repository <owner/name> --image <image reference> [--previous-commit <sha>] \
- *     [--key-id <id>]
+ *     --repository <owner/name> --image <image reference> [--previous-commit <sha>]
  *
- * With `--key-id`, NIMBUS_RELEASE_SIGNING_KEY (a base64 PKCS #8 Ed25519 private key) signs the
- * manifest into manifest.sig; without it the manifest is left unsigned, which no installation
- * accepts. `<dir>` then holds manifest.json, manifest.sig and the bundle, which is what an update
- * source serves. CI runs this for every commit that passes its checks.
+ * `<dir>` then holds manifest.json and the bundle. It installs packages, so it never sees the
+ * signing key: scripts/release-sign.ts signs the manifest afterwards, in a job that installs
+ * nothing, which adds manifest.sig. CI runs both for every commit to main that passes its checks.
  */
 import {
   lstat,
@@ -32,7 +30,6 @@ import {
   ReleaseManifest,
   type ReleaseManifest as Manifest,
 } from "../apps/web/server/updates/release-manifest";
-import { ReleaseSignature } from "../apps/web/server/updates/release-signature";
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 /** Packages with native binaries: the image provides them, at the version the bundle names. */
@@ -57,7 +54,6 @@ const { values: args } = parseArgs({
     repository: { type: "string" },
     image: { type: "string" },
     "previous-commit": { type: "string" },
-    "key-id": { type: "string" },
   },
 });
 
@@ -318,22 +314,8 @@ try {
   if (!ReleaseManifest.parse(bytes).ok)
     refuse("the manifest it would write does not parse.");
   await Bun.write(path.join(out, "manifest.json"), bytes);
-  const keyId = args["key-id"];
-  if (keyId) {
-    const key = process.env.NIMBUS_RELEASE_SIGNING_KEY;
-    if (!key)
-      refuse("--key-id is given, but NIMBUS_RELEASE_SIGNING_KEY is not set.");
-    await Bun.write(
-      path.join(out, "manifest.sig"),
-      await ReleaseSignature.sign(
-        new Uint8Array(Buffer.from(key, "base64")),
-        keyId,
-        bytes,
-      ),
-    );
-  }
   console.info(
-    `Built ${file}: ${(archive.size / 1024 ** 2).toFixed(1)} MiB, sha256 ${archive.sha256}; ${reached.size} dependency packages kept, ${removed} removed; manifest${keyId ? " signed with key " + keyId : " unsigned"} in ${out}.`,
+    `Built ${file}: ${(archive.size / 1024 ** 2).toFixed(1)} MiB, sha256 ${archive.sha256}; ${reached.size} dependency packages kept, ${removed} removed; manifest in ${out}, not signed yet.`,
   );
 } finally {
   await rm(stage, { recursive: true, force: true });

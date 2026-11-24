@@ -104,23 +104,33 @@ releases and any release a server still runs.
 
 ## Publishing
 
-The `bundle` job in `.github/workflows/ci.yml` runs for every push to main (the `edge` channel) and
-every `v*` tag (`stable`) once `verify` passed. It builds the bundle with
-`scripts/release-bundle.ts`, signs its manifest, starts it once as a real server
-(`scripts/release-smoke.ts`), attaches a build provenance attestation, and uploads it with its
-manifest and signature to the release `channel-<channel>`, replacing the previous ones there. The
-image built from the same commit carries the same sequence (the workflow's run number), so it
-does not offer its own bundle as an update.
+Only pushes to main publish, as the `edge` channel, once `verify` passed. Two jobs in
+`.github/workflows/ci.yml` do it:
+
+- `bundle` builds the bundle with `scripts/release-bundle.ts`, starts it once as a real server
+  (`scripts/release-smoke.ts`), attaches a build provenance attestation, and hands it on as an
+  artifact with its digests as job outputs. It installs packages, so no secret is present in it.
+- `sign` is the only job in the `release-signing` environment. It installs nothing and runs no
+  code from the bundle: it checks the artifact against the digests the bundle job reported, signs
+  the manifest with `scripts/release-sign.ts` (which imports nothing; plain Bun and WebCrypto),
+  and uploads bundle, signature and manifest, in that order, to the release `channel-edge`.
+
+The image built from the same commit carries the same sequence (the workflow's run number), so
+it does not offer its own bundle as an update. Version tags build images with no build metadata,
+which look for no update: a `stable` channel comes later, together with a protected tag ruleset,
+so that whoever can push a tag cannot get a release signed. The manifest's channel field and every
+check of it are already in place.
 
 Setting it up once:
 
-1. `bun scripts/release-keys.ts <key id> --private-key-file <path>` prints the public key entry and
-   writes the private key to a new file only you can read (mode 600), never to the terminal.
+1. `bun scripts/release-keys.ts <key id> --private-key-file <path>` prints the public key entry
+   and writes the private key to a new file only you can read (mode 600), never to the terminal.
 2. Add the entry to `apps/web/release-keys.json` and commit it: images built from then on trust it.
-3. Create the environment `release-signing`, limited to main and `v*` tags, with the secret
-   `NIMBUS_RELEASE_SIGNING_KEY` (the private key) and the variable `NIMBUS_RELEASE_KEY_ID`.
+3. Create the environment `release-signing`, limited to the `main` branch, with the secret
+   `NIMBUS_RELEASE_SIGNING_KEY` (the private key file's content) and the variable
+   `NIMBUS_RELEASE_KEY_ID`; then delete the file.
 
-Until then the job builds and tests the bundle but publishes nothing, and images trust no key.
+Until then `sign` stops before signing and nothing is published, and images trust no key.
 
 A fork or mirror that signs with its own key points `NIMBUS_RELEASE_KEYS_FILE` at its own trust
 root file instead of rebuilding the image. That file must belong to root or the supervisor's user
