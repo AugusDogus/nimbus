@@ -125,3 +125,65 @@ test("a late older run never replaces the newer release, nor another manifest of
   expect((await guard(build(5), build(6))).code).toBe(1);
   expect((await guard(build(5, "a"), build(5, "b"))).code).toBe(1);
 });
+
+test("smoke and sign download the bundle's artifact to where its files were uploaded, and check them the same way", () => {
+  const upload = jobs.bundle?.steps.find((one) =>
+    one.uses?.startsWith("actions/upload-artifact"),
+  );
+  const folder = String(upload?.with?.path ?? "").replace(/\/$/, "");
+  expect(folder).toBe("bundle");
+  for (const name of ["smoke", "sign"]) {
+    const steps = jobs[name]?.steps ?? [];
+    const download = steps.find((one) =>
+      one.uses?.startsWith("actions/download-artifact"),
+    );
+    // By id it is a multi-artifact download, nested by name unless merged.
+    expect({ name, with: download?.with }).toEqual({
+      name,
+      with: {
+        "artifact-ids": "${{ needs.bundle.outputs.artifact-id }}",
+        path: folder,
+        "merge-multiple": true,
+      },
+    });
+    expect(
+      steps.some(
+        (one) =>
+          one.run?.trim() ===
+          `scripts/release-artifact-check.sh ${folder} "$MANIFEST" "$BUNDLE"`,
+      ),
+    ).toBe(true);
+  }
+});
+
+test("the artifact check says whether a file is missing or its digest differs", async () => {
+  const dir = path.join(folder, "bundle");
+  const check = (manifest: string, bundle: string) => {
+    const run = Bun.spawnSync([
+      "sh",
+      path.join(import.meta.dir, "release-artifact-check.sh"),
+      dir,
+      manifest,
+      bundle,
+    ]);
+    return { code: run.exitCode, said: run.stderr.toString() };
+  };
+  const sha = (text: string) =>
+    new Bun.CryptoHasher("sha256").update(text).digest("hex");
+  // Nested under the artifact's name, as a download by id without merging leaves it.
+  await Bun.write(path.join(dir, "release-bundle/manifest.json"), "{}");
+  const nested = check(sha("{}"), sha("bundle"));
+  expect(nested.code).toBe(1);
+  expect(nested.said).toContain("manifest.json is missing");
+  expect(nested.said).toContain("release-bundle");
+  await Bun.write(path.join(dir, "manifest.json"), "{}");
+  expect(check(sha("{}"), sha("bundle")).said).toContain("exactly one");
+  await Bun.write(path.join(dir, "nimbus-edge-7.tar.gz"), "bundle");
+  expect(check(sha("{}"), sha("bundle")).code).toBe(0);
+  const manifest = check(sha("other"), sha("bundle"));
+  expect(manifest.code).toBe(1);
+  expect(manifest.said).toContain("manifest.json has SHA-256");
+  const bundle = check(sha("{}"), sha("other"));
+  expect(bundle.code).toBe(1);
+  expect(bundle.said).toContain("nimbus-edge-7.tar.gz has SHA-256");
+});
