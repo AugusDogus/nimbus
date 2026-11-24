@@ -15,18 +15,17 @@ import { chmod, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { ServerRun } from "@nimbus/api/server-run";
 import { InstallationLock } from "../installation-lock";
-import { getDataRoot } from "@nimbus/api/data-root";
 import { getConfigRoot } from "../storage-paths";
 import { ControlSocket } from "./control-socket";
 import { HandoverStream } from "./handover-stream";
 import { BuildInfo } from "../updates/build-info";
 import { TrustRoot } from "../updates/trust-root";
-import { ManualReleases } from "../updates/trusted-path";
 import { UpdateSource } from "../updates/update-source";
 import { createUpdater, type RunInstaller } from "../updates/updater";
 import { ReleaseDirectory } from "./release-directory";
 import { PROTOCOL_VERSION, Protocol, WorkerEnv } from "./protocol";
 import { parseSettings } from "./settings";
+import { TestSeams } from "./test-seams";
 import { Users } from "./users";
 import { z } from "zod";
 import {
@@ -46,7 +45,7 @@ if (!settings.ok) {
     console.error(`Nimbus did not start: ${message}`);
   process.exit(1);
 }
-const { releasesDir, socketPath } = settings.value;
+const { socketPath } = settings.value;
 const readyTimeoutSeconds = settings.value.readyTimeoutMs / 1000;
 
 // Without it, a connection still queued on the old server's listener when that closes is reset.
@@ -78,29 +77,9 @@ if (users.updatesOff) log(users.updatesOff);
  * ones, and each is verified again before it starts.
  */
 const releases = path.join(configRoot, "supervisor/releases");
-/**
- * Releases an operator placed by hand, unsigned, in NIMBUS_RELEASES_DIR: never the installed
- * releases' folder, so a name there is never mistaken for an installed release.
- */
-async function manualFolder(folder: string | null) {
-  if (!folder) return null;
-  if (path.resolve(folder) === path.resolve(releases)) {
-    log(
-      `NIMBUS_RELEASES_DIR names the installed releases' folder (${releases}), which holds only signed releases; it is ignored. Point it at another folder for releases placed by hand.`,
-    );
-    return null;
-  }
-  // Releases there run unsigned, so only root or this user may be able to change them.
-  const checked = await ManualReleases.folder(folder, getDataRoot());
-  if (!checked.ok) {
-    log(
-      `NIMBUS_RELEASES_DIR is ignored, so no release placed by hand can start: ${checked.message}. Use a folder outside the data root that only root or the supervisor's user can write, on a path nobody else can change.`,
-    );
-    return null;
-  }
-  return checked.real;
-}
-const manualReleases = await manualFolder(releasesDir);
+/** What tests inject from a source checkout; see TestSeams. */
+const seams = TestSeams.fromEnvironment(process.env, builtIn.root);
+if (seams.refused) log(seams.refused);
 /** Installed releases verified for the handover under way, by name (see `prepare`). */
 const prepared = new Map<string, Release>();
 /** What the first server starts from: an installed release, or the built-in one. */
@@ -121,13 +100,10 @@ function release(
       ok: false,
       reason: `${name} is an installed release that has not been verified for this start`,
     };
-  // One an operator placed by hand; there is no other kind.
-  if (!manualReleases)
-    return {
-      ok: false,
-      reason: `there is no installed release ${name}, and no NIMBUS_RELEASES_DIR for releases placed by hand`,
-    };
-  return ReleaseDirectory.resolve(manualReleases, name);
+  // Only tests in a source checkout start a release that is not installed.
+  if (!seams.releasesDir)
+    return { ok: false, reason: `there is no installed release ${name}` };
+  return ReleaseDirectory.resolve(seams.releasesDir, name);
 }
 
 const spawn: SpawnWorker = (request, onMessage) => {

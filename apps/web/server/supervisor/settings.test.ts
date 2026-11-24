@@ -14,7 +14,6 @@ describe("parseSettings", () => {
         stopMs: 30_000,
         killGraceMs: 10_000,
         restartMs: { initial: 1_000, max: 30_000 },
-        releasesDir: null,
         socketPath: defaultSocketPath,
       },
     });
@@ -26,7 +25,6 @@ describe("parseSettings", () => {
       NIMBUS_MAX_DRAINING: "4",
       NIMBUS_READY_TIMEOUT_SECONDS: "60",
       NIMBUS_STOP_SECONDS: "20",
-      NIMBUS_RELEASES_DIR: "/config/releases",
       NIMBUS_SUPERVISOR_SOCKET: "/run/nimbus/control.sock",
     });
     expect(parsed.ok && parsed.value).toMatchObject({
@@ -34,7 +32,6 @@ describe("parseSettings", () => {
       maxDraining: 4,
       readyTimeoutMs: 60_000,
       stopMs: 20_000,
-      releasesDir: "/config/releases",
       socketPath: "/run/nimbus/control.sock",
     });
   });

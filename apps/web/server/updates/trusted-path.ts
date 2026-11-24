@@ -59,29 +59,3 @@ export const TrustedPath = {
     return above;
   },
 } as const;
-
-const within = (parent: string, child: string) =>
-  child === parent || child.startsWith(`${parent}${path.sep}`);
-
-/**
- * NIMBUS_RELEASES_DIR, the releases an operator places by hand: a trusted folder (see
- * TrustedPath) outside the data root, which users upload into, and not around it.
- */
-export const ManualReleases = {
-  async folder(target: string, dataRoot: string): Promise<Checked> {
-    const trusted = await TrustedPath.folder(target);
-    if (!trusted.ok) return trusted;
-    const data = await realpath(dataRoot).catch(() => path.resolve(dataRoot));
-    if (within(data, trusted.real))
-      return {
-        ok: false,
-        message: `${trusted.real} is inside the data root (${data}), where users could put a release there`,
-      };
-    if (within(trusted.real, data))
-      return {
-        ok: false,
-        message: `${trusted.real} holds the data root (${data}), so users' folders would look like releases`,
-      };
-    return trusted;
-  },
-} as const;

@@ -455,7 +455,12 @@ export async function createUpdater({
         ...(state.current ? [state.current] : []),
         ...(state.previous ? [state.previous] : []),
       ]);
-      for (const removed of await ReleaseStore.prune(releases, keep))
+      if (!trust.ok) return;
+      for (const removed of await ReleaseStore.prune(
+        releases,
+        keep,
+        trust.value,
+      ))
         log(`removed ${removed} from ${releases}`);
     },
 

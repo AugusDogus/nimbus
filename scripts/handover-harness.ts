@@ -14,7 +14,7 @@
  * did not prepare unless given `--existing-data-root`, signs in with the account it is given
  * and never creates one, and writes only in a scratch folder of its own, removed at the end.
  * Without `--releases`, each handover restarts the running release in place; with
- * `--releases a,b` it alternates between releases in NIMBUS_RELEASES_DIR.
+ * `--releases a,b` it alternates between releases in NIMBUS_TEST_RELEASES_DIR.
  *
  * Workloads, all running through every handover:
  * - media: one open-ended `Range: bytes=N-` read at a set rate, as a video player streams. It

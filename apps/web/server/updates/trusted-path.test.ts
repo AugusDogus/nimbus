@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ManualReleases, TrustedPath } from "./trusted-path";
+import { TrustedPath } from "./trusted-path";
 
 let root: string;
 beforeEach(async () => {
@@ -28,23 +28,4 @@ test("a folder is trusted when nobody else can write it or replace a folder on i
   // The folder itself may never be writable by others, sticky or not.
   await chmod(folder, 0o1777);
   expect((await TrustedPath.folder(folder)).ok).toBe(false);
-});
-
-test("releases placed by hand must live outside the data root, not around it", async () => {
-  const data = path.join(root, "data");
-  await mkdir(path.join(data, "uploads"), { recursive: true });
-  await mkdir(path.join(root, "manual"));
-  await chmod(root, 0o755);
-  expect(
-    (await ManualReleases.folder(path.join(root, "manual"), data)).ok,
-  ).toBe(true);
-  const inside = await ManualReleases.folder(path.join(data, "uploads"), data);
-  expect(inside.ok || inside.message).toContain("inside the data root");
-  const around = await ManualReleases.folder(root, data);
-  expect(around.ok || around.message).toContain("holds the data root");
-  // Through a link that leads into the data root.
-  await symlink(path.join(data, "uploads"), path.join(root, "linked"));
-  expect(
-    (await ManualReleases.folder(path.join(root, "linked"), data)).ok,
-  ).toBe(false);
 });

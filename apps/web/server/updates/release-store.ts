@@ -1,5 +1,4 @@
 import {
-  lstat,
   open,
   readdir,
   readFile,
@@ -225,7 +224,7 @@ export const ReleaseStore = {
    * Remove what is not needed: staging leftovers, and installed releases beyond the newest few,
    * except those in `keep` (the current and previous release, any a server still runs).
    */
-  async prune(releases: string, keep: ReadonlySet<string>) {
+  async prune(releases: string, keep: ReadonlySet<string>, trust: TrustRoot) {
     const removed: string[] = [];
     let entries: string[] = [];
     try {
@@ -235,25 +234,20 @@ export const ReleaseStore = {
         return removed;
       throw error;
     }
+    // Only the attempt folders the installer makes (`.install-<release>-` and mkdtemp's six).
     for (const entry of entries)
       if (
-        entry.startsWith(".install-") ||
-        entry.startsWith(".staging-") ||
-        entry.startsWith(".download-")
+        /^\.install-[a-z][a-z0-9-]{0,31}-\d+-[0-9a-f]{12}-[\w]{6}$/.test(entry)
       ) {
         await rm(path.join(releases, entry), { recursive: true, force: true });
         removed.push(entry);
       }
-    // Only what this store installed: a release name and a signed manifest of its own.
+    // Only what this store installed: a release whose signed manifest verifies under its name.
     const installed: string[] = [];
     for (const name of await ReleaseStore.installed(releases))
       if (
         /^[a-z][a-z0-9-]{0,31}-\d+-[0-9a-f]{12}$/.test(name) &&
-        (
-          await lstat(path.join(releases, name, MANIFEST_FILE)).catch(
-            () => null,
-          )
-        )?.isFile()
+        (await ReleaseStore.verified(releases, name, trust)).ok
       )
         installed.push(name);
     for (const name of installed.slice(KEEP))

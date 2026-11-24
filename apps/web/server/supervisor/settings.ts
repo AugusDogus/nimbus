@@ -5,7 +5,6 @@ export const defaultSocketPath = "/tmp/nimbus-supervisor/control.sock";
 
 export type ParsedSettings = SupervisorSettings & {
   /** Directory of further releases a handover may name, or null when only the built-in one. */
-  releasesDir: string | null;
   socketPath: string;
 };
 
@@ -46,7 +45,6 @@ function number(
  *   included, before the update is abandoned.
  * - NIMBUS_STOP_SECONDS (30): how long servers drain when the container stops. Keep it below
  *   the container's stop timeout.
- * - NIMBUS_RELEASES_DIR: a directory of further releases a handover may name.
  * - NIMBUS_SUPERVISOR_SOCKET: the control socket's path.
  */
 export function parseSettings(
@@ -97,7 +95,6 @@ export function parseSettings(
       stopMs: Math.round(stop.value * 1000),
       killGraceMs: 10_000,
       restartMs: { initial: 1_000, max: 30_000 },
-      releasesDir: env.NIMBUS_RELEASES_DIR || null,
       socketPath,
     },
   };

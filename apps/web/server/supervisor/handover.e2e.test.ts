@@ -296,7 +296,7 @@ describe.skipIf(!built)("handover with real servers", () => {
         NIMBUS_CONFIG_ROOT: configRoot,
         NIMBUS_SUPERVISOR_SOCKET: socket,
         NIMBUS_READY_TIMEOUT_SECONDS: "60",
-        NIMBUS_RELEASES_DIR: path.join(root, "releases"),
+        NIMBUS_TEST_RELEASES_DIR: path.join(root, "releases"),
       },
       stdio: ["ignore", "pipe", "inherit"],
     });
@@ -584,7 +584,7 @@ describe.skipIf(!built)("handover with real servers", () => {
       NIMBUS_CONFIG_ROOT: path.join(root, "config"),
       NIMBUS_SUPERVISOR_SOCKET: socket,
       NIMBUS_READY_TIMEOUT_SECONDS: "60",
-      NIMBUS_RELEASES_DIR: path.join(root, "releases"),
+      NIMBUS_TEST_RELEASES_DIR: path.join(root, "releases"),
     };
     const next = Bun.spawn([process.execPath, "server/supervisor/main.ts"], {
       cwd: web,

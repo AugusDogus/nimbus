@@ -91,11 +91,12 @@ test("pruning keeps the newest releases and those still needed, and removes stag
   const names = [];
   for (const sequence of [101, 102, 103, 104, 105])
     names.push(await installed(sequence));
-  await mkdir(path.join(releases, ".staging-edge-106-aaaaaaaaaaaa"));
+  // What an install that stopped half-way left: the installer's own attempt folder.
+  await mkdir(path.join(releases, ".install-edge-106-aaaaaaaaaaaa-Ab12Cd"));
   const [oldest = "", second = ""] = names;
-  const removed = await ReleaseStore.prune(releases, new Set([oldest]));
+  const removed = await ReleaseStore.prune(releases, new Set([oldest]), trust);
   expect(removed.sort()).toEqual(
-    [".staging-edge-106-aaaaaaaaaaaa", second].sort(),
+    [".install-edge-106-aaaaaaaaaaaa-Ab12Cd", second].sort(),
   );
   expect((await readdir(releases)).sort()).toEqual(
     [oldest, ...names.slice(2)].sort(),
@@ -141,9 +142,28 @@ test("pruning removes only installed releases, never other folders it finds", as
   for (const sequence of [181, 182, 183, 184]) await installed(sequence);
   await mkdir(path.join(releases, "photos"));
   await mkdir(path.join(releases, "edge-1-aaaaaaaaaaaa"));
-  await ReleaseStore.prune(releases, new Set());
+  // A signed manifest under another release's name, and one no trusted key signed.
+  const renamed = await installed(170, "edge-2-bbbbbbbbbbbb");
+  const unsigned = await installed(171);
+  await writeFile(path.join(releases, unsigned, SIGNATURE_FILE), "{}");
+  // Folders that look like what an installer leaves, but none made.
+  for (const name of [
+    ".staging-edge-3-cccccccccccc",
+    ".install-photos",
+    ".keep",
+  ])
+    await mkdir(path.join(releases, name));
+  await ReleaseStore.prune(releases, new Set(), trust);
   const left = await readdir(releases);
   expect(left).toContain("photos");
   // Named like one, but with no signed manifest: not a release this store installed.
   expect(left).toContain("edge-1-aaaaaaaaaaaa");
+  expect(left).toContain(renamed);
+  expect(left).toContain(unsigned);
+  for (const name of [
+    ".staging-edge-3-cccccccccccc",
+    ".install-photos",
+    ".keep",
+  ])
+    expect(left).toContain(name);
 });
