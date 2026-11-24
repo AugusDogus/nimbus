@@ -540,4 +540,26 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     expect(log).toContain("not the tree its signed manifest describes");
     expect(await health()).toBe(200);
   }, 120_000);
+  test("once its key is no longer trusted, an installed release is never started, a rollback included", async () => {
+    supervisor?.kill("SIGTERM");
+    expect(await supervisor?.exited).toBe(0);
+    // The image now trusts another key only, as after rotating a compromised one.
+    const rotated = await ReleaseSignature.generate("rotated-key");
+    await Bun.write(
+      path.join(root, "keys.json"),
+      JSON.stringify({ keys: [rotated.trustEntry] }),
+    );
+    await chmod(path.join(root, "keys.json"), 0o644);
+    await startSupervisor();
+    expect(await active()).toBe("built-in");
+    const rolled = await ControlClient.update(socket, "rollback");
+    expect(rolled?.ok).toBe(false);
+    // Refused for its signature before anything of it starts, not tried and abandoned.
+    if (rolled && !rolled.ok) {
+      expect(rolled.error.kind).toBe("update-failed");
+      expect(rolled.error.message).toContain("does not trust");
+    }
+    expect(await active()).toBe("built-in");
+    expect(await health()).toBe(200);
+  }, 120_000);
 });

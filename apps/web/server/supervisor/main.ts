@@ -10,6 +10,7 @@
  * over to a fresh server of the same release. SIGTERM and SIGINT drain every server within
  * NIMBUS_STOP_SECONDS and exit, as a container stop needs.
  */
+import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { ServerRun } from "@nimbus/api/server-run";
@@ -65,9 +66,24 @@ const builtIn: Release = {
 };
 
 const configRoot = getConfigRoot();
-/** Installed releases (see docs/updates.md), and any an operator put there by hand. */
-const releases = releasesDir ?? path.join(configRoot, "releases");
-/** Signed releases verified for this handover, by name (see `prepare`). */
+/**
+ * Installed releases (see docs/updates.md): only the updater puts releases here, only signed
+ * ones, and each is verified again before it starts.
+ */
+const releases = path.join(configRoot, "releases");
+/**
+ * Releases an operator placed by hand, unsigned, in NIMBUS_RELEASES_DIR: never the installed
+ * releases' folder, so a name there is never mistaken for an installed release.
+ */
+const manualReleases =
+  releasesDir && path.resolve(releasesDir) !== path.resolve(releases)
+    ? releasesDir
+    : null;
+if (releasesDir && !manualReleases)
+  log(
+    `NIMBUS_RELEASES_DIR names the installed releases' folder (${releases}), which holds only signed releases; it is ignored. Point it at another folder for releases placed by hand.`,
+  );
+/** Installed releases verified for the handover under way, by name (see `prepare`). */
 const prepared = new Map<string, Release>();
 /** What the first server starts from: an installed release, or the built-in one. */
 let startWith: Release = builtIn;
@@ -82,8 +98,18 @@ function release(
   }
   const signed = prepared.get(name);
   if (signed) return { ok: true, release: signed };
-  // One an operator placed in the releases folder by hand, which only root can.
-  return ReleaseDirectory.resolve(releases, name);
+  if (existsSync(path.join(releases, name)))
+    return {
+      ok: false,
+      reason: `${name} is an installed release that has not been verified for this start`,
+    };
+  // One an operator placed by hand; there is no other kind.
+  if (!manualReleases)
+    return {
+      ok: false,
+      reason: `there is no installed release ${name}, and no NIMBUS_RELEASES_DIR for releases placed by hand`,
+    };
+  return ReleaseDirectory.resolve(manualReleases, name);
 }
 
 const spawn: SpawnWorker = (request, onMessage) => {
@@ -326,9 +352,28 @@ async function handOver(
 ): Promise<
   { ok: true; value: HandoverReport } | { ok: false; error: StreamError }
 > {
-  if (name !== null && name !== builtIn.name) await prepare(name);
+  // An installed release is verified again for every handover, and refused if it fails: never
+  // started from an earlier check, nor taken for a release placed by hand.
+  const managed =
+    name !== null &&
+    name !== builtIn.name &&
+    /^[\w][\w.-]{0,63}$/.test(name) &&
+    existsSync(path.join(releases, name))
+      ? name
+      : null;
+  if (managed) {
+    prepared.delete(managed);
+    const verified = await prepare(managed);
+    if (!verified.ok)
+      return {
+        ok: false,
+        error: {
+          kind: "update-failed",
+          message: `Release ${managed} was not started: ${verified.message}. Nothing was changed; the running release keeps serving.`,
+        },
+      };
+  }
   // Written before any server stops: a full restart may migrate for it before it is active.
-  const managed = name !== null && prepared.has(name) ? name : null;
   if (managed) {
     const marked = await updater.markPending(managed);
     if (!marked.ok)
@@ -386,12 +431,6 @@ async function installUpdate(): Promise<
     return {
       ok: false,
       error: { kind: "update-failed", message: installed.message },
-    };
-  const verified = await prepare(installed.name);
-  if (!verified.ok)
-    return {
-      ok: false,
-      error: { kind: "update-failed", message: verified.message },
     };
   const outcome = await handOver(installed.name);
   if (outcome.ok)
