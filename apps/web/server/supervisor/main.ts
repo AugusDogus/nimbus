@@ -27,6 +27,7 @@ import { ReleaseDirectory } from "./release-directory";
 import {
   PROTOCOL_VERSION,
   Protocol,
+  RELEASE_REFUSED_EXIT,
   WorkerEnv,
   type SupervisorMessage,
 } from "./protocol";
@@ -166,7 +167,7 @@ const spawn: SpawnWorker = (request, onMessage) => {
         log(
           `did not start ${request.release.name}: ${verified.ok ? "it is not where it was verified" : verified.message}`,
         );
-        return 1;
+        return RELEASE_REFUSED_EXIT;
       }
       log(
         `verified ${request.release.name} in ${Math.round(performance.now() - checking)} ms before starting it`,
@@ -273,6 +274,7 @@ const supervisor = createSupervisor({
   settings: settings.value,
   release,
   distOf: (of) => path.join(of.root, "apps/web/dist"),
+  builtIn,
   log,
   // What runs is recorded when it takes over, also when no request waits for it.
   onActive: (release) => void activated(release),

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { SupervisorMessage, WorkerMessage } from "./protocol";
+import {
+  RELEASE_REFUSED_EXIT,
+  type SupervisorMessage,
+  type WorkerMessage,
+} from "./protocol";
 import {
   createSupervisor,
   realClock,
@@ -81,6 +85,7 @@ function harness(
         : { ok: false, reason: `there is no release ${name}` };
     },
     distOf: (release) => `${release.root}/apps/web/dist`,
+    builtIn: releases.a,
     log: (line) => void lines.push(line),
     onActive: (release) => void activated.push(release.name),
     clock: { now: () => clock, after: realClock.after },
@@ -692,5 +697,27 @@ describe("the supervisor", () => {
     // One given up changes nothing either, and frees the supervisor.
     if (next.ok) next.value.release();
     expect((await h.handover("a", 2)).to).toBe("a");
+  });
+
+  test("an installed release refused when it restarts falls back to the built-in one instead of being retried forever", async () => {
+    const h = harness();
+    await h.serving();
+    await h.handover("b", 1);
+    // It crashes, and at its restart its files no longer verify.
+    h.workers[1]?.exit(1);
+    const retried = await h.started(2);
+    expect(retried.release).toBe("b");
+    retried.exit(RELEASE_REFUSED_EXIT);
+    const builtIn = await h.started(3);
+    expect(builtIn.release).toBe("a");
+    h.ready(builtIn);
+    for (
+      let tries = 0;
+      tries < 100 && h.supervisor.status().phase !== "serving";
+      tries++
+    )
+      await Bun.sleep(5);
+    expect(h.supervisor.status().active?.release).toBe("a");
+    expect(h.lines.join("\n")).toContain("built-in release");
   });
 });

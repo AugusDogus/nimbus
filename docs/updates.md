@@ -185,7 +185,9 @@ its manifest's signature, and the whole tree against the tree digest the manifes
 (`ReleaseTree`: every file's content and executable bit, every folder, every link target, so a
 changed, missing or extra entry shows), leaving out only the installer's copy of the manifest and
 the native links, which must lead to the image's copies. A release that fails is not started; the
-supervisor starts the built-in release instead and says why. The manifest carries one digest and
+supervisor starts the built-in release instead and says why, also when the failure comes at a
+restart after a crash, rather than retrying it. The one exception is a release a full restart has
+migrated for, which is retried as described above. The manifest carries one digest and
 an entry count rather than a list of files: about 100 bytes, where a list would be some 3 MiB for
 24,000 entries. The check reads the whole release (about 190 MiB): it is what each start costs.
 

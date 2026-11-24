@@ -6,6 +6,7 @@ import {
 import type { ServerRun } from "@nimbus/api/server-run";
 import {
   NEEDS_FULL_RESTART_EXIT,
+  RELEASE_REFUSED_EXIT,
   type SupervisorMessage,
   type WorkerMessage,
 } from "./protocol";
@@ -112,6 +113,8 @@ type Worker = {
   grants: Map<number, Grant>;
   /** Why it asked for a full restart instead of a handover, if it did. */
   fullRestart: string | null;
+  /** It exited with RELEASE_REFUSED_EXIT: its release did not verify at launch. */
+  refused?: boolean;
 };
 
 /**
@@ -259,6 +262,8 @@ export function createSupervisor(deps: {
   release: (
     name: string | null,
   ) => { ok: true; release: Release } | { ok: false; reason: string };
+  /** The image's own release, which a restart falls back to when an installed one is refused. */
+  builtIn: Release;
   /** The built client of `release`, so the next release can serve its hashed assets. */
   distOf: (release: Release) => string;
   log: (line: string) => void;
@@ -555,6 +560,21 @@ export function createSupervisor(deps: {
         );
         return;
       case "restart":
+        // An installed release refused at launch does not verify: retrying it cannot help, so
+        // the built-in release starts, as at boot, unless a full restart may have migrated for it.
+        if (
+          worker?.refused &&
+          !purpose.afterFullRestart &&
+          fallback.release.root !== deps.builtIn.root
+        ) {
+          log(
+            `${fallback.release.name} no longer verifies, so it is not started again; starting the image's built-in release instead in ${restartDelay} ms. Install the update again, or roll back, once its cause is fixed.`,
+          );
+          return scheduleRestart(
+            { release: deps.builtIn, previousAssets: [] },
+            draining,
+          );
+        }
         log(
           purpose.afterFullRestart
             ? `${fallback.release.name} still does not start after the full restart that replaced ${purpose.afterFullRestart.name} (${reason}); trying again in ${restartDelay} ms. Nimbus does not go back to ${purpose.afterFullRestart.name} by itself: ${fallback.release.name} may already have applied database migrations that ${purpose.afterFullRestart.name} cannot run. Requests are refused meanwhile. Fix what its log names and restart the container, or go back by hand: stop the container, restore the pre-migration backup from the config root's backups folder, and start the older image.`
@@ -586,6 +606,7 @@ export function createSupervisor(deps: {
   function onExit(worker: Worker, code: number | null) {
     if (worker.exited) return;
     worker.exited = true;
+    if (code === RELEASE_REFUSED_EXIT) worker.refused = true;
     if (code === NEEDS_FULL_RESTART_EXIT && worker.fullRestart === null)
       worker.fullRestart =
         "it reported that its pending migrations are not safe beside an older server";

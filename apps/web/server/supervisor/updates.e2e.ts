@@ -543,7 +543,7 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     expect(await health()).toBe(200);
   }, 120_000);
 
-  test("after a crash an installed release is verified again before it restarts, and one changed meanwhile is not started", async () => {
+  test("after a crash an installed release is verified again before it restarts, and one changed meanwhile falls back to the built-in release", async () => {
     const running = await active();
     if (!running || running === "built-in")
       throw new Error("No installed release runs.");
@@ -570,12 +570,14 @@ describe.skipIf(!built)("in-app updates with real processes", () => {
     await waitFor("the changed release to be refused", async () =>
       log.includes(`did not start ${running}`) ? true : null,
     );
+    // Not retried forever: the built-in release serves instead.
+    await waitFor("the built-in release to serve", async () =>
+      (await active()) === "built-in" ? true : null,
+    );
+    expect(await health()).toBe(200);
+    // Whole again, it is handed back to, verified, by name.
     await Bun.write(file, original);
-    const third = await waitFor("the restart once it is whole", async () => {
-      const pid = await pidOf();
-      return pid && pid !== second ? pid : null;
-    });
-    expect(third).not.toBe(second);
+    expect((await ControlClient.handover(socket, running))?.ok).toBe(true);
     expect(await active()).toBe(running);
     expect(await health()).toBe(200);
   }, 120_000);

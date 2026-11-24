@@ -126,6 +126,12 @@ export type WorkerMessage = z.infer<typeof workerMessage>;
 /** The exit code of a worker that needs a full restart, in case its message was not delivered. */
 export const NEEDS_FULL_RESTART_EXIT = 75;
 
+/**
+ * The exit of a server that never ran because its installed release did not verify at launch
+ * (the supervisor's own refusal): its restarts fall back to the built-in release.
+ */
+export const RELEASE_REFUSED_EXIT = 78;
+
 /** Variables the supervisor sets for every worker it starts. */
 export const WorkerEnv = {
   protocol: "NIMBUS_SUPERVISOR_PROTOCOL",

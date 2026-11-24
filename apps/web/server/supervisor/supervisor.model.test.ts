@@ -178,6 +178,7 @@ async function runSequence(seed: number) {
         ? { ok: true, release: found }
         : { ok: false, reason: `there is no release ${name}` };
     },
+    builtIn: releases.a,
     distOf: (release) => `${release.root}/apps/web/dist`,
     log: () => undefined,
     clock,
