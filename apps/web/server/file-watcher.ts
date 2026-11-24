@@ -6,8 +6,9 @@ import {
   requestSearchRescan,
   stopSearchIndex,
 } from "./search-bridge";
+import { FileWatchThread } from "./file-watch-thread";
 import { reconcileIntervalMs } from "./search-protocol";
-import { startFileWatch, type FileWatchHandle } from "./watch.worker";
+import type { FileWatchHandle } from "./watch.worker";
 
 let watching: FileWatchHandle | null = null;
 
@@ -30,24 +31,27 @@ export const ensureFileWatcher = () => {
     Number.isFinite(configuredDebounce) && configuredDebounce >= 0
       ? configuredDebounce
       : 300;
-  // fs.watch already delivers asynchronous notifications. Import its helper into
-  // the server bundle so Next does not copy a worker entry without its imports.
-  const handle = startFileWatch(
+  // On a thread of its own: setting the watch up walks every folder (see FileWatchThread).
+  const handle = FileWatchThread.start({
+    spawn: () =>
+      new Worker(new URL("./file-watch.thread.ts", import.meta.url), {
+        type: "module",
+      }),
     root,
     debounceMs,
-    (event) => {
+    emit: (event) => {
       publishFileEvent(event);
       notifySearchChange(event.path);
     },
-    () => {
+    onLost: () => {
       console.warn(
         "Nimbus's file watcher missed changes. Search results and storage usage are being rebuilt from disk; files are unaffected.",
       );
       requestSearchRescan();
     },
     // Unreadable folders are checked again as often as the index is reconciled.
-    { recheckMs: reconcileIntervalMs() },
-  );
+    recheckMs: reconcileIntervalMs(),
+  });
   watching = handle;
   // Changes Nimbus makes itself are published as they happen. While the watcher is not
   // running, such as at the system's watch limit, they reach search this way instead of

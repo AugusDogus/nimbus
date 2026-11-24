@@ -43,6 +43,8 @@ export type FileWatchOptions = {
   recheckMs?: number;
   /** The first wait before restarting after a failure; it doubles up to `maxRetryMs`. */
   retryMs?: number;
+  /** Told whenever changes start or stop being watched (see `FileWatchHandle.watching`). */
+  onWatching?: (watching: boolean) => void;
 };
 
 const watchRecursively: WatchTree = (root, listener) =>
@@ -220,8 +222,10 @@ export const startFileWatch = (
   };
 
   const stop = () => {
-    watcher?.close();
+    if (!watcher) return;
+    watcher.close();
     watcher = null;
+    options.onWatching?.(false);
   };
 
   /** Start watching; a failure to start is handled like any other watch error. */
@@ -238,6 +242,7 @@ export const startFileWatch = (
       });
       watcher = started;
       startedAt = Date.now();
+      options.onWatching?.(true);
       return true;
     } catch (error) {
       fail(error);
