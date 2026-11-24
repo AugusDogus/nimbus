@@ -1,4 +1,10 @@
+import { existsSync } from "node:fs";
 import type { Ids } from "./credentials";
+
+/** setpriv by its absolute path: root never looks a command up through PATH. */
+const SETPRIV =
+  ["/usr/bin/setpriv", "/bin/setpriv"].find((file) => existsSync(file)) ??
+  "/usr/bin/setpriv";
 
 /**
  * Which users the supervisor, its servers and its installer run as (see docs/updates.md),
@@ -37,6 +43,8 @@ function id(value: string | undefined) {
 const UPDATE_ID = 1100;
 
 export const Users = {
+  setpriv: SETPRIV,
+
   fromEnvironment(
     env: Record<string, string | undefined>,
     self: { euid: number; oneUserUpdates: boolean },
@@ -75,7 +83,7 @@ export const Users = {
   /** `command` run as `ids` with nothing more: no capability, group or way to gain either. */
   dropTo(ids: Ids, command: string[]): string[] {
     return [
-      "setpriv",
+      SETPRIV,
       `--reuid=${ids.uid}`,
       `--regid=${ids.gid}`,
       "--clear-groups",

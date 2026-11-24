@@ -302,3 +302,23 @@ test.skipIf(!mappedRoot)(
     expect((await asRoot(`ls -d "${root}/store" 2>&1`)).code).not.toBe(0);
   },
 );
+
+test.skipIf(!mappedRoot)(
+  "the root supervisor starts with nothing that changes what Bun loads, a home only root may write, and absolute commands",
+  async () => {
+    await chmod(root, 0o755);
+    await Bun.write(
+      path.join(root, "env.sh"),
+      'env | grep -E "^(HOME|TMPDIR|NODE_OPTIONS|NODE_PATH|LD_PRELOAD|BUN_[A-Z_]*|XDG_CONFIG_HOME|PATH)=" | sort\n',
+    );
+    const started = await asRoot(
+      `export NIMBUS_DATA_ROOT="${root}/data" NIMBUS_CONFIG_ROOT="${root}/config" PUID=2000 PGID=2000 HOME=/tmp TMPDIR=/tmp NODE_OPTIONS=--require=/tmp/evil.js NODE_PATH=/tmp LD_PRELOAD=/tmp/evil.so BUN_CONFIG_REGISTRY=http://evil.test XDG_CONFIG_HOME=/tmp PATH="/tmp:$PATH"; sh -c '. "$0"; main sh "$1"' "$0" "${root}/env.sh"`,
+    );
+    expect(started.code).toBe(0);
+    expect(started.stdout.trim().split("\n")).toEqual([
+      "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0",
+      "HOME=/root",
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    ]);
+  },
+);

@@ -253,9 +253,24 @@ describe.skipIf(!built || (!namespaces && !required))(
 
       // Root of a new user and mount namespace with a private /tmp, then the image's entrypoint,
       // as a container starts it.
+      // The servers' user leaves in /tmp what Bun could load: a bunfig.toml with a preload, and a
+      // transpiler cache under a home there.
+      await Bun.write(
+        path.join(root, "plant.sh"),
+        [
+          "printf 'preload = [\"/tmp/evil.ts\"]\\n' > /tmp/bunfig.toml",
+          "cp /tmp/bunfig.toml /tmp/.bunfig.toml",
+          'printf \'require("fs").writeFileSync("/tmp/evil-ran-" + process.getuid(), "");\\n\' > /tmp/evil.ts',
+          "mkdir -p /tmp/.bun/install/cache",
+          "",
+        ].join("\n"),
+      );
+      await chmod(path.join(root, "plant.sh"), 0o644);
       const setup = [
         "set -e",
         "mount -t tmpfs tmpfs /tmp",
+        "chmod 1777 /tmp",
+        `setpriv --reuid=2000 --regid=2000 --clear-groups -- sh "${path.join(root, "plant.sh")}"`,
         'exec sh "$0" "$@"',
       ].join("\n");
       const child = Bun.spawn(
@@ -340,6 +355,26 @@ describe.skipIf(!built || (!namespaces && !required))(
         noNewPrivs: "1",
       });
       expect(log).not.toContain("In-app updates are off");
+    });
+
+    test("root runs Bun with nothing the servers' user left for it: no preload, cache or variable of theirs", async () => {
+      const pid = String(supervisor?.pid ?? 0);
+      const environ = (
+        await inside(["cat", `/proc/${pid}/environ`])
+      ).stdout.split("\0");
+      expect(environ).toContain("HOME=/root");
+      expect(environ).toContain("BUN_RUNTIME_TRANSPILER_CACHE_PATH=0");
+      expect(
+        environ.filter((line) =>
+          /^(TMPDIR|NODE_OPTIONS|NODE_PATH|LD_[A-Z_]*|XDG_[A-Z_]*)=/.test(line),
+        ),
+      ).toEqual([]);
+      expect(
+        (await inside(["readlink", `/proc/${pid}/cwd`])).stdout.trim(),
+      ).toBe(web);
+      // The plant is there, and ran only as the servers' user if at all, never as root.
+      expect((await inside(["ls", "/tmp"])).stdout).toContain("evil.ts");
+      expect((await inside(["ls", "/tmp"])).stdout).not.toContain("evil-ran-0");
     });
 
     test("the store is root's and staging the update user's: neither they nor the servers' user can change what runs", async () => {

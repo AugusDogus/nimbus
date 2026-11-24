@@ -15,8 +15,9 @@ test("started as root with the servers' ids: servers as PUID:PGID, the installer
     update: { uid: 1100, gid: 1100 },
     updatesOff: null,
   });
+  expect(Users.setpriv).toStartWith("/");
   expect(Users.dropTo({ uid: 2000, gid: 2001 }, ["bun", "start.ts"])).toEqual([
-    "setpriv",
+    Users.setpriv,
     "--reuid=2000",
     "--regid=2001",
     "--clear-groups",

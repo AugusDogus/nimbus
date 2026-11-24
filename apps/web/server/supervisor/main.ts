@@ -83,6 +83,10 @@ const builtIn: Release = {
   root: path.resolve(import.meta.dir, "../../../.."),
 };
 
+// A fixed working folder the image owns, whatever the one it was started in: Bun reads a
+// bunfig.toml from there.
+process.chdir(path.join(builtIn.root, "apps/web"));
+
 /** What tests inject from a source checkout; see TestSeams. */
 const seams = TestSeams.fromEnvironment(process.env, builtIn.root);
 if (seams.refused) log(seams.refused);
@@ -192,8 +196,10 @@ const spawn: SpawnWorker = (request, onMessage) => {
     let checked = serverIds === null;
     const started = Bun.spawn(asServer([process.execPath, "server/start.ts"]), {
       cwd: path.join(request.release.root, "apps/web"),
+      // Their environment, explicitly: the supervisor's, with a home of their own as before.
       env: {
         ...process.env,
+        HOME: "/tmp",
         [WorkerEnv.protocol]: String(PROTOCOL_VERSION),
         [WorkerEnv.release]: request.release.name,
         [WorkerEnv.predecessor]: request.predecessor ? "1" : "0",
@@ -378,11 +384,12 @@ async function installer(
       path.join(builtIn.root, "apps/web/server/supervisor/installer.ts"),
     ]),
     {
-      cwd: store.staging,
-      // No secret of the application, and a home of its own.
+      // A working folder the image owns, so no bunfig.toml it left in staging is read.
+      cwd: path.join(builtIn.root, "apps/web"),
+      // No secret of the application, no home, and staging for its temporary files.
       env: {
         PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-        HOME: store.staging,
+        HOME: "/nonexistent",
         TMPDIR: store.staging,
         NODE_ENV: "production",
         BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",

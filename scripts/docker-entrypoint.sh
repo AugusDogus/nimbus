@@ -133,7 +133,6 @@ main() {
   own_root "$data" "$uid" "$gid"
   own_root "$config" "$uid" "$gid"
 
-  export HOME=/tmp
   # The supervisor stays root with only what its job needs (see docs/updates.md, Privileges):
   # setuid and setgid to start servers as PUID:PGID and the installer as the update user,
   # setpcap for those children to empty their bounding sets, kill to signal them. It drops
@@ -148,10 +147,23 @@ main() {
     fi
     prepare_store "$store" 1100 ||
       printf 'In-app updates are off: Nimbus could not prepare its update store %s. Installed releases still start if they verify.\n' "$store" >&2
-    exec setpriv --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set="$caps" --no-new-privs \
-      -- env NIMBUS_SERVER_UID="$uid" NIMBUS_SERVER_GID="$gid" "$@"
+    # Root runs Bun with nothing a server could have left for it to load: no variable that
+    # changes what Bun or the loader load, a home only root may write, no transpiler cache (which
+    # would live in that home), a fixed PATH, and absolute commands. Servers get HOME=/tmp from
+    # the supervisor, as before.
+    for name in $(env | sed -n 's/^\(BUN_[A-Za-z0-9_]*\|LD_[A-Za-z0-9_]*\|NODE_OPTIONS\|NODE_PATH\|TMPDIR\|XDG_[A-Za-z0-9_]*\|BUNFIG[A-Za-z0-9_]*\)=.*/\1/p'); do
+      unset "$name"
+    done
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    export PATH
+    command=$(command -v -- "$1") || fail "the command $1 is not installed in this image."
+    shift
+    exec /usr/bin/setpriv --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set="$caps" --no-new-privs \
+      -- /usr/bin/env HOME=/root BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
+      NIMBUS_SERVER_UID="$uid" NIMBUS_SERVER_GID="$gid" "$command" "$@"
   fi
   printf 'In-app updates are off: this container cannot limit its supervisor to the capabilities it needs (CAP_SETUID, CAP_SETGID, CAP_SETPCAP and CAP_KILL, which a cap_drop may remove), so every process runs as %s:%s. Keep Docker'"'"'s default capabilities to turn them on.\n' "$uid" "$gid" >&2
+  export HOME=/tmp
   exec setpriv --reuid="$uid" --regid="$gid" --clear-groups --no-new-privs -- "$@"
 }
 
