@@ -246,6 +246,30 @@ Until then `sign` stops before signing and nothing is published, and images trus
 A fork or mirror that signs with its own key builds its own image with its own
 `apps/web/release-keys.json`; an image trusts only the keys it was built with.
 
+## Updates from Settings
+
+Administrators see and drive updates in Settings, Administration (`/api/admin/updates`: a
+signed-in administrator's session, never a paired device or an app password; changes only from a
+Nimbus page). The server asks its supervisor over the supervisor protocol, with a closed set of
+requests and no free-form argument (`update-protocol.ts`): `status`, `check`, `install` (the
+release the last check offered), `rollback` (the recorded previous release) and `schedule` (off,
+notify only or install at an hour, 0 to 23). No request names a release, a path or a URL. The
+supervisor validates every field, refuses unknown ones, and limits each kind: 60 status requests
+per 10 seconds, 3 checks, 2 installs, 2 rollbacks and 10 schedule changes a minute, from all
+servers together.
+
+So a compromised server can, through this, at worst cause a check of the configured source, an
+update to the newest signed release newer than anything run here (which the administrator would
+also be offered), a rollback to the previous signed release (and back again, as rollbacks
+alternate), or a different schedule, each within those limits and each through the verified
+paths above. It cannot install anything unsigned or older than what ran, nor start a release by
+name.
+
+The schedule's default is notify only: the supervisor checks twice a day so Settings shows what
+is available. Install at a quiet hour also checks again at that hour (in the server's time zone)
+and installs what is offered, once a day. Outcomes go to the audit log: an administrator's
+install or rollback with that administrator, the schedule's as the system.
+
 ## What the server sends
 
 Checking for an update fetches `manifest.json` and `manifest.sig` from the update source, and
@@ -285,14 +309,24 @@ Under `--user`, where one user runs everything, updates are off for this reason.
 the supervisor install anything unsigned: root verifies every manifest against the image's trust
 root, which a server cannot change, and the control socket, root's, is not reachable from a
 server's network. What they can send the supervisor is the server protocol's messages, which it
-parses as data.
+parses as data; the update requests among them are a closed set (Updates from Settings) through
+which the worst they can cause is an update to the newest signed release this installation has not
+run, or a rollback to the previous signed one, at most twice a minute each. Root's own Bun runs
+with a home only root may write, no transpiler cache, no variable that changes what Bun loads,
+and a working folder the image owns (Bun 1.4.4 reads a `bunfig.toml` only from its working
+folder), so nothing a server leaves in `/tmp` or elsewhere is loaded as root.
 
 **An attacker who exploits the installer** (through the network, a redirect or a hostile bundle,
 as the update user) can write only staging, and only while the install runs: root stops every
 process of that user before it reads what was staged, copies it without following links or
 accepting anything but plain entries the update user owns, and checks the copy against the signed
 manifest. They cannot change a published release, the state or the watermark, which are root's,
-nor read the application's secrets, which the installer is not given.
+nor read the application's secrets, which the installer is not given. Hostile bytes reach the
+installer only through Bun's HTTP client, the hashing of the download, and, once the bundle's size
+and SHA-256 match its signed manifest, decompression and unpacking: nothing is decompressed before
+that check. Root receives only the manifest and signature as bounded bytes; it parses the
+signature's small JSON envelope, verifies the signature over the manifest's exact bytes, and only
+then parses the manifest.
 
 **An attacker who controls the update source and serves a release that needs a newer image**
 gets it reported, not installed.
@@ -306,6 +340,13 @@ gets it reported, not installed.
 - A compromised supervisor: it is root with `setuid` and `setgid`, so it can become any user in
   the container. Its job is kept small so that it stays hard to compromise.
 - A container recreated without a store volume: see The update store.
+- A compromised installer runs as an unprivileged user in the same container: it can read files
+  other users made world-readable and can reach the network, as any process there can.
+- A compromised server can deny service through the installation lock and lease helper, which
+  run as its own user. It is the server; it can already stop serving.
+- Ownership: as root, the entrypoint gives only the data and config roots themselves to
+  `PUID:PGID`, and only when no folder above them could be changed by that user; it never changes
+  ownership inside them, so after a `PUID` change the operator re-owns Nimbus's state.
 - Redirects: a source may send a fetch on, as GitHub sends release downloads to its storage, at
   most three times, and only to https addresses whose host resolves to public addresses alone:
   never this machine, a private or link-local network, carrier-grade NAT or a cloud metadata
