@@ -140,7 +140,8 @@ export const HandoverStream = {
       },
     });
     return new Response(body, {
-      headers: { "Content-Type": "application/x-ndjson" },
+      // A connection of its own, closed after the outcome (see ControlClient).
+      headers: { "Content-Type": "application/x-ndjson", Connection: "close" },
     });
   },
 

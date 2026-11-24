@@ -9,7 +9,8 @@
  * which is at most the supervisor's readiness timeout, and says every few seconds what the new
  * server is doing meanwhile.
  */
-import { HandoverStream, type HandoverEvent } from "./handover-stream";
+import { ControlClient } from "./control-client";
+import type { HandoverEvent } from "./handover-stream";
 import { defaultSocketPath } from "./settings";
 
 const socket = process.env.NIMBUS_SUPERVISOR_SOCKET || defaultSocketPath;
@@ -24,7 +25,7 @@ const message = (error: unknown) =>
 /** The supervisor's status, or null after saying why it could not be reached. */
 async function reach(): Promise<Response | null> {
   try {
-    return await fetch("http://supervisor/status", { unix: socket });
+    return await ControlClient.status(socket);
   } catch (error) {
     console.error(
       `Could not reach the supervisor at ${socket} (${message(error)}). Run this inside the Nimbus container, as root or the user Nimbus runs as.`,
@@ -65,11 +66,7 @@ async function restart(name: string | undefined) {
     return 1;
   };
   try {
-    const response = await fetch(
-      `http://supervisor${name ? `/handover?release=${encodeURIComponent(name)}` : "/handover"}`,
-      { method: "POST", unix: socket },
-    );
-    const done = await HandoverStream.read(response, (event) =>
+    const done = await ControlClient.handover(socket, name ?? null, (event) =>
       (event.kind === "done" && !event.ok ? console.error : console.info)(
         describe(event, name),
       ),

@@ -166,15 +166,24 @@ if (!started.ok) {
   process.exit(1);
 }
 
+/**
+ * Every control answer closes its connection, so none is left idle for a client to send its
+ * next request on just as the server closes it (see ControlClient).
+ */
+const closing = { Connection: "close" };
+
 const control = Bun.serve({
   unix: socketPath,
   async fetch(request) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/status")
-      return Response.json({
-        ...supervisor.status(),
-        readyTimeoutSeconds: settings.value.readyTimeoutMs / 1000,
-      });
+      return Response.json(
+        {
+          ...supervisor.status(),
+          readyTimeoutSeconds: settings.value.readyTimeoutMs / 1000,
+        },
+        { headers: closing },
+      );
     if (request.method === "POST" && url.pathname === "/handover") {
       // Streamed, a line every few seconds: a handover lasts as long as the new server's
       // startup, and Bun resets a Unix socket connection idle for 10 seconds.
@@ -186,9 +195,7 @@ const control = Bun.serve({
     }
     return new Response(
       "Use GET /status or POST /handover[?release=<name>].\n",
-      {
-        status: 404,
-      },
+      { status: 404, headers: closing },
     );
   },
 });

@@ -35,6 +35,7 @@ import { randomBytes } from "node:crypto";
 import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { ControlClient } from "../apps/web/server/supervisor/control-client";
 
 /** The chunks of `body`, each checked to be bytes. */
 async function* bytes(
@@ -451,24 +452,9 @@ type Report = {
 };
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
-/** The supervisor's handover answer, or null when it is something else. */
-function reportOf(value: unknown): Report | null {
-  if (!isRecord(value) || typeof value.readyMs !== "number") return null;
-  const { draining, fullRestart } = value;
-  return {
-    readyMs: value.readyMs,
-    draining:
-      isRecord(draining) && typeof draining.pid === "number"
-        ? { pid: draining.pid }
-        : null,
-    fullRestart: typeof fullRestart === "string" ? fullRestart : null,
-  };
-}
 /** The active release and what drains, from the supervisor's status. */
 async function status() {
-  const body: unknown = await (
-    await fetch("http://supervisor/status", { unix: control })
-  ).json();
+  const body: unknown = await (await ControlClient.status(control)).json();
   const active =
     isRecord(body) &&
     isRecord(body.active) &&
@@ -480,20 +466,9 @@ async function status() {
   return { active, draining };
 }
 async function handover(release: string | null): Promise<Report | string> {
-  const response = await fetch(
-    release === null
-      ? "http://supervisor/handover"
-      : `http://supervisor/handover?release=${encodeURIComponent(release)}`,
-    { method: "POST", unix: control },
-  );
-  // One JSON object per line as the handover goes; the last says how it went.
-  const lines = (await response.text()).trim().split("\n");
-  const last: unknown = JSON.parse(lines.at(-1) ?? "null");
-  const report =
-    isRecord(last) && last.kind === "done" && last.ok === true
-      ? reportOf(last.report)
-      : null;
-  return report ?? JSON.stringify(last);
+  const done = await ControlClient.handover(control, release);
+  if (!done) return "the answer ended without its outcome";
+  return done.ok ? done.report : JSON.stringify(done.error);
 }
 
 const work = [

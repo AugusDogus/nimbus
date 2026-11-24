@@ -21,7 +21,7 @@ import { DevicePairing } from "../libraries/device-pairing";
 import { Libraries } from "../libraries/libraries";
 import type { LibraryContext } from "../libraries/library-context";
 import { PairedDevices } from "../libraries/paired-devices";
-import { HandoverStream } from "./handover-stream";
+import { ControlClient } from "./control-client";
 
 /**
  * The supervisor with real Nimbus servers: a film streamed before an update plays to its last
@@ -77,9 +77,7 @@ const statusSchema = z.object({
   ),
 });
 const status = async () =>
-  statusSchema.parse(
-    await (await fetch("http://supervisor/status", { unix: socket })).json(),
-  );
+  statusSchema.parse(await (await ControlClient.status(socket)).json());
 
 /** The pids holding a socket that listens on `port`, from /proc. */
 async function listeners(onPort: number) {
@@ -232,11 +230,7 @@ const send = (url: string, init: RequestInit = {}) =>
   fetch(url, { ...init, keepalive: false });
 
 const handover = async () => {
-  const response = await fetch("http://supervisor/handover", {
-    method: "POST",
-    unix: socket,
-  });
-  expect((await HandoverStream.read(response))?.ok).toBe(true);
+  expect((await ControlClient.handover(socket, null))?.ok).toBe(true);
 };
 
 let device: { token: string; id: string; itemId: string };
