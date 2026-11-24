@@ -279,3 +279,37 @@ test.skipIf(!mappedRoot)(
     }
   },
 );
+
+const startAs = (prefix: string) =>
+  asRoot(
+    `export NIMBUS_DATA_ROOT="${root}/data" NIMBUS_CONFIG_ROOT="${root}/config" PUID=2000 PGID=2000; ${prefix} sh -c '. "$0"; main sh -c "id -u; grep ^CapEff /proc/self/status"' "$0"`,
+  );
+
+test.skipIf(!mappedRoot)(
+  "started as root, the command runs as the supervisor's user with the rights to start and stop servers",
+  async () => {
+    const started = await startAs("");
+    expect(started.code).toBe(0);
+    expect(started.stdout.split("\n").slice(0, 2)).toEqual([
+      "1100",
+      "CapEff:\t00000000000000e0",
+    ]);
+  },
+);
+
+test.skipIf(!mappedRoot)(
+  "without the right to limit capabilities, as under a cap_drop, it still starts, as one user, and says updates are off",
+  async () => {
+    const started = await startAs("setpriv --bounding-set=-setpcap --");
+    expect(started.code).toBe(0);
+    expect(started.stdout.split("\n").slice(0, 2)).toEqual([
+      "2000",
+      "CapEff:\t0000000000000000",
+    ]);
+    expect(started.stderr).toContain("In-app updates are off");
+    // The config root is the servers' again, so they can write it.
+    expect((await asRoot(`stat -c %u:%g "${root}/config"`)).stdout.trim()).toBe(
+      "2000:2000",
+    );
+  },
+);

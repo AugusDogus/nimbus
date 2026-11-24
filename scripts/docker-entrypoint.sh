@@ -151,15 +151,25 @@ main() {
     fail "could not give Nimbus's state in $config and $data/.nimbus to $uid:$gid. File contents are unchanged, but some ownership may have changed. Check the volume's permissions and ID mapping, then restart."
 
   export HOME=/tmp
-  if [ "$split" = 1 ] && prepare_split "$config" "$uid" "$gid" "$update"; then
+  if [ "$split" = 1 ]; then
     # Only the rights to start the servers as PUID:PGID and to stop them; the supervisor drops
-    # even those for them.
-    exec setpriv --reuid="$update" --regid="$update" --clear-groups \
-      --inh-caps=-all,+setuid,+setgid,+kill --ambient-caps=-all,+setuid,+setgid,+kill \
-      --bounding-set=-all,+setuid,+setgid,+kill --no-new-privs \
-      -- env NIMBUS_SERVER_UID="$uid" NIMBUS_SERVER_GID="$gid" "$@"
+    # even those for them. Numbers and names only, so word splitting is safe.
+    caps=-all,+setuid,+setgid,+kill
+    privileges="--reuid=$update --regid=$update --clear-groups --inh-caps=$caps --ambient-caps=$caps --bounding-set=$caps --no-new-privs"
+    if ! prepare_split "$config" "$uid" "$gid" "$update"; then
+      printf 'In-app updates are off: Nimbus could not give its supervisor a user of its own in %s, so every process runs as %s:%s. Check that the config root can be re-owned (some network file systems refuse it).\n' "$config" "$uid" "$gid" >&2
+    # Tried first, so a container without these capabilities still starts.
+    # shellcheck disable=SC2086
+    elif ! setpriv $privileges -- true 2>/dev/null; then
+      printf 'In-app updates are off: this container cannot give its supervisor a user of its own with only the rights to start and stop servers (that needs CAP_SETPCAP, CAP_SETUID, CAP_SETGID and CAP_KILL, which a cap_drop may remove), so every process runs as %s:%s. Keep Docker'"'"'s default capabilities to turn them on.\n' "$uid" "$gid" >&2
+    else
+      # shellcheck disable=SC2086
+      exec setpriv $privileges -- env NIMBUS_SERVER_UID="$uid" NIMBUS_SERVER_GID="$gid" "$@"
+    fi
+    # One user after all: the config root is that user's again. If even that fails, the server
+    # says which folder it cannot write.
+    chown -h -- "$uid:$gid" "$config" 2>/dev/null || true
   fi
-  [ "$split" = 0 ] || printf 'In-app updates are off: Nimbus could not give its supervisor a user of its own in %s, so every process runs as %s:%s. Check that the config root can be re-owned (some network file systems refuse it).\n' "$config" "$uid" "$gid" >&2
   exec setpriv --reuid="$uid" --regid="$gid" --clear-groups --no-new-privs -- "$@"
 }
 
