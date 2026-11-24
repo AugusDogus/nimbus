@@ -50,31 +50,47 @@ build provenance attestation to every bundle for anyone who wants to check it by
 supervisor does not depend on it. The trust root lists keys by id, so a key is rotated by
 shipping an image that trusts the new key alongside the old one, then one that trusts only the new.
 
-**Privileges: not separated yet.** Today the supervisor and the servers run as one user (`PUID`),
-so a compromised server could rewrite an installed release and have its code run at the next
-handover or restart. Installed releases are verified again before every start, against the
-signed manifest kept inside them, but files a server changes after that check, or modules it
-loads later, are not caught. The plan, not built yet because it changes how the image runs and
-can only be tested in CI's image check:
+**Privileges.** The servers cannot change what the supervisor installs. Started as root (the
+default, with `PUID` and `PGID`), the entrypoint runs the supervisor as a user of its own
+(`NIMBUS_UPDATE_UID`, default 1100: no name, no login, not in `PGID`'s group) holding only
+`setuid`, `setgid` and `kill`, with `no_new_privs` and a bounding set of those three. The
+supervisor starts every server through `setpriv` as `PUID:PGID` with no capabilities at all,
+waits for servers of an earlier start through a short helper run as that user (their lease files
+are theirs), and runs the installer as its own user with no capabilities. The layout this needs
+is prepared once by the entrypoint, logged when it changes, and checked again at every start
+without re-owning anything recursively:
 
-- the entrypoint starts the supervisor as a dedicated user (`nimbus-update`, uid 1100, no login,
-  not in `PGID`'s group) holding only `setuid` and `setgid`, and the supervisor starts every
-  server through `setpriv` as `PUID:PGID` with no capabilities (both checked by hand in a user
-  namespace: the supervisor's effective set is exactly those two, the server's is empty);
-- the installer runs as `nimbus-update` with no capabilities;
-- the supervisor's lock and the releases move into `<config>/supervisor/`, owned by
-  `nimbus-update`; the config root becomes `root:PGID` with mode `1775` (sticky, as `/tmp`), so the
-  servers still create their files there but cannot rename, replace or remove what they do not
-  own. That changes the config folder's owner and mode on the host;
-- the supervisor can no longer open the servers' lease files, so it checks for servers left
-  running by asking a short helper started as `PUID`.
+- the config root becomes `root:PGID` with mode `1771`: sticky, as `/tmp`, so the servers still
+  create their files in it but cannot rename, replace or remove what they do not own, and nobody
+  else can list it (the server leaves a root shared this way as it is instead of making it `700`);
+- `<config>/supervisor/` and `<config>/supervisor/releases/` belong to the supervisor's user,
+  mode `755`. Anything already at `<config>/supervisor` that is not that user's folder, such as a
+  link or a folder a server made, is moved aside as `supervisor.untrusted-<time>` and never used;
+- the installation lock `<config>/server.lock` belongs to the supervisor's user and `PGID`, mode
+  `660`, and is held without a journal file, since its holder cannot write the folder.
 
-**Persistence.** Installed releases live in `<config>/releases`, which only the updater writes, so they survive a container being
+A container started with `--user` (or as `NIMBUS_UPDATE_UID` equal to `PUID` or `PGID`, or on a
+config root that cannot be re-owned) still starts and serves, as one user: then a server could
+rewrite the release it would run next, so in-app updates are off, and the log says so once with
+how to turn them on (start as root with `PUID` and `PGID`). Installed releases still start, being
+verified again before every start. `NIMBUS_UPDATES_WITH_ONE_USER=1` turns updates on anyway, for
+development and tests only.
+
+**Older images on the new layout.** An image from before this change, started as root, gives the
+config root back to `PUID:PGID` and its server makes it `700` again, as before; it ignores
+`<config>/supervisor`, and opens `server.lock` through `PGID`. Started with `--user` on the new
+layout, it cannot make the root-owned config root private and refuses to start with a message
+saying to give it to its user; nothing is changed. Starting this image again re-applies the
+layout. The database is the one thing an older image cannot simply take back. A server now refuses
+to start on a database a newer release migrated, unless that release declared those migrations
+safe beside an older server, and says to run the newer release or restore the backup taken before
+them; images from before that guard start anyway, so going back across a migration means
+restoring that backup first.
+
+**Persistence.** Installed releases live in `<config>/supervisor/releases`, which only the supervisor's user writes, so they survive a container being
 recreated. On start the supervisor runs the newest installed release that this image can run and
 whose signed manifest still verifies, falling back to the built-in release, which it also starts
-when the image's own build is as new or newer (a newer image was pulled). Not built yet: a server
-refusing to start on a database a newer release migrated, as can happen when the container is
-recreated from an older image while a newer release's migrations are in the database.
+when the image's own build is as new or newer (a newer image was pulled).
 
 **Releases placed by hand.** `control.ts restart <name>` can also start a release an operator
 put in NIMBUS_RELEASES_DIR, unsigned. That folder is never the installed releases' folder, and is
@@ -201,10 +217,10 @@ client, a share) gains nothing over updates: the data root holds no part of the 
 Bundles are staged and unpacked under the config root, which users cannot reach through Nimbus.
 
 **An attacker who controls a Nimbus server process** (remote code execution as `PUID`) can read
-the data and the database, as before. Today they can also write the installed releases, since the
-supervisor runs as the same user: a release they change no longer verifies at the next start, but
-one they change after that check, or a module loaded later, runs their code again. The privilege
-separation above is what closes that. They cannot make the supervisor install anything unsigned:
+the data and the database, as before. They cannot write the installed releases, the installer's
+staging or the installation lock, which belong to the supervisor's user, nor signal or trace the
+supervisor, which runs as another user; their servers hold no capabilities and cannot gain any
+(`no_new_privs`). Under `--user`, where one user runs everything, updates are off for this reason. They cannot make the supervisor install anything unsigned:
 the supervisor and the installer verify every manifest against the image's trust root, which a
 server cannot change, and the control socket is not reachable from a server's network.
 
@@ -215,7 +231,10 @@ gets it reported, not installed.
 
 - Freeze attacks beyond showing the time of the last check.
 - A malicious but validly signed release.
-- A compromised server rewriting installed releases, until the privilege separation above is built.
+- A compromised server under `--user`, or with `NIMBUS_UPDATES_WITH_ONE_USER=1`: one user runs
+  everything, so it could rewrite installed releases; updates are off there unless asked for.
+- A compromised supervisor: it can start a server as `PUID:PGID` and signal any process in the
+  container, as its three capabilities allow, and it installs releases.
 - Redirects: a source may send a fetch on, as GitHub sends release downloads to its storage, at
   most three times, and only to https addresses whose host resolves to public addresses alone:
   never this machine, a private or link-local network, carrier-grade NAT or a cloud metadata
