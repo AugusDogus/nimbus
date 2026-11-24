@@ -312,3 +312,17 @@ test.skipIf(!mappedRoot)(
     expect(started.stderr).toContain("In-app updates are off");
   },
 );
+
+test.skipIf(!mappedRoot)(
+  "without the rights to switch users it changes nothing and says to start with --user",
+  async () => {
+    const started = await startAs("setpriv --bounding-set=-setuid --");
+    expect(started.code).not.toBe(0);
+    expect(started.stderr).toContain("--user");
+    expect(started.stderr.trim().split("\n")).toHaveLength(1);
+    // Decided before anything was touched: no root, store or ownership was made or changed.
+    expect(
+      (await asRoot(`ls -A "${root}"`)).stdout.trim().split("\n").sort(),
+    ).toEqual(["probe.sh"]);
+  },
+);

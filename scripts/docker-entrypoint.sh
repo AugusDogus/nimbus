@@ -115,6 +115,17 @@ main() {
     fi
   done
 
+  # What this container may do, read before anything is changed: the mode is chosen from it,
+  # and nothing is half applied. Switching to PUID:PGID needs setuid (7) and setgid (6); the
+  # supervisor's job as root also needs setpcap (8) and kill (5).
+  effective=$(sed -n 's/^CapEff:[[:space:]]*//p' /proc/self/status)
+  holds() { [ $(((0x$effective >> $1) & 1)) -eq 1 ]; }
+  if ! holds 6 || ! holds 7; then
+    fail "this container cannot switch to PUID:PGID ($uid:$gid): it lacks CAP_SETUID or CAP_SETGID, so nothing was changed. Start it with --user $uid:$gid instead, with its volumes already writable by that user."
+  fi
+  split=0
+  if holds 5 && holds 8; then split=1; fi
+
   check_roots "${NIMBUS_DATA_ROOT-/data}" "${NIMBUS_CONFIG_ROOT-/config}"
   mkdir -p -- "$config" "$data"
 
@@ -129,12 +140,12 @@ main() {
   # The supervisor stays root with only what its job needs (see docs/updates.md, Privileges):
   # setuid and setgid to start servers as PUID:PGID and the installer as the update user,
   # setpcap for those children to empty their bounding sets, kill to signal them. It drops
-  # privileges for every child it starts. Tried first, so a container without these still starts.
-  # 1100 is the image's update user (see the Dockerfile).
-  prepare_store "${NIMBUS_TEST_STORE_DIR:-/var/lib/nimbus}" 1100 ||
-    printf 'In-app updates are off: Nimbus could not prepare its update store %s. Installed releases still start if they verify.\n' "${NIMBUS_TEST_STORE_DIR:-/var/lib/nimbus}" >&2
+  # privileges for every child it starts. Without setpcap or kill, everything runs as PUID:PGID.
   caps=-all,+setuid,+setgid,+setpcap,+kill
-  if setpriv --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set="$caps" --no-new-privs -- true 2>/dev/null; then
+  if [ "$split" = 1 ]; then
+    # 1100 is the image's update user (see the Dockerfile).
+    prepare_store "${NIMBUS_TEST_STORE_DIR:-/var/lib/nimbus}" 1100 ||
+      printf 'In-app updates are off: Nimbus could not prepare its update store %s. Installed releases still start if they verify.\n' "${NIMBUS_TEST_STORE_DIR:-/var/lib/nimbus}" >&2
     exec setpriv --clear-groups --inh-caps=-all --ambient-caps=-all --bounding-set="$caps" --no-new-privs \
       -- env NIMBUS_SERVER_UID="$uid" NIMBUS_SERVER_GID="$gid" "$@"
   fi
