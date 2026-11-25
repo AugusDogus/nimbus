@@ -56,7 +56,7 @@ test("a member limited to their home sees its items in Files, in search, its sug
     const deleted = member
       .locator("[data-trash-item]")
       .filter({ hasText: `${tag} old` });
-    await expect(deleted).toContainText(`Files / Travel / ${tag} old`);
+    await expect(deleted).toContainText("Files / Travel");
     await expect(deleted).not.toContainText(home);
   } finally {
     await memberContext.close();

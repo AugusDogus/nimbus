@@ -1,3 +1,4 @@
+import { DriveRoot } from "@nimbus/api/drive-root";
 import { BreadcrumbTrail } from "../files/breadcrumb-trail";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -124,8 +125,18 @@ export function TrashPage({
           {TrashOrder.apply(trash.data ?? [], order).map((item) => (
             <li key={item.id} data-trash-item className={TrashShape.item}>
               <div className={TrashShape.itemText}>
+                {/* The name first, so a long location never hides which item it is. */}
                 <p className={TrashShape.path}>
-                  {BreadcrumbTrail.spell(item.path, top)}
+                  {DriveRoot.nameOf(item.path)}
+                  <span className={TrashShape.place}>
+                    {BreadcrumbTrail.spell(
+                      item.path.slice(
+                        0,
+                        Math.max(item.path.lastIndexOf("/"), 0),
+                      ),
+                      top,
+                    )}
+                  </span>
                 </p>
                 <p className={TrashShape.dates}>
                   Deleted {new Date(item.deletedAt).toLocaleDateString()} ·

@@ -17,6 +17,8 @@ export const TrashShape = {
   item: "flex flex-wrap items-center gap-3 p-4",
   itemText: "min-w-0 flex-1 basis-60",
   path: "truncate text-sm font-medium",
+  /** Where the item was, after its name. */
+  place: "ml-2 text-xs font-normal text-muted-foreground",
   dates: "mt-1 text-xs tabular-nums text-muted-foreground",
   emptyLabel: "Empty trash",
 } as const;
