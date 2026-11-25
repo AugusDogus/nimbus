@@ -17,7 +17,7 @@ import { FolderLink } from "../files/folder-link";
 import { PaneLinks } from "../files/pane-links";
 import { SplitLayout } from "../files/split-layout";
 import { SplitAddress, useCarriedSplit } from "../files/split/split-address";
-import { Highlighted, parentLabel } from "./highlight";
+import { Highlighted, Location } from "./highlight";
 import { SearchTitle } from "./search-title";
 import { PageLayout } from "@/components/page-layout";
 import { useSearch, type SearchResultEntry } from "./use-search";
@@ -71,10 +71,7 @@ export function SearchResultsPage({
         <Highlighted text={entry.name} ranges={hit?.highlight.name ?? []} />
       );
       const place = (
-        <Highlighted
-          text={parentLabel(entry.path)}
-          ranges={hit?.highlight.folder ?? []}
-        />
+        <Location path={entry.path} ranges={hit?.highlight.folder ?? []} />
       );
       // A card's two lines: the name on one and its folder on the next, so a long folder never
       // pushes the name out.

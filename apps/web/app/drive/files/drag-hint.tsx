@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { DropTarget } from "./drop-target";
 import type { FileDrag } from "./use-file-drag";
@@ -18,6 +20,7 @@ export function DragHint({
   shown?: boolean;
 }) {
   const { over } = drag;
+  const top = useQuery(trpc.access.me.queryOptions()).data?.top ?? "";
   const payload = drag.state.status === "dragging" ? drag.state.payload : null;
   const behind =
     payload?.kind === "entries"
@@ -28,11 +31,11 @@ export function DragHint({
       : null;
   const staying =
     payload?.kind === "entries" && over?.verdict.kind === "move"
-      ? DropTarget.alreadyThere(payload.sources, over.target)
+      ? DropTarget.alreadyThere(payload.sources, over.target, top)
       : null;
   const text = !shown
     ? ""
-    : [over && DropTarget.hint(over.verdict, over.target), staying, behind]
+    : [over && DropTarget.hint(over.verdict, over.target, top), staying, behind]
         .filter(Boolean)
         .join(". ");
   return (

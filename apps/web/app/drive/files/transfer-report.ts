@@ -1,6 +1,6 @@
 import { toast, type ToastAction } from "@/lib/toast";
 import { queryClient, trpc } from "@/lib/trpc";
-import { folderName } from "./destination-picker/folder-name";
+import { BreadcrumbTrail } from "./breadcrumb-trail";
 import { sessionQuery } from "@/lib/session-query";
 import { RecentDestinations } from "./destination-picker/recent-destinations";
 import type { TransferResult } from "./transfer-result";
@@ -77,7 +77,7 @@ function unconfirmedPart(result: TransferResult, place: string) {
  */
 function describe(result: TransferResult, top = "") {
   const verb = verbs[result.operation];
-  const place = folderName(result.destination, top);
+  const place = BreadcrumbTrail.name(result.destination, top);
   const total =
     result.transferred.length +
     result.clashes.length +
@@ -185,7 +185,11 @@ async function undo(
     watched?: () => boolean;
   },
 ) {
-  const items = await TransferUndo.run(result, undefined, { hold, watched });
+  const items = await TransferUndo.run(result, undefined, {
+    hold,
+    watched,
+    top: topFolder(),
+  });
   refresh();
   const summary = TransferUndo.describe(result, items, topFolder());
   const kept = items.flatMap((item) => (item.kind === "undone" ? [] : [item]));
@@ -243,7 +247,7 @@ function describeAll(results: readonly TransferResult[], top = "") {
   const [onlyReached] = reached;
   const where =
     reached.length === 1 && onlyReached
-      ? folderName(onlyReached.destination, top)
+      ? BreadcrumbTrail.name(onlyReached.destination, top)
       : `${reached.length.toLocaleString()} folders`;
   const parts = [
     !done
@@ -292,7 +296,7 @@ function sections(
 ): DetailSection[] {
   return results.map((result) => {
     const verb = verbs[result.operation];
-    const place = folderName(result.destination, top);
+    const place = BreadcrumbTrail.name(result.destination, top);
     return {
       summary: describe(result, top).message,
       items: [

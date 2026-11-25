@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,14 +19,14 @@ import {
 import { FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import { ByteSize } from "@/lib/byte-size";
-import { queryClient, trpcClient } from "@/lib/trpc";
+import { queryClient, trpcClient, trpc } from "@/lib/trpc";
 import { localDateTimeInput } from "./link-settings";
 import {
   HomeFoldersNotice,
   HomesExposureGate,
   useHomesExposure,
 } from "./home-folders-notice";
-import { DriveRoot } from "@nimbus/api/drive-root";
+import { BreadcrumbTrail } from "../files/breadcrumb-trail";
 
 export type EditableFileRequest = {
   id: string;
@@ -99,6 +100,7 @@ export default function FileRequestDialog({
 }) {
   const protectedRequest =
     mode.kind === "edit" && mode.request.passwordProtected;
+  const top = useQuery(trpc.access.me.queryOptions()).data?.top ?? "";
   const [draft, setDraft] = useState(() => draftFor(mode));
   const [choice, setChoice] = useState<PasswordChoice>(
     protectedRequest ? "keep" : "set",
@@ -158,10 +160,8 @@ export default function FileRequestDialog({
   };
   const name =
     mode.kind === "create"
-      ? mode.folder.path
-        ? mode.folder.name
-        : DriveRoot.label
-      : mode.request.path || DriveRoot.label;
+      ? BreadcrumbTrail.name(mode.folder.path, top)
+      : BreadcrumbTrail.spell(mode.request.path, top);
   return (
     <Dialog
       open

@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, CopyPlus, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropTarget } from "../drop-target";
@@ -7,6 +8,7 @@ import {
   DropdownTrigger,
 } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
+import { trpc } from "@/lib/trpc";
 import type { MenuAction, OtherPaneActionsProps } from "../selection-bar";
 
 /** The renderer the split view puts in `OtherPaneActionsSlot`. */
@@ -57,11 +59,12 @@ export function OtherPaneActions({
   more,
   actions,
 }: OtherPaneActionsProps) {
+  const top = useQuery(trpc.access.me.queryOptions()).data?.top ?? "";
   const target = { path: other.path, writable: other.writable };
   const refusal = (operation: "move" | "copy") => {
     const verdict = DropTarget.forItems(operation, targets, target);
     return verdict.kind === "refused"
-      ? DropTarget.hint(verdict, target)
+      ? DropTarget.hint(verdict, target, top)
       : undefined;
   };
   const items = [

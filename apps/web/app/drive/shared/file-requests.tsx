@@ -13,13 +13,14 @@ import {
   AlertDialogTitle,
 } from "@/components/alert-dialog";
 import { ByteSize } from "@/lib/byte-size";
-import { queryClient, trpcClient } from "@/lib/trpc";
+import { queryClient, trpcClient, trpc } from "@/lib/trpc";
 import type { EditableFileRequest } from "./file-request-dialog";
-import { DriveRoot } from "@nimbus/api/drive-root";
+import { BreadcrumbTrail } from "../files/breadcrumb-trail";
 
 const FileRequestDialog = lazyComponent(() => import("./file-request-dialog"));
 
 export function FileRequests() {
+  const top = useQuery(trpc.access.me.queryOptions()).data?.top ?? "";
   const requests = useQuery({
     queryKey: ["file-requests"],
     queryFn: () => trpcClient.fileRequests.list.query(),
@@ -73,7 +74,7 @@ export function FileRequests() {
                   href={`/r/${request.token}`}
                   className="block truncate text-sm font-medium underline underline-offset-4"
                 >
-                  {request.path || DriveRoot.label}
+                  {BreadcrumbTrail.spell(request.path, top)}
                 </a>
                 <p className="mt-1 text-xs tabular-nums text-muted-foreground">
                   {request.passwordProtected

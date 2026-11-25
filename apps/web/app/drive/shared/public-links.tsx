@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { lazyComponent } from "@/components/lazy-component";
 import { useQuery } from "@tanstack/react-query";
-import { queryClient, trpcClient } from "@/lib/trpc";
+import { queryClient, trpcClient, trpc } from "@/lib/trpc";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,12 +15,13 @@ import {
   AlertDialogTitle,
 } from "@/components/alert-dialog";
 import type { EditableLink } from "./edit-link-dialog";
-import { DriveRoot } from "@nimbus/api/drive-root";
+import { BreadcrumbTrail } from "../files/breadcrumb-trail";
 
 // The editor is only needed after a click; keep it out of the page's first load.
 const EditLinkDialog = lazyComponent(() => import("./edit-link-dialog"));
 
 export function PublicLinks() {
+  const top = useQuery(trpc.access.me.queryOptions()).data?.top ?? "";
   const shares = useQuery({
     queryKey: ["shares"],
     queryFn: () => trpcClient.shares.list.query(),
@@ -74,7 +75,7 @@ export function PublicLinks() {
                   href={`/s/${share.token}`}
                   className="block truncate text-sm font-medium underline underline-offset-4"
                 >
-                  {share.path || DriveRoot.label}
+                  {BreadcrumbTrail.spell(share.path, top)}
                 </a>
                 <p className="mt-1 text-xs tabular-nums text-muted-foreground">
                   {share.passwordProtected

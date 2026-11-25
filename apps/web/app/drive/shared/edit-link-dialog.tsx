@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ShareMode } from "@nimbus/api/drive-store";
 import { Button } from "@/components/ui/button";
@@ -17,9 +18,9 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { FieldLabel } from "@/components/ui/field";
-import { queryClient, trpcClient } from "@/lib/trpc";
+import { queryClient, trpcClient, trpc } from "@/lib/trpc";
 import { LinkSettingsDraft, LinkSettingsFields } from "./link-settings";
-import { DriveRoot } from "@nimbus/api/drive-root";
+import { BreadcrumbTrail } from "../files/breadcrumb-trail";
 
 export type EditableLink = {
   id: string;
@@ -46,6 +47,7 @@ export default function EditLinkDialog({
   link: EditableLink;
   onClose: () => void;
 }) {
+  const top = useQuery(trpc.access.me.queryOptions()).data?.top ?? "";
   const [settings, setSettings] = useState(LinkSettingsDraft.from(link));
   const [choice, setChoice] = useState<PasswordChoice>(
     link.passwordProtected ? "keep" : "set",
@@ -90,7 +92,7 @@ export default function EditLinkDialog({
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="min-w-0 break-words pr-6 text-balance">
-            Edit link to {link.path || DriveRoot.label}
+            Edit link to {BreadcrumbTrail.spell(link.path, top)}
           </DialogTitle>
           <DialogDescription>
             Changes apply to the existing link address.

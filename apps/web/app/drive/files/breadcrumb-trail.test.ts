@@ -52,3 +52,48 @@ describe("the breadcrumb trail", () => {
     ]);
   });
 });
+
+describe("a path named as the breadcrumb names it", () => {
+  it("spells a location from the account's top folder, which reads as Files", () => {
+    expect(BreadcrumbTrail.spell("users/ann", "users/ann")).toBe("Files");
+    expect(BreadcrumbTrail.spell("users/ann/Photos/2025", "users/ann")).toBe(
+      "Files / Photos / 2025",
+    );
+    // Outside the top, and for an account whose top is the drive root, from the drive root.
+    expect(BreadcrumbTrail.spell("Studio/Brand", "users/ann")).toBe(
+      "Files / Studio / Brand",
+    );
+    expect(BreadcrumbTrail.spell("users/ann", "")).toBe("Files / users / ann");
+    expect(BreadcrumbTrail.spell("", "")).toBe("Files");
+  });
+
+  it("names a folder as its last crumb: Files for the top and the drive root", () => {
+    expect(BreadcrumbTrail.name("users/ann", "users/ann")).toBe("Files");
+    expect(BreadcrumbTrail.name("", "users/ann")).toBe("Files");
+    expect(BreadcrumbTrail.name("users/ann/Photos", "users/ann")).toBe(
+      "Photos",
+    );
+    expect(BreadcrumbTrail.name("users/ann", "")).toBe("ann");
+  });
+
+  it("places each crumb at its offset in the path, for marking matches in it", () => {
+    expect(
+      BreadcrumbTrail.spelled("users/ann/Photos/2025", "users/ann").map(
+        (part) => [part.label, part.at],
+      ),
+    ).toEqual([
+      ["Files", null],
+      ["Photos", 10],
+      ["2025", 17],
+    ]);
+    expect(
+      BreadcrumbTrail.spelled("Studio", "").map((part) => [
+        part.label,
+        part.at,
+      ]),
+    ).toEqual([
+      ["Files", null],
+      ["Studio", 0],
+    ]);
+  });
+});

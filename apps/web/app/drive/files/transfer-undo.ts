@@ -1,6 +1,6 @@
 import { trpcClient } from "@/lib/trpc";
 import { RunningTransfers } from "./running-transfers";
-import { folderName } from "./destination-picker/folder-name";
+import { BreadcrumbTrail } from "./breadcrumb-trail";
 import { outcomeUnknown, type TransferResult } from "./transfer-result";
 
 type Outcome = Awaited<
@@ -35,11 +35,14 @@ async function run(
   {
     watched = () => false,
     hold = () => () => undefined,
+    top = "",
   }: {
     /** Whether something on screen shows the Undo running (see `RunningTransfers`). */
     watched?: () => boolean;
     /** Holds the page while the Undo runs; returns what releases it (see `LeaveGuard`). */
     hold?: () => () => void;
+    /** The account's top folder, which messages call by the root's label. */
+    top?: string;
   } = {},
 ): Promise<UndoItem[]> {
   const release = hold();
@@ -50,7 +53,7 @@ async function run(
     watched,
   });
   try {
-    return await undoAll(result, undo);
+    return await undoAll(result, undo, top);
   } finally {
     finish();
     release();
@@ -60,6 +63,7 @@ async function run(
 async function undoAll(
   result: TransferResult,
   undo: (receipts: Receipt[]) => Promise<{ outcomes: readonly Outcome[] }>,
+  top: string,
 ): Promise<UndoItem[]> {
   const items: UndoItem[] = [];
   for (let start = 0; start < result.transferred.length; start += batch) {
@@ -84,7 +88,7 @@ async function undoAll(
             ? {
                 kind: "unconfirmed",
                 name,
-                message: `Nimbus could not confirm whether “${name}” was put back. Check ${folderName(parentOf(item.receipt.from), "")} and ${folderName(parentOf(item.receipt.to), "")}.`,
+                message: `Nimbus could not confirm whether “${name}” was put back. Check ${BreadcrumbTrail.name(parentOf(item.receipt.from), top)} and ${BreadcrumbTrail.name(parentOf(item.receipt.to), top)}.`,
               }
             : {
                 kind: "kept",
@@ -134,7 +138,7 @@ function describe(
     const [origin] = origins;
     const where =
       origins.size === 1 && origin !== undefined
-        ? ` to ${folderName(origin, top)}`
+        ? ` to ${BreadcrumbTrail.name(origin, top)}`
         : " where they were";
     return {
       ok: true,

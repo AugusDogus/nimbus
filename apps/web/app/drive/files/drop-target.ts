@@ -1,4 +1,4 @@
-import { DriveRoot } from "@nimbus/api/drive-root";
+import { BreadcrumbTrail } from "./breadcrumb-trail";
 import type { FileEntry } from "./types";
 
 /**
@@ -82,9 +82,12 @@ const notIn = <T extends { path: string }>(
   path: string,
 ) => sources.filter((source) => parentOf(source.path) !== path);
 
-/** What the pointer says over a target: where things go, or why they cannot. */
-function hint(result: DropVerdict, target: DropTarget) {
-  const name = `“${DriveRoot.nameOf(target.path)}”`;
+/**
+ * What the pointer says over a target: where things go, or why they cannot. The target is named
+ * as the breadcrumb names it for an account whose top folder is `top`.
+ */
+function hint(result: DropVerdict, target: DropTarget, top: string) {
+  const name = `“${BreadcrumbTrail.name(target.path, top)}”`;
   switch (result.kind) {
     case "move":
       return `Move to ${name}`;
@@ -113,10 +116,11 @@ function hint(result: DropVerdict, target: DropTarget) {
 function alreadyThere(
   sources: readonly { path: string }[],
   target: DropTarget,
+  top: string,
 ) {
   const staying = sources.length - notIn(sources, target.path).length;
   if (staying === 0 || staying === sources.length) return null;
-  const name = `“${DriveRoot.nameOf(target.path)}”`;
+  const name = `“${BreadcrumbTrail.name(target.path, top)}”`;
   return `${staying.toLocaleString()} of ${sources.length.toLocaleString()} items ${staying === 1 ? "is" : "are"} already in ${name} and ${staying === 1 ? "stays" : "stay"} there`;
 }
 

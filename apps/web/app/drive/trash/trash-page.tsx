@@ -1,6 +1,7 @@
+import { BreadcrumbTrail } from "../files/breadcrumb-trail";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { queryClient, trpcClient } from "@/lib/trpc";
+import { queryClient, trpcClient, trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { FiltersRow } from "../files/filters-row";
 import { useAddressSort } from "../list-filters";
@@ -56,6 +57,7 @@ export function TrashPage({
   sort: string | undefined;
 }) {
   const order = TrashOrder.pick(sort);
+  const top = useQuery(trpc.access.me.queryOptions()).data?.top ?? "";
   const choose = useAddressSort();
   const trash = useQuery({
     queryKey: ["trash"],
@@ -122,7 +124,9 @@ export function TrashPage({
           {TrashOrder.apply(trash.data ?? [], order).map((item) => (
             <li key={item.id} data-trash-item className={TrashShape.item}>
               <div className={TrashShape.itemText}>
-                <p className={TrashShape.path}>{item.path}</p>
+                <p className={TrashShape.path}>
+                  {BreadcrumbTrail.spell(item.path, top)}
+                </p>
                 <p className={TrashShape.dates}>
                   Deleted {new Date(item.deletedAt).toLocaleDateString()} ·
                   Expires {new Date(item.expiresAt).toLocaleDateString()}

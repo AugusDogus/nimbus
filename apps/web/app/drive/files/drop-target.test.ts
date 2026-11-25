@@ -26,9 +26,22 @@ describe("dropping on a folder", () => {
     expect(DropTarget.verdict(moving("a/b/c", "a/b/d"), folder(""))).toEqual({
       kind: "move",
     });
-    expect(DropTarget.hint({ kind: "move" }, folder(""))).toBe(
+    expect(DropTarget.hint({ kind: "move" }, folder(""), "")).toBe(
       "Move to “Files”",
     );
+  });
+
+  it("names the account's top folder Files, as its breadcrumb does", () => {
+    expect(
+      DropTarget.hint({ kind: "move" }, folder("users/ann"), "users/ann"),
+    ).toBe("Move to “Files”");
+    expect(
+      DropTarget.alreadyThere(
+        [{ path: "users/ann/a.txt" }, { path: "users/ann/Photos/b.txt" }],
+        folder("users/ann"),
+        "users/ann",
+      ),
+    ).toBe("1 of 2 items is already in “Files” and stays there");
   });
 
   it("refuses the dragged folder itself and any folder inside it", () => {
@@ -68,7 +81,7 @@ describe("dropping on a folder", () => {
     expect(DropTarget.verdict({ kind: "files" }, folder("a/b"))).toEqual({
       kind: "upload",
     });
-    expect(DropTarget.hint({ kind: "upload" }, folder("a/b"))).toBe(
+    expect(DropTarget.hint({ kind: "upload" }, folder("a/b"), "")).toBe(
       "Upload to “b”",
     );
   });
@@ -139,22 +152,24 @@ describe("moving or copying items into a folder", () => {
       DropTarget.hint(
         { kind: "refused", reason: "read-only" },
         folder("shared", false),
+        "",
       ),
     ).toBe("You can only view “shared”, so nothing can go there");
   });
 
   it("says how many of the items are already in the folder and stay there", () => {
     const mixed = [...sources, { path: "elsewhere/x.txt" }];
-    expect(DropTarget.alreadyThere(mixed, folder("projects"))).toBe(
+    expect(DropTarget.alreadyThere(mixed, folder("projects"), "")).toBe(
       "2 of 3 items are already in “projects” and stay there",
     );
     expect(
       DropTarget.alreadyThere(
         [{ path: "projects/a.txt" }, { path: "elsewhere/x.txt" }],
         folder("projects"),
+        "",
       ),
     ).toBe("1 of 2 items is already in “projects” and stays there");
-    expect(DropTarget.alreadyThere(sources, folder("archive"))).toBeNull();
-    expect(DropTarget.alreadyThere(sources, folder("projects"))).toBeNull();
+    expect(DropTarget.alreadyThere(sources, folder("archive"), "")).toBeNull();
+    expect(DropTarget.alreadyThere(sources, folder("projects"), "")).toBeNull();
   });
 });

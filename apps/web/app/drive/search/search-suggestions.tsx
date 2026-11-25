@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { PreviewDialog } from "../files/preview-dialog";
 import { fileHref, type FileEntry } from "../files/types";
 import { SplitAddress } from "../files/split/split-address";
-import { Highlighted, parentLabel } from "./highlight";
+import { Highlighted, Location } from "./highlight";
 import { useSearch } from "./use-search";
 
 const SUGGESTIONS = 8;
@@ -176,8 +176,8 @@ export default function SearchSuggestions({
                   />
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  <Highlighted
-                    text={parentLabel(entry.path)}
+                  <Location
+                    path={entry.path}
                     ranges={
                       entry.path.includes("/") ? entry.highlight.folder : []
                     }

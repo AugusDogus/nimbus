@@ -1,6 +1,6 @@
 import { dismissToast, toast } from "@/lib/toast";
 import { queryClient, trpc } from "@/lib/trpc";
-import { folderName } from "./destination-picker/folder-name";
+import { BreadcrumbTrail } from "./breadcrumb-trail";
 import type { FileEntry } from "./types";
 
 /** One transfer or Undo that has been sent and not yet answered. */
@@ -41,7 +41,7 @@ function describe(listed: readonly Running[]) {
     item && more.length === 0 ? `“${item.name}”` : count(only.items.length);
   if (only.destination === null) return `${only.verb} ${subject}…`;
   const top = queryClient.getQueryData(trpc.access.me.queryKey())?.top ?? "";
-  return `${only.verb} ${subject} to ${folderName(only.destination, top)}…`;
+  return `${only.verb} ${subject} to ${BreadcrumbTrail.name(only.destination, top)}…`;
 }
 
 /** Show, update or close the entry for what has run longer than `after` unwatched. */

@@ -1,5 +1,5 @@
 import { expect, it } from "bun:test";
-import { folderName } from "./folder-name";
+import { BreadcrumbTrail } from "../breadcrumb-trail";
 import { Refusal } from "./refusal";
 
 it("keeps a refused folder open when it can lead to one that takes the items", () => {
@@ -11,8 +11,10 @@ it("keeps a refused folder open when it can lead to one that takes the items", (
 });
 
 it("calls the account's top folder and the drive root Files", () => {
-  expect(folderName("homes/alice", "homes/alice")).toBe("Files");
-  expect(folderName("", "homes/alice")).toBe("Files");
-  expect(folderName("homes/alice/inbox", "homes/alice")).toBe("inbox");
-  expect(folderName("projects", "")).toBe("projects");
+  expect(BreadcrumbTrail.name("homes/alice", "homes/alice")).toBe("Files");
+  expect(BreadcrumbTrail.name("", "homes/alice")).toBe("Files");
+  expect(BreadcrumbTrail.name("homes/alice/inbox", "homes/alice")).toBe(
+    "inbox",
+  );
+  expect(BreadcrumbTrail.name("projects", "")).toBe("projects");
 });

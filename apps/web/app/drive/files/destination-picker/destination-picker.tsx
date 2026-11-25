@@ -54,7 +54,6 @@ import { fileListQueryOptions } from "../use-file-list";
 import { needsStats, prefsQueryOptions } from "../use-file-preferences";
 import { FolderList, type FolderRow } from "./folder-list";
 import { RecentDestinations } from "./recent-destinations";
-import { folderName } from "./folder-name";
 import { TransferSession } from "./transfer-session";
 import { ClashPanel, FailurePanel, type ClashChoice } from "./transfer-panels";
 
@@ -79,12 +78,6 @@ type Phase =
 
 const parentOf = (path: string) =>
   path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-
-/** A folder's location as shown in the footer and search results: "Files / Projects". */
-const spelled = (path: string, top: string) => {
-  const trail = BreadcrumbTrail.of(path, top, DriveRoot.label);
-  return [trail.root, ...trail.crumbs].map((crumb) => crumb.label).join(" / ");
-};
 
 const subjectOf = (entries: readonly FileEntry[]) => {
   const [only] = entries;
@@ -217,7 +210,7 @@ export function DestinationPicker({
     setView(previous);
   };
   const browsed = view.kind === "folder" ? view.path : null;
-  const nameOf = (path: string) => folderName(path, top);
+  const nameOf = (path: string) => BreadcrumbTrail.name(path, top);
   const rootOf = (path: string) =>
     BreadcrumbTrail.of(path, top, DriveRoot.label).root.path;
   const atRoot =
@@ -549,10 +542,10 @@ export function DestinationPicker({
         : `Nimbus could not check whether you can add items here: ${capability.error.message}`;
     if (!eligibility || !destination) return "Checking what you can do here…";
     if (eligibility.kind === "refused")
-      return `${DropTarget.hint(eligibility, destination)}.`;
+      return `${DropTarget.hint(eligibility, destination, top)}.`;
     const staying =
       operation === "move"
-        ? DropTarget.alreadyThere(pending, destination)
+        ? DropTarget.alreadyThere(pending, destination, top)
         : null;
     return staying && `${staying}.`;
   })();
@@ -627,7 +620,7 @@ export function DestinationPicker({
             path: entry.path,
             name: entry.name,
             permission: entry.permission,
-            detail: spelled(parentOf(entry.path), top),
+            detail: BreadcrumbTrail.spell(parentOf(entry.path), top),
           }),
         );
       return (
@@ -668,7 +661,7 @@ export function DestinationPicker({
             path: entry.path,
             name: entry.name,
             permission: entry.permission,
-            detail: spelled(parentOf(entry.path), top),
+            detail: BreadcrumbTrail.spell(parentOf(entry.path), top),
           }),
         );
       return rows.length ? (
@@ -693,7 +686,10 @@ export function DestinationPicker({
               {
                 path,
                 name: nameOf(path),
-                detail: path === top ? undefined : spelled(parentOf(path), top),
+                detail:
+                  path === top
+                    ? undefined
+                    : BreadcrumbTrail.spell(parentOf(path), top),
                 eligibility: DropTarget.forItems(operation, pending, {
                   path,
                   writable: true,
@@ -898,10 +894,14 @@ export function DestinationPicker({
       <div className="space-y-2 border-t px-4 py-3 sm:px-5">
         <p
           className="truncate text-sm"
-          title={browsed === null ? undefined : spelled(browsed, top)}
+          title={
+            browsed === null ? undefined : BreadcrumbTrail.spell(browsed, top)
+          }
         >
           <span className="text-muted-foreground">Destination: </span>
-          {browsed === null ? "None chosen" : spelled(browsed, top)}
+          {browsed === null
+            ? "None chosen"
+            : BreadcrumbTrail.spell(browsed, top)}
         </p>
         {status && (
           <p
