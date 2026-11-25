@@ -343,7 +343,7 @@ async function route(request: Request): Promise<Response> {
         bootstrap,
         pathname,
         request.headers.get("cookie"),
-        new URL(request.url).searchParams.get("sort"),
+        new URL(request.url).searchParams,
       ),
       requests: bootstrap.requests,
     }),

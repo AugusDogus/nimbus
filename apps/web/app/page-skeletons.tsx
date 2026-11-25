@@ -131,6 +131,8 @@ export function FilesSkeleton({
         /** The account's view, and the order the address names, if any. */
         view: UserPreferences["view"];
         sort: string | undefined;
+        /** The page's title where the server knows it, as a search's; a placeholder otherwise. */
+        title?: string;
       };
 }) {
   const folder = page.kind === "folder";
@@ -211,7 +213,13 @@ export function FilesSkeleton({
         ) : page.shows !== "shared" ? (
           <div className="space-y-6">
             <ListHeader
-              title={<PendingTitle />}
+              title={
+                page.title === undefined ? (
+                  <PendingTitle />
+                ) : (
+                  <h1 className={PageLayout.title}>{page.title}</h1>
+                )
+              }
               filters={listFilters(page.shows, page.sort, page.view, {
                 order: nothing,
                 view: nothing,

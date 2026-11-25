@@ -25,7 +25,13 @@ const prefs = (view: "list" | "grid") =>
   }) as const;
 
 const folder = (data: Bootstrap, path = "/browse/Notes") =>
-  PageSkeleton.markup("files", { folder: true, data }, path, null, null);
+  PageSkeleton.markup(
+    "files",
+    { folder: true, data },
+    path,
+    null,
+    new URLSearchParams(),
+  );
 
 test("a folder's skeleton follows the account's view and sort order, and its role", () => {
   const list = folder({ session, prefs: prefs("list"), me: me(false) });
@@ -51,7 +57,7 @@ test("the skeleton shows the sidebar as the person left it", () => {
       { folder: true, data },
       "/browse/Notes",
       cookie,
-      null,
+      new URLSearchParams(),
     );
   expect(at(null)).toContain('data-state="expanded"');
   expect(at("theme=dark; sidebar_state=false")).toContain(
@@ -67,7 +73,7 @@ test("other files pages keep the title's place where they have one", () => {
       { folder: false, data: { session, prefs: prefs("list"), me: me(false) } },
       path,
       null,
-      null,
+      new URLSearchParams(),
     );
   expect(page("/trash")).toContain("data-trash-placeholder");
   expect(page("/recent")).toContain('data-entry-skeleton="list"');
@@ -81,7 +87,7 @@ test("settings show the page's name, and Administration only to administrators",
       { folder: false, data: { session, me: me(isAdmin) } },
       path,
       null,
-      null,
+      new URLSearchParams(),
     );
   expect(settings(false, "/settings/webdav")).toContain("WebDAV");
   expect(settings(false, "/settings/webdav")).not.toContain("Administration");
@@ -97,14 +103,14 @@ test("the markup survives the browser's parser: no block inside a paragraph", ()
       { folder: false, data: { session, me: me(true) } },
       "/trash",
       null,
-      null,
+      new URLSearchParams(),
     ),
     PageSkeleton.markup(
       "settings",
       { folder: false, data: { session, me: me(true) } },
       "/settings/account",
       null,
-      null,
+      new URLSearchParams(),
     ),
   ])
     expect(html).not.toMatch(
@@ -120,11 +126,17 @@ test("pages without a session, and public pages, have no skeleton", () => {
       { folder: false, data: {} },
       "/s/x",
       null,
-      null,
+      new URLSearchParams(),
     ),
   ).toBe("");
   expect(
-    PageSkeleton.markup(null, { folder: false, data: {} }, "/", null, null),
+    PageSkeleton.markup(
+      null,
+      { folder: false, data: {} },
+      "/",
+      null,
+      new URLSearchParams(),
+    ),
   ).toBe("");
 });
 
@@ -135,7 +147,7 @@ test("a list page's skeleton shows the account's view and the order its address 
       { folder: false, data: { session, prefs: prefs(view), me: me(false) } },
       path,
       null,
-      sort,
+      new URLSearchParams(sort === null ? {} : { sort }),
     );
   // The default order, then another the address names, on Recent.
   expect(at("/recent", "list", null)).toContain("Most recent");
@@ -156,8 +168,20 @@ test("Trash's skeleton shows the order its address names, the most recently dele
       { folder: false, data: { session, prefs: prefs("list"), me: me(false) } },
       "/trash",
       null,
-      sort,
+      new URLSearchParams(sort === null ? {} : { sort }),
     );
   expect(at(null)).toContain("Deleted (Newest)");
   expect(at("expires-asc")).toContain("Expires (Soonest)");
+});
+
+test("a search's skeleton is titled by what it looks for", () => {
+  expect(
+    PageSkeleton.markup(
+      "files",
+      { folder: false, data: { session, prefs: prefs("list"), me: me(false) } },
+      "/search",
+      null,
+      new URLSearchParams({ q: "quarterly <report>" }),
+    ),
+  ).toContain("Search: quarterly &lt;report&gt;");
 });

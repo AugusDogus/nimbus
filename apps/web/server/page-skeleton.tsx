@@ -1,5 +1,6 @@
 import { ListOrder } from "@/app/drive/files/list-order";
 import { TrashOrder } from "@/app/drive/trash/trash-order";
+import { SearchTitle } from "@/app/drive/search/search-title";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import type { Bootstrap } from "@/client/bootstrap";
@@ -60,9 +61,10 @@ export const PageSkeleton = {
     page: { folder: boolean; data: Bootstrap },
     pathname: string,
     cookie: string | null,
-    /** The order the address names, which the page's sort control shows. */
-    sort: string | null,
+    /** The address's params: the order a page's sort control shows, and what a search is for. */
+    params: URLSearchParams,
   ): string {
+    const sort = params.get("sort");
     const { session, prefs, me } = page.data;
     if (!session || (kind !== "files" && kind !== "settings")) return "";
     const account = {
@@ -89,6 +91,11 @@ export const PageSkeleton = {
       shows,
       view: prefs?.view ?? "list",
       // Named by the page's own choices, so odd addresses share the default's markup.
+      // A search's results are titled by what it looks for, which may take more than a line.
+      title:
+        shows === "search"
+          ? SearchTitle.of(params.get("q")?.trim() ?? "")
+          : undefined,
       sort:
         shows === "shared"
           ? undefined

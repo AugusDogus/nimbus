@@ -18,6 +18,8 @@ import { PaneLinks } from "../files/pane-links";
 import { SplitLayout } from "../files/split-layout";
 import { SplitAddress, useCarriedSplit } from "../files/split/split-address";
 import { Highlighted, parentLabel } from "./highlight";
+import { SearchTitle } from "./search-title";
+import { PageLayout } from "@/components/page-layout";
 import { useSearch, type SearchResultEntry } from "./use-search";
 import { DriveRoot } from "@nimbus/api/drive-root";
 import { EntrySkeleton } from "../files/loading-skeleton";
@@ -92,7 +94,7 @@ export function SearchResultsPage({
     offer,
   } = useEntryDialog("search", actions.recordVisit);
   useClashChoices(clashHandoff, offer);
-  const title = `Search: ${query}`;
+  const title = SearchTitle.of(query);
   // Typo and abbreviation matches always rank last, so a heading can separate them.
   // Sorted within each: similar names stay below the matches themselves, in any order.
   const sections = useMemo(() => {
@@ -123,11 +125,7 @@ export function SearchResultsPage({
       <div className="space-y-6">
         <div className="space-y-1">
           <ListHeader
-            title={
-              <h1 className="min-w-0 text-balance text-2xl font-semibold">
-                {title}
-              </h1>
-            }
+            title={<h1 className={PageLayout.title}>{title}</h1>}
             filters={filters}
           />
           {split && (

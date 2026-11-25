@@ -226,13 +226,44 @@ test.describe("skeletons", () => {
     );
   });
 
-  for (const path of ["/trash", "/recent", "/settings/appearance"])
+  // Recent, Starred and search results in the account's view, their own order in the address.
+  for (const view of ["list", "grid"] as const)
+    for (const page of ["recent", "starred", "search"] as const)
+      test(`the served skeleton of ${page} in ${view} view is where the page will be`, async ({
+        page: tab,
+        isMobile,
+      }) => {
+        const { rpc, name } = await folderOfEight(tab);
+        for (let index = 0; index < 8; index++)
+          await rpc.catalog.bookmark.mutate({
+            path: `${name}/Folder ${index}`,
+            starred: true,
+          });
+        const prefs = await rpc.prefs.get.query();
+        restore = () => rpc.prefs.set.mutate(prefs);
+        await rpc.prefs.set.mutate({ ...prefs, view });
+        await checkServedSkeleton(
+          tab,
+          page === "search"
+            ? `/search?q=${encodeURIComponent(name)}&sort=name-desc`
+            : `/${page}`,
+          widths(isMobile),
+          listed,
+        );
+      });
+
+  for (const path of [
+    "/trash",
+    "/trash?sort=expires-asc",
+    "/recent",
+    "/settings/appearance",
+  ])
     test(`the served skeleton of ${path} is where the page will be`, async ({
       page,
       isMobile,
     }) => {
       // Trash with something in it, as its placeholder shows it.
-      if (path === "/trash") {
+      if (path.startsWith("/trash")) {
         const { rpc, name } = await folderOfEight(page);
         await rpc.files.delete.mutate({ path: `${name}/Folder 0` });
       }
