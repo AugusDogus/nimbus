@@ -12,8 +12,11 @@ export const deviceModules: readonly { path: string; reason: string }[] = [
     path: "lib/device.ts",
     reason: "The Device module: the one place that asks about the device.",
   },
-  // TODO(split view): add the split view's rule module here once it lands; it decides where a
-  // split is offered and may read the window for it.
+  {
+    path: "app/drive/files/split-room.ts",
+    reason:
+      "The split view's rule: where two panes fit side by side. It decides the split; Device decides touch and phone-sized.",
+  },
   {
     path: "lib/color-scheme.ts",
     reason: "Reads the system's colour scheme, which is not a device question.",
@@ -48,28 +51,4 @@ export const pending: readonly {
   path: string;
   line: string;
   reason: string;
-}[] = [
-  {
-    path: "app/drive/files/folder-card.tsx",
-    line: 'className={cn("flex shrink-0 items-center", !pane && "max-lg:hidden")}',
-    reason:
-      "Back and Up beside a split view: the split view's own rule replaces this gate.",
-  },
-  {
-    path: "app/drive/files/split-toggle.tsx",
-    line: 'className="touch-hit text-muted-foreground aria-pressed:bg-accent aria-pressed:text-foreground max-lg:hidden"',
-    reason: "The split toggle: the split view's own rule replaces this gate.",
-  },
-  {
-    path: "app/drive/files/selection-bar.tsx",
-    line: 'className={other ? "max-md:hidden" : undefined}',
-    reason:
-      "Select all and Star with a split open: the split view's own rule replaces this gate; item menus offer both meanwhile.",
-  },
-  {
-    path: "app/drive/files/files-page-client.tsx",
-    line: 'if (!matchMedia("(min-width: 1024px)").matches) return;',
-    reason:
-      "Preloads the split view's code where it can open: the split view's own rule replaces this check.",
-  },
-];
+}[] = [];

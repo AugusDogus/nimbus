@@ -44,9 +44,19 @@ const mode = (contentWidth: number, foldWidth: number): SplitMode =>
 const modeForWindow = (width: number): SplitMode =>
   width >= minViewport ? "side-by-side" : "swipe";
 
+/**
+ * The mode this browser window gets, read from the window itself before any content area is
+ * measured, as when deciding whether to load the split view's code early.
+ */
+const modeOfThisWindow = (): SplitMode =>
+  matchMedia(`(min-width: ${minViewport}px)`).matches
+    ? "side-by-side"
+    : "swipe";
+
 export const SplitRoom = {
   mode,
   modeForWindow,
+  modeOfThisWindow,
   minPaneWidth,
   dividerWidth,
   minSideBySide,

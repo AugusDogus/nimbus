@@ -93,7 +93,7 @@ export function FilesPageClient() {
   }, []);
   // The split view's code loads once a folder page has settled, so the split opens at once.
   useEffect(() => {
-    if (!matchMedia(`(min-width: ${SplitRoom.minViewport}px)`).matches) return;
+    if (SplitRoom.modeOfThisWindow() !== "side-by-side") return;
     const timer = setTimeout(() => {
       if ("requestIdleCallback" in window)
         requestIdleCallback(SplitCode.preload, { timeout: 1000 });

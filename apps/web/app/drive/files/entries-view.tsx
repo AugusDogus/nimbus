@@ -107,7 +107,6 @@ export function EntriesView({
   const navigate = useNavigate();
   const folderHref = usePaneHref();
   const keyboardHint = useId();
-  const isMobile = Device.useNarrow();
   // A finger opens item actions in the drawer, at every width.
   const coarse = Device.useCoarsePointer();
   const canDrag = Device.useAnyFinePointer();
