@@ -37,6 +37,19 @@ export default defineConfig({
         storageState: "test-results/.auth/admin.json",
       },
     },
+    // A touch tablet, wide enough for the wide layout: only the reach check runs here, which
+    // covers what a finger can reach at a width the other two projects do not have.
+    {
+      name: "tablet",
+      dependencies: ["setup"],
+      testMatch: "**/reach.e2e.ts",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 950, height: 800 },
+        hasTouch: true,
+        storageState: "test-results/.auth/admin.json",
+      },
+    },
   ],
   webServer: {
     command: "bun scripts/e2e-server.ts",
