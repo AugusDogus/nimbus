@@ -85,7 +85,10 @@ export function LibraryEditor({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl sm:max-w-lg">
+      <DialogContent
+        size="lg"
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+      >
         <DialogHeader>
           <DialogTitle>
             {view.kind === "choose"

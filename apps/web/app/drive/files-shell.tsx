@@ -16,7 +16,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "@/components/alert-dialog";
 import { queryClient, trpc } from "@/lib/trpc";
 import { UploadProgress } from "@/components/upload-progress";
 

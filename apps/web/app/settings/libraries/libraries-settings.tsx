@@ -10,7 +10,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "@/components/alert-dialog";
 import { queryClient, trpc, trpcClient } from "@/lib/trpc";
 import { trpcErrorCode } from "@/lib/trpc-error";
 import type { Library as LibraryRecord } from "@/server/libraries/libraries";
@@ -302,7 +302,7 @@ export function LibrariesSettings({
           if (!open && !busy) setConfirming(null);
         }}
       >
-        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl [&>*]:min-w-0">
+        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto [&>*]:min-w-0">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-balance">
               {confirming?.kind === "delete" ? (

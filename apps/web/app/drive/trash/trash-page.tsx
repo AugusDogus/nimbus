@@ -12,7 +12,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "@/components/alert-dialog";
 
 /** `all` lists the items the dialog counts, which are all that emptying deletes. */
 type Deletion = { kind: "item"; id: string } | { kind: "all"; ids: string[] };

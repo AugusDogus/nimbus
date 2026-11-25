@@ -11,7 +11,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "@/components/alert-dialog";
 import { securityClient } from "@/lib/security-client";
 import { SettingsSection } from "../settings-section";
 
@@ -110,7 +110,7 @@ export function SessionSettings({ sessions }: { sessions: SessionSummary[] }) {
         open={pending !== null}
         onOpenChange={(open) => !open && !busy && setPending(null)}
       >
-        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl [&>*]:min-w-0">
+        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto [&>*]:min-w-0">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-balance">
               {pending?.kind === "others"

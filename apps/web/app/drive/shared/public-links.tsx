@@ -13,7 +13,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "@/components/alert-dialog";
 import type { EditableLink } from "./edit-link-dialog";
 import { DriveRoot } from "@nimbus/api/drive-root";
 

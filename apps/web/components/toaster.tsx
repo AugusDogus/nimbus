@@ -7,12 +7,13 @@ import {
 import { connectToasts } from "@/lib/toast";
 
 /**
- * Whether a modal dialog, sheet or drawer covers the page, keeping toasts out of reach. The
- * phone sidebar is a drawer of its own, marked as the sidebar.
+ * Whether a modal dialog or drawer covers the page, keeping toasts out of reach: every one is
+ * announced as a dialog or alert dialog, the phone sidebar's drawer included. Toasts are announced
+ * as dialogs too, and are not covers.
  */
 const covered = () =>
   document.querySelector(
-    '[data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"], [data-slot="drawer-content"], [data-sidebar="sidebar"][data-mobile="true"]',
+    ':is([role="dialog"], [role="alertdialog"]):not([data-slot="toast"])',
   ) !== null;
 
 const watchCover = (changed: () => void) => {

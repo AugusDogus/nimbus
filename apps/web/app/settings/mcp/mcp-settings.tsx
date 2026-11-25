@@ -13,7 +13,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "@/components/alert-dialog";
 import { SettingsRow, SettingsSection } from "../settings-section";
 import { CopyField } from "../webdav/copy-field";
 
@@ -239,7 +239,7 @@ export function McpSettings({ state }: { state: McpSettingsState }) {
           if (!open && !busy) setRevoking(null);
         }}
       >
-        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl [&>*]:min-w-0">
+        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto [&>*]:min-w-0">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-balance">
               Disconnect {revoking?.clientName}?

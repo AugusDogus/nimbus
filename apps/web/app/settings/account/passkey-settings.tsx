@@ -12,7 +12,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "@/components/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -158,7 +158,7 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeySummary[] }) {
         onOpenChange={(open) => !open && !busy && setAdding(false)}
       >
         <DialogContent
-          className="max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl [&>*]:min-w-0"
+          className="max-h-[calc(100dvh-2rem)] overflow-y-auto [&>*]:min-w-0"
           showCloseButton={!busy}
         >
           <form
@@ -229,7 +229,7 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeySummary[] }) {
         open={removing !== null}
         onOpenChange={(open) => !open && !busy && setRemoving(null)}
       >
-        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl [&>*]:min-w-0">
+        <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto [&>*]:min-w-0">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-balance">
               Remove passkey?

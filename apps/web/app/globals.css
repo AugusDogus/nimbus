@@ -486,28 +486,16 @@
   }
 }
 
-/* While a dialog, sheet or drawer covers the page, toasts cannot be reached, and their time is
+/* While a dialog or drawer covers the page, toasts cannot be reached, and their time is
    held (see HoldWhileCovered in toaster.tsx): they step aside instead of lying over it, and
-   come back with their full time once it closes. Outside any layer, so it outranks the
-   toasts' own utilities. */
-:root:has(
-    [data-slot="dialog-content"],
-    [data-slot="sheet-content"],
-    [data-slot="alert-dialog-content"],
-    [data-slot="drawer-content"],
-    [data-sidebar="sidebar"][data-mobile="true"]
-  )
+   come back with their full time once it closes. Toasts are announced as dialogs too. Outside any
+   layer, so it outranks the toasts' own utilities. */
+:root:has(:is([role="dialog"], [role="alertdialog"]):not([data-slot="toast"]))
   [data-slot="toast-viewport"] {
   opacity: 0;
   pointer-events: none;
 }
-:root:has(
-    [data-slot="dialog-content"],
-    [data-slot="sheet-content"],
-    [data-slot="alert-dialog-content"],
-    [data-slot="drawer-content"],
-    [data-sidebar="sidebar"][data-mobile="true"]
-  )
+:root:has(:is([role="dialog"], [role="alertdialog"]):not([data-slot="toast"]))
   [data-slot="toast"] {
   pointer-events: none;
 }
@@ -658,4 +646,20 @@ html.transitioning *::after {
   ::-webkit-scrollbar-thumb:active {
     background-color: rgb(var(--overlay) / 0.16);
   }
+}
+
+/* Fluid Functionalism's dialog draws a backdrop for the outermost dialog only. A dialog opened
+   from another dims the one beneath it too, as every dialog dims the page. */
+[role="dialog"][data-nested-dialog-open]::after,
+[role="alertdialog"][data-nested-dialog-open]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgb(0 0 0 / 0.4);
+  pointer-events: none;
+}
+.dark [role="dialog"][data-nested-dialog-open]::after,
+.dark [role="alertdialog"][data-nested-dialog-open]::after {
+  background: rgb(0 0 0 / 0.8);
 }

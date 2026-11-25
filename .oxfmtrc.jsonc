@@ -29,6 +29,7 @@
     "apps/web/components/ui/sidebar.tsx",
     "apps/web/components/ui/sidebar-core.tsx",
     "apps/web/components/ui/sidebar-menu.tsx",
+    "apps/web/components/ui/dialog.tsx",
     "apps/web/components/ui/dropdown.tsx",
     "apps/web/components/ui/menu-item.tsx",
     "apps/web/components/ui/dropdown-search.tsx",

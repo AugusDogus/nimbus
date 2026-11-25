@@ -11,7 +11,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "@/components/alert-dialog";
 import { ByteSize } from "@/lib/byte-size";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import type { EditableFileRequest } from "./file-request-dialog";

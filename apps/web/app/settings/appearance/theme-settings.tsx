@@ -18,7 +18,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "@/components/alert-dialog";
 import { CustomThemeStyles } from "@/components/custom-theme-styles";
 import { ThemeStore, useThemePreferences } from "@/lib/theme-store";
 import { ThemePreferences } from "@/lib/theme-preferences";

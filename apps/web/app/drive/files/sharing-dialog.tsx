@@ -121,7 +121,10 @@ export function SharingDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-lg">
+      <DialogContent
+        size="lg"
+        className="grid max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0"
+      >
         <DialogHeader className="px-6 pt-6">
           <DialogTitle className="min-w-0 break-words pr-6 text-balance">
             Share {entry.name}

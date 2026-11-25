@@ -10,7 +10,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "@/components/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { LeaveGuard } from "@/lib/leave-guard";
 

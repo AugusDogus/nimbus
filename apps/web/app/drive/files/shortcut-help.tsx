@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { WhenDialogClosed } from "@/components/when-dialog-closed";
 import {
   Dialog,
   DialogContent,
@@ -58,13 +59,8 @@ export function ShortcutHelp({
   ];
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
-        finalFocus={() => {
-          onClosed();
-          return false;
-        }}
-      >
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+        <WhenDialogClosed onClosed={onClosed} />
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
           <DialogDescription>

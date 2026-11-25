@@ -35,12 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { WhenDialogClosed } from "@/components/when-dialog-closed";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { queryClient, trpc, trpcClient } from "@/lib/trpc";
 import { sessionQuery } from "@/lib/session-query";
@@ -191,8 +186,10 @@ export function DestinationPicker({
   const account = queryClient.getQueryData(sessionQuery.queryKey)?.user.id;
   const viewport = useVisualViewport(mobile);
   const [opener] = useState(dialogOpener);
-  // Focus goes back to what opened the picker; Base UI would pick the menu item, gone by then.
-  const finalFocus = () => (opener?.isConnected ? opener : true);
+  // Focus goes back to what opened the picker; the dialog would pick the menu item, gone by then.
+  const returnFocus = () => {
+    if (opener?.isConnected) opener.focus();
+  };
 
   // Where focus goes in the next list shown, after moving through folders from the list.
   const [focusRequest, setFocusRequest] = useState<{
@@ -748,18 +745,16 @@ export function DestinationPicker({
     );
   })();
 
-  const Title = mobile ? SheetTitle : DialogTitle;
-  const Description = mobile ? SheetDescription : DialogDescription;
   const content = (
     <div className="flex h-full min-h-0 flex-col" onKeyDown={onPickerKeyDown}>
       <div className="space-y-3 border-b px-4 pt-4 pb-3 sm:px-5">
         <div className="space-y-1 pr-8">
-          <Title className="truncate text-lg leading-tight font-semibold">
+          <DialogTitle className="truncate text-lg leading-tight font-semibold">
             {title}
-          </Title>
-          <Description className="text-pretty text-sm text-muted-foreground max-sm:sr-only">
+          </DialogTitle>
+          <DialogDescription className="text-pretty text-sm text-muted-foreground max-sm:sr-only">
             {description}
-          </Description>
+          </DialogDescription>
         </div>
         <div className="relative">
           <Search
@@ -952,32 +947,29 @@ export function DestinationPicker({
   const onOpenChange = (open: boolean) => {
     if (!open) onClose();
   };
-  if (mobile)
-    return (
-      <Sheet open onOpenChange={onOpenChange}>
-        <SheetContent
-          side="bottom"
-          data-picker=""
-          finalFocus={finalFocus}
-          className="h-dvh max-h-dvh gap-0 rounded-none border-0 p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
-          style={
-            viewport
-              ? { top: viewport.top, bottom: "auto", height: viewport.height }
-              : undefined
-          }
-        >
-          {content}
-        </SheetContent>
-      </Sheet>
-    );
+  // A full-height sheet on phones: their dialog, centred and as large as the visible viewport,
+  // which the on-screen keyboard shrinks.
   return (
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent
         data-picker=""
-        finalFocus={finalFocus}
-        className="flex h-[min(560px,calc(100dvh-2rem))] w-[calc(100%-2rem)] max-w-[760px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px]"
+        size="lg"
+        className={
+          mobile
+            ? "flex h-dvh max-h-dvh w-full max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+            : "flex h-[min(560px,calc(100dvh-2rem))] w-[calc(100%-2rem)] max-w-[760px] flex-col gap-0 overflow-hidden p-0"
+        }
+        style={
+          viewport
+            ? {
+                top: viewport.top + viewport.height / 2,
+                height: viewport.height,
+              }
+            : undefined
+        }
       >
         {content}
+        <WhenDialogClosed onClosed={returnFocus} />
       </DialogContent>
     </Dialog>
   );

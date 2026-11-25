@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
+import { WhenDialogClosed } from "@/components/when-dialog-closed";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -22,14 +25,9 @@ function Details({
 }) {
   const [open, setOpen] = useState(true);
   return (
-    <Dialog
-      open={open}
-      onOpenChange={setOpen}
-      onOpenChangeComplete={(isOpen) => {
-        if (!isOpen) onClosed();
-      }}
-    >
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent size="lg">
+        <WhenDialogClosed onClosed={onClosed} />
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -49,7 +47,10 @@ function Details({
             </section>
           ))}
         </div>
-        <DialogFooter showCloseButton />
+        <DialogFooter>
+          {/* Their close renders the given element as it is: the label goes inside it. */}
+          <DialogClose render={<Button variant="tertiary">Close</Button>} />
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
