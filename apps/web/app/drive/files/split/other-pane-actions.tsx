@@ -71,12 +71,7 @@ export function OtherPaneActions({
             operation: "move" as const,
             label: `Move to ${other.label}`,
             // Points at the other pane.
-            icon:
-              other.side === "right" ? (
-                <ArrowRight className="size-4" />
-              ) : (
-                <ArrowLeft className="size-4" />
-              ),
+            icon: other.side === "right" ? ArrowRight : ArrowLeft,
             run: () => void actions.moveEntries(targets, other.path),
           },
         ]
@@ -84,7 +79,7 @@ export function OtherPaneActions({
     {
       operation: "copy" as const,
       label: `Copy to ${other.label}`,
-      icon: <CopyPlus className="size-4" />,
+      icon: CopyPlus,
       run: () => void actions.copyEntries(targets, other.path),
     },
   ];
@@ -97,20 +92,28 @@ export function OtherPaneActions({
         variant="ghost"
         size="compact"
         disabled={reason !== undefined}
+        aria-label={item.label}
         title={reason ?? item.label}
         onClick={item.run}
-        className="touch-hit min-w-0 gap-2 pointer-coarse:min-w-11"
+        leadingIcon={item.icon}
+        // The label truncates inside the button's own spans when the bar is short of room.
+        className="touch-hit min-w-0 gap-2 pointer-coarse:min-w-11 [&>span:last-child]:min-w-0 [&>span:last-child]:max-w-full [&>span:last-child>span]:min-w-0 [&>span:last-child>span]:overflow-hidden"
       >
-        {item.icon}
+        {/* In a pane's bar the folder's name shows where the pane has room for it; narrower,
+            as on a phone, Move still says what it does, and the panes' switcher names where. */}
         <span
+          aria-hidden
           className={
-            labelled
-              ? "sr-only @md:not-sr-only @md:max-w-40 @md:truncate"
-              : "sr-only"
+            labelled ? "hidden @md:block @md:max-w-40 @md:truncate" : "hidden"
           }
         >
           {item.label}
         </span>
+        {labelled && item.operation === "move" && (
+          <span aria-hidden className="@md:hidden">
+            Move
+          </span>
+        )}
       </Button>
     );
   });
