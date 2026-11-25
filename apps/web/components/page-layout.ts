@@ -61,8 +61,9 @@ export const PageLayout = {
   filesContent: (folder: boolean) =>
     cn(
       "flex-1 overflow-x-clip px-4 pb-24 pt-6",
+      // A folder's area is the room a split view measures (see `SplitRoom`).
       folder
-        ? "md:flex md:min-h-0 md:flex-col md:p-0"
+        ? "@container/room md:flex md:min-h-0 md:flex-col md:p-0"
         : cn(PageSurface.card, "md:px-6 md:pb-6 lg:px-8 lg:pt-8"),
     ),
   settingsContent: cn("flex-1", PageSurface.card),

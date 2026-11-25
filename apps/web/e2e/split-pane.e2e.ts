@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { FileListing } from "@nimbus/api/file-listing";
+import { SplitRoom } from "../app/drive/files/split-room";
 import { client, test, whenCanCreate } from "./helpers";
 
 const leftPane = (page: Page) => page.locator('[data-pane="left"]');
@@ -502,8 +503,10 @@ test.describe("split view on a wide screen", () => {
     // Both panes keep a useful width.
     const left = await leftPane(page).boundingBox();
     const right = await rightPane(page).boundingBox();
-    expect(left?.width ?? 0).toBeGreaterThan(400);
-    expect(right?.width ?? 0).toBeGreaterThan(400);
+    expect(left?.width ?? 0).toBeGreaterThanOrEqual(SplitRoom.minPaneWidth - 1);
+    expect(right?.width ?? 0).toBeGreaterThanOrEqual(
+      SplitRoom.minPaneWidth - 1,
+    );
     await divider.dblclick();
     await expect(divider).toHaveAttribute("aria-valuenow", "50");
 
@@ -556,6 +559,46 @@ test.describe("split view on a wide screen", () => {
       new RegExp(`right=${encodeURIComponent(`${root}/Archive`)}&`),
     );
   });
+});
+
+test("opens side by side wherever two panes fit: a phone on its side and a small tablet", async ({
+  page,
+}) => {
+  const { root } = await seed(page);
+  for (const [width, height] of [
+    [844, 390],
+    [915, 412],
+    [768, 1024],
+    [1024, 768],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await page.goto(`/browse/${root}/Projects`);
+    await expect(entry(page.locator("main"), "Client Alpha")).toBeVisible();
+    const toggle = page.getByRole("button", { name: "Split view" });
+    await expect(toggle, `${width}x${height}`).toBeVisible();
+    await toggle.click();
+    await expect(page.locator("[data-pane]"), `${width}x${height}`).toHaveCount(
+      2,
+    );
+    await expect(entry(rightPane(page), "Client Alpha")).toBeVisible();
+    // Once the sidebar, if it folds, has gone.
+    for (const pane of [leftPane(page), rightPane(page)])
+      await expect
+        .poll(async () => (await pane.boundingBox())?.width ?? 0, {
+          message: `${width}x${height}`,
+        })
+        .toBeGreaterThanOrEqual(SplitRoom.minPaneWidth);
+    // The divider's grip shows on touch screens, which cannot point at it.
+    expect(
+      await page.getByRole("separator", { name: "Resize panes" }).isVisible(),
+    ).toBe(true);
+    // Nothing reaches past the window.
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+    await toggle.click();
+    await expect(page.locator("[data-pane]")).toHaveCount(0);
+  }
 });
 
 test("a split link on a phone shows the active folder and offers the other as a destination", async ({

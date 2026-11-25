@@ -3,7 +3,9 @@ import { Columns2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { CodeLoad } from "@/lib/code-load";
+import { cn } from "@/lib/utils";
 import { SplitCode } from "./split-frame";
+import { SplitRoom } from "./split-room";
 
 /** Opens a split view beside `left`, with `right` in the other pane or the remembered folder. */
 export function openSplit(
@@ -19,8 +21,8 @@ export function openSplit(
 
 /**
  * Opens a split view beside the folder shown, or closes the one open, keeping the active pane's
- * folder. In the header beside the account menu (see `HeaderTools`), from 1024 px; narrower
- * screens show one folder at a time.
+ * folder. In the header beside the account menu (see `HeaderTools`), in windows wide enough for
+ * two panes side by side (see `SplitRoom`).
  */
 export function SplitToggle({
   open,
@@ -37,7 +39,10 @@ export function SplitToggle({
         aria-label="Split view"
         data-shape="split-toggle"
         aria-pressed={open}
-        className="touch-hit text-muted-foreground aria-pressed:bg-accent aria-pressed:text-foreground max-lg:hidden"
+        className={cn(
+          "touch-hit text-muted-foreground aria-pressed:bg-accent aria-pressed:text-foreground",
+          SplitRoom.toggleOnly,
+        )}
         onClick={onToggle}
         // Pointed at or focused, it starts loading the split view's code.
         onPointerEnter={SplitCode.preload}

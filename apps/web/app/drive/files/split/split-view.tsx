@@ -53,15 +53,11 @@ import {
 } from "./pane-section";
 import { SplitAddress } from "./split-address";
 import { SplitMemory } from "./split-memory";
+import { SplitRoom } from "../split-room";
 import { useSidebarFold } from "./split-page";
 import { AppFrame } from "@/components/app-frame";
 
-/** Narrowest useful pane, in pixels. */
-const minPaneWidth = 420;
-/** The gap between the two pane cards, which is the divider. */
-const dividerWidth = 8;
-/** Below this width of the page's content area the panes do not fit side by side. */
-const minSideBySide = 900;
+const { minPaneWidth, dividerWidth } = SplitRoom;
 
 const parentOf = (path: string) =>
   path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
@@ -85,7 +81,15 @@ function useContentWidth(frame: HTMLDivElement | null) {
   useLayoutEffect(() => {
     const area = frame?.parentElement;
     if (!area) return;
-    const measure = () => setWidth(area.clientWidth);
+    // Inside its padding: on phones the area pads the folder from the window's edges.
+    const measure = () => {
+      const style = getComputedStyle(area);
+      setWidth(
+        area.clientWidth -
+          parseFloat(style.paddingLeft) -
+          parseFloat(style.paddingRight),
+      );
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(area);
@@ -270,12 +274,15 @@ export const SplitController = memo(function SplitController({
 
   const width = useContentWidth(frameElement);
   const [owner] = useState(() => Symbol("split controller"));
-  const wide = width !== null && width >= minSideBySide;
-  const fitsFolded =
-    width !== null && !wide && width + sidebarSpare >= minSideBySide;
-  const sidebar = useSidebarFold(fitsFolded);
+  const fits = width !== null && SplitRoom.fits(width);
+  // Short of roomy, folding the sidebar gives the panes room: it makes them fit, or wider.
+  const foldHelps =
+    width !== null &&
+    width < SplitRoom.roomy &&
+    SplitRoom.fits(width + sidebarSpare);
+  const sidebar = useSidebarFold(foldHelps);
   // While the sidebar folds, the panes stay side by side as the room for them grows.
-  const sideBySide = wide || (fitsFolded && sidebar.foldedForSplit);
+  const sideBySide = fits || (foldHelps && sidebar.foldedForSplit);
   // Which pane a drag is over: that pane says where the drag would drop.
   const [dragOver, setDragOver] = useState<PaneSide | null>(null);
   if (drag.state.status !== "dragging" && dragOver !== null) setDragOver(null);

@@ -65,6 +65,7 @@ import {
   type FolderMoves,
 } from "./folder-card";
 import { fileHref } from "./types";
+import { SplitRoom } from "./split-room";
 
 export function FilesPageClient() {
   const left = useFolderPath();
@@ -92,7 +93,7 @@ export function FilesPageClient() {
   }, []);
   // The split view's code loads once a folder page has settled, so the split opens at once.
   useEffect(() => {
-    if (!matchMedia("(min-width: 1024px)").matches) return;
+    if (!matchMedia(`(min-width: ${SplitRoom.minViewport}px)`).matches) return;
     const timer = setTimeout(() => {
       if ("requestIdleCallback" in window)
         requestIdleCallback(SplitCode.preload, { timeout: 1000 });
