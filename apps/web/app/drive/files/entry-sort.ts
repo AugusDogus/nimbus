@@ -2,10 +2,10 @@ import type { UserPreferences } from "@nimbus/api/context";
 import type { FileEntry } from "./types";
 
 /** `entries` in the order a folder listing shows them under `prefs`, folders first when grouped. */
-export function sortEntries(
-  entries: readonly FileEntry[],
+export function sortEntries<T extends FileEntry>(
+  entries: readonly T[],
   prefs: Pick<UserPreferences, "sortField" | "sortDirection" | "groupByType">,
-) {
+): T[] {
   return [...entries].sort((a, b) => {
     // When grouping, always sort folders first
     if (prefs.groupByType && a.type !== b.type) {

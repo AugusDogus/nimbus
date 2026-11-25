@@ -28,7 +28,7 @@ import { EntriesView } from "./entries-view";
 import { sortEntries } from "./entry-sort";
 import { FolderError } from "./folder-error";
 import { FolderForbidden } from "./folder-forbidden";
-import { FiltersRow } from "./filters-row";
+import { FiltersRow, folderFilters } from "./filters-row";
 import { useFolderPath } from "./folder-path";
 import { FolderNotFound } from "./folder-not-found";
 import { NavPlace } from "./nav-place";
@@ -499,11 +499,7 @@ export function FolderPane({
         pane ? (
           pane.tools
         ) : (
-          <FiltersRow
-            prefs={prefs}
-            view={view}
-            updatePreferences={updatePreferences}
-          />
+          <FiltersRow {...folderFilters(prefs, updatePreferences)} />
         )
       }
       body={

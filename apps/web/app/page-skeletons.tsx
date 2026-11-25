@@ -18,7 +18,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { AppSidebarPlaceholder } from "./drive/files/app-sidebar";
-import { FiltersRow } from "./drive/files/filters-row";
+import { FiltersRow, folderFilters } from "./drive/files/filters-row";
 import { FolderCard } from "./drive/files/folder-card";
 import { EntrySkeleton } from "./drive/files/loading-skeleton";
 import type { NavPlace } from "./drive/files/nav-place";
@@ -183,11 +183,7 @@ export function FilesSkeleton({
               </div>
             }
             tools={
-              <FiltersRow
-                prefs={page.prefs}
-                view={page.prefs.view}
-                updatePreferences={nothing}
-              />
+              <FiltersRow {...folderFilters(page.prefs, nothing)} />
             }
             body={<EntrySkeleton view={page.prefs.view} />}
           />

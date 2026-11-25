@@ -21,27 +21,68 @@ import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip } from "@/components/ui/tooltip";
 
+import type { LucideIcon } from "lucide-react";
 import type { UserPreferences } from "@nimbus/api/context";
 import { SortOption } from "./sort-option";
 
-type FiltersRowProps = {
-  prefs: UserPreferences;
+/** One order a listing's sort control offers. */
+export type SortChoice = { value: string; label: string; icon: LucideIcon };
+
+/** A listing's sort and view controls: a folder's, or a page gathering items from many. */
+export type FiltersRowProps = {
+  /** The orders the listing offers, the chosen one's value, and how to choose another. */
+  sort: {
+    choices: readonly SortChoice[];
+    value: string;
+    onChange: (value: string) => void;
+  };
   view: UserPreferences["view"];
-  updatePreferences: (partial: Partial<UserPreferences>) => void;
+  onView: (view: UserPreferences["view"]) => void;
+  /** Folders first, where the listing groups by type; null where it does not. */
+  group: { on: boolean; onChange: (on: boolean) => void } | null;
 };
 
-export function FiltersRow({
-  prefs,
-  view,
-  updatePreferences,
-}: FiltersRowProps) {
+/** A folder's controls, from the account's preferences. */
+export function folderFilters(
+  prefs: UserPreferences,
+  updatePreferences: (partial: Partial<UserPreferences>) => void,
+): FiltersRowProps {
+  return {
+    sort: {
+      choices: SortOption.all.map((option) => ({
+        value: SortOption.value(option),
+        label: option.label,
+        icon: option.icon,
+      })),
+      value: SortOption.value({
+        field: prefs.sortField,
+        direction: prefs.sortDirection,
+      }),
+      onChange: (value) => {
+        const option = SortOption.find(value);
+        if (option)
+          updatePreferences({
+            sortField: option.field,
+            sortDirection: option.direction,
+          });
+      },
+    },
+    view: prefs.view,
+    onView: (view) => updatePreferences({ view }),
+    group: {
+      on: prefs.groupByType,
+      onChange: (on) => updatePreferences({ groupByType: on }),
+    },
+  };
+}
+
+export function FiltersRow({ sort, view, onView, group }: FiltersRowProps) {
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
-  const selectedValue = SortOption.value({
-    field: prefs.sortField,
-    direction: prefs.sortDirection,
-  });
-  const selectedSort = SortOption.find(selectedValue) ?? SortOption.all[0];
+  const selectedValue = sort.value;
+  const selectedSort =
+    sort.choices.find((choice) => choice.value === selectedValue) ??
+    sort.choices[0];
 
   return (
     <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -66,7 +107,7 @@ export function FiltersRow({
           <DrawerHeader>
             <DrawerTitle>Sort &amp; filter</DrawerTitle>
             <DrawerDescription className="sr-only">
-              Choose sort order and grouping
+              {group ? "Choose sort order and grouping" : "Choose sort order"}
             </DrawerDescription>
           </DrawerHeader>
           <div className="flex flex-col gap-1 px-4 pb-6">
@@ -81,42 +122,39 @@ export function FiltersRow({
               aria-labelledby="sort-drawer-label"
               className="flex flex-col gap-1"
             >
-              {SortOption.all.map((option) => (
+              {sort.choices.map((option) => (
                 <DrawerClose
-                  key={SortOption.value(option)}
+                  key={option.value}
                   render={
                     <DrawerActionItem
-                      aria-pressed={SortOption.value(option) === selectedValue}
-                      onClick={() => {
-                        updatePreferences({
-                          sortField: option.field,
-                          sortDirection: option.direction,
-                        });
-                      }}
+                      aria-pressed={option.value === selectedValue}
+                      onClick={() => sort.onChange(option.value)}
                     />
                   }
                 >
                   <option.icon className="size-5 text-muted-foreground" />
                   <span className="flex-1 text-left">{option.label}</span>
-                  {SortOption.value(option) === selectedValue && (
+                  {option.value === selectedValue && (
                     <Check aria-hidden className="size-4 text-primary" />
                   )}
                 </DrawerClose>
               ))}
             </div>
-            <div className="my-2 h-px bg-border" />
-            <DrawerActionItem
-              aria-pressed={prefs.groupByType}
-              onClick={() =>
-                updatePreferences({ groupByType: !prefs.groupByType })
-              }
-            >
-              <Layers className="size-5 text-muted-foreground" />
-              <span className="flex-1 text-left">Group by type</span>
-              {prefs.groupByType && (
-                <Check aria-hidden className="size-4 text-primary" />
-              )}
-            </DrawerActionItem>
+            {group && (
+              <>
+                <div className="my-2 h-px bg-border" />
+                <DrawerActionItem
+                  aria-pressed={group.on}
+                  onClick={() => group.onChange(!group.on)}
+                >
+                  <Layers className="size-5 text-muted-foreground" />
+                  <span className="flex-1 text-left">Group by type</span>
+                  {group.on && (
+                    <Check aria-hidden className="size-4 text-primary" />
+                  )}
+                </DrawerActionItem>
+              </>
+            )}
           </div>
         </DrawerContent>
       </Drawer>
@@ -124,15 +162,8 @@ export function FiltersRow({
       {/* Desktop: inline controls */}
       <Select
         size="compact"
-        value={SortOption.value(selectedSort)}
-        onValueChange={(value) => {
-          const option = SortOption.find(value);
-          if (option)
-            updatePreferences({
-              sortField: option.field,
-              sortDirection: option.direction,
-            });
-        }}
+        value={selectedSort?.value ?? ""}
+        onValueChange={sort.onChange}
       >
         {/* The trigger renders inside a wrapper of its own, which takes the row's place. */}
         {/* reach: below 768 px the sort and filter drawer */}
@@ -141,18 +172,18 @@ export function FiltersRow({
             aria-label="Sort files"
             data-shape="sort"
             variant="borderless"
-            icon={selectedSort.icon}
+            icon={selectedSort?.icon}
             // In a narrow pane of a split view the order shows as its icon alone, leaving the
             // breadcrumb room; the page itself is no container, so this never applies there.
             className="touch-hit w-auto min-w-[140px] @max-lg:min-w-0 @max-lg:[&>span>span]:sr-only"
           />
         </div>
         <SelectContent className="max-w-[var(--available-width)]">
-          {SortOption.all.map((option, index) => (
+          {sort.choices.map((option, index) => (
             <SelectItem
-              key={SortOption.value(option)}
+              key={option.value}
               index={index}
-              value={SortOption.value(option)}
+              value={option.value}
               icon={option.icon}
             >
               {option.label}
@@ -161,22 +192,22 @@ export function FiltersRow({
         </SelectContent>
       </Select>
 
-      <Tooltip content="Group by type">
-        <Toggle
-          variant="default"
-          size="sm"
-          pressed={prefs.groupByType}
-          onPressedChange={(pressed) =>
-            updatePreferences({ groupByType: pressed })
-          }
-          aria-label="Group files by type"
-          data-shape="group"
-          // reach: below 768 px the sort and filter drawer
-          className="touch-hit hidden md:inline-flex"
-        >
-          <Layers className="size-4" />
-        </Toggle>
-      </Tooltip>
+      {group && (
+        <Tooltip content="Group by type">
+          <Toggle
+            variant="default"
+            size="sm"
+            pressed={group.on}
+            onPressedChange={group.onChange}
+            aria-label="Group files by type"
+            data-shape="group"
+            // reach: below 768 px the sort and filter drawer
+            className="touch-hit hidden md:inline-flex"
+          >
+            <Layers className="size-4" />
+          </Toggle>
+        </Tooltip>
+      )}
 
       {/* View toggle is always visible */}
       <ToggleGroup
@@ -184,9 +215,7 @@ export function FiltersRow({
         data-shape="view"
         value={[view]}
         onValueChange={([value]) => {
-          if (value === "grid" || value === "list") {
-            updatePreferences({ view: value });
-          }
+          if (value === "grid" || value === "list") onView(value);
         }}
         variant="default"
         size="sm"
