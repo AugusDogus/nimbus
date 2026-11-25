@@ -161,6 +161,7 @@ export function EntriesView({
     containerRef,
     obstructionRef: toolbarRef ?? fallbackToolbar,
     restoreKey,
+    scrollerKey: compact,
   });
   const pendingFocus = useRef<string | null>(null);
   const typeahead = useRef<{

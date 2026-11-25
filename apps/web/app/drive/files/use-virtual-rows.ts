@@ -50,12 +50,18 @@ export function useVirtualRows<T>({
   containerRef,
   obstructionRef,
   restoreKey,
+  scrollerKey,
 }: {
   layout: EntryLayout<T>;
   containerRef: RefObject<HTMLElement | null>;
   /** Sticky content covering the top of the scroller, such as the toolbar. */
   obstructionRef: RefObject<HTMLElement | null>;
   restoreKey: string;
+  /**
+   * Changes when the scroller may: on phones a folder alone scrolls with the page, and as a pane
+   * of a split view it scrolls on its own.
+   */
+  scrollerKey?: unknown;
 }) {
   const renderAll = layout.entries.length <= fullRenderLimit;
   const [windowed, setRange] = useState<Range>(() => ({
@@ -139,7 +145,7 @@ export function useVirtualRows<T>({
       scroller.removeEventListener("scroll", schedule);
       observer.disconnect();
     };
-  }, [containerRef, restoreKey, update]);
+  }, [containerRef, restoreKey, scrollerKey, update]);
 
   // A new layout (sorting, resizing columns, live updates) changes which rows are visible.
   useEffect(update, [layout, update]);

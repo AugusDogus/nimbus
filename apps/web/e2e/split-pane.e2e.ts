@@ -672,6 +672,41 @@ test.describe("split view on a phone", () => {
     await expect(page).toHaveURL(new RegExp(`/browse/${root}/Projects$`));
   });
 
+  test("a long folder in a pane keeps its rows on screen as the pane scrolls", async ({
+    page,
+  }) => {
+    const { rpc, root } = await seed(page);
+    // More entries than a listing renders whole, so the pane windows its rows.
+    for (let index = 0; index < 320; index++)
+      await rpc.files.createFolder.mutate({
+        path: `${root}/Projects`,
+        name: `Long ${String(index).padStart(3, "0")}`,
+      });
+    await page.goto(splitHref(root));
+    const list = leftPane(page).locator('[data-slot="folder-list"]');
+    await expect(entry(leftPane(page), "Client Alpha")).toBeVisible();
+    await list.evaluate((element) =>
+      element.scrollTo({ top: element.scrollHeight }),
+    );
+    await expect(entry(leftPane(page), "Long 319")).toBeInViewport();
+    await list.evaluate((element) =>
+      element.scrollTo({ top: element.scrollHeight / 2 }),
+    );
+    await expect(
+      leftPane(page).locator("[data-entry-row]").first(),
+    ).toBeAttached();
+    const shown = await leftPane(page)
+      .locator("[data-entry-row]")
+      .evaluateAll(
+        (rows) =>
+          rows.filter((row) => {
+            const box = row.getBoundingClientRect();
+            return box.bottom > 0 && box.top < window.innerHeight;
+          }).length,
+      );
+    expect(shown).toBeGreaterThan(4);
+  });
+
   test("a split link shows both folders, and moves a selection straight to the other one", async ({
     page,
   }) => {
