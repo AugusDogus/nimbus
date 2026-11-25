@@ -85,13 +85,14 @@ function PaneViewMenu({
     field: prefs.sortField,
     direction: prefs.sortDirection,
   });
-  // Rows are numbered in order: the sort options first, then these.
+  // Rows are numbered in order: the sort options first, then these. Their menu merges the checked
+  // backgrounds of rows numbered one after the other, so a number is skipped between groups.
   const sorts = SortOption.all.length;
   const rows = {
-    group: sorts,
-    list: sorts + 1,
-    grid: sorts + 2,
-    collapse: sorts + 3,
+    group: sorts + 1,
+    list: sorts + 3,
+    grid: sorts + 4,
+    collapse: sorts + 6,
   };
   const checked = [
     SortOption.all.findIndex((option) => SortOption.value(option) === sort),
