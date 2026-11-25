@@ -131,7 +131,11 @@ export async function searchEntries(
         return {
           ...(await entryAt(hit.path)),
           match: hit.match,
-          highlight: SearchHighlight.forPath(hit.path, answer.terms),
+          highlight: SearchHighlight.forPath(
+            hit.path,
+            answer.terms,
+            answer.split,
+          ),
         };
       } catch (error) {
         // Removed or changed since it was indexed (the watcher will catch up),

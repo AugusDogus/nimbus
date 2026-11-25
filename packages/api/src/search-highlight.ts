@@ -44,12 +44,28 @@ function rangesIn(text: string, terms: readonly string[]): HighlightRanges {
   return merged;
 }
 
-/** Highlights for a hit at `path`; the folder part is the path before its name. */
-function forPath(path: string, terms: readonly string[]): SearchHighlight {
+/**
+ * Highlights for a hit at `path`; the folder part is the path before its name. `split` is the
+ * typed words read apart where they join words: a path holding every one of `terms` was found
+ * as typed, so it is marked by those alone, and the parts (such as the "ce" of "ce87b53e")
+ * mark only paths that reading found, never letters elsewhere that happen to spell one.
+ */
+function forPath(
+  path: string,
+  terms: readonly string[],
+  split: readonly string[] = [],
+): SearchHighlight {
   const slash = path.lastIndexOf("/");
+  const name = path.slice(slash + 1);
+  const folder = slash < 0 ? "" : path.slice(0, slash);
+  const asTyped = terms.every(
+    (term) =>
+      rangesIn(name, [term]).length + rangesIn(folder, [term]).length > 0,
+  );
+  const marked = split.length && !asTyped ? [...terms, ...split] : terms;
   return {
-    name: rangesIn(path.slice(slash + 1), terms),
-    folder: slash < 0 ? [] : rangesIn(path.slice(0, slash), terms),
+    name: rangesIn(name, marked),
+    folder: slash < 0 ? [] : rangesIn(folder, marked),
   };
 }
 

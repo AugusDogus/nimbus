@@ -250,6 +250,7 @@ describe("searchEntries", () => {
         next: null,
         restarted: false,
         terms: ["notes"],
+        split: [],
         complete: true,
       }),
     });
@@ -281,6 +282,7 @@ describe("searchEntries", () => {
         next: null,
         restarted: false,
         terms: ["notes"],
+        split: [],
         complete: true,
       }),
     });
@@ -339,6 +341,7 @@ describe("searchEntries", () => {
           next: null,
           restarted: false,
           terms: [],
+          split: [],
           complete: true,
         };
       },

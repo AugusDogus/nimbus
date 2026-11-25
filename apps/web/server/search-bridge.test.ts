@@ -46,6 +46,7 @@ const answer = {
   next: null,
   restarted: false,
   terms: [],
+  split: [],
   complete: true,
 };
 

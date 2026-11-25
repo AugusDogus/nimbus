@@ -160,6 +160,11 @@ export type SearchResult = {
   restarted: boolean;
   /** Folded words that matched, for highlighting. Never sent to clients as-is. */
   terms: string[];
+  /**
+   * The typed words read apart where they join words ("reportFinal" as "report final"), for
+   * highlighting names that reading found; empty when no word was read apart.
+   */
+  split: string[];
 };
 
 /** What the query layers need from an index. */
@@ -504,6 +509,7 @@ const empty = (): SearchResult => ({
   next: null,
   restarted: false,
   terms: [],
+  split: [],
 });
 
 /**
@@ -941,11 +947,9 @@ function prepare(
               })
             : null,
           terms: [
-            ...new Set([
-              ...(corrections ? fixed : terms.length ? terms : [needle]),
-              ...(split ?? []),
-            ]),
+            ...new Set(corrections ? fixed : terms.length ? terms : [needle]),
           ],
+          split: split ?? [],
         },
       };
     },
