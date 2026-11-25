@@ -268,7 +268,7 @@ export function EntriesView({
           split.kind === "none"
             ? "none"
             : split.kind === "open" && split.focusOther
-              ? "side-by-side"
+              ? "open"
               : "closed",
       },
     );

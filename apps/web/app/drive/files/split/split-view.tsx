@@ -331,8 +331,10 @@ export const SplitController = memo(function SplitController({
     kind: "open",
     close: () => keepOnly(latest.current.layout.active),
     openInOther: (path) => openIn(SplitLayout.other(side), path),
+    // Beside this pane, or a swipe away, where focus going there brings it into view; not while
+    // folded away.
     focusOther:
-      sideBySide && layout.collapsed === null
+      !sideBySide || layout.collapsed === null
         ? () => focusPane(SplitLayout.other(side))
         : null,
   });
@@ -365,12 +367,16 @@ export const SplitController = memo(function SplitController({
           prefs={panePrefs[side]}
           active={active}
           onClose={() => keepOnly(SplitLayout.other(side))}
-          onCollapse={() =>
-            go(
-              { collapsed: side, active: SplitLayout.other(side) },
-              undefined,
-              true,
-            )
+          // One pane at a time, there is nothing to fold away.
+          onCollapse={
+            sideBySide
+              ? () =>
+                  go(
+                    { collapsed: side, active: SplitLayout.other(side) },
+                    undefined,
+                    true,
+                  )
+              : null
           }
         />
       ),

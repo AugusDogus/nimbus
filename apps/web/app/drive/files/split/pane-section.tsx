@@ -80,7 +80,7 @@ function PaneViewMenu({
 }: {
   prefs: PanePrefs;
   muted: boolean;
-  onCollapse: () => void;
+  onCollapse: (() => void) | null;
 }) {
   const sort = SortOption.value({
     field: prefs.sortField,
@@ -160,13 +160,17 @@ function PaneViewMenu({
           checked={prefs.view === "grid"}
           onSelect={() => updatePreferences({ view: "grid" })}
         />
-        <DropdownSeparator />
-        <MenuItem
-          index={rows.collapse}
-          label="Collapse pane"
-          closeOnClick
-          onSelect={onCollapse}
-        />
+        {onCollapse && (
+          <>
+            <DropdownSeparator />
+            <MenuItem
+              index={rows.collapse}
+              label="Collapse pane"
+              closeOnClick
+              onSelect={onCollapse}
+            />
+          </>
+        )}
       </DropdownContent>
     </DropdownMenu>
   );
@@ -229,8 +233,8 @@ export function PaneTools({
   active: boolean;
   /** Closes this pane, keeping the other pane's folder as the page's one folder. */
   onClose: () => void;
-  /** Folds this pane into a strip at its edge, which opens it again. */
-  onCollapse: () => void;
+  /** Folds this pane into a strip at its edge, which opens it again; null where panes cannot fold. */
+  onCollapse: (() => void) | null;
 }) {
   return (
     <>

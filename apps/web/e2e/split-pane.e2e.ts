@@ -667,6 +667,22 @@ test.describe("split view on a phone", () => {
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
 
+    // From the keyboard, \\ goes to the other pane; one pane at a time, none folds away.
+    await entry(leftPane(page), "Client Alpha").focus();
+    await page.keyboard.press("\\");
+    await expect(page).toHaveURL(/active=right/);
+    await expect.poll(() => inView(rightPane(page))).toBe(true);
+    await rightPane(page).getByRole("button", { name: "Pane options" }).click();
+    await expect(
+      page.getByRole("menuitemcheckbox", { name: "List" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("menuitem", { name: "Collapse pane" }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await showLeft.click();
+    await expect(page).toHaveURL(/active=left/);
+
     await page.getByRole("button", { name: "Split view" }).click();
     await expect(page.locator("[data-split-view]")).toHaveCount(0);
     await expect(page).toHaveURL(new RegExp(`/browse/${root}/Projects$`));

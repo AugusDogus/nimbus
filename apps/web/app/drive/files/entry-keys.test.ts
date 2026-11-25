@@ -137,7 +137,7 @@ describe("file browser keys", () => {
 describe("split view keys", () => {
   it("opens and closes the split with a bar, and moves to the other pane with a backslash", () => {
     const closed = { ...list, split: "closed" } as const;
-    const open = { ...list, split: "side-by-side" } as const;
+    const open = { ...list, split: "open" } as const;
     expect(commandFor(key("|", { shiftKey: true }), closed)).toEqual({
       type: "toggleSplit",
     });
@@ -163,7 +163,7 @@ describe("split view keys", () => {
   });
 
   it("never takes browser shortcuts or function keys", () => {
-    const open = { ...list, split: "side-by-side" } as const;
+    const open = { ...list, split: "open" } as const;
     expect(commandFor(key("\\", { metaKey: true }), open)).toBeNull();
     expect(commandFor(key("\\", { ctrlKey: true }), open)).toBeNull();
     expect(

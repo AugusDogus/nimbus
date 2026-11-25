@@ -40,10 +40,10 @@ export type KeyContext = {
   pageSize: number;
   isMac: boolean;
   /**
-   * Whether this listing can open a split view (`closed`), is a pane of one with the other pane
-   * beside it (`side-by-side`), or offers neither (`none`).
+   * Whether this listing can open a split view (`closed`), is a pane of one whose other pane can
+   * take focus (`open`), or offers neither (`none`).
    */
-  split: "none" | "closed" | "side-by-side";
+  split: "none" | "closed" | "open";
 };
 
 /**
@@ -59,7 +59,7 @@ function splitCommand(
   const altGr = event.ctrlKey && event.altKey;
   if (!altGr && (event.ctrlKey || event.altKey)) return null;
   if (event.key === "|") return { type: "toggleSplit" };
-  if (event.key === "\\" && context.split === "side-by-side")
+  if (event.key === "\\" && context.split === "open")
     return { type: "focusOtherPane" };
   return null;
 }
