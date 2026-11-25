@@ -446,6 +446,27 @@
 }
 
 /*
+ * Fluid Functionalism's primary button fills with `--foreground` under `--background` text, and
+ * says it is primary only through its classes. Nimbus fills it with the theme's primary instead,
+ * so every theme, built-in or custom, colours it. Hover and press move the fill away from its text
+ * (darker under light text, lighter under dark), so they never lose contrast. A button can take
+ * other colours by setting `--primary` and `--primary-foreground` on itself, as New does.
+ */
+@layer components {
+  :where(.group.isolate.text-background) {
+    --foreground: var(--primary);
+    --background: var(--primary-foreground);
+    --primary-away: oklch(
+      from var(--primary-foreground) clamp(0, (0.6 - l) * 1000, 1) 0 0
+    );
+  }
+  :where(.group.isolate.text-background)
+    > :where(span[aria-hidden]:first-child) {
+    --background: var(--primary-away);
+  }
+}
+
+/*
  * On touch screens, grows a small control's hit area to at least 44 by 44 px around its center,
  * without changing how it looks or the space it takes. Mouse and trackpad layouts are unaffected.
  * Neighbors need 44 px between their centers so the areas do not overlap.

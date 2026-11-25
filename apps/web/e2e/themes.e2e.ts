@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test";
 import { strToU8, zipSync } from "fflate";
+import builtInThemes from "../lib/built-in-themes.json" with { type: "json" };
 import { test } from "./helpers";
 
 const dark = {
@@ -258,4 +259,97 @@ test("pages outside Appearance follow a system color scheme change at once", asy
   }).toPass();
   await page.emulateMedia({ colorScheme: "light" });
   await expect(root).toHaveClass(/\blight\b/);
+});
+
+test("primary buttons take the theme's primary colour, and hover and press keep their contrast", async ({
+  page,
+  isMobile,
+}) => {
+  const hex = (value: string) => {
+    const [r, g, b] = [1, 3, 5].map((at) =>
+      Number.parseInt(value.slice(at, at + 2), 16),
+    );
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+  const themes = [
+    {
+      name: "Nimbus",
+      light: { primary: "#426699", "primary-foreground": "#ffffff" },
+      dark: { primary: "#b8cdf4", "primary-foreground": "#223859" },
+    },
+    ...builtInThemes,
+  ];
+  await page.goto("/settings/appearance");
+  await page
+    .getByRole("button", { name: "Follow the system appearance", exact: true })
+    .click();
+  for (const theme of themes)
+    for (const mode of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: mode });
+      await page.goto("/settings/appearance");
+      await page
+        .getByRole("button", {
+          name: `Use ${theme.name} for ${mode} mode`,
+          exact: true,
+        })
+        .click();
+      await page.goto("/settings/account");
+      const button = page.locator("form button[type=submit]").first();
+      await expect(button).toBeVisible();
+      const fill = button.locator("> span[aria-hidden]").first();
+      const palette = theme[mode];
+      await expect(fill, `${theme.name} ${mode}`).toHaveCSS(
+        "background-color",
+        hex(palette.primary),
+      );
+      await expect(button, `${theme.name} ${mode}`).toHaveCSS(
+        "color",
+        hex(palette["primary-foreground"]),
+      );
+      const contrast = () =>
+        button.evaluate((element) => {
+          const fillElement = element.firstElementChild;
+          if (!fillElement) return 0;
+          const channels = (color: string) =>
+            (color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+          const luminance = (color: string) => {
+            const [r = 0, g = 0, b = 0] = channels(color).map((channel) => {
+              const c = channel / 255;
+              return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+            });
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          };
+          // Colours may come back in another space; a canvas turns them into sRGB.
+          const srgb = (color: string) => {
+            const context = document.createElement("canvas").getContext("2d");
+            if (!context) return color;
+            context.fillStyle = color;
+            context.fillRect(0, 0, 1, 1);
+            const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
+            return `rgb(${r}, ${g}, ${b})`;
+          };
+          const one = luminance(
+            srgb(getComputedStyle(fillElement).backgroundColor),
+          );
+          const other = luminance(srgb(getComputedStyle(element).color));
+          return (Math.max(one, other) + 0.05) / (Math.min(one, other) + 0.05);
+        });
+      const rest = await contrast();
+      expect(rest, `${theme.name} ${mode} at rest`).toBeGreaterThanOrEqual(4.5);
+      // Touch screens have no hover.
+      if (isMobile) continue;
+      await button.hover();
+      // Hover moves the fill away from the label's colour.
+      await expect
+        .poll(contrast, { message: `${theme.name} ${mode} on hover` })
+        .toBeGreaterThan(rest);
+      const hovered = await contrast();
+      // Pressing moves it further; leaving before letting go submits nothing.
+      await page.mouse.down();
+      await expect
+        .poll(contrast, { message: `${theme.name} ${mode} pressed` })
+        .toBeGreaterThan(hovered);
+      await page.mouse.move(0, 0);
+      await page.mouse.up();
+    }
 });
