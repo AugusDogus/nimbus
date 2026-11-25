@@ -205,8 +205,12 @@ be read, the supervisor starts the built-in release and installs and rolls back 
 can no longer tell an update from a downgrade; it says so, and leaves the file for an
 administrator to remove (which restarts the watermark from the image's own build).
 
-Rollback hands over to the previous installed release, verified through the same path as an
-install, and fails when it is no longer installed. The installation keeps the three newest
+Rollback hands over to the release that ran before: an installed one, verified through the same
+path as an install, or the image's own (recorded as `built-in` once an install replaced it), and
+fails when an installed one is no longer there. The watermark does not go back with it: after a
+rollback, a check offers only a build newer than the one rolled back from, so neither an
+administrator's check nor the quiet hour installs that build again; Settings says so when it asks
+to confirm. The installation keeps the three newest
 releases and any release a server still runs.
 
 ## Publishing

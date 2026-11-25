@@ -56,6 +56,11 @@ type Offered = {
 type Done = { ok: true } | { ok: false; message: string };
 
 const MAX_SIGNATURE_BYTES = 4096;
+/**
+ * The image's own release in the state's `previous`: never an installed release's name, which
+ * always ends in a build number and a commit.
+ */
+export const BUILT_IN = "built-in";
 const CHECK_TIMEOUT_MS = 30_000;
 
 /** Fetch the source's `manifest.json` and `manifest.sig`, each within its size. */
@@ -484,8 +489,11 @@ export async function createUpdater({
           : {
               ...raised(current, sequence),
               current: name,
+              // What ran before: the image's own release when nothing installed did.
               previous:
-                current.current === name ? current.previous : current.current,
+                current.current === name
+                  ? current.previous
+                  : (current.current ?? BUILT_IN),
               pending: current.pending === name ? null : current.pending,
             },
       );
@@ -547,7 +555,8 @@ export async function createUpdater({
           message:
             "There is no earlier release to roll back to: the built-in release runs and nothing ran before it.",
         };
-      return { ok: true, name: state.previous };
+      // A state from before the image's own release was recorded by name means it.
+      return { ok: true, name: state.previous ?? BUILT_IN };
     },
 
     /** Remove installed releases no longer needed; `running` are ones servers still run. */

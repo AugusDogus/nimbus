@@ -15,7 +15,10 @@ import { UpdateSchedule } from "./update-schedule";
 export type ReleaseState = {
   /** The release servers start from; null for the image's built-in one. */
   current: string | null;
-  /** The release that ran before `current`, which a rollback returns to; null for built-in. */
+  /**
+   * The release that ran before `current`, which a rollback returns to: an installed release's
+   * name, or "built-in" for the image's own; null when nothing ran before.
+   */
   previous: string | null;
   /**
    * The release a handover is switching to until it is active. A full restart stops every

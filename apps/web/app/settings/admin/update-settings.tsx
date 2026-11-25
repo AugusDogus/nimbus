@@ -226,7 +226,10 @@ export function UpdateSettings() {
     !off &&
     data &&
     (data.previous !== null || data.running.name !== "built-in");
-  const rollBackTo = data?.previous ?? "the image's own release";
+  const rollBackTo =
+    data?.previous && data.previous !== "built-in"
+      ? data.previous
+      : "the image's own release";
 
   return (
     <SettingsSection
@@ -310,7 +313,7 @@ export function UpdateSettings() {
                   onClick={() =>
                     setConfirmation({
                       title: "Roll back Nimbus?",
-                      description: `Nimbus goes back to ${rollBackTo}. Connections stay open while it takes over; you can update again afterwards.`,
+                      description: `Nimbus goes back to ${rollBackTo}. Connections stay open while it takes over. Afterwards it offers only a build newer than the one it leaves, so it does not install that one again on its own.`,
                       confirmLabel: "Roll back",
                       action: () => act("rollback"),
                     })

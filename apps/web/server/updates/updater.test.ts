@@ -425,3 +425,30 @@ test("a floor or activation that cannot be written turns installs and rollbacks 
     await chmod(releases, 0o755);
   }
 });
+
+test("the image's own release is recorded as the one before an install, both ways, and a rollback does not re-offer what it left", async () => {
+  const first = await installTestRelease(releases, release(201), {
+    privateKey,
+    natives: natives(),
+  });
+  const second = await installTestRelease(releases, release(202), {
+    privateKey,
+    natives: natives(),
+  });
+  const run = await updater();
+  // Built-in to installed: the image's own release ran before.
+  expect((await run.resolve(first)).ok).toBe(true);
+  expect(await run.ran(first)).toEqual({ ok: true });
+  expect(run.status().previous).toBe("built-in");
+  expect(await run.rollbackTarget()).toEqual({ ok: true, name: "built-in" });
+  // Installed to installed.
+  expect((await run.resolve(second)).ok).toBe(true);
+  expect(await run.ran(second)).toEqual({ ok: true });
+  expect(run.status().previous).toBe(first);
+  // Back to the image's own release: the one left stays recorded, and is not offered again.
+  expect(await run.ran(null)).toEqual({ ok: true });
+  expect(run.status().previous).toBe(second);
+  await offer(release(202));
+  const checked = await run.check();
+  expect(checked.ok && checked.status.available).toBeNull();
+});

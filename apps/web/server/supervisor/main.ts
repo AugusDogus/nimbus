@@ -20,6 +20,7 @@ import { BuildInfo } from "../updates/build-info";
 import { TrustRoot } from "../updates/trust-root";
 import { UpdateSource } from "../updates/update-source";
 import {
+  BUILT_IN,
   createUpdater,
   type FetchManifest,
   type RunInstaller,
@@ -1037,7 +1038,7 @@ function rollBack() {
         ok: false,
         error: { kind: "update-failed", message: target.message },
       };
-    if (target.name === null)
+    if (target.name === null || target.name === BUILT_IN)
       return handOver({ kind: "built-in" }, reservation);
     // Only the installed release that ran before, through the verified path; never one of that
     // name found anywhere else.
