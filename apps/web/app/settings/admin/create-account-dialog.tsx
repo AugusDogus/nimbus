@@ -4,7 +4,6 @@ import { authClient } from "@/lib/auth-client";
 import { queryClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FieldLabel } from "@/components/ui/field";
 
 export function CreateAccountDialog({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -88,7 +88,7 @@ export function CreateAccountDialog({ onClose }: { onClose: () => void }) {
           }
         >
           <div className="space-y-2">
-            <Label htmlFor="new-user-name">Name</Label>
+            <FieldLabel htmlFor="new-user-name">Name</FieldLabel>
             <Input
               name="name"
               id="new-user-name"
@@ -98,7 +98,7 @@ export function CreateAccountDialog({ onClose }: { onClose: () => void }) {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="new-user-email">Email</Label>
+            <FieldLabel htmlFor="new-user-email">Email</FieldLabel>
             <Input
               name="email"
               id="new-user-email"
@@ -109,7 +109,9 @@ export function CreateAccountDialog({ onClose }: { onClose: () => void }) {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="new-user-password">Initial password</Label>
+            <FieldLabel htmlFor="new-user-password">
+              Initial password
+            </FieldLabel>
             <Input
               name="password"
               id="new-user-password"

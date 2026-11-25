@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { FieldLabel } from "@/components/ui/field";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import type { AdminConfirmation } from "./admin-confirmation-dialog";
 import { SettingsSection } from "../settings-section";
@@ -119,9 +119,9 @@ export function HomeSharingSettings({
     >
       <div className="flex items-start justify-between gap-4 px-4 py-5 sm:px-5">
         <div className="min-w-0 space-y-1">
-          <Label htmlFor="allow-home-container-sharing">
+          <FieldLabel htmlFor="allow-home-container-sharing">
             Allow sharing the home folders container
-          </Label>
+          </FieldLabel>
           <p
             id="allow-home-container-sharing-hint"
             className="max-w-prose text-pretty text-sm text-muted-foreground"

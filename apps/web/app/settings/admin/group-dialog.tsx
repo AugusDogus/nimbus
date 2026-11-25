@@ -4,7 +4,6 @@ import { Users } from "lucide-react";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FieldLabel } from "@/components/ui/field";
 
 export type GroupEditor =
   | { kind: "create" }
@@ -89,7 +89,7 @@ export function GroupDialog({
           }
         >
           <div className="space-y-2">
-            <Label htmlFor="group-name">Group name</Label>
+            <FieldLabel htmlFor="group-name">Group name</FieldLabel>
             <Input
               id="group-name"
               required

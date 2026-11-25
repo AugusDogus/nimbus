@@ -10,7 +10,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -18,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FieldLabel } from "@/components/ui/field";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { LinkSettingsDraft, LinkSettingsFields } from "./link-settings";
 import { DriveRoot } from "@nimbus/api/drive-root";
@@ -104,7 +104,9 @@ export default function EditLinkDialog({
         >
           {link.passwordProtected && (
             <>
-              <Label htmlFor="edit-link-password-choice">Password</Label>
+              <FieldLabel htmlFor="edit-link-password-choice">
+                Password
+              </FieldLabel>
               <Select
                 items={passwordChoices}
                 value={choice}
@@ -130,11 +132,11 @@ export default function EditLinkDialog({
           )}
           {passwordInput && (
             <>
-              <Label htmlFor="edit-link-password">
+              <FieldLabel htmlFor="edit-link-password">
                 {link.passwordProtected
                   ? "New password"
                   : "Password (optional)"}
-              </Label>
+              </FieldLabel>
               <Input
                 id="edit-link-password"
                 type="password"

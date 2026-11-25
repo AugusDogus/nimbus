@@ -9,7 +9,7 @@ import { NimbusLogo } from "@/components/nimbus-logo";
 import { NimbusWordmark } from "@/components/nimbus-wordmark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/ui/field";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   EntryThumbnail,
@@ -112,7 +112,7 @@ export function PublicShare({ token }: { token: string }) {
           <p className="text-pretty text-sm text-muted-foreground">
             Enter the password provided by the owner.
           </p>
-          <Label htmlFor="share-password">Password</Label>
+          <FieldLabel htmlFor="share-password">Password</FieldLabel>
           <Input
             ref={passwordField}
             id="share-password"

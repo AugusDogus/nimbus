@@ -3,7 +3,6 @@ import { KeyRound } from "lucide-react";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FieldLabel } from "@/components/ui/field";
 import { CopyField } from "./copy-field";
 
 type PasswordStep =
@@ -94,7 +94,7 @@ export function CreatePasswordDialog({ onClose }: { onClose: () => void }) {
             }
           >
             <div className="space-y-2">
-              <Label htmlFor="device-name">Device name</Label>
+              <FieldLabel htmlFor="device-name">Device name</FieldLabel>
               <Input
                 id="device-name"
                 name="name"

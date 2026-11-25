@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/ui/field";
 import { SettingsSection } from "../settings-section";
 
 export type PasskeySummary = {
@@ -192,7 +192,7 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeySummary[] }) {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
-              <Label htmlFor="passkey-name">Passkey name</Label>
+              <FieldLabel htmlFor="passkey-name">Passkey name</FieldLabel>
               <Input
                 id="passkey-name"
                 name="name"

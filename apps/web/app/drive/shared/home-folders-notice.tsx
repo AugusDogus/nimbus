@@ -5,7 +5,7 @@ import type {
   SharingKind,
 } from "@nimbus/api/home-container-sharing";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/ui/field";
 import { trpcClient } from "@/lib/trpc";
 
 /**
@@ -123,11 +123,14 @@ export function HomeFoldersNotice({
           checked={acknowledged}
           onCheckedChange={(checked) => onAcknowledgedChange(checked)}
         />
-        <Label htmlFor={`${id}-confirm`} className="text-pretty font-normal">
+        <FieldLabel
+          htmlFor={`${id}-confirm`}
+          className="text-pretty font-normal"
+        >
           {sharing === "uploadLink"
             ? `I understand anyone with the link can add files beside all ${count}`
             : `I understand this exposes all ${count}`}
-        </Label>
+        </FieldLabel>
       </div>
     </div>
   );

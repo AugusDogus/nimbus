@@ -2,7 +2,7 @@ import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/ui/field";
 import { SettingsRow, SettingsSection } from "../settings-section";
 
 export function PasswordSettings() {
@@ -72,7 +72,9 @@ export function PasswordSettings() {
         }
       >
         <SettingsRow
-          label={<Label htmlFor="current-password">Current password</Label>}
+          label={
+            <FieldLabel htmlFor="current-password">Current password</FieldLabel>
+          }
         >
           <Input
             id="current-password"
@@ -85,7 +87,7 @@ export function PasswordSettings() {
           />
         </SettingsRow>
         <SettingsRow
-          label={<Label htmlFor="new-password">New password</Label>}
+          label={<FieldLabel htmlFor="new-password">New password</FieldLabel>}
           description="Use at least 8 characters."
         >
           <Input
@@ -102,7 +104,9 @@ export function PasswordSettings() {
         </SettingsRow>
         <SettingsRow
           label={
-            <Label htmlFor="confirm-new-password">Confirm new password</Label>
+            <FieldLabel htmlFor="confirm-new-password">
+              Confirm new password
+            </FieldLabel>
           }
         >
           <Input

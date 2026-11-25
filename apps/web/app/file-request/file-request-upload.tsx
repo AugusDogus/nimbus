@@ -12,7 +12,7 @@ import { NimbusWordmark } from "@/components/nimbus-wordmark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/ui/field";
 import { ByteSize } from "@/lib/byte-size";
 import { useLocalTime } from "@/lib/use-local-time";
 import {
@@ -233,7 +233,7 @@ export function FileRequestUpload({ token }: { token: string }) {
           <p className="text-pretty text-sm text-muted-foreground">
             Enter the password provided with the link.
           </p>
-          <Label htmlFor="request-password">Password</Label>
+          <FieldLabel htmlFor="request-password">Password</FieldLabel>
           <Input
             ref={passwordField}
             id="request-password"

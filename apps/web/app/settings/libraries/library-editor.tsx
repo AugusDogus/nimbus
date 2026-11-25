@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/ui/field";
 import { trpcClient } from "@/lib/trpc";
 import { trpcErrorCode } from "@/lib/trpc-error";
 import type { Library } from "@/server/libraries/libraries";
@@ -148,7 +148,7 @@ export function LibraryEditor({
             }}
           >
             <div className="space-y-2">
-              <Label htmlFor="library-title">Name</Label>
+              <FieldLabel htmlFor="library-title">Name</FieldLabel>
               <Input
                 id="library-title"
                 value={title}

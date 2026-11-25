@@ -476,9 +476,7 @@ export function LoginForm({
                   </FieldDescription>
                 ) : null}
               </Field>
-              <FieldSeparator className="*:data-[slot=field-separator-content]:bg-card">
-                Or
-              </FieldSeparator>
+              <FieldSeparator className="[&>span]:bg-card">Or</FieldSeparator>
               <Field>
                 <Button
                   type="button"

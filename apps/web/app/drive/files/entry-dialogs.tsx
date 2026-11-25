@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import { lazyComponent } from "@/components/lazy-component";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FieldLabel } from "@/components/ui/field";
 import type { PinnedPlace } from "./destination-picker/destination-picker";
 import type { TransferResult } from "./transfer-result";
 import type { FileEntry } from "./types";
@@ -228,7 +228,7 @@ function RenameDialog({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4">
-            <Label htmlFor="entry-name">Name</Label>
+            <FieldLabel htmlFor="entry-name">Name</FieldLabel>
             <Input
               id="entry-name"
               value={name}

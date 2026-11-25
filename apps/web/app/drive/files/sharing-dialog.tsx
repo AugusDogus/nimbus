@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -18,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FieldLabel } from "@/components/ui/field";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { toast } from "@/lib/toast";
 import type { Permission } from "@nimbus/api/drive-store";
@@ -147,7 +147,7 @@ export function SharingDialog({
                 });
             }}
           >
-            <Label htmlFor="share-person">Person or group</Label>
+            <FieldLabel htmlFor="share-person">Person or group</FieldLabel>
             <Select
               items={subjects}
               value={subject}
@@ -164,7 +164,7 @@ export function SharingDialog({
                 ))}
               </SelectContent>
             </Select>
-            <Label htmlFor="share-permission">Permission</Label>
+            <FieldLabel htmlFor="share-permission">Permission</FieldLabel>
             <Select
               items={permissions}
               value={permission}
@@ -264,7 +264,9 @@ export function SharingDialog({
             }}
           >
             <p className="text-sm font-medium">Public link</p>
-            <Label htmlFor="share-password">Password (optional)</Label>
+            <FieldLabel htmlFor="share-password">
+              Password (optional)
+            </FieldLabel>
             <Input
               id="share-password"
               type="password"

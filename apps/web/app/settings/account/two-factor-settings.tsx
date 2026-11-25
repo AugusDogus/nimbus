@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/ui/field";
 import { securityClient } from "@/lib/security-client";
 import { SettingsSection } from "../settings-section";
 import { CopyField } from "../webdav/copy-field";
@@ -195,7 +195,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-2">
-                <Label htmlFor="two-factor-password">Password</Label>
+                <FieldLabel htmlFor="two-factor-password">Password</FieldLabel>
                 <Input
                   id="two-factor-password"
                   name="password"
@@ -284,7 +284,9 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
                 <CopyField label="Setup key" value={flow.secret} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="two-factor-code">Code from the app</Label>
+                <FieldLabel htmlFor="two-factor-code">
+                  Code from the app
+                </FieldLabel>
                 <Input
                   id="two-factor-code"
                   name="code"

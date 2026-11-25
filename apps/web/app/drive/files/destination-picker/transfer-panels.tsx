@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/ui/field";
 import type { TransferClash, TransferResult } from "../transfer-result";
 
 /** Items listed by name before the rest are counted. */
@@ -93,7 +93,7 @@ export function ClashPanel({
             if (trimmed) onChoose({ kind: "rename", name: trimmed });
           }}
         >
-          <Label htmlFor={inputId}>New name</Label>
+          <FieldLabel htmlFor={inputId}>New name</FieldLabel>
           <div className="flex gap-2">
             <Input
               ref={nameInput}

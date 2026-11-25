@@ -9,7 +9,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -17,6 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FieldLabel } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
 import { ByteSize } from "@/lib/byte-size";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { localDateTimeInput } from "./link-settings";
@@ -180,7 +181,7 @@ export default function FileRequestDialog({
         </DialogHeader>
         {link ? (
           <div className="space-y-3">
-            <Label htmlFor="file-request-link">Upload link</Label>
+            <FieldLabel htmlFor="file-request-link">Upload link</FieldLabel>
             <div className="flex gap-2">
               <Input
                 id="file-request-link"
@@ -223,19 +224,19 @@ export default function FileRequestDialog({
               void save();
             }}
           >
-            <Label htmlFor="file-request-note">
+            <FieldLabel htmlFor="file-request-note">
               Note for uploaders (optional)
-            </Label>
-            <textarea
+            </FieldLabel>
+            <Textarea
               id="file-request-note"
               maxLength={1000}
-              rows={3}
-              className="border-input dark:bg-input/30 placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 w-full min-w-0 resize-y rounded-md border bg-transparent px-3 py-2 text-base shadow-xs outline-none focus-visible:ring-[3px] md:text-sm"
               {...field("note")}
             />
             {protectedRequest && (
               <>
-                <Label htmlFor="file-request-password-choice">Password</Label>
+                <FieldLabel htmlFor="file-request-password-choice">
+                  Password
+                </FieldLabel>
                 <Select
                   items={passwordChoices}
                   value={choice}
@@ -261,9 +262,9 @@ export default function FileRequestDialog({
             )}
             {choice === "set" && (
               <>
-                <Label htmlFor="file-request-password">
+                <FieldLabel htmlFor="file-request-password">
                   {protectedRequest ? "New password" : "Password (optional)"}
-                </Label>
+                </FieldLabel>
                 <Input
                   id="file-request-password"
                   type="password"
@@ -276,7 +277,9 @@ export default function FileRequestDialog({
                 />
               </>
             )}
-            <Label htmlFor="file-request-expiry">Expires (optional)</Label>
+            <FieldLabel htmlFor="file-request-expiry">
+              Expires (optional)
+            </FieldLabel>
             <Input
               id="file-request-expiry"
               type="datetime-local"
@@ -284,7 +287,9 @@ export default function FileRequestDialog({
             />
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="file-request-max-file">Largest file (MB)</Label>
+                <FieldLabel htmlFor="file-request-max-file">
+                  Largest file (MB)
+                </FieldLabel>
                 <Input
                   id="file-request-max-file"
                   type="number"
@@ -295,7 +300,9 @@ export default function FileRequestDialog({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="file-request-max-files">Number of files</Label>
+                <FieldLabel htmlFor="file-request-max-files">
+                  Number of files
+                </FieldLabel>
                 <Input
                   id="file-request-max-files"
                   type="number"
@@ -307,7 +314,9 @@ export default function FileRequestDialog({
                 />
               </div>
             </div>
-            <Label htmlFor="file-request-max-total">Total size (MB)</Label>
+            <FieldLabel htmlFor="file-request-max-total">
+              Total size (MB)
+            </FieldLabel>
             <Input
               id="file-request-max-total"
               type="number"

@@ -1,7 +1,7 @@
 import type { ShareMode } from "@nimbus/api/drive-store";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/ui/field";
 
 /** Form state for the settings shared by creating and editing a public link. */
 export type LinkSettingsDraft = {
@@ -55,14 +55,14 @@ export function LinkSettingsFields({
 }) {
   return (
     <>
-      <Label htmlFor={`${id}-expiry`}>Expires (optional)</Label>
+      <FieldLabel htmlFor={`${id}-expiry`}>Expires (optional)</FieldLabel>
       <Input
         id={`${id}-expiry`}
         type="datetime-local"
         value={value.expiry}
         onChange={(event) => onChange({ ...value, expiry: event.target.value })}
       />
-      <Label htmlFor={`${id}-limit`}>Download limit (optional)</Label>
+      <FieldLabel htmlFor={`${id}-limit`}>Download limit (optional)</FieldLabel>
       <Input
         id={`${id}-limit`}
         type="number"
@@ -94,7 +94,7 @@ export function LinkSettingsFields({
           }
         />
         <div className="space-y-1">
-          <Label htmlFor={`${id}-view-only`}>Preview only</Label>
+          <FieldLabel htmlFor={`${id}-view-only`}>Preview only</FieldLabel>
           <p
             id={`${id}-view-only-hint`}
             className="text-pretty text-xs text-muted-foreground"

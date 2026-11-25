@@ -1,7 +1,6 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -9,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FieldLabel } from "@/components/ui/field";
 
 type Filters = { action: string; actor: string; from: string; to: string };
 const any = "any";
@@ -46,7 +46,7 @@ export function AuditFilters({
       onSubmit={(event) => event.preventDefault()}
     >
       <div className="space-y-2">
-        <Label htmlFor="audit-action">Event</Label>
+        <FieldLabel htmlFor="audit-action">Event</FieldLabel>
         <Select
           items={actionItems}
           value={value.action || any}
@@ -67,7 +67,7 @@ export function AuditFilters({
         </Select>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="audit-actor">Account</Label>
+        <FieldLabel htmlFor="audit-actor">Account</FieldLabel>
         <Select
           items={accountItems}
           value={value.actor || any}
@@ -88,7 +88,7 @@ export function AuditFilters({
         </Select>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="audit-from">From (UTC)</Label>
+        <FieldLabel htmlFor="audit-from">From (UTC)</FieldLabel>
         <Input
           id="audit-from"
           type="date"
@@ -98,7 +98,7 @@ export function AuditFilters({
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="audit-to">To (UTC)</Label>
+        <FieldLabel htmlFor="audit-to">To (UTC)</FieldLabel>
         <div className="flex gap-2">
           <Input
             id="audit-to"

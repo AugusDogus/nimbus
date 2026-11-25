@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageSurface } from "@/components/page-surface";
 import { cn } from "@/lib/utils";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -14,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { FieldLabel } from "@/components/ui/field";
 import { UploadProgress } from "@/components/upload-progress";
 import { trpcClient } from "@/lib/trpc";
 import type { PairingReview } from "@/server/libraries/device-pairing";
@@ -130,7 +130,9 @@ export function PairPage({
               }}
             >
               <div className="space-y-2">
-                <Label htmlFor="pairing-code">Code shown on the device</Label>
+                <FieldLabel htmlFor="pairing-code">
+                  Code shown on the device
+                </FieldLabel>
                 <Input
                   id="pairing-code"
                   value={code}
@@ -206,7 +208,7 @@ export function PairPage({
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <Label htmlFor="pairing-library">Library</Label>
+                  <FieldLabel htmlFor="pairing-library">Library</FieldLabel>
                   <Select
                     items={step.review.libraries.map((library) => ({
                       value: library.id,

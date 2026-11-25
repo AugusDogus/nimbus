@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FieldLabel } from "@/components/ui/field";
 import { OpenVsxThemes, type OpenVsxExtension } from "@/lib/open-vsx-themes";
 import type { ThemeResult, VsCodeTheme } from "@/lib/vscode-theme";
 import { cn } from "@/lib/utils";
@@ -89,7 +89,7 @@ export function ThemeSearch({
         }}
       >
         <div className="min-w-0 flex-1 space-y-2">
-          <Label htmlFor="theme-search">Search themes</Label>
+          <FieldLabel htmlFor="theme-search">Search themes</FieldLabel>
           <Input
             id="theme-search"
             type="search"

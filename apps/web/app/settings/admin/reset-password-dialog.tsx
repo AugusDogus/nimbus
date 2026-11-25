@@ -3,7 +3,6 @@ import { KeyRound } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FieldLabel } from "@/components/ui/field";
 
 export function ResetPasswordDialog({
   user,
@@ -88,7 +88,7 @@ export function ResetPasswordDialog({
           }
         >
           <div className="space-y-2">
-            <Label htmlFor="reset-password">New password</Label>
+            <FieldLabel htmlFor="reset-password">New password</FieldLabel>
             <Input
               id="reset-password"
               name="password"
