@@ -7,8 +7,14 @@ import { unzipSync, strFromU8 } from "fflate";
 import { z } from "zod";
 import { client, test, whenCanCreate } from "./helpers";
 import { FileListing } from "@nimbus/api/file-listing";
+import { Device } from "../lib/device";
 
 const mod = process.platform === "darwin" ? "Meta" : "Control";
+/** The key the file list's shortcuts take, which follows the device the browser says it is. */
+const listMod = async (page: Page) =>
+  Device.isMac(await page.evaluate(() => navigator.userAgent))
+    ? "Meta"
+    : "Control";
 
 async function dataRoot() {
   const manifest: unknown = JSON.parse(
@@ -106,9 +112,8 @@ test("selects with the mouse and keyboard, then downloads one ZIP and trashes th
 
 test("navigates with arrows, type-ahead, select all, rename, and the shortcut sheet", async ({
   page,
-  isMobile,
 }) => {
-  test.skip(isMobile, "Hardware keyboard shortcuts are a desktop feature.");
+  // Every device: phones and tablets take a keyboard too.
   const { folder } = await folderWithFiles([
     "alpha.txt",
     "beta.txt",
@@ -127,7 +132,7 @@ test("navigates with arrows, type-ahead, select all, rename, and the shortcut sh
   await expect(entry(page, "bravo.txt")).toBeFocused();
   await expect(entry(page, "bravo.txt")).toHaveAttribute("tabindex", "0");
   await expect(entry(page, "alpha.txt")).toHaveAttribute("tabindex", "-1");
-  await page.keyboard.press(`${mod}+a`);
+  await page.keyboard.press(`${await listMod(page)}+a`);
   await expect(bar(page)).toContainText("4 selected");
   await page.keyboard.press("Escape");
   await page.keyboard.press("F2");
@@ -608,9 +613,8 @@ test("empties trash in one step after confirmation", async ({
 test("Tab reaches an entry on screen after scrolling a long folder", async ({
   page,
   context,
-  isMobile,
 }) => {
-  test.skip(isMobile, "Keyboard navigation is a desktop interaction.");
+  // Every device: phones and tablets take a keyboard too.
   await (
     await client(context)
   ).prefs.set.mutate({
@@ -634,8 +638,13 @@ test("Tab reaches an entry on screen after scrolling a long folder", async ({
     element?.scrollTo(0, 10_000);
   });
   await expect(entry(page, "row 000.txt")).toHaveCount(0);
-  // Start from the control just before the list, as someone tabbing through the page would.
-  await page.getByRole("combobox", { name: "Sort files" }).focus();
+  // Start from the control just before the list, as someone tabbing through the page would: the
+  // sort menu, or in a narrow window the sort and filter drawer's button.
+  await page
+    .getByRole("combobox", { name: "Sort files" })
+    .or(page.getByRole("button", { name: "Sort and filter options" }))
+    .filter({ visible: true })
+    .focus();
   let reached = false;
   for (let press = 0; press < 6 && !reached; press++) {
     await page.keyboard.press("Tab");

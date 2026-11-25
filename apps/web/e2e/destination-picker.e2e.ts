@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { z } from "zod";
+import { Device } from "../lib/device";
 import {
   action,
   asMember,
@@ -154,11 +155,10 @@ test("renders a bounded window of a folder with 2,000 folders", async ({
   expect(await list.getByRole("option").count()).toBeLessThan(80);
 });
 
+// Every device: phones and tablets take a keyboard too.
 test("moves with the keyboard alone, and Escape returns focus to what opened it", async ({
   page,
-  isMobile,
 }) => {
-  test.skip(isMobile, "Phones have no hardware keyboard.");
   const { top, names } = await tree({ "notes.txt": "notes" }, [
     "alpha/deep",
     "beta",
@@ -168,11 +168,21 @@ test("moves with the keyboard alone, and Escape returns focus to what opened it"
     name: "Actions for notes.txt",
     exact: true,
   });
+  // The actions button opens a drawer where the pointer is a finger, and a menu elsewhere.
+  const coarse = await page.evaluate(
+    (query) => matchMedia(query).matches,
+    Device.query.coarse,
+  );
+  const moveItem = coarse
+    ? page
+        .getByRole("dialog", { name: "notes.txt", exact: true })
+        .getByRole("button", { name: "Move to…" })
+    : page.getByRole("menuitem", { name: "Move to…" });
   await opener.focus();
   await page.keyboard.press("Enter");
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: "Move to…" })).toBeVisible();
-  await page.getByRole("menuitem", { name: "Move to…" }).focus();
+  await expect(moveItem).toBeVisible();
+  await moveItem.focus();
   await page.keyboard.press("Enter");
   const dialog = picker(page);
   await expect(dialog).toBeVisible();
@@ -181,7 +191,7 @@ test("moves with the keyboard alone, and Escape returns focus to what opened it"
   await expect(opener).toBeFocused();
 
   await page.keyboard.press("Enter");
-  await page.getByRole("menuitem", { name: "Move to…" }).focus();
+  await moveItem.focus();
   await page.keyboard.press("Enter");
   await expect(dialog).toBeVisible();
   // From the search field, Down enters the list; Enter opens a folder.

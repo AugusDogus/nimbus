@@ -44,9 +44,12 @@ async function overlap(a: Locator, b: Locator) {
 
 test("the drawer's last action stays reachable with the impersonation banner on a small phone", async ({
   page,
-  isMobile,
+  hasTouch,
 }) => {
-  test.skip(!isMobile, "Drawers replace menus on touch screens only.");
+  test.skip(
+    !hasTouch,
+    "Item actions open in a drawer only where the pointer is a finger.",
+  );
   // 320 by 568 is the smallest phone in use. At 320 by 480 the banner itself covers half
   // the screen, which is the banner's to fix.
   await page.setViewportSize({ width: 320, height: 568 });

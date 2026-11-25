@@ -29,9 +29,12 @@ for (const size of [
   test(`every drawer action is reachable on a ${size.width}x${size.height} screen`, async ({
     page,
     context,
-    isMobile,
+    hasTouch,
   }) => {
-    test.skip(!isMobile, "Drawers replace menus on touch screens only.");
+    test.skip(
+      !hasTouch,
+      "Item actions open in a drawer only where the pointer is a finger.",
+    );
     await page.setViewportSize(size);
     const folder = `drawer-${randomUUID()}`;
     await (await client(context)).files.createFolder.mutate({ name: folder });
@@ -73,9 +76,9 @@ for (const size of [
 test("the sort drawer tells screen readers which choices are on", async ({
   page,
   context,
-  isMobile,
 }) => {
-  test.skip(!isMobile, "Drawers replace menus on touch screens only.");
+  // A narrow window gathers sort and filters in one drawer, whatever the pointer.
+  await page.setViewportSize({ width: 375, height: 700 });
   await (
     await client(context)
   ).prefs.set.mutate({
