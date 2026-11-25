@@ -452,3 +452,22 @@ test("the image's own release is recorded as the one before an install, both way
   const checked = await run.check();
   expect(checked.ok && checked.status.available).toBeNull();
 });
+
+test("once the offered release runs, the last check says so instead of offering it, also after a restart", async () => {
+  const offered = release(210);
+  await offer(offered);
+  const run = await updater();
+  expect((await run.check()).ok).toBe(true);
+  expect(run.status().lastCheck?.outcome).toContain("is available");
+  const name = await installTestRelease(releases, offered, {
+    privateKey,
+    natives: natives(),
+  });
+  expect((await run.resolve(name)).ok).toBe(true);
+  expect(await run.ran(name)).toEqual({ ok: true });
+  expect(run.status().available).toBeNull();
+  expect(run.status().lastCheck?.outcome).toContain("runs now");
+  expect(run.status().lastCheck?.outcome).not.toContain("is available");
+  const restarted = await updater();
+  expect(restarted.status().lastCheck?.outcome).toContain("runs now");
+});

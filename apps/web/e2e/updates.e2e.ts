@@ -323,3 +323,27 @@ test("without a supervisor the page says so, and only an administrator from Nimb
     await anonymous.close();
   }
 });
+
+test("the build that runs is never shown as available", async ({ page }) => {
+  await stub(page, () => ({
+    json: {
+      panel: panel({
+        running: {
+          name: "edge-101-dddddddddddd",
+          sequence: 101,
+          commit: "d".repeat(40),
+        },
+        available: offer,
+      }),
+    },
+  }));
+  await page.goto("/settings/admin");
+  const updates = section(page);
+  await expect(updates.getByText("Nimbus is up to date")).toBeVisible();
+  await expect(
+    updates.getByText("Build 101 (ddddddd) is available"),
+  ).toHaveCount(0);
+  await expect(updates.getByRole("button", { name: "Update now" })).toHaveCount(
+    0,
+  );
+});

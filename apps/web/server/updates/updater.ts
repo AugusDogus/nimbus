@@ -474,11 +474,14 @@ export async function createUpdater({
         name === null
           ? builtInSequence
           : (known.get(name)?.build.sequence ?? 0);
-      if (
+      // The release the last check offered runs now: what that check said is no longer true.
+      const caughtUp =
         offered &&
         name !== null &&
         ReleaseManifest.releaseName(offered.manifest) === name
-      ) {
+          ? offered.manifest.build
+          : null;
+      if (caughtUp) {
         offered = null;
         available = null;
       }
@@ -489,6 +492,13 @@ export async function createUpdater({
           : {
               ...raised(current, sequence),
               current: name,
+              lastCheck:
+                caughtUp && current.lastCheck
+                  ? {
+                      at: current.lastCheck.at,
+                      outcome: `Nimbus is up to date: build ${caughtUp.sequence} (${caughtUp.commit.slice(0, 12)}), the newest that check found, runs now.`,
+                    }
+                  : current.lastCheck,
               // What ran before: the image's own release when nothing installed did.
               previous:
                 current.current === name

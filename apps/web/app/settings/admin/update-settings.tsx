@@ -458,7 +458,15 @@ function Status({
           }
         : { ok: false, message: data.lastOutcome.message }
       : null);
-  const available = data.available;
+  // Never the build that runs as available, whatever an older answer said.
+  const available =
+    data.available &&
+    !(
+      data.running.sequence !== null &&
+      data.available.build.sequence <= data.running.sequence
+    )
+      ? data.available
+      : null;
   return (
     <div className="space-y-4 px-4 py-4 sm:px-5">
       {outcome &&
