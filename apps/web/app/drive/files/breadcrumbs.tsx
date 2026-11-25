@@ -28,10 +28,12 @@ import { FolderLink } from "./folder-link";
 const springMs = 600;
 
 /**
- * The trail's width, in pixels, from which it names the root and shows the parent folder: as
- * wide as at 1024 px beside the open sidebar, which is where they first fit.
+ * The trail's width, in pixels, from which it names the root instead of showing its icon, and
+ * from which it shows the parent folder too: as wide as at 1024 px beside the open sidebar, where
+ * the parent first fits. A pane of a split view is narrower but still names the root, as the
+ * folder it came from did.
  */
-const roomyFrom = 400;
+const roomFor = { rootName: 240, parent: 400 } as const;
 
 /**
  * What makes the trail's folders take drops: the page's drag, and which of them the account may
@@ -93,7 +95,8 @@ export function FileBreadcrumbs({
 }) {
   const segmentCrumbs = trail.crumbs;
   const [nav, setNav] = useState<HTMLElement | null>(null);
-  const roomy = (Device.useWidth(nav) ?? 0) >= roomyFrom;
+  const width = Device.useWidth(nav) ?? 0;
+  const rootNamed = width >= roomFor.rootName;
   const [menuOpen, setMenuOpen] = useState(false);
   // The collapsed folders open by themselves while something is dragged over them, and close
   // again once that drag ends, wherever it was dropped. The page knows when its own item drag
@@ -132,7 +135,7 @@ export function FileBreadcrumbs({
   // Middle crumbs sit between root and the current page. All but the parent always collapse.
   const middleCrumbs = segmentCrumbs.slice(0, -1);
   const parent = middleCrumbs.at(-1);
-  const showParent = roomy && !folded;
+  const showParent = width >= roomFor.parent && !folded;
   // With nothing else to collapse, a roomy trail has no ellipsis.
   const ellipsisClassName =
     middleCrumbs.length === 1 && showParent ? "hidden" : undefined;
@@ -167,7 +170,7 @@ export function FileBreadcrumbs({
               />
             }
           >
-            {roomy ? (
+            {rootNamed ? (
               <span>{trail.root.label}</span>
             ) : (
               <HardDrive className="size-4" />
