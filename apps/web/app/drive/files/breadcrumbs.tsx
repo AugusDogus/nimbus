@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { menuRowLink } from "@/components/menu-row-link";
+import { Device } from "@/lib/device";
 import { cn } from "@/lib/utils";
 import type { BreadcrumbTrail, Crumb } from "./breadcrumb-trail";
 import type { DropTarget } from "./drop-target";
@@ -25,6 +26,12 @@ import { FolderLink } from "./folder-link";
 
 /** Hovering the collapsed folders this long while dragging opens them, to drop on one. */
 const springMs = 600;
+
+/**
+ * The trail's width, in pixels, from which it names the root and shows the parent folder: as
+ * wide as at 1024 px beside the open sidebar, which is where they first fit.
+ */
+const roomyFrom = 400;
 
 /**
  * What makes the trail's folders take drops: the page's drag, and which of them the account may
@@ -70,7 +77,7 @@ function crumbDrop(drop: CrumbDrop | undefined, crumb: Crumb) {
  * Narrower ones collapse it too:        `[drive icon] > ... > Current`
  *
  * The root is the account's top folder, so `Files` is the home for an account limited to it.
- * Pure CSS: the parent shows from the `lg` breakpoint, where the sidebar leaves room for it.
+ * Which one shows follows the trail's own width, whatever the window or the sidebar leaves it.
  * The current folder's name truncates rather than being cut off.
  */
 export function FileBreadcrumbs({
@@ -85,6 +92,8 @@ export function FileBreadcrumbs({
   folded?: boolean;
 }) {
   const segmentCrumbs = trail.crumbs;
+  const [nav, setNav] = useState<HTMLElement | null>(null);
+  const roomy = (Device.useWidth(nav) ?? 0) >= roomyFrom;
   const [menuOpen, setMenuOpen] = useState(false);
   // The collapsed folders open by themselves while something is dragged over them, and close
   // again once that drag ends, wherever it was dropped. The page knows when its own item drag
@@ -123,10 +132,11 @@ export function FileBreadcrumbs({
   // Middle crumbs sit between root and the current page. All but the parent always collapse.
   const middleCrumbs = segmentCrumbs.slice(0, -1);
   const parent = middleCrumbs.at(-1);
-  // With nothing else to collapse, desktop has no ellipsis.
+  const showParent = roomy && !folded;
+  // With nothing else to collapse, a roomy trail has no ellipsis.
   const ellipsisClassName =
-    middleCrumbs.length === 1 && !folded ? "lg:hidden" : undefined;
-  const parentClassName = folded ? "hidden" : "max-lg:hidden";
+    middleCrumbs.length === 1 && showParent ? "hidden" : undefined;
+  const parentClassName = showParent ? undefined : "hidden";
 
   if (!isNested) {
     return (
@@ -137,12 +147,12 @@ export function FileBreadcrumbs({
   }
 
   return (
-    <Breadcrumb className="min-w-0">
+    <Breadcrumb ref={setNav} className="min-w-0">
       {/* On touch screens the root link grows by 14 px on every side to a 44 px touch area, at
           every width: its icon, and the short word "Files", are narrower than that. The list's
           padding gives it room its clipping would otherwise cut; negative margins keep the layout. */}
       <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden text-sm pointer-coarse:-my-3.5 pointer-coarse:py-3.5 pointer-coarse:-ml-3.5 pointer-coarse:pl-3.5 sm:text-base">
-        {/* Root: an icon until 1024 px, where the sidebar leaves room for its name */}
+        {/* Root: an icon until the trail has room for its name */}
         <BreadcrumbItem>
           <BreadcrumbLink
             {...crumbDrop(drop, trail.root)}
@@ -157,12 +167,15 @@ export function FileBreadcrumbs({
               />
             }
           >
-            <HardDrive className="size-4 lg:hidden" />
-            <span className="max-lg:hidden">{trail.root.label}</span>
+            {roomy ? (
+              <span>{trail.root.label}</span>
+            ) : (
+              <HardDrive className="size-4" />
+            )}
           </BreadcrumbLink>
         </BreadcrumbItem>
 
-        {/* Ellipsis with collapsed segments, then the parent, which collapses too on mobile */}
+        {/* Ellipsis with collapsed segments, then the parent, which collapses too without room */}
         {parent && (
           <>
             <BreadcrumbSeparator className={ellipsisClassName} />
@@ -218,7 +231,7 @@ export function FileBreadcrumbs({
                         {...crumbDrop(drop, crumb)}
                         {...link}
                         className={cn(
-                          crumb === parent && !folded && "lg:hidden",
+                          crumb === parent && showParent && "hidden",
                           crumbDrop(drop, crumb).className,
                           link.className,
                         )}

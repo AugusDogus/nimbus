@@ -698,3 +698,33 @@ test("New closes and creates nothing once the page has nowhere to create in", as
   await expect(dialog).toBeHidden();
   expect(await rootNames()).toEqual(before);
 });
+
+test("the path shows the parent folder wherever it has room, beside the sidebar open or folded", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  test.skip(isMobile, "The sizes are set explicitly; one project is enough.");
+  const rpc = await client(context);
+  const top = `trail-${randomUUID().slice(0, 8)}`;
+  await rpc.files.createFolder.mutate({ name: top });
+  await rpc.files.createFolder.mutate({ path: top, name: "lakes" });
+  await rpc.files.createFolder.mutate({ path: `${top}/lakes`, name: "summer" });
+  const trail = page.getByRole("navigation", { name: "breadcrumb" });
+  const parent = trail.getByRole("link", { name: "lakes", exact: true });
+  const toggle = page.getByRole("button", {
+    name: "Toggle Sidebar",
+    exact: true,
+  });
+  // 900 px wide: the open sidebar leaves the path too little room for its parent; folded, it fits.
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto(`/browse/${top}/lakes/summer`);
+  const sidebar = page.locator('[data-slot="sidebar"]').first();
+  if ((await sidebar.getAttribute("data-state")) !== "expanded")
+    await toggle.click();
+  await expect(sidebar).toHaveAttribute("data-state", "expanded");
+  await expect(parent).toBeHidden();
+  await toggle.click();
+  await expect(sidebar).toHaveAttribute("data-state", "collapsed");
+  await expect(parent).toBeVisible();
+});
