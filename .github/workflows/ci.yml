@@ -82,8 +82,9 @@ jobs:
   # so the longest (updates) runs beside the rest instead of after them. Each builds the client it
   # needs itself: a build takes about 10 seconds, less than an artifact's upload and download.
   # - handover: hands the port over between real servers under the supervisor while films stream.
-  # - updates: updates from the built-in release to a signed bundle it builds itself, and every
-  #   way an update can fail, each leaving the running server serving.
+  # - updates-install: updates from the built-in release to a signed bundle it builds itself,
+  #   rollback and restart; updates-refusals: every way an update can fail, each leaving the
+  #   running server serving. Split in two so neither is longer than an e2e shard.
   # - split: the user split (docs/updates.md), the image's entrypoint as root of a user namespace
   #   with mapped ids, so the supervisor and its servers really run as users of their own. It
   #   needs unprivileged user namespaces and subordinate ids for the runner's user, and fails
@@ -95,7 +96,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: [handover, updates, split]
+        test: [handover, updates-install, updates-refusals, split]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
