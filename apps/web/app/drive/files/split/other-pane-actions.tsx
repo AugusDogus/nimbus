@@ -97,7 +97,7 @@ export function OtherPaneActions({
         onClick={item.run}
         leadingIcon={item.icon}
         // The label truncates inside the button's own spans when the bar is short of room.
-        className="touch-hit min-w-0 gap-2 pointer-coarse:min-w-11 [&>span:last-child]:min-w-0 [&>span:last-child]:max-w-full [&>span:last-child>span]:min-w-0 [&>span:last-child>span]:overflow-hidden"
+        className="touch-hit min-w-0 gap-2 pointer-coarse:min-w-11 @max-md:shrink-0 [&>span:last-child]:min-w-0 [&>span:last-child]:max-w-full [&>span:last-child>span]:min-w-0 [&>span:last-child>span]:overflow-hidden"
       >
         {/* In a pane's bar the folder's name shows where the pane has room for it; narrower,
             as on a phone, Move still says what it does, and the panes' switcher names where. */}
