@@ -71,7 +71,7 @@ type Props = {
   left?: string;
   width?: string;
   /** Replaces the plain name, e.g. to add search context. */
-  renderName?: (entry: FileEntry) => ReactNode;
+  renderName?: (entry: FileEntry, view: "list" | "grid") => ReactNode;
 };
 
 export const EntryRow = memo(function EntryRow({
@@ -171,12 +171,12 @@ export const EntryRow = memo(function EntryRow({
         // Longer names truncate after two lines, and names without spaces break anywhere.
         <span className={EntryShape.cardName}>
           <span className="line-clamp-2 min-w-0 text-center text-sm leading-5 [overflow-wrap:anywhere]">
-            {renderName ? renderName(entry) : entry.name}
+            {renderName ? renderName(entry, view) : entry.name}
           </span>
         </span>
       ) : (
         <span className={EntryShape.listName}>
-          {renderName ? renderName(entry) : entry.name}
+          {renderName ? renderName(entry, view) : entry.name}
         </span>
       )}
     </>

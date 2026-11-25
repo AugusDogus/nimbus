@@ -65,17 +65,30 @@ export function SearchResultsPage({
   );
   // Stable while the results are, so memoized rows re-render only when their own data changes.
   const renderName = useCallback(
-    (entry: FileEntry) => {
+    (entry: FileEntry, view: "list" | "grid") => {
       const hit = byPath.get(entry.path);
-      return (
+      const name = (
+        <Highlighted text={entry.name} ranges={hit?.highlight.name ?? []} />
+      );
+      const place = (
+        <Highlighted
+          text={parentLabel(entry.path)}
+          ranges={hit?.highlight.folder ?? []}
+        />
+      );
+      // A card's two lines: the name on one and its folder on the next, so a long folder never
+      // pushes the name out.
+      return view === "grid" ? (
         <>
-          <Highlighted text={entry.name} ranges={hit?.highlight.name ?? []} />
-          <span className="ml-2 text-xs text-muted-foreground">
-            <Highlighted
-              text={parentLabel(entry.path)}
-              ranges={hit?.highlight.folder ?? []}
-            />
+          <span className="block truncate">{name}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {place}
           </span>
+        </>
+      ) : (
+        <>
+          {name}
+          <span className="ml-2 text-xs text-muted-foreground">{place}</span>
         </>
       );
     },
