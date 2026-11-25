@@ -787,6 +787,7 @@ export function DestinationPicker({
         {/* Phones show the places as a row of buttons above the list. */}
         <nav
           aria-label="Places"
+          // reach: from 640 px the same places are the column beside the list
           className="-mx-1 flex gap-1 overflow-x-auto px-1 sm:hidden"
         >
           {places.map((place) => (
@@ -807,6 +808,7 @@ export function DestinationPicker({
       <div className="flex min-h-0 flex-1">
         <nav
           aria-label="Places"
+          // reach: below 640 px the same places are the row above the list
           className="hidden w-44 shrink-0 flex-col gap-0.5 border-r p-2 sm:flex"
         >
           {places.map((place) => (
@@ -1030,10 +1032,12 @@ function PathCrumbs({
     const parent = index === crumbs.length - 2;
     const folded: Item[] =
       index === 1
-        ? [{ kind: "folded", hide: crumbs.length > 3 ? "" : "sm:hidden" }]
+        ? // reach: the parent shows from 640 px, folded here below it
+          [{ kind: "folded", hide: crumbs.length > 3 ? "" : "sm:hidden" }]
         : [];
     return parent
-      ? [...folded, { kind: "crumb", crumb, last, hide: "max-sm:hidden" }]
+      ? // reach: below 640 px the parent is in the folded menu, and Back goes up
+        [...folded, { kind: "crumb", crumb, last, hide: "max-sm:hidden" }]
       : folded;
   });
   return (

@@ -299,7 +299,7 @@ export function SharingDialog({
             />
             <Button
               {...createLink}
-              // Phones show this button at the bottom edge instead, below.
+              // reach: below 640 px the same button sits at the dialog's bottom edge, below
               className="max-sm:hidden"
             >
               Create link
@@ -354,6 +354,7 @@ export function SharingDialog({
           )}
           {/* On phones the dialog scrolls; Create link stays in reach at its bottom edge. Sticking
               24 px below the padded edge puts it on the dialog's own edge. */}
+          {/* reach: from 640 px the same button sits beside the link settings, above */}
           <div className="sticky -bottom-6 -mx-6 -mb-6 border-t bg-background px-6 py-3 sm:hidden">
             <Button {...createLink} form={linkForm} className="w-full">
               Create link

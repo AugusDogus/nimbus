@@ -49,6 +49,7 @@ export function FiltersRow({
       <Button
         variant="ghost"
         size="compact"
+        // reach: from 768 px the sort menu and grouping toggle beside it
         className="touch-hit md:hidden"
         onClick={() => setFilterDrawerOpen(true)}
         aria-label="Sort and filter options"
@@ -134,6 +135,7 @@ export function FiltersRow({
         }}
       >
         {/* The trigger renders inside a wrapper of its own, which takes the row's place. */}
+        {/* reach: below 768 px the sort and filter drawer */}
         <div className="hidden md:flex">
           <SelectTrigger
             aria-label="Sort files"
@@ -169,6 +171,7 @@ export function FiltersRow({
           }
           aria-label="Group files by type"
           data-shape="group"
+          // reach: below 768 px the sort and filter drawer
           className="touch-hit hidden md:inline-flex"
         >
           <Layers className="size-4" />

@@ -195,6 +195,7 @@ export function FilesShell({ children }: FilesShellProps) {
           {/* Mobile: brand logo */}
           <Link
             to="/"
+            // reach: from 768 px the sidebar's brand links home
             className="touch-hit shrink-0 md:hidden"
             aria-label="Nimbus home"
           >
@@ -321,6 +322,7 @@ export function FilesShell({ children }: FilesShellProps) {
           <Button
             leadingIcon={Plus}
             className={cn(
+              // reach: from 768 px the sidebar's New button
               "fixed bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px))] right-4 z-20 h-14 rounded-full px-6 shadow-lg md:hidden",
               PageLayout.createButton,
             )}
