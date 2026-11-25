@@ -1,9 +1,8 @@
 import type { SubmitEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import * as z from "zod/mini";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -43,6 +42,15 @@ const getErrorMessage = (error: unknown) => {
 };
 
 const twoFactorChallenge = z.object({ twoFactorRedirect: z.literal(true) });
+
+/**
+ * Fluid Functionalism's checkbox draws its check with motion, which the sign-in page otherwise never
+ * loads. Only the second-factor step shows one, so it loads then, starting as the password is sent.
+ */
+const loadCheckbox = () => import("@/components/ui/checkbox");
+const Checkbox = lazy(() =>
+  loadCheckbox().then((module) => ({ default: module.Checkbox })),
+);
 
 type Step =
   | { kind: "credentials" }
@@ -185,6 +193,7 @@ export function LoginForm({
       setError("Enter an email and password to continue.");
       return;
     }
+    void loadCheckbox();
     void run(async () => {
       const reply: { throttled: Response | null } = { throttled: null };
       const result = await signIn.email(
@@ -335,10 +344,12 @@ export function LoginForm({
                   />
                 </Field>
                 <label className="flex items-center gap-3 text-sm">
-                  <Checkbox
-                    checked={trustDevice}
-                    onCheckedChange={setTrustDevice}
-                  />
+                  <Suspense fallback={<span className="size-4 shrink-0" />}>
+                    <Checkbox
+                      checked={trustDevice}
+                      onCheckedChange={setTrustDevice}
+                    />
+                  </Suspense>
                   Trust this browser for 30 days
                 </label>
                 <Field>

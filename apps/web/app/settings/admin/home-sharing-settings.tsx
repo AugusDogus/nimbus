@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { FieldLabel } from "@/components/ui/field";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import type { AdminConfirmation } from "./admin-confirmation-dialog";
 import { SettingsSection } from "../settings-section";
@@ -17,6 +16,16 @@ type Entry = {
   kind: "grant" | "link" | "uploadLink";
   id: string;
   label: string;
+};
+
+/**
+ * Fluid Functionalism's switch is a labelled row and puts other props on the row, not on the
+ * switch: this points the switch itself at its hint, so a screen reader reads it on focus.
+ */
+const describeSwitch = (hintId: string) => (row: HTMLDivElement | null) => {
+  row
+    ?.querySelector('[role="switch"]')
+    ?.setAttribute("aria-describedby", hintId);
 };
 
 const place = (path: string) => (path ? `"${path}"` : DriveRoot.label);
@@ -62,6 +71,7 @@ export function HomeSharingSettings({
     queryFn: () => trpcClient.access.homeContainerSharing.query(),
   });
   const [busy, setBusy] = useState(false);
+  const hintId = useId();
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const save = async (allowed: boolean) => {
@@ -117,27 +127,15 @@ export function HomeSharingSettings({
       title="Home folders"
       description={`Every account gets a private home folder in ${container}. Sharing that folder, or a folder above it such as ${DriveRoot.label}, would give access to all ${count}.`}
     >
-      <div className="flex items-start justify-between gap-4 px-4 py-5 sm:px-5">
-        <div className="min-w-0 space-y-1">
-          <FieldLabel htmlFor="allow-home-container-sharing">
-            Allow sharing the home folders container
-          </FieldLabel>
-          <p
-            id="allow-home-container-sharing-hint"
-            className="max-w-prose text-pretty text-sm text-muted-foreground"
-          >
-            {allowed
-              ? "On. Each new grant or link that reaches every home folder still asks for an extra confirmation."
-              : "Off. Nobody, administrators included, can share it or a folder above it. Individual folders, including single home folders, can still be shared."}
-          </p>
-        </div>
+      <div className="space-y-1 px-4 py-5 sm:px-5">
         <Switch
-          id="allow-home-container-sharing"
-          className="mt-1"
-          aria-describedby="allow-home-container-sharing-hint"
+          ref={describeSwitch(hintId)}
+          label="Allow sharing the home folders container"
+          className="-mx-3 w-fit"
           checked={allowed}
           disabled={busy}
-          onCheckedChange={(next) => {
+          onToggle={() => {
+            const next = !allowed;
             if (!next) {
               void run(
                 () => save(false),
@@ -160,6 +158,14 @@ export function HomeSharingSettings({
             });
           }}
         />
+        <p
+          id={hintId}
+          className="max-w-prose text-pretty text-sm text-muted-foreground"
+        >
+          {allowed
+            ? "On. Each new grant or link that reaches every home folder still asks for an extra confirmation."
+            : "Off. Nobody, administrators included, can share it or a folder above it. Individual folders, including single home folders, can still be shared."}
+        </p>
       </div>
       {(status || error) && (
         <p

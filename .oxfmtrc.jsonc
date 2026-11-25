@@ -29,6 +29,8 @@
     "apps/web/components/ui/sidebar.tsx",
     "apps/web/components/ui/sidebar-core.tsx",
     "apps/web/components/ui/sidebar-menu.tsx",
+    "apps/web/components/ui/checkbox.tsx",
+    "apps/web/components/ui/switch.tsx",
     "apps/web/components/ui/input.tsx",
     "apps/web/components/ui/textarea.tsx",
     "apps/web/components/ui/field.tsx",

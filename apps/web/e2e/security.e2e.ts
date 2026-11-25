@@ -116,6 +116,12 @@ test("two-factor authentication guards password sign-in and recovers with a code
       member.page.getByLabel("Recovery code", { exact: true }),
     ).toBeFocused();
     await member.page.getByLabel("Recovery code").fill(recovery);
+    // The checkbox loads with this step, not with the sign-in page.
+    const trust = member.page.getByRole("checkbox", {
+      name: "Trust this browser for 30 days",
+    });
+    await trust.click();
+    await expect(trust).toBeChecked();
     await member.page
       .getByRole("button", { name: "Verify", exact: true })
       .click();
