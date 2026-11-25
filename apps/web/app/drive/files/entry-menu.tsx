@@ -296,11 +296,11 @@ export function EntryActionsButton({
       aria-expanded={open}
       data-state={open ? "open" : "closed"}
       tabIndex={tabbable ? 0 : -1}
-      // Shown only on hover where there is a mouse; touch screens of every width keep it visible,
-      // with a 44 px target centered where the smaller button sits.
+      // Shown only on hover where the primary pointer is a mouse, at every width; a finger finds it
+      // always visible, with a 44 px target centered where the smaller button sits.
       className={cn(
         EntryShape.actions,
-        "text-muted-foreground md:pointer-fine:opacity-0 md:pointer-fine:group-hover/entry:opacity-100 md:pointer-fine:group-focus-within/entry:opacity-100 md:pointer-fine:data-[state=open]:opacity-100",
+        "text-muted-foreground pointer-fine:opacity-0 pointer-fine:group-hover/entry:opacity-100 pointer-fine:group-focus-within/entry:opacity-100 pointer-fine:data-[state=open]:opacity-100",
       )}
       onClick={(event) => {
         event.stopPropagation();

@@ -81,7 +81,7 @@ export function EntrySkeleton({
               <Skeleton
                 className={cn(
                   EntryShape.actions,
-                  "size-8 md:pointer-fine:invisible",
+                  "size-8 pointer-fine:invisible",
                   bar,
                 )}
               />

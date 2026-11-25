@@ -478,6 +478,28 @@ test("rows keep their elements through hydration and across the breakpoint, so a
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
+test("a mouse in a narrow window selects several items with the circles hovering shows", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Phones select with a long-press, covered above.");
+  // A 1280 px screen at 200% zoom: narrower than the wide layout, with a mouse.
+  await page.setViewportSize({ width: 640, height: 400 });
+  const { folder } = await folderWithFiles(["one.txt", "two.txt"]);
+  await page.goto(`/browse/${folder}`);
+  const circle = (name: string) =>
+    entry(page, name).locator("[data-entry-check]");
+  const opacity = (name: string) =>
+    circle(name).evaluate((element) => getComputedStyle(element).opacity);
+  await entry(page, "one.txt").hover();
+  await expect.poll(() => opacity("one.txt")).toBe("1");
+  await circle("one.txt").click();
+  await expect(bar(page)).toContainText("1 selected");
+  await circle("two.txt").click();
+  await expect(bar(page)).toContainText("2 selected");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
 test("on a touch tablet, a long-press selects without opening the item menu, and the ⋯ button opens the drawer", async ({
   browser,
   isMobile,

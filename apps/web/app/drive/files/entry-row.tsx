@@ -122,9 +122,11 @@ export const EntryRow = memo(function EntryRow({
         selected
           ? "border-primary bg-primary text-primary-foreground"
           : "border-muted-foreground/60 bg-background",
+        // A finger long-presses to select, so its circles wait for a selection; a mouse at any
+        // width finds them on hover, as it does the actions button.
         selected || selectionActive
           ? "opacity-100"
-          : "opacity-0 md:group-hover/entry:opacity-100",
+          : "opacity-0 pointer-fine:group-hover/entry:opacity-100",
       )}
     >
       {selected && <Check className="size-3.5" strokeWidth={3} />}
@@ -140,7 +142,7 @@ export const EntryRow = memo(function EntryRow({
               entry.type === "dir" && "fill-muted",
               selected || selectionActive
                 ? "opacity-0"
-                : "md:group-hover/entry:opacity-0",
+                : "pointer-fine:group-hover/entry:opacity-0",
             )}
           />
           <span className="absolute inset-0">{check}</span>
