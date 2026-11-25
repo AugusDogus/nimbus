@@ -32,6 +32,8 @@ export type FileView =
   | "recent"
   | "starred"
   | "shared"
+  | "public links"
+  | "file requests"
   | "trash";
 
 const all: readonly FileAction[] = [
@@ -61,6 +63,8 @@ const views: readonly FileView[] = [
   "recent",
   "starred",
   "shared",
+  "public links",
+  "file requests",
   "trash",
 ];
 
@@ -110,6 +114,16 @@ function unavailable(action: FileAction, view: FileView): string | null {
       : action === "change view"
         ? "Trash lists deleted items by their path, when they were deleted and when they go: it keeps no type or picture of each to draw a card from, so it is a list only."
         : "Trash holds deleted items: it offers Restore and Delete permanently, and every other action needs the item restored first.";
+  if (view === "public links" || view === "file requests") {
+    const lists =
+      view === "public links"
+        ? "Public links lists the links you made"
+        : "File requests lists the upload links you made";
+    if (action === "search") return null;
+    if (action === "sort" || action === "change view")
+      return `${lists}, each by the place it opens: it holds no files, with no type, size, date or picture to order them by or draw as cards. Shared with me lists files, so its own tab carries the folder's sort and view, on a row of their own under the tabs rather than in the page's header, which the other tabs share.`;
+    return `${lists}, not files: each has Copy link, Edit and Revoke. Open the folder or file a link leads to for anything else.`;
+  }
   if (libraries.includes(view)) {
     if (action === "new folder" || action === "upload")
       return "Not a folder: there is no folder here to create in or upload to.";

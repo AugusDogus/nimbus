@@ -168,7 +168,11 @@ const viewPath = (view: FileView, s: Seed) =>
     ? `/browse/${s.top}`
     : view === "search results"
       ? `/search?q=${s.id}`
-      : `/${view}`;
+      : view === "public links"
+        ? "/shared?tab=links"
+        : view === "file requests"
+          ? "/shared?tab=requests"
+          : `/${view}`;
 
 /** Closes whatever surface is open, as Escape does, and waits for it to go. */
 async function closeSurfaces(page: Page) {
@@ -371,7 +375,15 @@ for (const view of FileAction.views)
           await expect(
             viewer.getByRole("heading", { name: "Trash" }),
           ).toBeVisible();
-        else
+        else if (view === "public links" || view === "file requests") {
+          await expect(
+            viewer.getByRole("tab", {
+              name: view === "public links" ? "Public links" : "File requests",
+              selected: true,
+            }),
+          ).toBeVisible();
+          await expect(viewer.getByText(/^Loading .*links…$/)).toHaveCount(0);
+        } else
           await expect(
             viewer.locator(`[data-entry-name="${s.files[0]}"]`).first(),
           ).toBeVisible();
