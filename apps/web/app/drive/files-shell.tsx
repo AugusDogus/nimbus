@@ -33,14 +33,14 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import {
+  DropdownContent,
+  DropdownLabel,
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  DropdownSeparator,
+  DropdownTrigger,
+} from "@/components/ui/dropdown";
+import { MenuItem } from "@/components/ui/menu-item";
+import { menuRowLink } from "@/components/menu-row-link";
 import { AppFrame } from "@/components/app-frame";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { capabilitiesQueryOptions } from "./files/capabilities";
@@ -208,7 +208,7 @@ export function FilesShell({ children }: FilesShellProps) {
           <span ref={setToolsSlot} className="contents" />
           {session ? (
             <DropdownMenu>
-              <DropdownMenuTrigger
+              <DropdownTrigger
                 render={
                   <Button
                     variant="ghost"
@@ -223,39 +223,39 @@ export function FilesShell({ children }: FilesShellProps) {
                     {PageLayout.initial(session.user)}
                   </AvatarFallback>
                 </Avatar>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>
-                    <div className="flex flex-col space-y-1">
-                      {session.user.name && (
-                        <p className="text-sm font-medium">
-                          {session.user.name}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        {session.user.email}
+              </DropdownTrigger>
+              <DropdownContent align="end" className="w-56">
+                <DropdownLabel>
+                  <div className="flex flex-col space-y-1">
+                    {session.user.name && (
+                      <p className="text-sm font-medium text-foreground">
+                        {session.user.name}
                       </p>
-                    </div>
-                  </DropdownMenuLabel>
-                  {isAdmin && (
-                    <DropdownMenuItem render={<Link to="/admin" />}>
-                      <Shield />
-                      Administration
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => {
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {session.user.email}
+                    </p>
+                  </div>
+                </DropdownLabel>
+                {isAdmin && (
+                  <MenuItem
+                    index={0}
+                    icon={Shield}
+                    label="Administration"
+                    {...menuRowLink(<Link to="/admin" />)}
+                  />
+                )}
+                <DropdownSeparator />
+                <MenuItem
+                  index={isAdmin ? 1 : 0}
+                  label="Sign out"
+                  destructive
+                  onSelect={() => {
                     if (LeaveGuard.busy()) setSignOutAsked(true);
                     else void signOut();
                   }}
-                  variant="destructive"
-                >
-                  Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
+                />
+              </DropdownContent>
             </DropdownMenu>
           ) : (
             <Button size="compact" render={<Link to="/login" />}>

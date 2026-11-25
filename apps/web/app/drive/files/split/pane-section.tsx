@@ -1,18 +1,12 @@
 import { SlidersHorizontal, X } from "lucide-react";
 import {
+  DropdownContent,
+  DropdownLabel,
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  DropdownMenuCheckboxItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from "@/components/ui/dropdown-menu-choices";
+  DropdownSeparator,
+  DropdownTrigger,
+} from "@/components/ui/dropdown";
+import { MenuItem } from "@/components/ui/menu-item";
 import { SortOption } from "../sort-option";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -91,9 +85,23 @@ function PaneViewMenu({
     field: prefs.sortField,
     direction: prefs.sortDirection,
   });
+  // Rows are numbered in order: the sort options first, then these.
+  const sorts = SortOption.all.length;
+  const rows = {
+    group: sorts,
+    list: sorts + 1,
+    grid: sorts + 2,
+    collapse: sorts + 3,
+  };
+  const checked = [
+    SortOption.all.findIndex((option) => SortOption.value(option) === sort),
+    ...(prefs.groupByType ? [rows.group] : []),
+    prefs.view === "list" ? rows.list : rows.grid,
+  ];
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
+    // Compact rows keep all thirteen in view, under the menu's height limit.
+    <DropdownMenu size="compact">
+      <DropdownTrigger
         render={
           <Button
             variant="ghost"
@@ -108,62 +116,56 @@ function PaneViewMenu({
         }
       >
         <SlidersHorizontal className="size-4" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-52">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-            Sort by
-          </DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={sort}
-            onValueChange={(value: unknown) => {
-              const option =
-                typeof value === "string" ? SortOption.find(value) : undefined;
-              if (option)
-                updatePreferences({
-                  sortField: option.field,
-                  sortDirection: option.direction,
-                });
-            }}
-          >
-            {SortOption.all.map((option) => (
-              <DropdownMenuRadioItem
-                key={SortOption.value(option)}
-                value={SortOption.value(option)}
-              >
-                {option.label}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuCheckboxItem
+      </DropdownTrigger>
+      {/* Every checked row is listed, so each choice is a checkbox row that keeps the menu open;
+          their menu holds one radio group, and this one has two kinds of choice. */}
+      <DropdownContent align="end" className="w-52" checkedIndices={checked}>
+        <DropdownLabel>Sort by</DropdownLabel>
+        {SortOption.all.map((option, index) => (
+          <MenuItem
+            key={SortOption.value(option)}
+            index={index}
+            label={option.label}
+            checked={SortOption.value(option) === sort}
+            onSelect={() =>
+              updatePreferences({
+                sortField: option.field,
+                sortDirection: option.direction,
+              })
+            }
+          />
+        ))}
+        <DropdownSeparator />
+        <MenuItem
+          index={rows.group}
+          label="Group by type"
           checked={prefs.groupByType}
-          onCheckedChange={(checked) =>
-            updatePreferences({ groupByType: checked })
+          onSelect={() =>
+            updatePreferences({ groupByType: !prefs.groupByType })
           }
-        >
-          Group by type
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-            View
-          </DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={prefs.view}
-            onValueChange={(value: unknown) => {
-              if (value === "list" || value === "grid")
-                updatePreferences({ view: value });
-            }}
-          >
-            <DropdownMenuRadioItem value="list">List</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="grid">Grid</DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={onCollapse}>Collapse pane</DropdownMenuItem>
-      </DropdownMenuContent>
+        />
+        <DropdownSeparator />
+        <DropdownLabel>View</DropdownLabel>
+        <MenuItem
+          index={rows.list}
+          label="List"
+          checked={prefs.view === "list"}
+          onSelect={() => updatePreferences({ view: "list" })}
+        />
+        <MenuItem
+          index={rows.grid}
+          label="Grid"
+          checked={prefs.view === "grid"}
+          onSelect={() => updatePreferences({ view: "grid" })}
+        />
+        <DropdownSeparator />
+        <MenuItem
+          index={rows.collapse}
+          label="Collapse pane"
+          closeOnClick
+          onSelect={onCollapse}
+        />
+      </DropdownContent>
     </DropdownMenu>
   );
 }

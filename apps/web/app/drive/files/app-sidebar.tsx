@@ -17,11 +17,11 @@ import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
+  DropdownContent,
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  DropdownTrigger,
+} from "@/components/ui/dropdown";
+import { MenuItem } from "@/components/ui/menu-item";
 import {
   SidebarContent,
   SidebarFooter,
@@ -179,7 +179,7 @@ export function AppSidebar({
           open={menuOpen}
           onOpenChange={(open) => setMenuOpen(open && creatable)}
         >
-          <DropdownMenuTrigger
+          <DropdownTrigger
             render={
               <Button
                 leadingIcon={Plus}
@@ -192,40 +192,36 @@ export function AppSidebar({
             }
           >
             New
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            sideOffset={8}
-            className="w-48 rounded-xl p-1.5"
-          >
-            <DropdownMenuItem
-              onClick={() => {
+          </DropdownTrigger>
+          <DropdownContent align="start" sideOffset={8} className="w-48">
+            <MenuItem
+              index={0}
+              icon={FolderPlus}
+              label="New folder"
+              onSelect={() => {
                 closeNavigation();
                 newContent.openFolderDialog();
               }}
-            >
-              <FolderPlus />
-              New folder
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
+            />
+            <MenuItem
+              index={1}
+              icon={Upload}
+              label="Upload file"
+              onSelect={() => {
                 closeNavigation();
                 newContent.triggerFileInput();
               }}
-            >
-              <Upload />
-              Upload file
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
+            />
+            <MenuItem
+              index={2}
+              icon={FolderUp}
+              label="Upload folder"
+              onSelect={() => {
                 closeNavigation();
                 newContent.triggerFolderInput();
               }}
-            >
-              <FolderUp />
-              Upload folder
-            </DropdownMenuItem>
-          </DropdownMenuContent>
+            />
+          </DropdownContent>
         </DropdownMenu>
       }
     />

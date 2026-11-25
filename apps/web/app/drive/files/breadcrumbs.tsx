@@ -12,12 +12,12 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import {
+  DropdownContent,
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  DropdownTrigger,
+} from "@/components/ui/dropdown";
+import { MenuItem } from "@/components/ui/menu-item";
+import { menuRowLink } from "@/components/menu-row-link";
 import { cn } from "@/lib/utils";
 import type { BreadcrumbTrail, Crumb } from "./breadcrumb-trail";
 import type { DropTarget } from "./drop-target";
@@ -167,16 +167,15 @@ export function FileBreadcrumbs({
           <>
             <BreadcrumbSeparator className={ellipsisClassName} />
             <BreadcrumbItem className={ellipsisClassName}>
-              {/* Not modal, so a drag can still reach the rest of the page while it is open. */}
+              {/* Their menus are never modal, so a drag can still reach the rest of the page. */}
               <DropdownMenu
                 open={menuOpen}
                 onOpenChange={(open) => {
                   setMenuOpen(open);
                   if (!open) setSprung(null);
                 }}
-                modal={false}
               >
-                <DropdownMenuTrigger
+                <DropdownTrigger
                   onDragEnter={(event) => {
                     const kind = drop?.dragging
                       ? "items"
@@ -204,24 +203,29 @@ export function FileBreadcrumbs({
                 >
                   <BreadcrumbEllipsis />
                   <span className="sr-only">Show folders in this path</span>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuGroup>
-                    {middleCrumbs.map((crumb) => (
-                      <DropdownMenuItem
+                </DropdownTrigger>
+                <DropdownContent align="start" className="w-auto max-w-80">
+                  {middleCrumbs.map((crumb, index) => {
+                    const link = menuRowLink(
+                      <FolderLink path={crumb.path} />,
+                      () => setMenuOpen(false),
+                    );
+                    return (
+                      <MenuItem
                         key={crumb.path}
+                        index={index}
+                        label={crumb.label}
                         {...crumbDrop(drop, crumb)}
+                        {...link}
                         className={cn(
                           crumb === parent && !folded && "lg:hidden",
                           crumbDrop(drop, crumb).className,
+                          link.className,
                         )}
-                        render={<FolderLink path={crumb.path} />}
-                      >
-                        {crumb.label}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
+                      />
+                    );
+                  })}
+                </DropdownContent>
               </DropdownMenu>
             </BreadcrumbItem>
             <BreadcrumbSeparator className={parentClassName} />

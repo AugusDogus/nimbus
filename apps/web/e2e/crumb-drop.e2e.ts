@@ -316,7 +316,13 @@ test("shows the same items from the moment a menu opens, while the folder above 
   await expect(items.first()).toBeVisible();
   const read = () =>
     items.evaluateAll((elements) =>
-      elements.map((element) => element.textContent?.trim() ?? ""),
+      // A menu row's name, not its text: the row also draws its label a second time, hidden.
+      elements.map(
+        (element) =>
+          element.getAttribute("aria-label") ??
+          element.textContent?.trim() ??
+          "",
+      ),
     );
   const opened = await read();
   // Longer than the answer takes: nothing appears, disappears or moves meanwhile.

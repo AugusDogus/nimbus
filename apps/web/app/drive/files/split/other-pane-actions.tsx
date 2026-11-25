@@ -2,11 +2,11 @@ import { ArrowLeft, ArrowRight, CopyPlus, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropTarget } from "../drop-target";
 import {
+  DropdownContent,
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  DropdownTrigger,
+} from "@/components/ui/dropdown";
+import { MenuItem } from "@/components/ui/menu-item";
 import type { MenuAction, OtherPaneActionsProps } from "../selection-bar";
 
 /** The renderer the split view puts in `OtherPaneActionsSlot`. */
@@ -23,7 +23,7 @@ export const renderOtherPaneActions = (props: OtherPaneActionsProps) => (
 function MoreActions({ items }: { items: readonly MenuAction[] }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
+      <DropdownTrigger
         render={
           <Button
             variant="ghost"
@@ -35,14 +35,17 @@ function MoreActions({ items }: { items: readonly MenuAction[] }) {
         }
       >
         <MoreHorizontal className="size-4" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
-        {items.map((item) => (
-          <DropdownMenuItem key={item.label} onClick={item.run}>
-            {item.label}
-          </DropdownMenuItem>
+      </DropdownTrigger>
+      <DropdownContent align="end" className="w-48">
+        {items.map((item, index) => (
+          <MenuItem
+            key={item.label}
+            index={index}
+            label={item.label}
+            onSelect={item.run}
+          />
         ))}
-      </DropdownMenuContent>
+      </DropdownContent>
     </DropdownMenu>
   );
 }

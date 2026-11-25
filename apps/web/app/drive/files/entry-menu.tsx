@@ -4,6 +4,8 @@ import {
   useEffect,
   useRef,
   useState,
+  type HTMLAttributes,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactElement,
 } from "react";
@@ -25,9 +27,9 @@ import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
-  ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { MenuItem } from "@/components/ui/menu-item";
 import {
   Drawer,
   DrawerClose,
@@ -349,7 +351,7 @@ export function EntryMenuHost({
   onClosed,
 }: {
   /** The collection's element. The right-click area is rendered onto it, not around it. */
-  children: ReactElement;
+  children: ReactElement<HTMLAttributes<HTMLElement>>;
   touch: boolean;
   menu: EntryMenu | null;
   onMenuChange: (menu: EntryMenu | null) => void;
@@ -388,45 +390,62 @@ export function EntryMenuHost({
       )
     : [];
   const popup = useRef<HTMLDivElement>(null);
+  // Fluid Functionalism's context menu keeps its own open state. When the menu is withdrawn from
+  // outside, as when its entry leaves the folder, an Escape closes it the way a person would.
+  const popupOpen = useRef(false);
+  useEffect(() => {
+    if (menu === null && popupOpen.current)
+      popup.current?.dispatchEvent(
+        new globalThis.KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+        }),
+      );
+  }, [menu]);
+  /** The row a right-click, Shift+F10 or the menu key came from, as the menu's target. */
+  const targetOf = (element: EventTarget) => {
+    const row =
+      element instanceof Element
+        ? element.closest<HTMLElement>("[data-row-path]")
+        : null;
+    return row?.dataset.rowPath === undefined
+      ? null
+      : resolve(row.dataset.rowPath);
+  };
   // The tree around `children` is the same in both modes. Swapping it when the mode changes would
   // replace every row's element, even under a finger.
   return (
     <ContextMenu
       // Touch layouts long-press to select, and open actions in the drawer.
       disabled={touch}
-      open={menu?.surface.kind === "menu"}
       onOpenChange={(next) => {
-        if (!next) onMenuChange(null);
-      }}
-      onOpenChangeComplete={(opened) => {
-        if (!opened || menu?.surface.kind !== "menu" || !menu.surface.keyboard)
-          return;
-        // Only when focus is on no item yet: keys pressed while the menu opened have moved it.
-        const active = document.activeElement;
-        if (
-          active instanceof HTMLElement &&
-          active.getAttribute("role") === "menuitem" &&
-          popup.current?.contains(active)
-        )
-          return;
-        popup.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+        popupOpen.current = next;
+        if (next) return;
+        onMenuChange(null);
+        // The menu hands focus back a frame after it closes; the entry takes it after that, unless
+        // the chosen action moved it somewhere, such as into a dialog.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const active = document.activeElement;
+            if (
+              active instanceof HTMLElement &&
+              active.hasAttribute("data-context-menu-anchor")
+            )
+              active.blur();
+            onClosed();
+          }),
+        );
       }}
     >
       <ContextMenuTrigger
         render={children}
+        className="select-none"
         onContextMenu={(event) => {
           if (touch) return;
-          const row =
-            event.target instanceof Element
-              ? event.target.closest<HTMLElement>("[data-row-path]")
-              : null;
-          const target =
-            row?.dataset.rowPath === undefined
-              ? null
-              : resolve(row.dataset.rowPath);
-          // Empty space between entries has no actions. The browser's own menu stays suppressed.
+          const target = targetOf(event.target);
+          // Empty space between entries has no actions, and the browser's own menu stays away.
           if (!target) {
-            event.preventBaseUIHandler();
+            event.preventDefault();
             return;
           }
           onMenuChange({
@@ -437,24 +456,36 @@ export function EntryMenuHost({
             },
           });
         }}
-      />
-      <ContextMenuContent
-        ref={popup}
-        finalFocus={() => {
-          onClosed();
-          return false;
+        onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
+          // The menu opens on these keys itself, from the focused row.
+          if (
+            touch ||
+            (event.key !== "ContextMenu" &&
+              !(event.shiftKey && event.key === "F10"))
+          )
+            return;
+          const target = targetOf(event.target);
+          if (!target) {
+            event.preventDefault();
+            return;
+          }
+          onMenuChange({
+            ...target,
+            surface: { kind: "menu", keyboard: true },
+          });
         }}
-      >
-        {items.map((item) => (
-          <ContextMenuItem
+      />
+      <ContextMenuContent ref={popup} className="w-56">
+        {items.map((item, index) => (
+          <MenuItem
             key={item.label}
-            variant={item.destructive ? "destructive" : "default"}
+            index={index}
+            icon={item.icon}
+            label={item.label}
+            destructive={item.destructive}
             disabled={item.disabled}
-            onClick={item.select}
-          >
-            <item.icon />
-            {item.label}
-          </ContextMenuItem>
+            onSelect={item.select}
+          />
         ))}
       </ContextMenuContent>
       <Drawer

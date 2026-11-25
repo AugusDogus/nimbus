@@ -689,7 +689,7 @@ test("keeps the menu item the keyboard moved to while the menu is still opening"
   // A slow opening animation, so the keys below land before it completes, every time.
   await page.addStyleTag({
     content:
-      '[data-slot="context-menu-content"] { transition-duration: 1500ms !important; animation-duration: 1500ms !important; }',
+      '[role="menu"] { transition-duration: 1500ms !important; animation-duration: 1500ms !important; }',
   });
   await page.locator('[data-entry-name="a.txt"]').first().focus();
   await page.keyboard.press("Shift+F10");

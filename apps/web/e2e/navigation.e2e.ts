@@ -148,8 +148,9 @@ test("keeps primary navigation and utility actions usable in both themes", async
     ).toHaveCount(0);
     await expect(page.getByRole("menuitem")).toHaveCount(2);
     for (const [name, href] of [["Administration", "/admin"]]) {
+      // The row is not a link itself: one lies over it (see menuRowLink).
       await expect(
-        page.getByRole("menuitem", { name, exact: true }),
+        page.getByRole("menuitem", { name, exact: true }).locator("a"),
       ).toHaveAttribute("href", href);
     }
     await expect(

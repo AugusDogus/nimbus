@@ -14,12 +14,12 @@ import { authClient } from "@/lib/auth-client";
 import { securityClient } from "@/lib/security-client";
 import { Button } from "@/components/ui/button";
 import {
+  DropdownContent,
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  DropdownSeparator,
+  DropdownTrigger,
+} from "@/components/ui/dropdown";
+import { MenuItem } from "@/components/ui/menu-item";
 import { Landing } from "@/lib/landing";
 import type { AdminConfirmation } from "./admin-confirmation-dialog";
 
@@ -30,6 +30,10 @@ type ManagedUser = {
   role?: string | null;
   banned?: boolean | null;
 };
+
+/** Whether an administrator may sign in as `user`, which adds a row to its menu. */
+const canSignInAs = (user: ManagedUser) =>
+  user.role !== "admin" && !user.banned;
 
 export function UserList({
   users,
@@ -83,7 +87,7 @@ export function UserList({
           </div>
           {user.id !== currentUserId ? (
             <DropdownMenu>
-              <DropdownMenuTrigger
+              <DropdownTrigger
                 render={
                   <Button
                     variant="ghost"
@@ -94,19 +98,22 @@ export function UserList({
                 }
               >
                 <MoreHorizontal aria-hidden="true" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() =>
+              </DropdownTrigger>
+              <DropdownContent align="end">
+                <MenuItem
+                  index={0}
+                  icon={KeyRound}
+                  label="Reset password"
+                  onSelect={() =>
                     onResetPassword({ id: user.id, email: user.email })
                   }
-                >
-                  <KeyRound />
-                  Reset password
-                </DropdownMenuItem>
-                {user.role !== "admin" && !user.banned && (
-                  <DropdownMenuItem
-                    onClick={() =>
+                />
+                {canSignInAs(user) && (
+                  <MenuItem
+                    index={1}
+                    icon={UserRoundCog}
+                    label="Sign in as user"
+                    onSelect={() =>
                       onConfirm({
                         title: `Sign in as ${user.email}?`,
                         description: `You will use Nimbus as ${user.email} for up to one hour, with their files and permissions, to see what they see or fix something for them. The audit log records when you start and stop and marks everything you do with your name. You cannot change their password, email, sign-in methods, sessions, app passwords or AI connections. Use Stop impersonating at the bottom of the page to return to your account.`,
@@ -125,13 +132,13 @@ export function UserList({
                         },
                       })
                     }
-                  >
-                    <UserRoundCog />
-                    Sign in as user
-                  </DropdownMenuItem>
+                  />
                 )}
-                <DropdownMenuItem
-                  onClick={() =>
+                <MenuItem
+                  index={1 + Number(canSignInAs(user))}
+                  icon={RotateCcwKey}
+                  label="Reset sign-in methods"
+                  onSelect={() =>
                     onConfirm({
                       title: "Reset sign-in methods?",
                       description: `${user.email} will lose two-factor authentication, recovery codes, passkeys and trusted browsers, and will be signed out everywhere. Their WebDAV app passwords will be revoked, which disconnects every WebDAV device until they create new passwords. AI clients connected over MCP will be disconnected. They can then sign in with their password and set these up again. Files are not affected.`,
@@ -148,12 +155,12 @@ export function UserList({
                       },
                     })
                   }
-                >
-                  <RotateCcwKey />
-                  Reset sign-in methods
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() =>
+                />
+                <MenuItem
+                  index={2 + Number(canSignInAs(user))}
+                  icon={LogOut}
+                  label="Sign out everywhere"
+                  onSelect={() =>
                     onConfirm({
                       title: "Sign out everywhere?",
                       description: `Every browser signed in as ${user.email} will need to sign in again, and AI clients connected over MCP will be disconnected. WebDAV app passwords keep working; the account owner can revoke them, or you can reset sign-in methods or disable the account.`,
@@ -170,12 +177,12 @@ export function UserList({
                       },
                     })
                   }
-                >
-                  <LogOut />
-                  Sign out everywhere
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
+                />
+                <MenuItem
+                  index={3 + Number(canSignInAs(user))}
+                  icon={user.role === "admin" ? ShieldOff : Shield}
+                  label={user.role === "admin" ? "Remove admin" : "Make admin"}
+                  onSelect={() => {
                     onConfirm({
                       title: "Change administrator access?",
                       description:
@@ -194,14 +201,14 @@ export function UserList({
                       },
                     });
                   }}
-                >
-                  {user.role === "admin" ? <ShieldOff /> : <Shield />}
-                  {user.role === "admin" ? "Remove admin" : "Make admin"}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  variant={user.banned ? "default" : "destructive"}
-                  onClick={() => {
+                />
+                <DropdownSeparator />
+                <MenuItem
+                  index={4 + Number(canSignInAs(user))}
+                  icon={user.banned ? UserRoundCheck : UserRoundX}
+                  label={user.banned ? "Enable" : "Disable"}
+                  destructive={!user.banned}
+                  onSelect={() => {
                     onConfirm({
                       title: user.banned
                         ? "Enable account?"
@@ -222,11 +229,8 @@ export function UserList({
                       },
                     });
                   }}
-                >
-                  {user.banned ? <UserRoundCheck /> : <UserRoundX />}
-                  {user.banned ? "Enable" : "Disable"}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
+                />
+              </DropdownContent>
             </DropdownMenu>
           ) : (
             <div className="size-9 shrink-0" aria-hidden="true" />
