@@ -4,6 +4,7 @@ import { SearchTitle } from "@/app/drive/search/search-title";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import type { Bootstrap } from "@/client/bootstrap";
+import { SharedTab } from "@/app/drive/shared/shared-frame";
 import {
   FilesSkeleton,
   SettingsSkeleton,
@@ -31,6 +32,7 @@ const pages = new Map<string, FilesPageSkeleton>([
   ["/recent", "recent"],
   ["/starred", "starred"],
   ["/search", "search"],
+  ["/shared", "shared"],
 ]);
 
 /**
@@ -85,7 +87,9 @@ export const PageSkeleton = {
           page={{ kind: "folder", prefs }}
         />
       ));
-    const shows = pages.get(pathname) ?? "shared";
+    const shows = pages.get(pathname);
+    // A files page this does not know has no placeholder rather than another page's.
+    if (shows === undefined) return "";
     const other = {
       kind: "page" as const,
       shows,
@@ -97,11 +101,10 @@ export const PageSkeleton = {
           ? SearchTitle.of(params.get("q")?.trim() ?? "")
           : undefined,
       sort:
-        shows === "shared"
-          ? undefined
-          : shows === "trash"
-            ? TrashOrder.pick(sort ?? undefined).value
-            : ListOrder.pick(shows, sort ?? undefined).value,
+        shows === "trash"
+          ? TrashOrder.pick(sort ?? undefined).value
+          : ListOrder.pick(shows, sort ?? undefined).value,
+      tab: SharedTab.of(shows === "shared" ? params.get("tab") : null),
     };
     return cached(JSON.stringify(["page", account, place, other]), () => (
       <FilesSkeleton account={account} place={place} page={other} />

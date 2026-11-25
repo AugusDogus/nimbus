@@ -1,15 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent } from "@/components/ui/tabs";
 import { LibraryPage } from "../library-page";
 import { PublicLinks } from "./public-links";
 import { FileRequests } from "./file-requests";
-
-export type SharedTab = "with-me" | "links" | "requests";
-const tabs: { value: SharedTab; label: string }[] = [
-  { value: "with-me", label: "Shared with me" },
-  { value: "links", label: "Public links" },
-  { value: "requests", label: "File requests" },
-];
+import { SharedFrame, type SharedTab } from "./shared-frame";
 
 export function SharedTabs({
   tab,
@@ -20,29 +14,18 @@ export function SharedTabs({
   sort: string | undefined;
 }) {
   const navigate = useNavigate();
-
   return (
-    <Tabs
-      value={tab}
-      onValueChange={(value) => {
-        const next = tabs.find((entry) => entry.value === value)?.value;
-        if (next)
-          void navigate({
-            to: "/shared",
-            search: next === "with-me" ? {} : { tab: next },
-            replace: true,
-            resetScroll: false,
-          });
-      }}
-      className="gap-6"
+    <SharedFrame
+      tab={tab}
+      onTab={(next) =>
+        void navigate({
+          to: "/shared",
+          search: next === "with-me" ? {} : { tab: next },
+          replace: true,
+          resetScroll: false,
+        })
+      }
     >
-      <TabsList aria-label="Shared files" activateOnFocus>
-        {tabs.map(({ value, label }) => (
-          <TabsTrigger key={value} value={value}>
-            {label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
       <TabsContent value="with-me">
         <LibraryPage kind="shared" sort={sort} />
       </TabsContent>
@@ -52,6 +35,6 @@ export function SharedTabs({
       <TabsContent value="requests">
         <FileRequests />
       </TabsContent>
-    </Tabs>
+    </SharedFrame>
   );
 }

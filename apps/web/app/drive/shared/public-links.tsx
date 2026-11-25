@@ -1,3 +1,4 @@
+import { PublicLinksIntro, PublicLinksLoading } from "./shared-pending";
 import { useState } from "react";
 import { lazyComponent } from "@/components/lazy-component";
 import { useQuery } from "@tanstack/react-query";
@@ -50,17 +51,14 @@ export function PublicLinks() {
   };
   return (
     <div className="space-y-6">
-      <p className="text-pretty text-sm text-muted-foreground">
-        Manage public links you created. Use an item’s Share action to create a
-        new link.
-      </p>
+      <PublicLinksIntro />
       {(error || shares.error) && (
         <p role="alert" className="text-sm text-destructive">
           {error ?? shares.error?.message}
         </p>
       )}
       {shares.isPending ? (
-        <p>Loading links…</p>
+        <PublicLinksLoading />
       ) : shares.data?.length === 0 ? (
         <p className="text-muted-foreground">No public links yet.</p>
       ) : (

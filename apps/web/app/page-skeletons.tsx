@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { AppSidebarPlaceholder } from "./drive/files/app-sidebar";
 import { FiltersRow, folderFilters } from "./drive/files/filters-row";
@@ -26,6 +27,11 @@ import { SplitToggle } from "./drive/files/split-toggle";
 import { SearchField } from "./drive/search/search-field";
 import type { ListPage } from "./drive/files/list-order";
 import { ListHeader, listFilters } from "./drive/list-filters";
+import { SharedFrame, type SharedTab } from "./drive/shared/shared-frame";
+import {
+  FileRequestsPending,
+  PublicLinksPending,
+} from "./drive/shared/shared-pending";
 import {
   TrashIntro,
   TrashShape,
@@ -106,8 +112,8 @@ function PendingTitle() {
 
 /**
  * What a files page other than a folder shows first: Trash its own items; Recent, Starred and
- * search their title, sort and view controls and entries; and Shared, whose tabs come with the
- * page, nothing yet.
+ * search their title, sort and view controls and entries; and Shared its title and tabs, with
+ * the chosen tab's own: for files shared with you their controls and entries.
  */
 export type FilesPageSkeleton = "trash" | ListPage;
 
@@ -133,6 +139,8 @@ export function FilesSkeleton({
         sort: string | undefined;
         /** The page's title where the server knows it, as a search's; a placeholder otherwise. */
         title?: string;
+        /** Shared's tab, from the address. */
+        tab: SharedTab;
       };
 }) {
   const folder = page.kind === "folder";
@@ -227,7 +235,28 @@ export function FilesSkeleton({
             />
             <EntrySkeleton view={page.view} titled={false} />
           </div>
-        ) : null}
+        ) : (
+          <SharedFrame tab={page.tab} onTab={nothing}>
+            <TabsContent value={page.tab}>
+              {page.tab === "with-me" ? (
+                <div className="space-y-6">
+                  <ListHeader
+                    title={false}
+                    filters={listFilters("shared", page.sort, page.view, {
+                      order: nothing,
+                      view: nothing,
+                    })}
+                  />
+                  <EntrySkeleton view={page.view} titled={false} />
+                </div>
+              ) : page.tab === "links" ? (
+                <PublicLinksPending />
+              ) : (
+                <FileRequestsPending />
+              )}
+            </TabsContent>
+          </SharedFrame>
+        )}
       </div>
     </AppFrame.Layout>
   );

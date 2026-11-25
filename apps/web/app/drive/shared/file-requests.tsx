@@ -1,3 +1,4 @@
+import { FileRequestsIntro, FileRequestsLoading } from "./shared-pending";
 import { useState } from "react";
 import { lazyComponent } from "@/components/lazy-component";
 import { useQuery } from "@tanstack/react-query";
@@ -49,17 +50,14 @@ export function FileRequests() {
   };
   return (
     <div className="space-y-6">
-      <p className="text-pretty text-sm text-muted-foreground">
-        Upload links let people without an account add files to a folder. Use a
-        folder’s Share action to create one.
-      </p>
+      <FileRequestsIntro />
       {(error || requests.error) && (
         <p role="alert" className="text-sm text-destructive">
           {error ?? requests.error?.message}
         </p>
       )}
       {requests.isPending ? (
-        <p>Loading upload links…</p>
+        <FileRequestsLoading />
       ) : requests.data?.length === 0 ? (
         <p className="text-muted-foreground">No upload links yet.</p>
       ) : (

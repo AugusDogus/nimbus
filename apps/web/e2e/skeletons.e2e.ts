@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
-import { client, origin, test } from "./helpers";
+import { asMember, client, origin, test } from "./helpers";
 
 // Every loading state takes the boxes of what replaces it, so nothing moves when content
 // arrives. Each check holds a response back, records where the placeholder's parts are, lets the
@@ -251,6 +251,42 @@ test.describe("skeletons", () => {
           listed,
         );
       });
+
+  // Shared with me, as the member the folders were shared with sees it, in the account's view.
+  for (const view of ["list", "grid"] as const)
+    test(`the served skeleton of Shared with me in ${view} view is where the page will be`, async ({
+      page,
+      context,
+      browser,
+      isMobile,
+    }) => {
+      const { name } = await folderOfEight(page);
+      const { member, memberContext } = await asMember(
+        browser,
+        context,
+        page,
+        isMobile,
+        Array.from({ length: 8 }, (_, index) => ({
+          path: `${name}/Folder ${index}`,
+          permission: "read" as const,
+        })),
+      );
+      try {
+        const rpc = await client(memberContext);
+        await rpc.prefs.set.mutate({
+          ...(await rpc.prefs.get.query()),
+          view,
+        });
+        await checkServedSkeleton(
+          member,
+          "/shared?sort=name-desc",
+          widths(isMobile),
+          listed,
+        );
+      } finally {
+        await memberContext.close();
+      }
+    });
 
   for (const path of [
     "/trash",

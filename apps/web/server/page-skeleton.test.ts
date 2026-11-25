@@ -77,7 +77,29 @@ test("other files pages keep the title's place where they have one", () => {
     );
   expect(page("/trash")).toContain("data-trash-placeholder");
   expect(page("/recent")).toContain('data-entry-skeleton="list"');
-  expect(page("/shared")).not.toContain("data-entry-skeleton");
+  expect(page("/shared")).toContain('data-entry-skeleton="list"');
+  // A files page it does not know gets no placeholder rather than another page's.
+  expect(page("/nowhere")).toBe("");
+});
+
+test("Shared's skeleton shows its tabs and the chosen tab's placeholders, in the account's view", () => {
+  const at = (view: "list" | "grid", params: Record<string, string>) =>
+    PageSkeleton.markup(
+      "files",
+      { folder: false, data: { session, prefs: prefs(view), me: me(false) } },
+      "/shared",
+      null,
+      new URLSearchParams(params),
+    );
+  const withMe = at("grid", { sort: "size-desc" });
+  expect(withMe).toContain("Shared with me");
+  expect(withMe).toContain('data-entry-skeleton="grid"');
+  expect(withMe).toContain("Size (Largest)");
+  expect(at("list", {})).toContain("Name (A to Z)");
+  const links = at("list", { tab: "links" });
+  expect(links).toContain("Loading links…");
+  expect(links).not.toContain("data-entry-skeleton");
+  expect(at("list", { tab: "requests" })).toContain("Loading upload links…");
 });
 
 test("settings show the page's name, and Administration only to administrators", () => {
