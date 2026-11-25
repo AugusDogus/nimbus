@@ -500,6 +500,41 @@ test("a mouse in a narrow window selects several items with the circles hovering
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
+test("the selection bar names its actions in labels where it has room, and in tooltips where it does not", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "Tooltips follow a hovering pointer; phones have none.");
+  const { folder } = await folderWithFiles(["one.txt"]);
+  const download = bar(page).getByRole("button", {
+    name: "Download",
+    exact: true,
+  });
+  // Fluid Functionalism's tooltip, positioned beside its button.
+  const tooltip = page.locator('[role="presentation"][data-side]', {
+    hasText: /^Download$/,
+  });
+  for (const { width, labelled } of [
+    { width: 820, labelled: false },
+    { width: 1280, labelled: true },
+  ]) {
+    await page.setViewportSize({ width, height: 720 });
+    await page.goto(`/browse/${folder}`);
+    await entry(page, "one.txt").click({ modifiers: [mod] });
+    await expect(bar(page)).toContainText("1 selected");
+    // A label kept for screen readers only is taken out of the flow (`sr-only`).
+    const shown = await download
+      .getByText("Download", { exact: true })
+      .evaluate((label) => getComputedStyle(label).position !== "absolute");
+    expect(shown, `labelled at ${width} px`).toBe(labelled);
+    await download.hover();
+    if (labelled) {
+      await page.waitForTimeout(600);
+      await expect(tooltip).toHaveCount(0);
+    } else await expect(tooltip).toBeVisible();
+  }
+});
+
 test("on a touch tablet, a long-press selects without opening the item menu, and the ⋯ button opens the drawer", async ({
   browser,
   isMobile,

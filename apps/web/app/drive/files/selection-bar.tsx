@@ -10,8 +10,17 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { createContext, useContext, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
+import { Device } from "@/lib/device";
 import { cn } from "@/lib/utils";
 import type { EntryDialog } from "./entry-dialogs";
 import { selectionCapabilities } from "./entry-menu";
@@ -39,26 +48,32 @@ function Action({
   iconOnly?: boolean;
 }) {
   return (
-    <Button
-      variant="ghost"
-      size="compact"
-      leadingIcon={icon}
-      disabled={disabled}
-      title={iconOnly ? label : undefined}
-      onClick={onClick}
-      className={cn(
-        "touch-hit gap-2 pointer-coarse:min-w-11",
-        destructive && "text-destructive hover:text-destructive",
-        className,
-      )}
-    >
-      {/* Labels show from 1024 px, where the bar has room for them beside the sidebar. */}
-      <span className={iconOnly ? "sr-only" : "sr-only lg:not-sr-only"}>
-        {label}
-      </span>
-    </Button>
+    // The tooltip names the button only while its label is hidden: one flag decides both.
+    <Tooltip content={label} forceOpen={iconOnly ? undefined : false}>
+      <Button
+        variant="ghost"
+        size="compact"
+        leadingIcon={icon}
+        disabled={disabled}
+        onClick={onClick}
+        className={cn(
+          "touch-hit gap-2 pointer-coarse:min-w-11",
+          destructive && "text-destructive hover:text-destructive",
+          className,
+        )}
+      >
+        <span className={iconOnly ? "sr-only" : undefined}>{label}</span>
+      </Button>
+    </Tooltip>
   );
 }
+
+/**
+ * The bar's width, in pixels, from which its actions show their labels beside their icons, and
+ * from which Move up one level fits beside the other actions' 44 px touch targets. The bar is as
+ * wide as what it covers: the folder's header, or the page's column when it floats.
+ */
+const room = { labels: 720, moveUp: 480 } as const;
 
 /** What the other pane's actions in the selection bar are given. */
 export type OtherPaneActionsProps = {
@@ -123,8 +138,15 @@ export function SelectionBar({
   const up = MoveUp.steady(moveUpAtOpen, moveUp);
   const star = starControl(targets, useStarredPaths(true), actions.setStarred);
   const otherPaneActions = useContext(OtherPaneActionsSlot);
+  // The room the bar has is that of what it sits in, whichever window or sidebar surrounds it.
+  const toolbar = useRef<HTMLDivElement>(null);
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => setHost(toolbar.current?.parentElement ?? null), []);
+  const width = Device.useWidth(host) ?? 0;
+  const iconOnly = compact || width < room.labels;
   return (
     <div
+      ref={toolbar}
       role="toolbar"
       aria-label="Selected items"
       data-toast-clearance={floating ? "always" : undefined}
@@ -158,8 +180,11 @@ export function SelectionBar({
         className="min-w-0 truncate px-1 text-sm font-medium tabular-nums"
       >
         {targets.length.toLocaleString()}
-        {/* Narrow touch screens keep the 44 px buttons in a row by showing only the count. */}
-        <span className="max-md:pointer-coarse:sr-only"> selected</span>
+        {/* A narrow bar for a finger keeps the 44 px buttons in a row by showing only the count. */}
+        <span className={iconOnly ? "pointer-coarse:sr-only" : undefined}>
+          {" "}
+          selected
+        </span>
       </p>
       <div className="ml-auto flex min-w-0 items-center gap-0.5">
         {other &&
@@ -203,21 +228,21 @@ export function SelectionBar({
         {!compact && targets.length < total && (
           <Action
             label="Select all"
-            iconOnly={compact}
+            iconOnly={iconOnly}
             icon={ListChecks}
             onClick={onSelectAll}
           />
         )}
         <Action
           label="Download"
-          iconOnly={compact}
+          iconOnly={iconOnly}
           icon={Download}
           onClick={() => actions.downloadEntries(targets)}
         />
         {!compact && (
           <Action
             label={star.label}
-            iconOnly={compact}
+            iconOnly={iconOnly}
             icon={Star}
             disabled={star.disabled}
             onClick={star.run}
@@ -226,7 +251,7 @@ export function SelectionBar({
         {!compact && (
           <Action
             label="Copy"
-            iconOnly={compact || other !== null}
+            iconOnly={iconOnly || other !== null}
             icon={Copy}
             onClick={() => onOpen({ action: "copy", entries: targets })}
           />
@@ -234,15 +259,14 @@ export function SelectionBar({
         {!compact && canMove && (
           <Action
             label="Move"
-            iconOnly={compact || other !== null}
+            iconOnly={iconOnly || other !== null}
             icon={FolderInput}
             onClick={() => onOpen({ action: "move", entries: targets })}
           />
         )}
-        {!compact && canMove && up.kind !== "none" && (
+        {!compact && canMove && up.kind !== "none" && width >= room.moveUp && (
           <Action
-            // Phones have no room for it beside the other 44 px actions; item menus offer it there.
-            className="max-md:hidden"
+            // A narrower bar has no room for it beside the other 44 px actions; item menus offer it.
             iconOnly
             label="Move up one level"
             icon={CornerLeftUp}
@@ -256,7 +280,7 @@ export function SelectionBar({
         {canTrash && (
           <Action
             label="Trash"
-            iconOnly={compact}
+            iconOnly={iconOnly}
             destructive
             icon={Trash2}
             onClick={() => onOpen({ action: "delete", entries: targets })}
