@@ -14,7 +14,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
@@ -83,6 +82,8 @@ const settingsFor = (draft: Draft) => ({
 });
 
 type PasswordChoice = "keep" | "set" | "remove";
+const isPasswordChoice = (value: string): value is PasswordChoice =>
+  Object.hasOwn(passwordChoices, value);
 const passwordChoices: Record<PasswordChoice, string> = {
   keep: "Keep current password",
   set: "Change password",
@@ -238,24 +239,23 @@ export default function FileRequestDialog({
                   Password
                 </FieldLabel>
                 <Select
-                  items={passwordChoices}
                   value={choice}
                   onValueChange={(value) => {
-                    if (value !== null) setChoice(value);
+                    if (isPasswordChoice(value)) setChoice(value);
                   }}
                 >
                   <SelectTrigger
                     id="file-request-password-choice"
                     className="w-full"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
+                  />
                   <SelectContent>
-                    {Object.entries(passwordChoices).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    ))}
+                    {Object.entries(passwordChoices).map(
+                      ([value, label], index) => (
+                        <SelectItem index={index} key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ),
+                    )}
                   </SelectContent>
                 </Select>
               </>

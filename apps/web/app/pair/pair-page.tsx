@@ -10,7 +10,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { FieldLabel } from "@/components/ui/field";
@@ -210,19 +209,21 @@ export function PairPage({
                 <div className="space-y-2">
                   <FieldLabel htmlFor="pairing-library">Library</FieldLabel>
                   <Select
-                    items={step.review.libraries.map((library) => ({
-                      value: library.id,
-                      label: library.title,
-                    }))}
-                    value={libraryId}
-                    onValueChange={(value) => setLibraryId(value)}
+                    value={libraryId ?? ""}
+                    onValueChange={(value) => setLibraryId(value || null)}
                   >
-                    <SelectTrigger id="pairing-library" className="w-full">
-                      <SelectValue placeholder="Choose a library" />
-                    </SelectTrigger>
+                    <SelectTrigger
+                      id="pairing-library"
+                      className="w-full"
+                      placeholder="Choose a library"
+                    />
                     <SelectContent>
-                      {step.review.libraries.map((library) => (
-                        <SelectItem key={library.id} value={library.id}>
+                      {step.review.libraries.map((library, index) => (
+                        <SelectItem
+                          index={index}
+                          key={library.id}
+                          value={library.id}
+                        >
                           {library.title}
                         </SelectItem>
                       ))}

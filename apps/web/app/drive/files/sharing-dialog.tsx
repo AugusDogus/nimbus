@@ -15,7 +15,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { FieldLabel } from "@/components/ui/field";
 import { queryClient, trpcClient } from "@/lib/trpc";
@@ -30,6 +29,8 @@ import {
 } from "../shared/home-folders-notice";
 import { DriveRoot } from "@nimbus/api/drive-root";
 
+const isPermission = (value: string): value is Permission =>
+  Object.hasOwn(permissions, value);
 const permissions: Record<Permission, string> = {
   read: "View and download",
   write: "Edit files",
@@ -151,16 +152,21 @@ export function SharingDialog({
           >
             <FieldLabel htmlFor="share-person">Person or group</FieldLabel>
             <Select
-              items={subjects}
-              value={subject}
-              onValueChange={(value) => setSubject(value)}
+              value={subject ?? ""}
+              onValueChange={(value) => setSubject(value || null)}
             >
-              <SelectTrigger id="share-person" className="w-full">
-                <SelectValue placeholder="Choose a person or group" />
-              </SelectTrigger>
+              <SelectTrigger
+                id="share-person"
+                className="w-full"
+                placeholder="Choose a person or group"
+              />
               <SelectContent>
-                {subjects.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
+                {subjects.map((option, index) => (
+                  <SelectItem
+                    index={index}
+                    key={option.value}
+                    value={option.value}
+                  >
                     {option.label}
                   </SelectItem>
                 ))}
@@ -168,18 +174,15 @@ export function SharingDialog({
             </Select>
             <FieldLabel htmlFor="share-permission">Permission</FieldLabel>
             <Select
-              items={permissions}
               value={permission}
               onValueChange={(value) => {
-                if (value !== null) setPermission(value);
+                if (isPermission(value)) setPermission(value);
               }}
             >
-              <SelectTrigger id="share-permission">
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger id="share-permission" className="self-start" />
               <SelectContent>
-                {Object.entries(permissions).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
+                {Object.entries(permissions).map(([value, label], index) => (
+                  <SelectItem index={index} key={value} value={value}>
                     {label}
                   </SelectItem>
                 ))}

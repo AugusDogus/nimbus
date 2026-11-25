@@ -6,7 +6,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { FieldLabel } from "@/components/ui/field";
 
@@ -48,18 +47,15 @@ export function AuditFilters({
       <div className="space-y-2">
         <FieldLabel htmlFor="audit-action">Event</FieldLabel>
         <Select
-          items={actionItems}
           value={value.action || any}
           onValueChange={(action) =>
             apply({ ...value, action: action === any ? "" : (action ?? "") })
           }
         >
-          <SelectTrigger id="audit-action" className="w-full">
-            <SelectValue />
-          </SelectTrigger>
+          <SelectTrigger id="audit-action" className="w-full" />
           <SelectContent>
-            {actionItems.map((action) => (
-              <SelectItem key={action.value} value={action.value}>
+            {actionItems.map((action, index) => (
+              <SelectItem index={index} key={action.value} value={action.value}>
                 {action.label}
               </SelectItem>
             ))}
@@ -69,18 +65,19 @@ export function AuditFilters({
       <div className="space-y-2">
         <FieldLabel htmlFor="audit-actor">Account</FieldLabel>
         <Select
-          items={accountItems}
           value={value.actor || any}
           onValueChange={(actor) =>
             apply({ ...value, actor: actor === any ? "" : (actor ?? "") })
           }
         >
-          <SelectTrigger id="audit-actor" className="w-full">
-            <SelectValue />
-          </SelectTrigger>
+          <SelectTrigger id="audit-actor" className="w-full" />
           <SelectContent>
-            {accountItems.map((account) => (
-              <SelectItem key={account.value} value={account.value}>
+            {accountItems.map((account, index) => (
+              <SelectItem
+                index={index}
+                key={account.value}
+                value={account.value}
+              >
                 {account.label}
               </SelectItem>
             ))}

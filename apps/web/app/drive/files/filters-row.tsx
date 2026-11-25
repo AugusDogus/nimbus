@@ -16,7 +16,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -123,9 +122,10 @@ export function FiltersRow({
 
       {/* Desktop: inline controls */}
       <Select
+        size="compact"
         value={SortOption.value(selectedSort)}
         onValueChange={(value) => {
-          const option = value === null ? undefined : SortOption.find(value);
+          const option = SortOption.find(value);
           if (option)
             updatePreferences({
               sortField: option.field,
@@ -133,26 +133,26 @@ export function FiltersRow({
             });
         }}
       >
-        <SelectTrigger
-          aria-label="Sort files"
-          data-shape="sort"
-          size="sm"
-          // In a narrow pane of a split view the order shows as its icon alone, leaving the
-          // breadcrumb room; the page itself is no container, so this never applies there.
-          className="touch-hit hidden w-auto min-w-[140px] border-transparent bg-transparent shadow-none hover:bg-muted @max-lg:min-w-0 md:flex dark:bg-transparent"
-        >
-          <SelectValue>
-            <selectedSort.icon className="size-4" />
-            <span className="@max-lg:sr-only">{selectedSort.label}</span>
-          </SelectValue>
-        </SelectTrigger>
+        {/* The trigger renders inside a wrapper of its own, which takes the row's place. */}
+        <div className="hidden md:flex">
+          <SelectTrigger
+            aria-label="Sort files"
+            data-shape="sort"
+            variant="borderless"
+            icon={selectedSort.icon}
+            // In a narrow pane of a split view the order shows as its icon alone, leaving the
+            // breadcrumb room; the page itself is no container, so this never applies there.
+            className="touch-hit w-auto min-w-[140px] @max-lg:min-w-0 @max-lg:[&>span>span]:sr-only"
+          />
+        </div>
         <SelectContent>
-          {SortOption.all.map((option) => (
+          {SortOption.all.map((option, index) => (
             <SelectItem
               key={SortOption.value(option)}
+              index={index}
               value={SortOption.value(option)}
+              icon={option.icon}
             >
-              <option.icon className="size-4" />
               {option.label}
             </SelectItem>
           ))}

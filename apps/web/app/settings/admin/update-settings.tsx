@@ -7,7 +7,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { CodeLoad } from "@/lib/code-load";
 import { queryClient } from "@/lib/trpc";
@@ -329,7 +328,6 @@ export function UpdateSettings() {
           >
             <div className="flex flex-wrap gap-2 sm:justify-end">
               <Select
-                items={modes}
                 value={data.schedule.mode}
                 onValueChange={(mode) => {
                   const chosen = modes.find((one) => one.value === mode);
@@ -345,12 +343,14 @@ export function UpdateSettings() {
                 <SelectTrigger
                   aria-label="Automatic updates"
                   className="w-full sm:w-56"
-                >
-                  <SelectValue />
-                </SelectTrigger>
+                />
                 <SelectContent>
-                  {modes.map((mode) => (
-                    <SelectItem key={mode.value} value={mode.value}>
+                  {modes.map((mode, index) => (
+                    <SelectItem
+                      index={index}
+                      key={mode.value}
+                      value={mode.value}
+                    >
                       {mode.label}
                     </SelectItem>
                   ))}
@@ -358,7 +358,6 @@ export function UpdateSettings() {
               </Select>
               {data.schedule.mode === "install" && (
                 <Select
-                  items={hours}
                   value={String(data.schedule.hour)}
                   onValueChange={(hour) =>
                     void ask({
@@ -369,12 +368,14 @@ export function UpdateSettings() {
                   }
                   disabled={busy || Boolean(off)}
                 >
-                  <SelectTrigger aria-label="Quiet hour" className="w-28">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger aria-label="Quiet hour" className="w-28" />
                   <SelectContent>
-                    {hours.map((hour) => (
-                      <SelectItem key={hour.value} value={hour.value}>
+                    {hours.map((hour, index) => (
+                      <SelectItem
+                        index={index}
+                        key={hour.value}
+                        value={hour.value}
+                      >
                         {hour.label}
                       </SelectItem>
                     ))}
