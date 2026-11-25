@@ -53,7 +53,7 @@ export function AuditFilters({
           }
         >
           <SelectTrigger id="audit-action" className="w-full" />
-          <SelectContent>
+          <SelectContent className="max-w-[var(--available-width)]">
             {actionItems.map((action, index) => (
               <SelectItem index={index} key={action.value} value={action.value}>
                 {action.label}
@@ -71,7 +71,7 @@ export function AuditFilters({
           }
         >
           <SelectTrigger id="audit-actor" className="w-full" />
-          <SelectContent>
+          <SelectContent className="max-w-[var(--available-width)]">
             {accountItems.map((account, index) => (
               <SelectItem
                 index={index}

@@ -248,7 +248,7 @@ export default function FileRequestDialog({
                     id="file-request-password-choice"
                     className="w-full"
                   />
-                  <SelectContent>
+                  <SelectContent className="max-w-[var(--available-width)]">
                     {Object.entries(passwordChoices).map(
                       ([value, label], index) => (
                         <SelectItem index={index} key={value} value={value}>

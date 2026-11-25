@@ -118,7 +118,7 @@ export default function EditLinkDialog({
                   id="edit-link-password-choice"
                   className="w-full"
                 />
-                <SelectContent>
+                <SelectContent className="max-w-[var(--available-width)]">
                   {Object.entries(passwordChoices).map(
                     ([value, label], index) => (
                       <SelectItem index={index} key={value} value={value}>

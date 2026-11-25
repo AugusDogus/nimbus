@@ -217,7 +217,7 @@ export function PairPage({
                       className="w-full"
                       placeholder="Choose a library"
                     />
-                    <SelectContent>
+                    <SelectContent className="max-w-[var(--available-width)]">
                       {step.review.libraries.map((library, index) => (
                         <SelectItem
                           index={index}

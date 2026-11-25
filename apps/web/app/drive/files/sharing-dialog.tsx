@@ -163,7 +163,7 @@ export function SharingDialog({
                 className="w-full"
                 placeholder="Choose a person or group"
               />
-              <SelectContent>
+              <SelectContent className="max-w-[var(--available-width)]">
                 {subjects.map((option, index) => (
                   <SelectItem
                     index={index}
@@ -183,7 +183,7 @@ export function SharingDialog({
               }}
             >
               <SelectTrigger id="share-permission" className="self-start" />
-              <SelectContent>
+              <SelectContent className="max-w-[var(--available-width)]">
                 {Object.entries(permissions).map(([value, label], index) => (
                   <SelectItem index={index} key={value} value={value}>
                     {label}

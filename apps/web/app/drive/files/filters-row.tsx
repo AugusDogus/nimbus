@@ -145,7 +145,7 @@ export function FiltersRow({
             className="touch-hit w-auto min-w-[140px] @max-lg:min-w-0 @max-lg:[&>span>span]:sr-only"
           />
         </div>
-        <SelectContent>
+        <SelectContent className="max-w-[var(--available-width)]">
           {SortOption.all.map((option, index) => (
             <SelectItem
               key={SortOption.value(option)}

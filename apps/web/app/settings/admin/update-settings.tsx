@@ -344,7 +344,7 @@ export function UpdateSettings() {
                   aria-label="Automatic updates"
                   className="w-full sm:w-56"
                 />
-                <SelectContent>
+                <SelectContent className="max-w-[var(--available-width)]">
                   {modes.map((mode, index) => (
                     <SelectItem
                       index={index}
@@ -369,7 +369,7 @@ export function UpdateSettings() {
                   disabled={busy || Boolean(off)}
                 >
                   <SelectTrigger aria-label="Quiet hour" className="w-28" />
-                  <SelectContent>
+                  <SelectContent className="max-w-[var(--available-width)]">
                     {hours.map((hour, index) => (
                       <SelectItem
                         index={index}
