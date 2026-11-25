@@ -161,6 +161,7 @@ async function runSequence(seed: number) {
         else fake.terminating = true;
       },
       exited: exited.promise,
+      started: Promise.resolve(fake.pid),
     };
   };
   const supervisor = createSupervisor({

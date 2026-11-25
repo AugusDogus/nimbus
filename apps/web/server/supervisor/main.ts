@@ -168,6 +168,8 @@ const spawn: SpawnWorker = (request, onMessage) => {
   let child: ReturnType<typeof Bun.spawn> | null = null;
   let stopped: NodeJS.Signals | null = null;
   const early: Parameters<ReturnType<SpawnWorker>["send"]>[0][] = [];
+  /** The pid once the process exists; null when it never starts. */
+  const launchedPid = Promise.withResolvers<number | null>();
   const exited = (async (): Promise<number | null> => {
     if (installed(request.release)) {
       const checking = performance.now();
@@ -176,6 +178,7 @@ const spawn: SpawnWorker = (request, onMessage) => {
         log(
           `did not start ${request.release.name}: ${verified.ok ? "it is not where it was verified" : verified.message}`,
         );
+        launchedPid.resolve(null);
         return RELEASE_REFUSED_EXIT;
       }
       log(
@@ -197,7 +200,10 @@ const spawn: SpawnWorker = (request, onMessage) => {
       }
       previousAssets.push(dist);
     }
-    if (stopped) return null;
+    if (stopped) {
+      launchedPid.resolve(null);
+      return null;
+    }
     let checked = serverIds === null;
     const started = Bun.spawn(asServer([process.execPath, "server/start.ts"]), {
       cwd: path.join(request.release.root, "apps/web"),
@@ -253,6 +259,7 @@ const spawn: SpawnWorker = (request, onMessage) => {
       },
     });
     child = started;
+    launchedPid.resolve(started.pid);
     workers.set(started.pid, (reply) => {
       if (started.exitCode === null && started.signalCode === null)
         started.send(reply);
@@ -276,6 +283,7 @@ const spawn: SpawnWorker = (request, onMessage) => {
       else stopped = signal;
     },
     exited,
+    started: launchedPid.promise,
   };
 };
 

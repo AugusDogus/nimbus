@@ -36,6 +36,11 @@ export type WorkerProcess = {
   kill: (signal: "SIGTERM" | "SIGKILL") => void;
   /** Settles with the exit code once the process has exited. */
   exited: Promise<number | null>;
+  /**
+   * Settles with the process's pid once it exists, which may be later than the spawn, as when its
+   * release is verified first; with null when it never started.
+   */
+  started: Promise<number | null>;
 };
 
 export type SpawnWorker = (
@@ -352,7 +357,9 @@ export function createSupervisor(deps: {
       fullRestart: null,
     };
     spawned = worker;
-    log(`started ${launch.release.name} as pid ${child.pid}`);
+    void child.started.then((pid) => {
+      if (pid !== null) log(`started ${launch.release.name} as pid ${pid}`);
+    });
     void child.exited.then((code) => onExit(worker, code));
     return { ok: true, worker };
   }

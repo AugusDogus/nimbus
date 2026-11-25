@@ -72,6 +72,7 @@ function harness(
         fake.exit(null);
       },
       exited: exited.promise,
+      started: Promise.resolve(fake.pid),
     };
   };
   const supervisor = createSupervisor({
@@ -736,5 +737,39 @@ describe("the supervisor", () => {
     const outcome = await handing;
     expect(outcome.ok).toBe(true);
     expect(h.supervisor.status().active?.release).toBe("b");
+  });
+
+  test("a worker's start is logged with its real pid, once it has one", async () => {
+    const lines: string[] = [];
+    const ran = Promise.withResolvers<number | null>();
+    const started = Promise.withResolvers<number | null>();
+    let pid = 0;
+    const supervisor = createSupervisor({
+      run: { id: "run-0123456789abcdef", startedAt: 1 },
+      // As a launch verified first starts its process later: no pid until then.
+      spawn: () => ({
+        get pid() {
+          return pid;
+        },
+        send: () => undefined,
+        kill: () => ran.resolve(null),
+        exited: ran.promise,
+        started: started.promise,
+      }),
+      settings,
+      release: () => ({ ok: true, release: releases.a }),
+      distOf: (release) => `${release.root}/apps/web/dist`,
+      builtIn: releases.a,
+      log: (line) => void lines.push(line),
+      onActive: () => undefined,
+    });
+    void supervisor.start();
+    await Bun.sleep(1);
+    expect(lines.join("\n")).not.toContain("pid 0");
+    pid = 26081;
+    started.resolve(pid);
+    await Bun.sleep(1);
+    expect(lines).toContain("started a as pid 26081");
+    ran.resolve(0);
   });
 });
