@@ -13,4 +13,11 @@ describe("SplitRoom", () => {
     expect(SplitRoom.fits(both)).toBe(true);
     expect(SplitRoom.fits(both - 1)).toBe(false);
   });
+
+  test("a window gets the mode its folded content area does", () => {
+    for (const width of [390, 412, 759, 760, 768, 844, 1024, 1280]) {
+      const content = width < 768 ? width - 32 : width - 16;
+      expect(SplitRoom.modeForWindow(width)).toBe(SplitRoom.mode(content, 0));
+    }
+  });
 });

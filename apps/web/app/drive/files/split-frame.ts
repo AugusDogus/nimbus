@@ -10,6 +10,7 @@ import type { PaneFrame } from "./files-page-client";
 import type { PaneLinks } from "./pane-links";
 import type { OtherPaneActionsProps } from "./selection-bar";
 import type { OtherPane, SplitControl } from "./split-layout";
+import type { SplitMode } from "./split-room";
 
 /**
  * What a split view gives the page's folder frame (see `FilesPageClient`). The frame's first
@@ -43,8 +44,7 @@ export type SplitFrame = {
   otherPaneActions: (props: OtherPaneActionsProps) => ReactNode;
 };
 
-/** How a split view lays out its two panes (see `SplitFrame.mode`). */
-export type SplitMode = "side-by-side" | "swipe";
+export type { SplitMode } from "./split-room";
 
 /**
  * The split view's current frame, which its controller publishes after each of its renders. A

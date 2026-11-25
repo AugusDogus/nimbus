@@ -23,7 +23,30 @@ const roomy = 900;
  */
 const minViewport = minSideBySide + 32;
 
+/**
+ * How a split view lays out its two panes: side by side where they fit, elsewhere one at a time,
+ * swiped between. Every folder page offers a split at every width; pages that are not a folder
+ * offer none (`SplitControl`'s "none").
+ */
+export type SplitMode = "side-by-side" | "swipe";
+
+/**
+ * The mode for a content area `contentWidth` px wide, where folding the sidebar away would add
+ * `foldWidth` px (0 where there is no sidebar column to fold, as on phones).
+ */
+const mode = (contentWidth: number, foldWidth: number): SplitMode =>
+  contentWidth + foldWidth >= minSideBySide ? "side-by-side" : "swipe";
+
+/**
+ * The mode a window `width` px wide gets once the split has folded the sidebar if it needs to:
+ * what a test or anything else without a measured content area can ask.
+ */
+const modeForWindow = (width: number): SplitMode =>
+  width >= minViewport ? "side-by-side" : "swipe";
+
 export const SplitRoom = {
+  mode,
+  modeForWindow,
   minPaneWidth,
   dividerWidth,
   minSideBySide,
