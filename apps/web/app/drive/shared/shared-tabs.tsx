@@ -11,7 +11,14 @@ const tabs: { value: SharedTab; label: string }[] = [
   { value: "requests", label: "File requests" },
 ];
 
-export function SharedTabs({ tab }: { tab: SharedTab }) {
+export function SharedTabs({
+  tab,
+  sort,
+}: {
+  tab: SharedTab;
+  /** The order of the files shared with you, from the address. */
+  sort: string | undefined;
+}) {
   const navigate = useNavigate();
 
   return (
@@ -37,7 +44,7 @@ export function SharedTabs({ tab }: { tab: SharedTab }) {
         ))}
       </TabsList>
       <TabsContent value="with-me">
-        <LibraryPage kind="shared" />
+        <LibraryPage kind="shared" sort={sort} />
       </TabsContent>
       <TabsContent value="links">
         <PublicLinks />

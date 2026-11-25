@@ -36,8 +36,11 @@ export type FiltersRowProps = {
     value: string;
     onChange: (value: string) => void;
   };
-  view: UserPreferences["view"];
-  onView: (view: UserPreferences["view"]) => void;
+  /** List or grid, where the listing has cards to show; null where it lists rows only. */
+  view: {
+    current: UserPreferences["view"];
+    onChange: (view: UserPreferences["view"]) => void;
+  } | null;
   /** Folders first, where the listing groups by type; null where it does not. */
   group: { on: boolean; onChange: (on: boolean) => void } | null;
 };
@@ -67,8 +70,10 @@ export function folderFilters(
           });
       },
     },
-    view: prefs.view,
-    onView: (view) => updatePreferences({ view }),
+    view: {
+      current: prefs.view,
+      onChange: (view) => updatePreferences({ view }),
+    },
     group: {
       on: prefs.groupByType,
       onChange: (on) => updatePreferences({ groupByType: on }),
@@ -76,7 +81,7 @@ export function folderFilters(
   };
 }
 
-export function FiltersRow({ sort, view, onView, group }: FiltersRowProps) {
+export function FiltersRow({ sort, view, group }: FiltersRowProps) {
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
   const selectedValue = sort.value;
@@ -209,38 +214,40 @@ export function FiltersRow({ sort, view, onView, group }: FiltersRowProps) {
         </Tooltip>
       )}
 
-      {/* View toggle is always visible */}
-      <ToggleGroup
-        aria-label="File view"
-        data-shape="view"
-        value={[view]}
-        onValueChange={([value]) => {
-          if (value === "grid" || value === "list") onView(value);
-        }}
-        variant="default"
-        size="sm"
-        spacing={1}
-        className="rounded-lg bg-muted/70 p-1"
-      >
-        <Tooltip content="List view">
-          <ToggleGroupItem
-            value="list"
-            aria-label="List view"
-            className="touch-hit size-8 rounded-md px-0 pointer-coarse:w-11 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
-          >
-            <List className="size-4" />
-          </ToggleGroupItem>
-        </Tooltip>
-        <Tooltip content="Grid view">
-          <ToggleGroupItem
-            value="grid"
-            aria-label="Grid view"
-            className="touch-hit size-8 rounded-md px-0 pointer-coarse:w-11 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
-          >
-            <Grid2X2 className="size-4" />
-          </ToggleGroupItem>
-        </Tooltip>
-      </ToggleGroup>
+      {/* The view, where the listing has one to choose, is visible at every width. */}
+      {view && (
+        <ToggleGroup
+          aria-label="File view"
+          data-shape="view"
+          value={[view.current]}
+          onValueChange={([value]) => {
+            if (value === "grid" || value === "list") view.onChange(value);
+          }}
+          variant="default"
+          size="sm"
+          spacing={1}
+          className="rounded-lg bg-muted/70 p-1"
+        >
+          <Tooltip content="List view">
+            <ToggleGroupItem
+              value="list"
+              aria-label="List view"
+              className="touch-hit size-8 rounded-md px-0 pointer-coarse:w-11 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
+            >
+              <List className="size-4" />
+            </ToggleGroupItem>
+          </Tooltip>
+          <Tooltip content="Grid view">
+            <ToggleGroupItem
+              value="grid"
+              aria-label="Grid view"
+              className="touch-hit size-8 rounded-md px-0 pointer-coarse:w-11 data-pressed:bg-card data-pressed:shadow-sm dark:data-pressed:bg-accent"
+            >
+              <Grid2X2 className="size-4" />
+            </ToggleGroupItem>
+          </Tooltip>
+        </ToggleGroup>
+      )}
     </div>
   );
 }

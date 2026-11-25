@@ -13,12 +13,18 @@ import {
 import { useFileActions } from "./files/use-file-actions";
 import { useFileDrag } from "./files/use-file-drag";
 import { DriveRoot } from "@nimbus/api/drive-root";
+import { ListOrder } from "./files/list-order";
+import { ListHeader, useListFilters } from "./list-filters";
 
 export function LibraryPage({
   kind,
+  sort,
 }: {
   kind: "starred" | "recent" | "shared";
+  /** The address's order, absent for the page's default (see `useListFilters`). */
+  sort: string | undefined;
 }) {
+  const { order, view, filters } = useListFilters(kind, sort);
   const bookmarks = useQuery({
     queryKey: ["catalog", "bookmarks"],
     queryFn: () => trpcClient.catalog.bookmarks.query(),
@@ -57,9 +63,15 @@ export function LibraryPage({
         : "Recent";
   return (
     <div className="space-y-6">
-      {kind !== "shared" && (
-        <h1 className="text-balance text-2xl font-semibold">{title}</h1>
-      )}
+      {/* Shared's title heads its tabs; the tab of files shared with you has the controls. */}
+      <ListHeader
+        title={
+          kind !== "shared" && (
+            <h1 className="text-balance text-2xl font-semibold">{title}</h1>
+          )
+        }
+        filters={filters}
+      />
       {/* A failed refresh keeps the list it already has, and the selection in it. */}
       {active.isError && active.data !== undefined && (
         <div className="flex flex-wrap items-center gap-3">
@@ -88,14 +100,14 @@ export function LibraryPage({
           {active.error.message}
         </p>
       ) : active.isPending ? (
-        <EntrySkeleton view="list" titled={false} />
+        <EntrySkeleton view={view} titled={false} />
       ) : entries.length ? (
         <EntriesView
-          view="list"
-          sections={[{ title: "", entries }]}
+          view={view}
+          sections={[{ title: "", entries: ListOrder.apply(entries, order) }]}
           actions={actions}
           drag={drag}
-          restoreKey={`${kind}:`}
+          restoreKey={`${kind}:${view}`}
           label={title}
           dialog={dialog}
           onDialog={onDialog}

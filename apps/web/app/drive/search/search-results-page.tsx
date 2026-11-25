@@ -1,6 +1,6 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { Link } from "@/components/link";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TransferDialog } from "../files/entry-dialogs";
@@ -20,12 +20,40 @@ import { SplitAddress, useCarriedSplit } from "../files/split/split-address";
 import { Highlighted, parentLabel } from "./highlight";
 import { useSearch, type SearchResultEntry } from "./use-search";
 import { DriveRoot } from "@nimbus/api/drive-root";
+import { EntrySkeleton } from "../files/loading-skeleton";
+import { ListOrder } from "../files/list-order";
+import { ListHeader, useListFilters } from "../list-filters";
 
 const PAGE = 200;
+/**
+ * The most matches an order other than relevance sorts. Sorting needs every match, not the
+ * pages shown so far, so they all load first; past this many, the search should be narrowed.
+ */
+const sortCap = 2000;
 const count = new Intl.NumberFormat();
 
-export function SearchResultsPage({ query }: { query: string }) {
+export function SearchResultsPage({
+  query,
+  sort,
+}: {
+  query: string;
+  /** The address's order, absent for relevance. */
+  sort: string | undefined;
+}) {
   const search = useSearch(query, PAGE);
+  const { order, view, filters } = useListFilters("search", sort);
+  // An order of its own needs every match. Until they have all loaded, or where there are too
+  // many to load, the results stay in relevance order and the page says why.
+  const sorting = order.by.kind !== "kept";
+  const tooMany =
+    sorting && search.total !== null && search.total.count > sortCap;
+  const gathering = sorting && !tooMany && search.more;
+  const exact = search.total?.exact === true;
+  const { loadingMore, loadMore, problem } = search;
+  useEffect(() => {
+    if (gathering && exact && !loadingMore && !problem) loadMore();
+  }, [gathering, exact, loadingMore, problem, loadMore, search.entries.length]);
+  const shownOrder = gathering || tooMany ? ListOrder.defaults.search : order;
   const byPath = useMemo(
     () =>
       new Map<string, SearchResultEntry>(
@@ -66,17 +94,23 @@ export function SearchResultsPage({ query }: { query: string }) {
   useClashChoices(clashHandoff, offer);
   const title = `Search: ${query}`;
   // Typo and abbreviation matches always rank last, so a heading can separate them.
+  // Sorted within each: similar names stay below the matches themselves, in any order.
   const sections = useMemo(() => {
     const similar = search.entries.findIndex(
       (entry) => entry.match === "fuzzy",
     );
-    return similar < 0
-      ? [{ title: "", entries: search.entries }]
-      : [
-          { title: "", entries: search.entries.slice(0, similar) },
-          { title: "Similar names", entries: search.entries.slice(similar) },
-        ].filter((section) => section.entries.length > 0);
-  }, [search.entries]);
+    return (
+      similar < 0
+        ? [{ title: "", entries: search.entries }]
+        : [
+            { title: "", entries: search.entries.slice(0, similar) },
+            { title: "Similar names", entries: search.entries.slice(similar) },
+          ].filter((section) => section.entries.length > 0)
+    ).map((section) => ({
+      ...section,
+      entries: ListOrder.apply(section.entries, shownOrder),
+    }));
+  }, [search.entries, shownOrder]);
   const total = search.total;
   // Searched from a split view: folders opened from here go to its active pane.
   const split = useCarriedSplit();
@@ -88,7 +122,14 @@ export function SearchResultsPage({ query }: { query: string }) {
     <PaneLinks.Provider value={links}>
       <div className="space-y-6">
         <div className="space-y-1">
-          <h1 className="text-balance text-2xl font-semibold">{title}</h1>
+          <ListHeader
+            title={
+              <h1 className="min-w-0 text-balance text-2xl font-semibold">
+                {title}
+              </h1>
+            }
+            filters={filters}
+          />
           {split && (
             <p className="text-pretty text-sm text-muted-foreground">
               Folders open in the {split.layout.active} pane of your split view.{" "}
@@ -110,14 +151,14 @@ export function SearchResultsPage({ query }: { query: string }) {
         query &&
         !search.entries.length &&
         !search.problem ? (
-          <p>Loading files…</p>
+          <EntrySkeleton view={view} titled={false} />
         ) : search.entries.length ? (
           <EntriesView
-            view="list"
+            view={view}
             sections={sections}
             actions={actions}
             drag={drag}
-            restoreKey={`search:${query}`}
+            restoreKey={`search:${query}:${view}`}
             label={title}
             renderName={renderName}
             dialog={dialog}
@@ -161,6 +202,16 @@ export function SearchResultsPage({ query }: { query: string }) {
               Search again
             </Button>
           </div>
+        )}
+        {(gathering || tooMany) && search.entries.length > 0 && (
+          <p
+            role="status"
+            className="text-pretty text-sm text-muted-foreground"
+          >
+            {tooMany
+              ? `Sorting by ${order.label.toLowerCase()} needs every match, and there are more than ${count.format(sortCap)}: the most relevant show first. Narrow the search to sort them.`
+              : `Loading every match to sort them by ${order.label.toLowerCase()}…`}
+          </p>
         )}
         {!search.complete && (
           <p

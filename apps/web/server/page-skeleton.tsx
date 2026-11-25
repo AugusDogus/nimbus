@@ -1,3 +1,4 @@
+import { ListOrder } from "@/app/drive/files/list-order";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import type { Bootstrap } from "@/client/bootstrap";
@@ -25,8 +26,8 @@ const placeholder = (page: ReactNode) =>
 /** What each files page other than a folder starts with (see `FilesPageSkeleton`). */
 const pages = new Map<string, FilesPageSkeleton>([
   ["/trash", "trash"],
-  ["/recent", "library"],
-  ["/starred", "library"],
+  ["/recent", "recent"],
+  ["/starred", "starred"],
   ["/search", "search"],
 ]);
 
@@ -58,6 +59,8 @@ export const PageSkeleton = {
     page: { folder: boolean; data: Bootstrap },
     pathname: string,
     cookie: string | null,
+    /** The order the address names, which the page's sort control shows. */
+    sort: string | null,
   ): string {
     const { session, prefs, me } = page.data;
     if (!session || (kind !== "files" && kind !== "settings")) return "";
@@ -79,9 +82,16 @@ export const PageSkeleton = {
           page={{ kind: "folder", prefs }}
         />
       ));
+    const shows = pages.get(pathname) ?? "shared";
     const other = {
       kind: "page" as const,
-      shows: pages.get(pathname) ?? "shared",
+      shows,
+      view: prefs?.view ?? "list",
+      // Named by the page's own choices, so odd addresses share the default's markup.
+      sort:
+        shows === "trash" || shows === "shared"
+          ? undefined
+          : ListOrder.pick(shows, sort ?? undefined).value,
     };
     return cached(JSON.stringify(["page", account, place, other]), () => (
       <FilesSkeleton account={account} place={place} page={other} />

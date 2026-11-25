@@ -111,8 +111,6 @@ function unavailable(action: FileAction, view: FileView): string | null {
   if (libraries.includes(view)) {
     if (action === "new folder" || action === "upload")
       return "Not a folder: there is no folder here to create in or upload to.";
-    if (action === "sort" || action === "change view")
-      return "Not built yet: search results keep their relevance order, and Recent, Starred and Shared their own, always as a list.";
   }
   return null;
 }

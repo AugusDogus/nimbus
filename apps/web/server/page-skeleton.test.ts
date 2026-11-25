@@ -25,7 +25,7 @@ const prefs = (view: "list" | "grid") =>
   }) as const;
 
 const folder = (data: Bootstrap, path = "/browse/Notes") =>
-  PageSkeleton.markup("files", { folder: true, data }, path, null);
+  PageSkeleton.markup("files", { folder: true, data }, path, null, null);
 
 test("a folder's skeleton follows the account's view and sort order, and its role", () => {
   const list = folder({ session, prefs: prefs("list"), me: me(false) });
@@ -51,6 +51,7 @@ test("the skeleton shows the sidebar as the person left it", () => {
       { folder: true, data },
       "/browse/Notes",
       cookie,
+      null,
     );
   expect(at(null)).toContain('data-state="expanded"');
   expect(at("theme=dark; sidebar_state=false")).toContain(
@@ -66,6 +67,7 @@ test("other files pages keep the title's place where they have one", () => {
       { folder: false, data: { session, prefs: prefs("list"), me: me(false) } },
       path,
       null,
+      null,
     );
   expect(page("/trash")).toContain("data-trash-placeholder");
   expect(page("/recent")).toContain('data-entry-skeleton="list"');
@@ -78,6 +80,7 @@ test("settings show the page's name, and Administration only to administrators",
       "settings",
       { folder: false, data: { session, me: me(isAdmin) } },
       path,
+      null,
       null,
     );
   expect(settings(false, "/settings/webdav")).toContain("WebDAV");
@@ -94,11 +97,13 @@ test("the markup survives the browser's parser: no block inside a paragraph", ()
       { folder: false, data: { session, me: me(true) } },
       "/trash",
       null,
+      null,
     ),
     PageSkeleton.markup(
       "settings",
       { folder: false, data: { session, me: me(true) } },
       "/settings/account",
+      null,
       null,
     ),
   ])
@@ -110,9 +115,36 @@ test("the markup survives the browser's parser: no block inside a paragraph", ()
 test("pages without a session, and public pages, have no skeleton", () => {
   expect(folder({ prefs: prefs("list") })).toBe("");
   expect(
-    PageSkeleton.markup("public", { folder: false, data: {} }, "/s/x", null),
+    PageSkeleton.markup(
+      "public",
+      { folder: false, data: {} },
+      "/s/x",
+      null,
+      null,
+    ),
   ).toBe("");
   expect(
-    PageSkeleton.markup(null, { folder: false, data: {} }, "/", null),
+    PageSkeleton.markup(null, { folder: false, data: {} }, "/", null, null),
   ).toBe("");
+});
+
+test("a list page's skeleton shows the account's view and the order its address names", () => {
+  const at = (path: string, view: "list" | "grid", sort: string | null) =>
+    PageSkeleton.markup(
+      "files",
+      { folder: false, data: { session, prefs: prefs(view), me: me(false) } },
+      path,
+      null,
+      sort,
+    );
+  // The default order, then another the address names, on Recent.
+  expect(at("/recent", "list", null)).toContain("Most recent");
+  expect(at("/recent", "list", "size-desc")).toContain("Size (Largest)");
+  // Search starts by relevance, Starred by name, as folders do.
+  expect(at("/search", "list", null)).toContain("Relevance");
+  expect(at("/starred", "list", "nonsense")).toContain("Name (A to Z)");
+  // Placeholders in the view the account chose.
+  expect(at("/starred", "grid", null)).not.toEqual(
+    at("/starred", "list", null),
+  );
 });

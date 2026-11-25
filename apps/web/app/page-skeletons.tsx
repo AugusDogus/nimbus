@@ -24,6 +24,8 @@ import { EntrySkeleton } from "./drive/files/loading-skeleton";
 import type { NavPlace } from "./drive/files/nav-place";
 import { SplitToggle } from "./drive/files/split-toggle";
 import { SearchField } from "./drive/search/search-field";
+import type { ListPage } from "./drive/files/list-order";
+import { ListHeader, listFilters } from "./drive/list-filters";
 import {
   TrashIntro,
   TrashShape,
@@ -102,10 +104,11 @@ function PendingTitle() {
 }
 
 /**
- * What a files page other than a folder shows first: Trash its own items, Recent and Starred a
- * list of entries, search its title, and Shared, whose tabs come with the page, nothing yet.
+ * What a files page other than a folder shows first: Trash its own items; Recent, Starred and
+ * search their title, sort and view controls and entries; and Shared, whose tabs come with the
+ * page, nothing yet.
  */
-export type FilesPageSkeleton = "trash" | "library" | "search" | "shared";
+export type FilesPageSkeleton = "trash" | ListPage;
 
 /**
  * A files page before it loads: the sidebar and header, and for a folder its card, with the
@@ -121,7 +124,13 @@ export function FilesSkeleton({
   place: NavPlace | null;
   page:
     | { kind: "folder"; prefs: UserPreferences }
-    | { kind: "page"; shows: FilesPageSkeleton };
+    | {
+        kind: "page";
+        shows: FilesPageSkeleton;
+        /** The account's view, and the order the address names, if any. */
+        view: UserPreferences["view"];
+        sort: string | undefined;
+      };
 }) {
   const folder = page.kind === "folder";
   return (
@@ -182,9 +191,7 @@ export function FilesSkeleton({
                 <Skeleton className={cn("h-4 w-32 max-w-[38vw]", bar)} />
               </div>
             }
-            tools={
-              <FiltersRow {...folderFilters(page.prefs, nothing)} />
-            }
+            tools={<FiltersRow {...folderFilters(page.prefs, nothing)} />}
             body={<EntrySkeleton view={page.prefs.view} />}
           />
         ) : page.shows === "trash" ? (
@@ -197,14 +204,18 @@ export function FilesSkeleton({
             </div>
             <TrashSkeleton />
           </div>
-        ) : page.shows === "library" ? (
+        ) : page.shows !== "shared" ? (
           <div className="space-y-6">
-            <PendingTitle />
-            <EntrySkeleton view="list" titled={false} />
+            <ListHeader
+              title={<PendingTitle />}
+              filters={listFilters(page.shows, page.sort, page.view, {
+                order: nothing,
+                view: nothing,
+              })}
+            />
+            <EntrySkeleton view={page.view} titled={false} />
           </div>
-        ) : (
-          page.shows === "search" && <PendingTitle />
-        )}
+        ) : null}
       </div>
     </AppFrame.Layout>
   );
