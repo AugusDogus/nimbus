@@ -129,7 +129,9 @@ export function SharingDialog({
             Grant access to an account or create a public link.
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6 max-sm:scroll-pb-20">
+        {/* Relative, so the hidden form input of a checkbox, which Fluid Functionalism places
+            absolutely where the box is, scrolls with this body instead of stretching the dialog. */}
+        <div className="relative min-h-0 space-y-4 overflow-y-auto px-6 pb-6 max-sm:scroll-pb-20">
           <form
             className="space-y-3"
             onSubmit={(event) => {
