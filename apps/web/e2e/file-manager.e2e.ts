@@ -478,6 +478,56 @@ test("rows keep their elements through hydration and across the breakpoint, so a
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
+test("on a touch tablet, a long-press selects without opening the item menu, and the ⋯ button opens the drawer", async ({
+  browser,
+  isMobile,
+}, testInfo) => {
+  test.skip(isMobile, "It opens its own tablet; one project is enough.");
+  const { folder } = await folderWithFiles(["one.txt", "two.txt"]);
+  // A tablet 820 px wide: wider than a phone, with a finger for a pointer.
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    storageState: "test-results/.auth/admin.json",
+    viewport: { width: 820, height: 1180 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  try {
+    const page = await context.newPage();
+    await page.goto(`/browse/${folder}`);
+    const target = entry(page, "one.txt");
+    await expect(target).toHaveAttribute("draggable", "false");
+    // A long-press as Chrome on Android sends it: the press, then `contextmenu` once the system's
+    // long-press time passes, 400 ms on recent Android, before the finger lifts. Headless
+    // Chromium sends no `contextmenu` for a touch gesture, so the events are dispatched.
+    const point = {
+      clientX: 100,
+      clientY: 100,
+      pointerType: "touch",
+      isPrimary: true,
+    };
+    await target.dispatchEvent("pointerdown", { ...point, button: 0 });
+    await page.waitForTimeout(400);
+    await target.dispatchEvent("contextmenu", { ...point, button: 2 });
+    await page.waitForTimeout(200);
+    await target.dispatchEvent("pointerup", { ...point, button: 0 });
+    await target.dispatchEvent("click", { ...point, button: 0 });
+    await expect(bar(page)).toContainText("1 selected");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    // The actions button of a row opens the drawer, as on a phone.
+    await page
+      .getByRole("button", { name: "Actions for two.txt", exact: true })
+      .tap();
+    await expect(
+      page.getByRole("dialog", { name: "two.txt", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
 test("empties trash in one step after confirmation", async ({
   page,
   context,

@@ -108,6 +108,8 @@ export function EntriesView({
   const folderHref = usePaneHref();
   const keyboardHint = useId();
   const isMobile = Device.useNarrow();
+  // A finger opens item actions in the drawer, at every width.
+  const coarse = Device.useCoarsePointer();
   const canDrag = Device.useAnyFinePointer();
   const containerRef = useRef<HTMLDivElement>(null);
   const gridTrack = useGridTrack(containerRef, view === "grid");
@@ -170,6 +172,8 @@ export function EntriesView({
     y: number;
   } | null>(null);
   const suppressClick = useRef(false);
+  /** What the last press on an entry was made with: a finger's long-press never opens the menu. */
+  const pressedWith = useRef<string | null>(null);
   const previewOnRelease = useRef<FileEntry | null>(null);
 
   const selectedEntries = useMemo(
@@ -375,6 +379,7 @@ export function EntriesView({
     event: PointerEvent<HTMLElement>,
     index: number,
   ) => {
+    pressedWith.current = event.pointerType;
     if (event.pointerType !== "touch") return;
     cancelLongPress();
     longPress.current = {
@@ -463,8 +468,15 @@ export function EntriesView({
       pointerMove: onEntryPointerMove,
       pointerEnd: cancelLongPress,
       nativeContextMenu: (event) => {
-        // Touch long-press selects instead of opening the browser's link menu.
-        if (suppressClick.current || touchSelecting) event.preventDefault();
+        // A finger's long-press selects, on any device: it opens neither the item menu nor the
+        // browser's link menu. Shift+F10 and the menu key send no press, and open the menu.
+        if (
+          suppressClick.current ||
+          touchSelecting ||
+          (pressedWith.current === "touch" &&
+            !EntryMenu.fromKeyboard(event.nativeEvent))
+        )
+          event.preventDefault();
       },
       openDrawer: (entry) => {
         const target = menuTarget(entry.path);
@@ -522,7 +534,7 @@ export function EntriesView({
         dragging={drag.isDragging(entry)}
         dropState={drag.dropState(entry.path)}
         dragLocked={dragLocked}
-        touch={isMobile}
+        touch={coarse}
         canDrag={canDrag}
         selectionTargets={selected ? multiSelection : null}
         menuOpen={menu?.entry.path === entry.path}
@@ -569,7 +581,6 @@ export function EntriesView({
         shortcuts.
       </p>
       <EntryMenuHost
-        touch={isMobile}
         menu={menu}
         onMenuChange={setMenu}
         resolve={menuTarget}

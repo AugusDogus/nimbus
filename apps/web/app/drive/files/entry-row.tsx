@@ -55,7 +55,7 @@ type Props = {
   dropState: "allowed" | "refused" | null;
   /** A move is running: nothing can be dragged until it ends. */
   dragLocked: boolean;
-  /** Narrow layouts open the actions drawer instead of a menu. */
+  /** The primary pointer is a finger: the actions button opens the drawer instead of a menu. */
   touch: boolean;
   /** Items drag only with a mouse, trackpad or pen; touch moves them with the Move action. */
   canDrag: boolean;

@@ -64,12 +64,17 @@ for (const size of [
     // Dialogs: rename and sharing, opened from the entry's menu.
     await page.goto(`/browse/${folder}`);
     const name = "a folder with a rather long name that has to wrap somewhere";
+    // Item actions open in a drawer for a finger and in a menu for a mouse, at every width.
+    const coarse = await page.evaluate(
+      (query) => matchMedia(query).matches,
+      Device.query.coarse,
+    );
     for (const label of ["Rename", "Share"]) {
       await page
         .getByRole("button", { name: `Actions for ${name}`, exact: true })
         .click();
       await page
-        .getByRole(size.width < Device.narrowBelow ? "button" : "menuitem", {
+        .getByRole(coarse ? "button" : "menuitem", {
           name: label,
           exact: true,
         })

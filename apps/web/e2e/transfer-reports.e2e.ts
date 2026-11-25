@@ -679,11 +679,10 @@ test("asks before stopping impersonation while a move runs", async ({
   }
 });
 
+// Every device: a phone or tablet with a keyboard opens the menu with Shift+F10 too.
 test("keeps the menu item the keyboard moved to while the menu is still opening", async ({
   page,
-  isMobile,
 }) => {
-  test.skip(isMobile, "Keyboard menus are a desktop interaction.");
   const drive = await tree({ "docs/a.txt": "a" });
   await page.goto(href(`${drive.top}/docs`));
   // A slow opening animation, so the keys below land before it completes, every time.

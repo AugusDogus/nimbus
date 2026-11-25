@@ -63,8 +63,8 @@ export type EntryMenuTarget = {
 
 /**
  * An open entry menu and where it shows: the menu at the pointer (a right-click, or the corner of an
- * actions button, see `openMenuAt`), or the drawer on touch layouts. The surface is fixed when the
- * menu opens, so a menu that is open when the viewport crosses the breakpoint stays as it opened.
+ * actions button, see `openMenuAt`), or the drawer where the primary pointer is a finger. The surface
+ * is fixed when the menu opens, so a menu that is open when the pointer changes stays as it opened.
  * A menu opened from the keyboard starts on its first item.
  */
 export type EntryMenu = EntryMenuTarget & {
@@ -74,6 +74,13 @@ export type EntryMenu = EntryMenuTarget & {
 export const EntryMenu = {
   inDrawer(target: EntryMenuTarget): EntryMenu {
     return { ...target, surface: { kind: "drawer" } };
+  },
+  /**
+   * A `contextmenu` from Shift+F10, the menu key, or a keyboard click on an actions button: a pointer
+   * sends the secondary button (2), or a click count of 1 or more for an actions button.
+   */
+  fromKeyboard(event: globalThis.MouseEvent) {
+    return event.button !== 2 && event.detail === 0;
   },
 } as const;
 
@@ -260,7 +267,7 @@ export function entryMenuItems(
 
 /**
  * The "more actions" button on each row. It holds no menu of its own: on desktop it opens the
- * collection's shared menu at the button, on touch screens the shared drawer.
+ * collection's shared menu at the button, where the primary pointer is a finger the shared drawer.
  */
 export function EntryActionsButton({
   name,
@@ -326,21 +333,12 @@ export function openMenuAt(click: MouseEvent<HTMLElement>) {
 }
 
 /**
- * A `contextmenu` from Shift+F10, the menu key, or a keyboard click on an actions button: a pointer
- * sends the secondary button (2), or a click count of 1 or more for an actions button.
- */
-function fromKeyboard(event: globalThis.MouseEvent) {
-  return event.button !== 2 && event.detail === 0;
-}
-
-/**
  * One menu for the whole collection. Mounting a menu per row made scrolling large folders mount
  * menu machinery for every row that appeared. `resolve` maps the row under a right-click, a
  * Shift+F10 press, or an actions button to its menu target; null leaves no menu to show.
  */
 export function EntryMenuHost({
   children,
-  touch,
   menu,
   onMenuChange,
   resolve,
@@ -352,7 +350,6 @@ export function EntryMenuHost({
 }: {
   /** The collection's element. The right-click area is rendered onto it, not around it. */
   children: ReactElement<HTMLAttributes<HTMLElement>>;
-  touch: boolean;
   menu: EntryMenu | null;
   onMenuChange: (menu: EntryMenu | null) => void;
   resolve: (path: string) => EntryMenuTarget | null;
@@ -416,8 +413,8 @@ export function EntryMenuHost({
   // replace every row's element, even under a finger.
   return (
     <ContextMenu
-      // Touch layouts long-press to select, and open actions in the drawer.
-      disabled={touch}
+      // On every device: a finger's long-press selects instead (see `EntriesView`), while a
+      // right-click, Shift+F10 and the menu key open the menu.
       onOpenChange={(next) => {
         popupOpen.current = next;
         if (next) return;
@@ -441,7 +438,8 @@ export function EntryMenuHost({
         render={children}
         className="select-none"
         onContextMenu={(event) => {
-          if (touch) return;
+          // A long-press that selected has claimed the event.
+          if (event.defaultPrevented) return;
           const target = targetOf(event.target);
           // Empty space between entries has no actions, and the browser's own menu stays away.
           if (!target) {
@@ -452,16 +450,15 @@ export function EntryMenuHost({
             ...target,
             surface: {
               kind: "menu",
-              keyboard: fromKeyboard(event.nativeEvent),
+              keyboard: EntryMenu.fromKeyboard(event.nativeEvent),
             },
           });
         }}
         onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
           // The menu opens on these keys itself, from the focused row.
           if (
-            touch ||
-            (event.key !== "ContextMenu" &&
-              !(event.shiftKey && event.key === "F10"))
+            event.key !== "ContextMenu" &&
+            !(event.shiftKey && event.key === "F10")
           )
             return;
           const target = targetOf(event.target);
