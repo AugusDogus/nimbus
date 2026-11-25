@@ -10,7 +10,14 @@ type Step = {
   if?: string;
   with?: Record<string, unknown>;
 };
-type Job = { if?: string; environment?: string; steps: Step[] };
+type Job = {
+  if?: string;
+  environment?: string;
+  needs: string[];
+  /** The job as written, for what a field-by-field reading does not cover. */
+  source: string;
+  steps: Step[];
+};
 
 const text = (value: unknown) =>
   typeof value === "string" ? value : undefined;
@@ -42,6 +49,12 @@ const jobs: Record<string, Job> = Object.fromEntries(
       {
         if: text(fields.if),
         environment: text(fields.environment),
+        needs: Array.isArray(fields.needs)
+          ? fields.needs.flatMap((need) => text(need) ?? [])
+          : text(fields.needs) !== undefined
+            ? [String(fields.needs)]
+            : [],
+        source: JSON.stringify(value),
         steps: Array.isArray(fields.steps) ? fields.steps.map(asStep) : [],
       },
     ];
@@ -186,4 +199,64 @@ test("the artifact check says whether a file is missing or its digest differs", 
   const bundle = check(sha("{}"), sha("other"));
   expect(bundle.code).toBe(1);
   expect(bundle.said).toContain("nimbus-edge-7.tar.gz has SHA-256");
+});
+
+test("the bundle is built and smoke-tested from the start, and only signing waits for every check", () => {
+  // Beside the checks, as the image is: nothing before it.
+  expect(jobs.bundle?.needs).toEqual([]);
+  expect(jobs.smoke?.needs).toEqual(["bundle"]);
+  // Signing waits for verify, so for every check, and for the smoke test of what it signs.
+  expect([...(jobs.sign?.needs ?? [])].sort()).toEqual([
+    "bundle",
+    "smoke",
+    "verify",
+  ]);
+  expect(jobs.sign?.if).toContain(mainOnly);
+  expect(jobs.sign?.if).not.toContain("workflow_dispatch");
+  // The key exists in that one job only.
+  const holders = Object.entries(jobs)
+    .filter(([, job]) => job.source.includes("NIMBUS_RELEASE_SIGNING_KEY"))
+    .map(([name]) => name);
+  expect(holders).toEqual(["sign"]);
+  // What it signs must say the workflow's own repository, channel, commit and sequence.
+  const signs = (jobs.sign?.steps ?? []).find((one) =>
+    one.run?.includes("scripts/release-sign.ts"),
+  );
+  for (const bound of [
+    '--repository "$GITHUB_REPOSITORY"',
+    "--channel edge",
+    '--commit "$GITHUB_SHA"',
+    '--sequence "$GITHUB_RUN_NUMBER"',
+  ])
+    expect(signs?.run).toContain(bound);
+});
+
+test("every real-process test runs in a job of its own, and verify waits for all of them", async () => {
+  const files = (
+    await Array.fromAsync(
+      new Bun.Glob("*.e2e.ts").scan(
+        path.join(import.meta.dir, "../apps/web/server/supervisor"),
+      ),
+    )
+  )
+    .map((file) => file.replace(/\.e2e\.ts$/, ""))
+    .sort();
+  const matrix = record(
+    record(record(record(parsed.jobs)["real-processes"]).strategy).matrix,
+  );
+  const tests: string[] = Array.isArray(matrix.test)
+    ? matrix.test.flatMap((one: unknown) => text(one) ?? [])
+    : [];
+  expect(tests.sort()).toEqual(files);
+  expect(
+    jobs["real-processes"]?.steps.some((one) =>
+      one.run?.includes(
+        "bun test ./apps/web/server/supervisor/${{ matrix.test }}.e2e.ts",
+      ),
+    ),
+  ).toBe(true);
+  // None of them waits behind the build job, or holds it up.
+  expect(jobs.build?.source).not.toContain(".e2e.ts");
+  for (const need of ["build", "real-processes", "e2e", "unit"])
+    expect(jobs.verify?.needs).toContain(need);
 });

@@ -66,7 +66,36 @@ jobs:
   build:
     name: build and budgets
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      # Public pages must load no module of the signed-in app.
+      - run: bun scripts/page-modules.ts
+      - run: bun scripts/first-load-js.ts --budget scripts/first-load-js-budget.json
+
+  # The real-process tests, named *.e2e.ts so `bun test` alone never picks them up, one job each,
+  # so the longest (updates) runs beside the rest instead of after them. Each builds the client it
+  # needs itself: a build takes about 10 seconds, less than an artifact's upload and download.
+  # - handover: hands the port over between real servers under the supervisor while films stream.
+  # - updates: updates from the built-in release to a signed bundle it builds itself, and every
+  #   way an update can fail, each leaving the running server serving.
+  # - split: the user split (docs/updates.md), the image's entrypoint as root of a user namespace
+  #   with mapped ids, so the supervisor and its servers really run as users of their own. It
+  #   needs unprivileged user namespaces and subordinate ids for the runner's user, and fails
+  #   here rather than skip without them.
+  real-processes:
+    name: real processes (${{ matrix.test }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [handover, updates, split]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -77,21 +106,8 @@ jobs:
       # As on a production host (see README, "Restarts without downtime"): connections queued on
       # a server leaving the port move to the next one instead of being reset.
       - run: sudo sysctl -w net.ipv4.tcp_migrate_req=1
-      # The real-process tests are named *.e2e.ts, so `bun test` alone never picks them up; each
-      # runs here as its own step, named by path.
-      # Hands the port over between real servers under the supervisor while films stream; it
-      # needs the built client.
-      - run: bun test ./apps/web/server/supervisor/handover.e2e.ts
-        timeout-minutes: 3
-      # Updates from the built-in release to a signed bundle it builds itself, and every way an
-      # update can fail, each leaving the running server serving.
-      - run: bun test ./apps/web/server/supervisor/updates.e2e.ts
-        timeout-minutes: 8
-      # The user split (docs/updates.md): the image's entrypoint as root of a user namespace with
-      # mapped ids, so the supervisor and its servers really run as users of their own. It needs
-      # unprivileged user namespaces (see the unit job) and subordinate ids for the runner's user,
-      # and fails here rather than skip without them.
       - name: Allow user namespaces with mapped ids for the user split test
+        if: ${{ matrix.test == 'split' }}
         run: |
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
@@ -102,13 +118,10 @@ jobs:
           chmod o+x "$HOME" "$HOME/work" "$(dirname "$GITHUB_WORKSPACE")"
           chmod -R o+rX "$GITHUB_WORKSPACE"
           unshare --map-auto --map-root-user --mount true
-      - run: bun test ./apps/web/server/supervisor/split.e2e.ts
-        timeout-minutes: 6
+      - run: bun test ./apps/web/server/supervisor/${{ matrix.test }}.e2e.ts
+        timeout-minutes: 9
         env:
           NIMBUS_REQUIRE_SPLIT_TEST: "1"
-      # Public pages must load no module of the signed-in app.
-      - run: bun scripts/page-modules.ts
-      - run: bun scripts/first-load-js.ts --budget scripts/first-load-js-budget.json
 
   litmus:
     name: WebDAV conformance
@@ -205,7 +218,7 @@ jobs:
   # cancelled or skipped check keeps the image from getting a deployable tag.
   verify:
     if: ${{ !cancelled() }}
-    needs: [static, unit, build, litmus, e2e]
+    needs: [static, unit, build, real-processes, litmus, e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -356,15 +369,15 @@ jobs:
             echo "$tag -> $DIGEST"
           done
 
-  # The release bundle for in-app updates (docs/updates.md), behind the same gate as the image,
-  # for main only (the edge channel): built from this commit, started once as a real server and
-  # given a build provenance attestation, with no secret anywhere in the job, since building
-  # installs packages. It hands the bundle on as an artifact, with its digests as outputs.
+  # The release bundle for in-app updates (docs/updates.md), for main only (the edge channel):
+  # built from this commit, started once as a real server and given a build provenance
+  # attestation, with no secret anywhere in the job, since building installs packages. It hands
+  # the bundle on as an artifact, with its digests as outputs. It starts at once, beside the
+  # checks, as the image does: only signing and publication wait for verify.
   # On a manual run from a branch it builds and smoke-tests too, so both get a real run before a
   # change lands; only pushes to main attest, sign or publish.
   bundle:
     if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
-    needs: [verify]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -453,13 +466,15 @@ jobs:
         run: bun scripts/release-smoke.ts bundle
 
   # The only job that sees the signing key, in the release-signing environment (limit it to main
-  # in the repository's settings). It installs nothing and runs nothing from the bundle: it checks
+  # in the repository's settings). It waits for verify, so nothing is signed before every check
+  # passed for this commit, and for smoke, so what it signs is the very artifact smoke started.
+  # It installs nothing and runs nothing from the bundle: it checks
   # the artifact against the digests the bundle job reported, signs the manifest with
   # scripts/release-sign.ts, which imports nothing, and publishes it as the edge channel's newest
   # release. Without a key it stops before signing and publishes nothing.
   sign:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    needs: [bundle, smoke]
+    needs: [verify, bundle, smoke]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: release-signing
