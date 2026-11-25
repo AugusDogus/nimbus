@@ -9,7 +9,12 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
-import { FileAction, type FileView } from "../app/drive/files/file-action";
+import {
+  FileAction,
+  type FileView,
+  type SplitAction,
+} from "../app/drive/files/file-action";
+import { SplitRoom } from "../app/drive/files/split-room";
 import { Device } from "../lib/device";
 import { z } from "zod";
 import { client, login, origin, password, port, test } from "./helpers";
@@ -390,7 +395,146 @@ for (const view of FileAction.views)
     expect(problems, `Undeclared gaps in ${view}`).toEqual([]);
   });
 
-// TODO(split view): once the split view's reach rule is exported (the work on its gates and the
-// swipe between panes on phones), add "open split view", "close split view" and "move to the other
-// pane" here, reading that rule for where each is offered. Do not guess its API before it lands.
-test.fixme("split view actions are reachable where the split rule offers them", () => {});
+/** Whether `element` lies wholly inside the window, left to right. */
+const onScreen = (element: Locator) =>
+  element.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    return (
+      box.width > 0 && box.left >= -1 && box.right <= window.innerWidth + 1
+    );
+  });
+
+/**
+ * A split view's actions, in the mode `SplitRoom` gives the window: side by side where two panes
+ * fit, one at a time elsewhere. What is not offered in a mode or on a device is declared in
+ * `FileAction.unavailableInSplit`.
+ */
+test("every split view action is reachable where the split rule offers it", async ({
+  page,
+}, testInfo) => {
+  if (!seed)
+    throw new Error("The reach seed was not made before the tests ran.");
+  const s = seed;
+  await (
+    await client(page.context())
+  ).prefs.set.mutate({
+    view: "list",
+    sortField: "name",
+    sortDirection: "asc",
+    groupByType: true,
+  });
+  const problems: string[] = [];
+  for (const size of sizesFor(testInfo.project.name)) {
+    await page.setViewportSize(sizes[size]);
+    await page.goto(`/browse/${s.top}`);
+    await expect(
+      page.locator(`[data-entry-name="${s.files[0]}"]`).first(),
+    ).toBeVisible();
+    const device = await deviceOf(page);
+    const mode = SplitRoom.modeForWindow(sizes[size].width);
+    const found = new Map<SplitAction, string>();
+    const press = (target: Locator) =>
+      device.pointer === "coarse" ? target.tap() : target.click();
+
+    const toggle = page.getByRole("button", {
+      name: "Split view",
+      exact: true,
+    });
+    if (await toggle.isVisible()) {
+      found.set("open split", "the Split view toggle");
+      await press(toggle);
+    } else await page.keyboard.press("|");
+    const panes = page.locator("[data-pane]");
+    await expect(panes).toHaveCount(2);
+    // A split opens on the same folder twice, where nothing can move across. Its address puts
+    // the seed's subfolder in the other pane, as Open in other pane would.
+    await page.goto(
+      `/browse/${s.top}?right=${encodeURIComponent(`${s.top}/${s.folder}`)}&active=left&ratio=50`,
+    );
+    await expect(panes).toHaveCount(2);
+    const active = page.locator("[data-pane][data-active]");
+    await expect(active).toHaveCount(1);
+    await expect(
+      active.locator(`[data-entry-name="${s.files[0]}"]`).first(),
+    ).toBeVisible();
+
+    const both =
+      (await onScreen(panes.nth(0))) && (await onScreen(panes.nth(1)));
+    if (both) found.set("see both panes", "both pane cards on screen");
+    const switcher = page.getByRole("group", { name: "Panes" });
+    if (await switcher.isVisible())
+      found.set("switch pane", "the pane switcher");
+    else if (both) found.set("switch pane", "the other pane, beside this one");
+    if (await page.getByRole("separator", { name: "Resize panes" }).isVisible())
+      found.set("resize panes", "the divider between the panes");
+    const options = active.getByRole("button", { name: "Pane options" });
+    if (await options.isVisible()) {
+      await press(options);
+      await page.getByRole("menu").first().waitFor();
+      if (
+        await page.getByRole("menuitem", { name: "Collapse pane" }).isVisible()
+      )
+        found.set("collapse pane", "Collapse pane in the pane's options");
+      await closeSurfaces(page);
+    }
+    if (
+      await active.getByRole("button", { name: "Close this pane" }).isVisible()
+    )
+      found.set("close split", "Close this pane");
+    const row = (name: string) =>
+      active.locator(`[data-entry-name="${name}"]`).first();
+    if ((await row(s.files[0]).getAttribute("draggable")) === "true")
+      found.set("drag to other pane", "dragging an item");
+
+    // The selection's routes: straight to the other pane, and Select all, maybe under More.
+    const selected = await selectWithGesture(
+      page,
+      [row(s.files[0]), row(s.files[1])],
+      device.pointer,
+    );
+    if (selected.many) {
+      const bar = active.getByRole("toolbar", { name: "Selected items" });
+      const names = (await visibleControls(page)).map(
+        (control) => control.name,
+      );
+      if (names.some((name) => /^Move to (?!…|trash$)/.test(name)))
+        found.set("move to other pane", "Move to the other pane's folder");
+      if (names.some((name) => /^Copy to (?!…)/.test(name)))
+        found.set("copy to other pane", "Copy to the other pane's folder");
+      if (names.includes("Select all"))
+        found.set("select all in pane", "Select all in the bar");
+      else {
+        const more = bar.getByRole("button", { name: "More actions" });
+        if (await more.isVisible()) {
+          await press(more);
+          await page.getByRole("menu").first().waitFor();
+          if (
+            await page.getByRole("menuitem", { name: "Select all" }).isVisible()
+          )
+            found.set("select all in pane", "Select all under More");
+          await closeSurfaces(page);
+        }
+      }
+      await page.keyboard.press("Escape");
+    }
+
+    for (const action of FileAction.splitActions) {
+      const route = found.get(action);
+      const gap = FileAction.unavailableInSplit(action, mode, device);
+      if (route && gap)
+        problems.push(
+          `${size} (${mode}): "${action}" is declared unavailable (${gap}) but is reachable through ${route}.`,
+        );
+      if (!route && !gap)
+        problems.push(
+          `${size} (${mode}): "${action}" has no visible route. Found: ${[...found.keys()].join(", ")}`,
+        );
+    }
+    // Closing is a route too: it must work, not only show.
+    const close = active.getByRole("button", { name: "Close this pane" });
+    if (await close.isVisible()) await press(close);
+    else if (await toggle.isVisible()) await press(toggle);
+    await expect(panes).toHaveCount(0);
+  }
+  expect(problems, "Undeclared gaps in the split view").toEqual([]);
+});

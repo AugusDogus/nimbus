@@ -1,3 +1,6 @@
+import type { Device } from "@/lib/device";
+import type { SplitMode } from "./split-room";
+
 /**
  * What a person can do with files, and the views they do it in. The reach check
  * (`e2e/reach.e2e.ts`) expects every action in every view, on every device, to have at least one
@@ -114,4 +117,58 @@ function unavailable(action: FileAction, view: FileView): string | null {
   return null;
 }
 
-export const FileAction = { all, views, names, unavailable } as const;
+/** What a person does with a split view of two folders. */
+export type SplitAction =
+  | "open split"
+  | "close split"
+  | "switch pane"
+  | "see both panes"
+  | "move to other pane"
+  | "copy to other pane"
+  | "select all in pane"
+  | "resize panes"
+  | "collapse pane"
+  | "drag to other pane";
+
+const splitActions: readonly SplitAction[] = [
+  "open split",
+  "close split",
+  "switch pane",
+  "see both panes",
+  "move to other pane",
+  "copy to other pane",
+  "select all in pane",
+  "resize panes",
+  "collapse pane",
+  "drag to other pane",
+];
+
+/**
+ * Where a split view's action is genuinely not offered, and why, by the split's mode (see
+ * `SplitRoom`) and the device (see `Device`). Null where it should be reachable.
+ */
+function unavailableInSplit(
+  action: SplitAction,
+  mode: SplitMode,
+  device: Device,
+): string | null {
+  if (
+    mode === "swipe" &&
+    (action === "see both panes" ||
+      action === "resize panes" ||
+      action === "collapse pane")
+  )
+    return "One pane at a time: there is no room for two side by side, so neither sits beside the other to see, resize or collapse; the switcher and a swipe move between them.";
+  if (action === "drag to other pane" && !device.anyFine)
+    return "A finger never drags files in Nimbus, so it cannot scroll by mistake into a move: Move to and Copy to the other pane do it from the selection bar.";
+  return null;
+}
+
+export const FileAction = {
+  all,
+  views,
+  names,
+  unavailable,
+  splitActions,
+  unavailableInSplit,
+} as const;
