@@ -124,15 +124,18 @@ export function FilesPageClient() {
         />
       )}
       <OtherPaneActionsSlot.Provider value={split?.otherPaneActions ?? null}>
+        {split?.before}
         <div
           ref={attachFrame}
-          data-split-view={
-            split ? (split.sideBySide ? "" : "narrow") : undefined
-          }
+          data-split-view={split?.mode}
           className={
-            split?.sideBySide
+            split?.mode === "side-by-side"
               ? "grid min-h-0 flex-1"
-              : "md:flex md:min-h-0 md:flex-1 md:flex-col"
+              : split?.mode === "swipe"
+                ? // One pane at a time, each the frame's width: the frame scrolls sideways and
+                  // snaps to a pane, and never hands a swipe past its ends to the page.
+                  "flex min-h-0 flex-1 snap-x snap-mandatory gap-4 overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] *:w-full *:min-w-0 *:shrink-0 *:snap-start *:snap-always"
+                : "md:flex md:min-h-0 md:flex-1 md:flex-col"
           }
           style={split?.style}
           // A listing that takes focus can open a split with a key: its code starts loading.

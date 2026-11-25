@@ -601,32 +601,118 @@ test("opens side by side wherever two panes fit: a phone on its side and a small
   }
 });
 
-test("a split link on a phone shows the active folder and offers the other as a destination", async ({
-  page,
-  isMobile,
-}) => {
-  test.skip(!isMobile, "Wide screens show both panes.");
-  const { root, names } = await seed(page);
-  await page.goto(splitHref(root));
-  await expect(page.locator('[data-entry-name="Client Alpha"]')).toBeVisible();
-  await expect(page.locator("[data-pane]")).toHaveCount(0);
-  const row = page.locator('[data-entry-name="Client Beta"]');
-  await row.dispatchEvent("pointerdown", {
-    pointerType: "touch",
-    isPrimary: true,
+/** A finger dragged sideways across the split's frame, through the browser's own touch input. */
+async function swipeAcross(page: Page, distance: number) {
+  const box = await page.locator("[data-split-view]").boundingBox();
+  if (!box) throw new Error("The split view has no frame to swipe.");
+  const cdp = await page.context().newCDPSession(page);
+  const y = Math.round(box.y + box.height / 2);
+  const from = Math.round(box.x + box.width / 2 - distance / 2);
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: from, y }],
   });
-  await expect(
-    page.getByRole("toolbar", { name: "Selected items" }),
-  ).toBeVisible();
-  await row.dispatchEvent("pointerup", {
-    pointerType: "touch",
-    isPrimary: true,
+  for (let step = 1; step <= 12; step++)
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: from + (distance * step) / 12, y }],
+    });
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
   });
-  const bar = page.getByRole("toolbar", { name: "Selected items" });
-  await bar.getByRole("button", { name: "Move to Archive" }).click();
-  await expect(row).toHaveCount(0);
-  expect(await names(`${root}/Archive`)).toContain("Client Beta");
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
+  await cdp.detach();
+}
+
+/** Whether the pane's card is the one in the window. */
+const inView = (pane: Locator) =>
+  pane.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return box.left >= -1 && box.right <= window.innerWidth + 1;
+  });
+
+test.describe("split view on a phone", () => {
+  test.skip(({ isMobile }) => !isMobile, "Wide screens show both panes.");
+
+  test("opens from the toggle, shows one pane at a time, switches by tap and swipe, and closes to the active pane", async ({
+    page,
+  }) => {
+    const { root } = await seed(page);
+    await page.goto(`/browse/${root}/Projects`);
+    await expect(entry(page.locator("main"), "Client Alpha")).toBeVisible();
+    await page.getByRole("button", { name: "Split view" }).click();
+    await expect(page.locator("[data-split-view]")).toHaveAttribute(
+      "data-split-view",
+      "swipe",
+    );
+    const panes = page.getByRole("group", { name: "Panes" });
+    const showLeft = panes.getByRole("button", { name: "Left pane: Projects" });
+    const showRight = panes.getByRole("button", { name: /^Right pane: / });
+    await expect(showLeft).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => inView(leftPane(page))).toBe(true);
+    expect(await inView(rightPane(page))).toBe(false);
+
+    await showRight.click();
+    await expect(page).toHaveURL(/active=right/);
+    await expect.poll(() => inView(rightPane(page))).toBe(true);
+    await expect(showRight).toHaveAttribute("aria-pressed", "true");
+
+    await swipeAcross(page, 260);
+    await expect(page).toHaveURL(/active=left/);
+    await expect.poll(() => inView(leftPane(page))).toBe(true);
+    // Swiping past the first pane hands nothing to the page: no Back, no sideways scroll.
+    await swipeAcross(page, 260);
+    await expect(page).toHaveURL(/active=left/);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
+
+    await page.getByRole("button", { name: "Split view" }).click();
+    await expect(page.locator("[data-split-view]")).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/browse/${root}/Projects$`));
+  });
+
+  test("a split link shows both folders, and moves a selection straight to the other one", async ({
+    page,
+  }) => {
+    const { root, names } = await seed(page);
+    await page.goto(splitHref(root, "right"));
+    // The link's active pane shows first; the other is a tap away.
+    await expect(entry(rightPane(page), "2025")).toBeVisible();
+    await expect.poll(() => inView(rightPane(page))).toBe(true);
+    await page
+      .getByRole("group", { name: "Panes" })
+      .getByRole("button", { name: "Left pane: Projects" })
+      .click();
+    await expect.poll(() => inView(leftPane(page))).toBe(true);
+    const row = entry(leftPane(page), "Client Beta");
+    await expect(row).toHaveAttribute("draggable", "false");
+    const press = {
+      clientX: 100,
+      clientY: 100,
+      pointerType: "touch",
+      isPrimary: true,
+      button: 0,
+    };
+    await row.dispatchEvent("pointerdown", press);
+    await page.waitForTimeout(600);
+    await row.dispatchEvent("pointerup", press);
+    await row.dispatchEvent("click", press);
+    const bar = leftPane(page).getByRole("toolbar", { name: "Selected items" });
+    await expect(bar).toContainText("1");
+    // Select all is there for a touch phone too, in the bar's menu.
+    await bar.getByRole("button", { name: "More actions" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Select all" }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await bar.getByRole("button", { name: "Move to Archive" }).click();
+    await expect(row).toHaveCount(0);
+    expect(await names(`${root}/Archive`)).toContain("Client Beta");
+    await page
+      .getByRole("group", { name: "Panes" })
+      .getByRole("button", { name: /^Right pane: / })
+      .click();
+    await expect(entry(rightPane(page), "Client Beta")).toBeVisible();
+  });
 });

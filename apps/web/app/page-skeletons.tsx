@@ -19,7 +19,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { AppSidebarPlaceholder } from "./drive/files/app-sidebar";
 import { FiltersRow } from "./drive/files/filters-row";
-import { SplitRoom } from "./drive/files/split-room";
 import { FolderCard } from "./drive/files/folder-card";
 import { EntrySkeleton } from "./drive/files/loading-skeleton";
 import type { NavPlace } from "./drive/files/nav-place";
@@ -49,7 +48,7 @@ const nothing = () => undefined;
 /**
  * What the app measures as its header moves (see `useHeaderEdges`), here from the sidebar's state
  * and the header's own parts: the toggle on the left, and on the right the account menu, after
- * the split view's toggle on a folder where two panes fit (`--end-w`, see `SplitRoom`).
+ * the split view's toggle on a folder (`--end-w`).
  */
 function headerEdges(
   sidebarOpen: boolean,
@@ -141,7 +140,8 @@ export function FilesSkeleton({
         data-shape="header"
         className={cn(
           PageLayout.filesHeader,
-          folder ? SplitRoom.headerEnd : "[--end-w:2.25rem]",
+          // A folder's header holds the split view's toggle too.
+          folder ? "[--end-w:4.75rem]" : "[--end-w:2.25rem]",
         )}
         style={headerEdges(account.sidebarOpen)}
       >

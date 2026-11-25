@@ -582,7 +582,7 @@ export function EntriesView({
         openInOtherPane={
           split.kind === "open"
             ? split.openInOther
-            : split.kind === "closed" && !isMobile
+            : split.kind === "closed"
               ? split.open
               : null
         }

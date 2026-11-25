@@ -14,6 +14,7 @@ import { DriveRoot } from "@nimbus/api/drive-root";
 import type { PaneFailure, PanePrefs } from "../files-page-client";
 import type { FolderCardClasses, FolderMoves } from "../folder-card";
 import type { PaneSide } from "../split-layout";
+import type { SplitMode } from "../split-frame";
 
 const sideName = { left: "Left", right: "Right" } as const;
 
@@ -183,6 +184,7 @@ export function paneCard(
   side: PaneSide,
   active: boolean,
   highlighted: boolean,
+  mode: SplitMode,
 ): { label: string; classes: FolderCardClasses } {
   return {
     label: `${sideName[side]} pane${active ? " (active)" : ""}`,
@@ -207,7 +209,11 @@ export function paneCard(
               "text-muted-foreground [&_[data-slot=breadcrumb-page]]:text-muted-foreground",
             ),
       ),
-      body: "min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]",
+      body: cn(
+        "min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]",
+        // One pane at a time on a phone: its last rows clear the floating New button.
+        mode === "swipe" && "max-md:pb-24",
+      ),
     },
   };
 }

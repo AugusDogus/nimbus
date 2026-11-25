@@ -204,8 +204,6 @@ export function SelectionBar({
           <Action
             label="Select all"
             iconOnly={compact}
-            // Phones with a second folder to offer keep Select all in the item menus.
-            className={other ? "max-md:hidden" : undefined}
             icon={ListChecks}
             onClick={onSelectAll}
           />
@@ -220,7 +218,6 @@ export function SelectionBar({
           <Action
             label={star.label}
             iconOnly={compact}
-            className={other ? "max-md:hidden" : undefined}
             icon={Star}
             disabled={star.disabled}
             onClick={star.run}

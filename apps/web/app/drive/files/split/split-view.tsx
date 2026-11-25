@@ -23,7 +23,11 @@ import {
   type PaneFrame,
   type PanePrefs,
 } from "../files-page-client";
-import { SplitFrameStore, type SplitFrame } from "../split-frame";
+import {
+  SplitFrameStore,
+  type SplitFrame,
+  type SplitMode,
+} from "../split-frame";
 import { NavPlace } from "../nav-place";
 import { PaneLinks } from "../pane-links";
 import {
@@ -44,6 +48,7 @@ import { useFilePreferences } from "../use-file-preferences";
 import { renderOtherPaneActions } from "./other-pane-actions";
 import { PaneDivider } from "./pane-divider";
 import { PaneHistory } from "./pane-history";
+import { PaneSwitcher } from "./pane-switcher";
 import {
   CollapsedPane,
   PaneFailureView,
@@ -55,6 +60,7 @@ import { SplitAddress } from "./split-address";
 import { SplitMemory } from "./split-memory";
 import { SplitRoom } from "../split-room";
 import { useSidebarFold } from "./split-page";
+import { useSwipePanes } from "./swipe-panes";
 import { AppFrame } from "@/components/app-frame";
 
 const { minPaneWidth, dividerWidth } = SplitRoom;
@@ -283,6 +289,12 @@ export const SplitController = memo(function SplitController({
   const sidebar = useSidebarFold(foldHelps);
   // While the sidebar folds, the panes stay side by side as the room for them grows.
   const sideBySide = fits || (foldHelps && sidebar.foldedForSplit);
+  const mode: SplitMode = sideBySide ? "side-by-side" : "swipe";
+  useSwipePanes(
+    mode === "swipe" ? frameElement : null,
+    layout.active,
+    activate,
+  );
   // Which pane a drag is over: that pane says where the drag would drop.
   const [dragOver, setDragOver] = useState<PaneSide | null>(null);
   if (drag.state.status !== "dragging" && dragOver !== null) setDragOver(null);
@@ -347,7 +359,7 @@ export const SplitController = memo(function SplitController({
       drag,
       prefs: panePrefs[side],
       moves,
-      card: (highlighted) => paneCard(side, active, highlighted),
+      card: (highlighted) => paneCard(side, active, highlighted, mode),
       tools: (
         <PaneTools
           prefs={panePrefs[side]}
@@ -387,50 +399,55 @@ export const SplitController = memo(function SplitController({
       onExpand={() => go({ collapsed: null }, undefined, true)}
     />
   );
-  const rest =
-    sideBySide &&
-    (layout.collapsed === "right" ? (
-      collapsed("right")
-    ) : (
-      <>
-        {layout.collapsed === null && (
-          <PaneDivider
-            ratio={ratio}
-            min={bound}
-            max={100 - bound}
-            frameRef={frameRef}
-            controls={ids.left}
-            preview={(next) => {
-              frameRef.current?.style.setProperty(
-                "grid-template-columns",
-                columns(next, null),
-              );
-            }}
-            commit={(next) => {
-              frameRef.current?.style.setProperty(
-                "grid-template-columns",
-                columns(next, null),
-              );
-              go({ ratio: next }, undefined, true);
-            }}
-          />
-        )}
-        <PaneLinks.Provider value={links.right}>
-          <FolderPane
-            key="right"
-            path={paths.right}
-            pane={frameFor("right")}
-            other={others.right}
-            split={controlFor("right")}
-          />
-        </PaneLinks.Provider>
-      </>
-    ));
+  const right = (
+    <PaneLinks.Provider value={links.right}>
+      <FolderPane
+        key="right"
+        path={paths.right}
+        pane={frameFor("right")}
+        other={others.right}
+        split={controlFor("right")}
+      />
+    </PaneLinks.Provider>
+  );
+  // One pane at a time, a swipe or the switcher apart: both folders stay reachable, whichever
+  // pane a wider screen had folded away.
+  const rest = !sideBySide ? (
+    right
+  ) : layout.collapsed === "right" ? (
+    collapsed("right")
+  ) : (
+    <>
+      {layout.collapsed === null && (
+        <PaneDivider
+          ratio={ratio}
+          min={bound}
+          max={100 - bound}
+          frameRef={frameRef}
+          controls={ids.left}
+          preview={(next) => {
+            frameRef.current?.style.setProperty(
+              "grid-template-columns",
+              columns(next, null),
+            );
+          }}
+          commit={(next) => {
+            frameRef.current?.style.setProperty(
+              "grid-template-columns",
+              columns(next, null),
+            );
+            go({ ratio: next }, undefined, true);
+          }}
+        />
+      )}
+      {right}
+    </>
+  );
   const frame: SplitFrame | null =
     width === null
       ? null
       : {
-          sideBySide,
+          mode,
           style: sideBySide
             ? {
                 gridTemplateColumns: columns(ratio, layout.collapsed),
@@ -438,14 +455,19 @@ export const SplitController = memo(function SplitController({
                 columnGap: layout.collapsed ? dividerWidth : 0,
               }
             : undefined,
-          // Where the panes do not fit, the active pane's folder shows alone, with the other
-          // offered as a destination.
+          before: !sideBySide && (
+            <PaneSwitcher
+              labels={{ left: labelOf(left), right: labelOf(layout.right) }}
+              active={layout.active}
+              onShow={activate}
+            />
+          ),
           first: !sideBySide
-            ? { ...paneFor(layout.active), pane: null }
+            ? paneFor("left")
             : layout.collapsed === "left"
               ? { kind: "collapsed", element: collapsed("left") }
               : paneFor("left"),
-          rest: rest || null,
+          rest,
           extras: (
             <>
               {sideBySide && drag.state.status === "moving" && (

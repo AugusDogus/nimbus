@@ -17,9 +17,14 @@ import type { OtherPane, SplitControl } from "./split-layout";
  * first folder: it only gains or loses its pane's parts.
  */
 export type SplitFrame = {
-  /** Two panes side by side in `style`'s columns, or one where they do not fit. */
-  sideBySide: boolean;
+  /**
+   * Two panes side by side in `style`'s columns where they fit (see `SplitRoom`); elsewhere one
+   * pane at a time, the frame scrolling sideways from one to the other.
+   */
+  mode: SplitMode;
   style: CSSProperties | undefined;
+  /** Above the frame: on narrow screens, which pane shows and a way to the other. */
+  before: ReactNode;
   /** The first place: a folder, as a pane or alone, or the left pane folded away. */
   first:
     | {
@@ -31,12 +36,15 @@ export type SplitFrame = {
         links: PaneLinks;
       }
     | { kind: "collapsed"; element: ReactNode };
-  /** After the first place: the divider and the right pane. */
+  /** After the first place: the divider, where there is one, and the right pane. */
   rest: ReactNode;
   /** Outside the frame: the split's own dialog and announcements. */
   extras: ReactNode;
   otherPaneActions: (props: OtherPaneActionsProps) => ReactNode;
 };
+
+/** How a split view lays out its two panes (see `SplitFrame.mode`). */
+export type SplitMode = "side-by-side" | "swipe";
 
 /**
  * The split view's current frame, which its controller publishes after each of its renders. A

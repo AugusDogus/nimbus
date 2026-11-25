@@ -3,14 +3,8 @@ import { SplitRoom } from "./split-room";
 
 describe("SplitRoom", () => {
   test("hides side-by-side-only parts exactly where two panes do not fit", () => {
-    expect<string>(SplitRoom.toggleOnly).toBe(
-      `max-[${SplitRoom.minViewport - 1}px]:hidden`,
-    );
     expect<string>(SplitRoom.roomOnly).toBe(
       `@max-[${SplitRoom.minSideBySide - 1}px]/room:hidden`,
-    );
-    expect<string>(SplitRoom.headerEnd).toContain(
-      `min-[${SplitRoom.minViewport}px]:`,
     );
   });
 

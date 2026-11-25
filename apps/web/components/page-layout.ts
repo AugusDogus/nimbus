@@ -61,9 +61,11 @@ export const PageLayout = {
   filesContent: (folder: boolean) =>
     cn(
       "flex-1 overflow-x-clip px-4 pb-24 pt-6",
-      // A folder's area is the room a split view measures (see `SplitRoom`).
+      // A folder's area is the room a split view measures (see `SplitRoom`). On phones it is
+      // the page and scrolls with it; holding a split's panes, it is as tall as the window below
+      // the header, and each pane scrolls on its own.
       folder
-        ? "@container/room md:flex md:min-h-0 md:flex-col md:p-0"
+        ? "@container/room md:flex md:min-h-0 md:flex-col md:p-0 max-md:has-[>[data-split-view=swipe]]:flex max-md:has-[>[data-split-view=swipe]]:h-[calc(100dvh-4rem)] max-md:has-[>[data-split-view=swipe]]:flex-col max-md:has-[>[data-split-view=swipe]]:pt-3 max-md:has-[>[data-split-view=swipe]]:pb-3"
         : cn(PageSurface.card, "md:px-6 md:pb-6 lg:px-8 lg:pt-8"),
     ),
   settingsContent: cn("flex-1", PageSurface.card),
