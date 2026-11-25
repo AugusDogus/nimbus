@@ -33,10 +33,14 @@ test("a member limited to their home sees its items in Files, in search, its sug
     });
     await rpc.files.delete.mutate({ path: `${home}/Travel/${tag} old` });
 
-    await member.goto(`/search?q=${tag}%20itinerary`);
     const row = member
       .locator(`[data-entry-name="${tag} itinerary"]`)
       .filter({ visible: true });
+    // The index learns of new folders asynchronously.
+    await expect(async () => {
+      await member.goto(`/search?q=${tag}%20itinerary`);
+      await expect(row).toBeVisible({ timeout: 2_000 });
+    }).toPass();
     await expect(row).toContainText("Files / Travel");
     await expect(row).not.toContainText(home);
 
@@ -80,11 +84,16 @@ test("an administrator sees a member's home where it is, and a visitor to a link
   try {
     const rpc = await client(memberContext);
     await rpc.files.createFolder.mutate({ path: home, name: `${tag} trip` });
-    // The administrator's Files is the drive root, so the home reads from there.
-    await page.goto(`/search?q=${tag}%20trip`);
-    await expect(
-      page.locator(`[data-entry-name="${tag} trip"]`).filter({ visible: true }),
-    ).toContainText(`Files / ${home.split("/").join(" / ")}`);
+    // The administrator's Files is the drive root, so the home reads from there. The index
+    // learns of the new folder asynchronously.
+    const found = page
+      .locator(`[data-entry-name="${tag} trip"]`)
+      .filter({ visible: true });
+    await expect(async () => {
+      await page.goto(`/search?q=${tag}%20trip`);
+      await expect(found).toBeVisible({ timeout: 2_000 });
+    }).toPass();
+    await expect(found).toContainText(`Files / ${home.split("/").join(" / ")}`);
 
     const { token } = await rpc.shares.create.mutate({
       path: `${home}/${tag} trip`,

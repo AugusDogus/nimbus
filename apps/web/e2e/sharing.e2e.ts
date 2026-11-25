@@ -134,9 +134,9 @@ test("public folder links require passwords, confine downloads and honor revocat
     await page.goto("/shares");
     await expect(page).toHaveURL("/shared?tab=links");
     await expect(publicLinks).toHaveAttribute("aria-selected", "true");
-    const record = page
-      .getByRole("listitem")
-      .filter({ has: page.getByRole("link", { name: folder, exact: true }) });
+    const record = page.getByRole("listitem").filter({
+      has: page.getByRole("link", { name: `Files / ${folder}`, exact: true }),
+    });
     await record.getByRole("button", { name: "Revoke", exact: true }).click();
     const confirm = page.getByRole("alertdialog", {
       name: "Revoke this link?",

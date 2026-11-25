@@ -41,7 +41,8 @@ test("suggests matches while typing and keeps the index current", async ({
     await box.fill(`quarterly-${token}`);
     await expect(option).toBeVisible({ timeout: 2_000 });
   }).toPass();
-  await expect(option).toContainText(`${folder}/nested`);
+  // Where it is, as the breadcrumb names it.
+  await expect(option).toContainText(`Files / ${folder} / nested`);
   await box.press("ArrowDown");
   await expect(option).toHaveAttribute("aria-selected", "true");
   await box.press("Enter");
@@ -58,7 +59,7 @@ test("suggests matches while typing and keeps the index current", async ({
   const row = page
     .locator(`[data-entry-path="${folder}/nested/quarterly-${token}.txt"]`)
     .filter({ visible: true });
-  await expect(row).toContainText(`${folder}/nested`);
+  await expect(row).toContainText(`Files / ${folder} / nested`);
   await expect(
     page.locator(`[data-entry-path="${folder}"]`).filter({ visible: true }),
   ).toBeVisible();

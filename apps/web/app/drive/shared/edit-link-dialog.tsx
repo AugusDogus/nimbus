@@ -92,7 +92,7 @@ export default function EditLinkDialog({
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="min-w-0 break-words pr-6 text-balance">
-            Edit link to {BreadcrumbTrail.spell(link.path, top)}
+            Edit link to {BreadcrumbTrail.name(link.path, top)}
           </DialogTitle>
           <DialogDescription>
             Changes apply to the existing link address.

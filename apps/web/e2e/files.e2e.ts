@@ -182,7 +182,8 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   await page.goto("/trash");
   const trashed = page
     .getByRole("listitem")
-    .filter({ hasText: `${folder}/archive/${renamed}` });
+    .filter({ hasText: renamed })
+    .filter({ hasText: `Files / ${folder} / archive` });
   await trashed.getByRole("button", { name: "Restore", exact: true }).click();
   await expect(trashed).toHaveCount(0);
   await page.goto(`/browse/${folder}/archive`);

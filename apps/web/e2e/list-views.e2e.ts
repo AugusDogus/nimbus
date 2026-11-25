@@ -183,16 +183,14 @@ test("Trash shows the most recently deleted first, sorts by name, and is a list 
   await page.goto("/trash");
   const ours = () =>
     page.locator("[data-trash-item]").evaluateAll(
-      (items, top) =>
-        items
-          .map((item) => item.textContent ?? "")
-          .flatMap((text) => {
-            const at = text.indexOf(`${top}/`);
-            return at < 0
-              ? []
-              : [text.slice(at + top.length + 1).match(/^[a-z]+/)?.[0] ?? ""];
-          }),
-      top,
+      // Each row names the item, then where it was.
+      (items, place) =>
+        items.flatMap((item) => {
+          const line = item.querySelector("p");
+          const where = line?.querySelector("span")?.textContent;
+          return where === place ? [line?.firstChild?.textContent ?? ""] : [];
+        }),
+      `Files / ${top}`,
     );
   await expect.poll(ours).toEqual(["mu", "alpha", "zeta"]);
   await sortBy(page, "Name (A to Z)", isMobile);

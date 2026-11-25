@@ -161,7 +161,7 @@ export default function FileRequestDialog({
   const name =
     mode.kind === "create"
       ? BreadcrumbTrail.name(mode.folder.path, top)
-      : BreadcrumbTrail.spell(mode.request.path, top);
+      : BreadcrumbTrail.name(mode.request.path, top);
   return (
     <Dialog
       open
