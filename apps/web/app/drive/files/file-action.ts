@@ -105,9 +105,11 @@ const libraries: readonly FileView[] = [
  */
 function unavailable(action: FileAction, view: FileView): string | null {
   if (view === "trash")
-    return action === "search"
+    return action === "search" || action === "sort"
       ? null
-      : "Trash holds deleted items: it offers Restore and Delete permanently, and every other action needs the item restored first.";
+      : action === "change view"
+        ? "Trash lists deleted items by their path, when they were deleted and when they go: it keeps no type or picture of each to draw a card from, so it is a list only."
+        : "Trash holds deleted items: it offers Restore and Delete permanently, and every other action needs the item restored first.";
   if (libraries.includes(view)) {
     if (action === "new folder" || action === "upload")
       return "Not a folder: there is no folder here to create in or upload to.";

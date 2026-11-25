@@ -1,4 +1,5 @@
 import { ListOrder } from "@/app/drive/files/list-order";
+import { TrashOrder } from "@/app/drive/trash/trash-order";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import type { Bootstrap } from "@/client/bootstrap";
@@ -89,9 +90,11 @@ export const PageSkeleton = {
       view: prefs?.view ?? "list",
       // Named by the page's own choices, so odd addresses share the default's markup.
       sort:
-        shows === "trash" || shows === "shared"
+        shows === "shared"
           ? undefined
-          : ListOrder.pick(shows, sort ?? undefined).value,
+          : shows === "trash"
+            ? TrashOrder.pick(sort ?? undefined).value
+            : ListOrder.pick(shows, sort ?? undefined).value,
     };
     return cached(JSON.stringify(["page", account, place, other]), () => (
       <FilesSkeleton account={account} place={place} page={other} />

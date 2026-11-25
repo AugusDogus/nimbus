@@ -2,7 +2,15 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { TrashIntro, TrashShape, TrashSkeleton } from "./trash-shape";
+import { FiltersRow } from "../files/filters-row";
+import { useAddressSort } from "../list-filters";
+import { TrashOrder } from "./trash-order";
+import {
+  TrashIntro,
+  TrashShape,
+  TrashSkeleton,
+  trashFilters,
+} from "./trash-shape";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,7 +49,14 @@ async function emptyConfirmed(ids: readonly string[]) {
   }
 }
 
-export function TrashPage() {
+export function TrashPage({
+  sort,
+}: {
+  /** The address's order, absent for the most recently deleted first. */
+  sort: string | undefined;
+}) {
+  const order = TrashOrder.pick(sort);
+  const choose = useAddressSort();
   const trash = useQuery({
     queryKey: ["trash"],
     queryFn: () => trpcClient.trash.list.query(),
@@ -75,20 +90,23 @@ export function TrashPage() {
     <div className="space-y-6">
       <div className={TrashShape.header}>
         <TrashIntro />
-        {/* Always in place, so the title beside it never narrows when items arrive; there is
+        <div className={TrashShape.tools}>
+          <FiltersRow {...trashFilters(sort, choose)} />
+          {/* Always in place, so the title beside it never narrows when items arrive; there is
             nothing to empty while they load, or once Trash is empty. */}
-        <Button
-          variant="tertiary"
-          disabled={busy || !trash.data?.length}
-          onClick={() =>
-            setDeleting({
-              kind: "all",
-              ids: (trash.data ?? []).map((item) => item.id),
-            })
-          }
-        >
-          {TrashShape.emptyLabel}
-        </Button>
+          <Button
+            variant="tertiary"
+            disabled={busy || !trash.data?.length}
+            onClick={() =>
+              setDeleting({
+                kind: "all",
+                ids: (trash.data ?? []).map((item) => item.id),
+              })
+            }
+          >
+            {TrashShape.emptyLabel}
+          </Button>
+        </div>
       </div>
       {(error || trash.error) && (
         <p role="alert" className="text-pretty text-sm text-destructive">
@@ -101,7 +119,7 @@ export function TrashPage() {
         <p className="text-pretty text-muted-foreground">Trash is empty.</p>
       ) : (
         <ul className={TrashShape.list}>
-          {trash.data?.map((item) => (
+          {TrashOrder.apply(trash.data ?? [], order).map((item) => (
             <li key={item.id} data-trash-item className={TrashShape.item}>
               <div className={TrashShape.itemText}>
                 <p className={TrashShape.path}>{item.path}</p>

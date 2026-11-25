@@ -30,6 +30,7 @@ import {
   TrashIntro,
   TrashShape,
   TrashSkeleton,
+  trashFilters,
 } from "./drive/trash/trash-shape";
 import {
   SettingsSidebarPlaceholder,
@@ -198,9 +199,12 @@ export function FilesSkeleton({
           <div className="space-y-6">
             <div className={TrashShape.header}>
               <TrashIntro />
-              <Button variant="tertiary" disabled tabIndex={-1}>
-                {TrashShape.emptyLabel}
-              </Button>
+              <div className={TrashShape.tools}>
+                <FiltersRow {...trashFilters(page.sort, nothing)} />
+                <Button variant="tertiary" disabled tabIndex={-1}>
+                  {TrashShape.emptyLabel}
+                </Button>
+              </div>
             </div>
             <TrashSkeleton />
           </div>

@@ -148,3 +148,16 @@ test("a list page's skeleton shows the account's view and the order its address 
     at("/starred", "list", null),
   );
 });
+
+test("Trash's skeleton shows the order its address names, the most recently deleted first by default", () => {
+  const at = (sort: string | null) =>
+    PageSkeleton.markup(
+      "files",
+      { folder: false, data: { session, prefs: prefs("list"), me: me(false) } },
+      "/trash",
+      null,
+      sort,
+    );
+  expect(at(null)).toContain("Deleted (Newest)");
+  expect(at("expires-asc")).toContain("Expires (Soonest)");
+});

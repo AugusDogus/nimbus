@@ -2,6 +2,8 @@ import { PageLayout } from "@/components/page-layout";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import type { FiltersRowProps } from "../files/filters-row";
+import { TrashOrder } from "./trash-order";
 
 /**
  * Trash's parts, which the page and its skeletons share, so a skeleton keeps step with the items
@@ -9,6 +11,8 @@ import { cn } from "@/lib/utils";
  */
 export const TrashShape = {
   header: "flex flex-wrap items-start justify-between gap-3",
+  /** The header's end: the sort control, then Empty trash. */
+  tools: "flex shrink-0 items-center gap-2",
   list: "divide-y rounded-lg border",
   item: "flex flex-wrap items-center gap-3 p-4",
   itemText: "min-w-0 flex-1 basis-60",
@@ -16,6 +20,25 @@ export const TrashShape = {
   dates: "mt-1 text-xs tabular-nums text-muted-foreground",
   emptyLabel: "Empty trash",
 } as const;
+
+/**
+ * Trash's sort control, choosing with `choose`: a folder's, with Trash's own orders, and no view
+ * or grouping (see `TrashOrder`).
+ */
+export function trashFilters(
+  sort: string | undefined,
+  choose: (sort: string | undefined) => void,
+): FiltersRowProps {
+  return {
+    sort: {
+      choices: TrashOrder.all,
+      value: TrashOrder.pick(sort).value,
+      onChange: (value) => choose(TrashOrder.param(TrashOrder.pick(value))),
+    },
+    view: null,
+    group: null,
+  };
+}
 
 /** Trash's title and what it keeps, the same before and after it loads. */
 export function TrashIntro() {
