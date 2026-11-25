@@ -16,8 +16,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
-import { useFinePointer } from "@/hooks/use-fine-pointer";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { Device } from "@/lib/device";
 import { EntryMenu, EntryMenuHost, type EntryMenuTarget } from "./entry-menu";
 import { EntryRow, type EntryRowHandlers } from "./entry-row";
 import { EditEntryDialog, type EntryDialog } from "./entry-dialogs";
@@ -85,9 +84,6 @@ type Props = {
 const noSplit: SplitControl = { kind: "none" };
 
 const longPressMs = 450;
-const isMac = () =>
-  typeof navigator !== "undefined" &&
-  /Mac|iPhone|iPad/.test(navigator.userAgent);
 
 export function EntriesView({
   view,
@@ -111,8 +107,8 @@ export function EntriesView({
   const navigate = useNavigate();
   const folderHref = usePaneHref();
   const keyboardHint = useId();
-  const isMobile = useIsMobile();
-  const canDrag = useFinePointer();
+  const isMobile = Device.useNarrow();
+  const canDrag = Device.useAnyFinePointer();
   const containerRef = useRef<HTMLDivElement>(null);
   const gridTrack = useGridTrack(containerRef, view === "grid");
   const { columns, height } =
@@ -263,7 +259,7 @@ export function EntriesView({
         count: layout.entries.length,
         columns: layout.columns,
         pageSize: virtual.rowsPerPage() * layout.columns,
-        isMac: isMac(),
+        isMac: Device.isMac(),
         split:
           split.kind === "none"
             ? "none"
@@ -349,7 +345,7 @@ export function EntriesView({
       event.preventDefault();
       return;
     }
-    const mod = isMac() ? event.metaKey : event.ctrlKey;
+    const mod = Device.isMac() ? event.metaKey : event.ctrlKey;
     const checkbox =
       event.target instanceof Element &&
       event.target.closest("[data-entry-check]") !== null;

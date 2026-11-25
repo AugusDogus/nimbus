@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { WhenDialogClosed } from "@/components/when-dialog-closed";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { Device } from "@/lib/device";
 import { queryClient, trpc, trpcClient } from "@/lib/trpc";
 import { sessionQuery } from "@/lib/session-query";
 import { trpcErrorCode } from "@/lib/trpc-error";
@@ -142,7 +142,7 @@ export function DestinationPicker({
    */
   resume?: TransferResult;
 }) {
-  const mobile = useIsMobile();
+  const mobile = Device.useNarrow();
   const [first] = entries;
   // Files opens the account's top folder, as the sidebar does: the drive root, or the home of an
   // account limited to it. The picker never leaves it: its breadcrumb is rooted there, and a

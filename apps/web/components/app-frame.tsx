@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import { Link } from "@/components/link";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { NimbusWordmark } from "@/components/nimbus-wordmark";
+import { Device } from "@/lib/device";
 import {
   SIDEBAR_COOKIE_MAX_AGE,
   SIDEBAR_COOKIE_NAME,
@@ -164,6 +165,8 @@ function Layout({
       onOpenChange={onOpenChange}
       // Nimbus remembers the person's choice itself, apart from a split view's fold.
       persist={false}
+      // The sidebar becomes a drawer where the window is narrow, by the one rule for that.
+      mobileBreakpoint={Device.narrowBelow}
       // No peek: the collapsed sidebar would float in over the toggle, which sits at the
       // content's edge, so the toggle could not be reached to open it.
       peek="none"

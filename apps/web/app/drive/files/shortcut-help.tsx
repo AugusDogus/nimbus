@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { WhenDialogClosed } from "@/components/when-dialog-closed";
+import { Device } from "@/lib/device";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const macSnapshot = () => /Mac|iPhone|iPad/.test(navigator.userAgent);
+const macSnapshot = () => Device.isMac();
 const subscribe = () => () => {};
 
 function Keys({ keys }: { keys: readonly string[] }) {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
 import { client, test } from "./helpers";
+import { Device } from "../lib/device";
 
 /** The page, and every open dialog, fit the screen's width: nothing scrolls sideways. */
 async function fitsWidth(page: Page) {
@@ -68,7 +69,7 @@ for (const size of [
         .getByRole("button", { name: `Actions for ${name}`, exact: true })
         .click();
       await page
-        .getByRole(size.width < 768 ? "button" : "menuitem", {
+        .getByRole(size.width < Device.narrowBelow ? "button" : "menuitem", {
           name: label,
           exact: true,
         })

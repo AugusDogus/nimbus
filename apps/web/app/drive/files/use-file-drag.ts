@@ -2,6 +2,7 @@ import { TransferCode } from "./transfer-code";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { DropTarget, type DragPayload, type DropVerdict } from "./drop-target";
 import { FileEntry } from "./types";
+import { Device } from "@/lib/device";
 
 const entryDragType = "application/x-nimbus-entry";
 
@@ -42,13 +43,9 @@ type Options = {
 const isFileDrag = (event: DragEvent<HTMLElement>) =>
   event.dataTransfer.types.includes("Files");
 
-const isMac = () =>
-  typeof navigator !== "undefined" &&
-  /Mac|iPhone|iPad/.test(navigator.userAgent);
-
 /** Whether the event holds the key that turns a move into a copy: Option on macOS, else Ctrl. */
 const holdsCopyKey = (event: DragEvent<HTMLElement>) =>
-  isMac() ? event.altKey : event.ctrlKey;
+  Device.isMac() ? event.altKey : event.ctrlKey;
 
 /** A compact "3 items" drag image, so a multi-item drag does not show a single row. */
 function setCountImage(event: DragEvent<HTMLElement>, count: number) {
