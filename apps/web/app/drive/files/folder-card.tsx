@@ -24,7 +24,8 @@ export type FolderCardClasses = {
 
 /** What makes a folder's card a pane of a split view. */
 export type FolderCardPane = {
-  id: string;
+  /** The pane's element id, for what controls it; none for a card standing in for one. */
+  id: string | undefined;
   side: PaneSide;
   /**
    * The pane's name and look, active or not. The active pane, the one New, Upload and the page's

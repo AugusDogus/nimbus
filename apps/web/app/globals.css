@@ -704,6 +704,12 @@ html.transitioning *::after {
   background: rgb(0 0 0 / 0.8);
 }
 
+/* While a split makes its entrance, its panes move by transform from where they start, which
+   snapping would follow: the frame holds still where it is. */
+[data-split-view="swipe"][data-entering] {
+  scroll-snap-type: none;
+}
+
 /* The panes' depth follows the frame's own scroll timeline where the browser has one; elsewhere
    `useSwipePanes` sets it frame by frame. The left pane recedes as the frame scrolls to the right
    one, which comes forward. */
@@ -726,5 +732,11 @@ html.transitioning *::after {
   [data-split-view="swipe"] > [data-pane="right"] > [data-depth-tint] {
     animation: pane-tint-out linear both;
     animation-timeline: --panes;
+  }
+  /* While a split makes its entrance, the panes' own motion sets their depth, which it holds: a
+     second animation of their transform would keep both off the compositor, so the entrance would
+     stall whenever the page is busy. */
+  [data-split-view="swipe"][data-entering] > [data-pane] {
+    animation: none;
   }
 }

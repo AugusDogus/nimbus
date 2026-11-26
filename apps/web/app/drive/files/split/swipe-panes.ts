@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { useReducedMotion } from "motion/react";
 import type { PaneSide } from "../split-layout";
 import { ActivePane } from "./active-pane";
@@ -56,11 +56,127 @@ const sideAt = (frame: HTMLElement): PaneSide =>
 const offsetOf = (frame: HTMLElement, side: PaneSide) =>
   side === "left" ? 0 : frame.scrollWidth - frame.clientWidth;
 
+/** The frame's whole width inside its padding, at the height of `pane`'s box. */
+function wholeWidth(frame: HTMLElement, pane: DOMRect): DOMRect {
+  const style = getComputedStyle(frame);
+  const box = frame.getBoundingClientRect();
+  const left = box.left + parseFloat(style.paddingLeft);
+  const right = box.right - parseFloat(style.paddingRight);
+  return new DOMRect(left, pane.top, right - left, pane.height);
+}
+
 /** Sent on the frame once a split's entrance is over (see `SwipePanes.enteredEvent`). */
 const enteredEvent = "split-entered";
 
-/** When a person last asked for a split, which opens with an entrance; null once shown. */
-let openedAt: number | null = null;
+/**
+ * When a person last asked for a split, which opens with an entrance, and where their folder's
+ * card was on screen then; null once the entrance has started.
+ */
+let asked: { at: number; from: DOMRect | null } | null = null;
+const isAsked = () =>
+  asked !== null && performance.now() - asked.at < openingMs;
+/** The entrance under way, on its frame, and how to end it at once; null between them. */
+let running: { frame: HTMLElement; stop: () => void } | null = null;
+
+/**
+ * A split's entrance on `frame`, once both panes are in it, when one was asked for: the person's
+ * pane eases from where their folder's card was to a pane's place while the new pane slides in.
+ * Without motion, the split simply shows.
+ */
+function enter(frame: HTMLElement, reduce: boolean) {
+  const side = ActivePane.get() ?? "left";
+  const kept = frame.querySelector<HTMLElement>(
+    `:scope > [data-pane="${side}"]`,
+  );
+  const incoming = frame.querySelector<HTMLElement>(
+    `:scope > [data-pane="${side === "left" ? "right" : "left"}"]`,
+  );
+  if (!isAsked() || !kept || !incoming) return;
+  const before = asked?.from ?? null;
+  asked = null;
+  /** The entrance is over: the pane standing in for the new one may give way to it. */
+  const entered = () => frame.dispatchEvent(new Event(enteredEvent));
+  if (reduce) return entered();
+  // The panes' depth is theirs to set until they land (see the stylesheet's `data-entering`).
+  frame.dataset.entering = "";
+  // Each holds its last frame until the stylesheet's depth has taken over from it.
+  const timing = { duration: opening.ms, easing, fill: "forwards" } as const;
+  const linear = { ...timing, easing: "linear" };
+  const animations: Animation[] = [];
+  // The kept pane is laid out as a pane from the first frame. It starts where the folder's card
+  // was, as wide, and eases into place by transform alone, its header and listing scaled back the
+  // other way so their text is never stretched. Only transforms move, which the compositor runs
+  // on its own: the motion goes on while the page is busy.
+  const to = kept.getBoundingClientRect();
+  const start = before ?? wholeWidth(frame, to);
+  const parts = [
+    ...kept.querySelectorAll<HTMLElement>(
+      ':scope > [data-shape="folder-toolbar"], :scope > [data-slot="folder-list"]',
+    ),
+  ];
+  if (to.width > 0 && start.width > 0) {
+    const at = (k: number) => {
+      const e = curve(k);
+      return {
+        x: (start.left - to.left) * (1 - e),
+        y: (start.top - to.top) * (1 - e),
+        scale: start.width / to.width + (1 - start.width / to.width) * e,
+      };
+    };
+    const steps = Array.from({ length: 13 }, (_, i) => at(i / 12));
+    // Each from its left edge. Set on the elements for the motion, as an animated origin would
+    // keep it off the compositor.
+    for (const element of [kept, ...parts])
+      element.style.setProperty("transform-origin", "0 0");
+    animations.push(
+      kept.animate(
+        steps.map(({ x, y, scale }) => ({
+          transform: `translate(${x}px, ${y}px) scaleX(${scale})`,
+        })),
+        linear,
+      ),
+      ...parts.map((part) =>
+        part.animate(
+          steps.map(({ scale }) => ({ transform: `scaleX(${1 / scale})` })),
+          linear,
+        ),
+      ),
+    );
+  }
+  const edge = frame.getBoundingClientRect();
+  const box = incoming.getBoundingClientRect();
+  const from = side === "left" ? edge.right - box.left : edge.left - box.right;
+  // It arrives a step back, wholly out of view, and holds that depth all the way.
+  const back = `scale(${1 - depth.scale})`;
+  animations.push(
+    incoming.animate(
+      [{ transform: `translateX(${from}px) ${back}` }, { transform: back }],
+      timing,
+    ),
+  );
+  const stop = () => {
+    delete frame.dataset.entering;
+    for (const animation of animations) animation.cancel();
+    for (const element of [kept, ...parts])
+      element.style.removeProperty("transform-origin");
+    if (running?.frame === frame) running = null;
+  };
+  running = { frame, stop };
+  const landed = () => {
+    if (running?.frame !== frame) return;
+    // The stylesheet's depth comes back, the same as where the panes came to rest, and the panes
+    // let go of their last frame once it shows.
+    delete frame.dataset.entering;
+    requestAnimationFrame(() => {
+      stop();
+      entered();
+    });
+  };
+  Promise.all(animations.map((animation) => animation.finished)).then(
+    landed,
+    landed,
+  );
+}
 
 /**
  * Keeps a swiping split view's frame (`frame`, or null where the panes sit side by side) on the
@@ -85,7 +201,9 @@ export function useSwipePanes(
   useLayoutEffect(() => {
     latest.current = { activate, reduce };
   });
-  useEffect(() => {
+  // Set up in the commit that lays the panes out, before it is painted: a split's entrance starts
+  // in the first frame that shows the split, never one after it.
+  useLayoutEffect(() => {
     if (!frame) return;
     const hasScrollEnd = "onscrollend" in frame;
     let swiping = false;
@@ -192,70 +310,8 @@ export function useSwipePanes(
       step = requestAnimationFrame(move);
     };
 
-    // A split just opened: the person's pane eases to a pane's width as the new one slides in.
-    let entering =
-      openedAt !== null && performance.now() - openedAt < openingMs;
-    const greet = () => {
-      const side = ActivePane.get() ?? "left";
-      const kept = frame.querySelector<HTMLElement>(
-        `:scope > [data-pane="${side}"]`,
-      );
-      const incoming = frame.querySelector<HTMLElement>(
-        `:scope > [data-pane="${side === "left" ? "right" : "left"}"]`,
-      );
-      if (!entering || !kept || !incoming) return;
-      entering = false;
-      openedAt = null;
-      if (latest.current.reduce) return entered();
-      const style = getComputedStyle(frame);
-      const whole =
-        frame.clientWidth -
-        parseFloat(style.paddingLeft) -
-        parseFloat(style.paddingRight);
-      const timing = { duration: opening.ms, easing };
-      // The kept pane is laid out at a pane's width from the start; it is stretched to the whole
-      // width and eases back by transform alone, its header and listing scaled back the other way
-      // so their text is never stretched. No layout or repaint runs while it moves.
-      const narrow = kept.offsetWidth;
-      if (narrow > 0 && whole > narrow) {
-        const stretch = (k: number) =>
-          whole / narrow + (1 - whole / narrow) * curve(k);
-        const steps = Array.from({ length: 13 }, (_, i) => stretch(i / 12));
-        const linear = { duration: opening.ms, easing: "linear" };
-        kept.animate(
-          steps.map((x) => ({
-            transformOrigin: "0 50%",
-            transform: `scaleX(${x})`,
-          })),
-          linear,
-        );
-        for (const part of kept.querySelectorAll<HTMLElement>(
-          ':scope > [data-shape="folder-toolbar"], :scope > [data-slot="folder-list"]',
-        ))
-          part.animate(
-            steps.map((x) => ({
-              transformOrigin: "0 50%",
-              transform: `scaleX(${1 / x})`,
-            })),
-            linear,
-          );
-      }
-      const edge = frame.getBoundingClientRect();
-      const box = incoming.getBoundingClientRect();
-      const from =
-        side === "left" ? edge.right - box.left : edge.left - box.right;
-      // It arrives a step back, wholly out of view, and holds that depth all the way: set here
-      // rather than read from the scroll timeline, which may not be running yet on a new frame.
-      const back = `scale(${1 - depth.scale})`;
-      incoming
-        .animate(
-          [{ transform: `translateX(${from}px) ${back}` }, { transform: back }],
-          timing,
-        )
-        .finished.then(entered, entered);
-    };
-    /** The entrance is over: the pane standing in for the new one may give way to it. */
-    const entered = () => frame.dispatchEvent(new Event(enteredEvent));
+    // A split just opened: its entrance starts once both panes are in the frame.
+    const greet = () => enter(frame, latest.current.reduce ?? false);
 
     const resized = new ResizeObserver(align);
     resized.observe(frame);
@@ -316,6 +372,7 @@ export function useSwipePanes(
     return () => {
       clearTimeout(timer);
       cancelAnimationFrame(painting);
+      if (running?.frame === frame) running.stop();
       // Side by side, or once closed, the panes stand as they are.
       for (const { pane } of panes()) {
         pane.style.removeProperty("transform");
@@ -346,13 +403,21 @@ export const SwipePanes = {
   back: { scale: 1 - depth.scale, tint: depth.tint },
   /** The event the frame gets once a split's entrance is over. */
   enteredEvent,
-  /** How long a split a person asked for takes to make its entrance, in ms, or 0 once made. */
-  entering: () =>
-    openedAt !== null && performance.now() - openedAt < openingMs
-      ? opening.ms
-      : 0,
-  /** A person asked for a split: when it shows one pane at a time, it opens with an entrance. */
+  /**
+   * How long a split's entrance takes, in ms, while one is asked for or under way; 0 otherwise.
+   */
+  entering: () => (isAsked() || running !== null ? opening.ms : 0),
+  /**
+   * A person asked for a split: when it shows one pane at a time, it opens with an entrance,
+   * which starts from where their folder's card is now.
+   */
   opening: () => {
-    openedAt = performance.now();
+    const card = document.querySelector<HTMLElement>(
+      '[data-slot="folder-card"]',
+    );
+    asked = {
+      at: performance.now(),
+      from: card?.getBoundingClientRect() ?? null,
+    };
   },
 } as const;

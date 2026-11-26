@@ -1,5 +1,9 @@
-import { cn } from "@/lib/utils";
-import { EntrySkeleton } from "../loading-skeleton";
+import { useQuery } from "@tanstack/react-query";
+import { trpc } from "@/lib/trpc";
+import { BreadcrumbTrail } from "../breadcrumb-trail";
+import { FileBreadcrumbs } from "../breadcrumbs";
+import { FolderCard } from "../folder-card";
+import { NavPlace } from "../nav-place";
 import type { PaneSide } from "../split-layout";
 import { ActivePane } from "./active-pane";
 import { paneCard } from "./pane-section";
@@ -46,43 +50,38 @@ export function PaneDepth({
 }
 
 /**
- * A pane coming in as a person opens a split, one pane at a time: its card as it will be, with its
- * folder's name in the header and placeholder rows, a step back like any pane out of view. It
- * stands in while the split's opening moves, so that motion starts at once, and gives way to the
- * pane itself once in place.
+ * A pane coming in as a person opens a split, one pane at a time: the card the pane will be, its
+ * header and path as the pane draws them and its listing still empty, a step back like any pane
+ * out of view. It stands in while the split's opening moves, so that motion starts at once, and
+ * gives way to the pane itself once in place. Only the edge of it nearest the window's side ever
+ * shows, where the pane draws the same: its card, its path's first folder, and the listing's
+ * margin.
  */
-export function EnteringPane({
-  side,
-  name,
-  view,
-}: {
-  side: PaneSide;
-  name: string;
-  view: "list" | "grid";
-}) {
-  const { classes } = paneCard(side, false, false, "swipe");
-  // Wholly out of view for all its short life: a step back from the start, whether or not the
-  // frame's scroll timeline is running yet (the stylesheet's own depth, when it is, is the same).
+export function EnteringPane({ side, path }: { side: PaneSide; path: string }) {
+  const top = useQuery(trpc.access.me.queryOptions()).data?.top ?? "";
+  const trail = BreadcrumbTrail.of(path, top, NavPlace.labels.files);
+  const name = trail.crumbs.at(-1)?.label ?? trail.root.label;
   return (
-    <section
-      data-pane={side}
-      className={cn("relative", classes.section)}
-      style={{ transform: `scale(${SwipePanes.back.scale})` }}
-    >
-      <div className={cn("z-10 items-center gap-1 border-b", classes.header)}>
-        <span className="min-w-0 truncate px-2 text-sm font-medium">
-          {name}
-        </span>
-      </div>
-      <div data-slot="folder-list" className={classes.body}>
-        <EntrySkeleton view={view} />
-      </div>
-      <PaneDepth
-        side={side}
-        name={name}
-        onShow={() => ActivePane.set(side)}
-        tint={SwipePanes.back.tint}
-      />
-    </section>
+    <FolderCard
+      pane={{
+        id: undefined,
+        side,
+        card: (active) => paneCard(side, active, false, "swipe"),
+        handlers: {},
+        hint: (
+          <PaneDepth
+            side={side}
+            name={name}
+            onShow={() => ActivePane.set(side)}
+            tint={SwipePanes.back.tint}
+          />
+        ),
+      }}
+      attachToolbar={() => undefined}
+      moves={{ back: null, up: null }}
+      breadcrumbs={<FileBreadcrumbs trail={trail} folded />}
+      tools={null}
+      body={null}
+    />
   );
 }

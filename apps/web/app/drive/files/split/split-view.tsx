@@ -463,12 +463,7 @@ export const SplitController = memo(function SplitController({
   }, [entering, frameElement]);
   const right =
     entering && !sideBySide && layout.active === "left" ? (
-      <EnteringPane
-        key="right"
-        side="right"
-        name={labelOf(paths.right)}
-        view={panePrefs.right.prefs.view}
-      />
+      <EnteringPane key="right" side="right" path={paths.right} />
     ) : (
       <PaneLinks.Provider value={links.right}>
         <FolderPane
