@@ -218,7 +218,13 @@ export type PaneFrame = {
    * side, where both show.
    */
   edge: ((folder: { name: string; count: number | null }) => ReactNode) | null;
+  /** Makes the pane active as focus enters it. */
   onActivate: () => void;
+  /**
+   * Makes the pane active as a press lands in it, side by side; null one at a time, where a press
+   * may start a swipe toward the other pane, which lands where it lands (see `useSwipePanes`).
+   */
+  onPress: (() => void) | null;
   /** Whether a drag is over this pane, which then says where it would drop. */
   dragOver: boolean;
   onDragOver: () => void;
@@ -528,7 +534,7 @@ export const FolderPane = memo(function FolderPane({
           card: (active) =>
             pane.card(drag.dropState(target.path) === "allowed", active),
           handlers: {
-            onPointerDownCapture: pane.onActivate,
+            onPointerDownCapture: pane.onPress ?? undefined,
             onFocusCapture: pane.onActivate,
             onDragOverCapture: pane.onDragOver,
             ...drag.targetProps(target),

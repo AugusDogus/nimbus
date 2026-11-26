@@ -413,6 +413,7 @@ export const SplitController = memo(function SplitController({
             />
           ),
       onActivate: () => activate(side),
+      onPress: sideBySide ? () => activate(side) : null,
       dragOver: dragOver === side,
       onDragOver: () => {
         if (dragOver !== side) setDragOver(side);
