@@ -33,6 +33,9 @@ async function opens(path: string, includeStats: boolean) {
  * Opens a split view with `left` in the left pane, which stays active. The right pane shows
  * `right` when given ("Open in other pane"), otherwise the folder this browser last had there
  * while it still opens, otherwise `left` again. The ratio is the last one used.
+ *
+ * It opens at once, without waiting to hear whether the remembered folder still opens: that is
+ * asked meanwhile, and a folder that no longer does gives way to `left` in the split it opened.
  */
 export async function openSplit({
   navigate,
@@ -46,25 +49,29 @@ export async function openSplit({
   const memory = SplitMemory.read();
   const remembered = memory.right;
   const folder =
-    right ??
-    (remembered !== null &&
-    remembered !== left &&
-    (await opens(
-      remembered,
-      needsStats(
-        memory.prefs ?? (await queryClient.ensureQueryData(prefsQueryOptions)),
-      ),
-    ))
-      ? remembered
-      : left);
+    right ?? (remembered !== null && remembered !== left ? remembered : left);
+  const show = (path: string, replace: boolean) =>
+    navigate({
+      href: SplitAddress.href(left, {
+        right: path,
+        active: "left",
+        ratio: memory.ratio,
+        collapsed: null,
+      }),
+      replace,
+    });
   // Asked for by a person: one pane at a time, it opens with an entrance.
   SwipePanes.opening();
-  await navigate({
-    href: SplitAddress.href(left, {
-      right: folder,
-      active: "left",
-      ratio: memory.ratio,
-      collapsed: null,
-    }),
-  });
+  const shown = show(folder, false);
+  if (right === null && folder !== left) {
+    const includeStats = needsStats(
+      memory.prefs ?? (await queryClient.ensureQueryData(prefsQueryOptions)),
+    );
+    if (!(await opens(folder, includeStats))) {
+      const now = SplitAddress.here();
+      if (now?.left === left && now.layout.right === folder)
+        await show(left, true);
+    }
+  }
+  await shown;
 }

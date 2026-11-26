@@ -768,6 +768,115 @@ test.describe("split view on a phone", () => {
     }
   });
 
+  test("Split moves at once, before the other folder has loaded, and the folder's card is laid out once, before it moves", async ({
+    page,
+  }) => {
+    const { rpc, root } = await seed(page);
+    const prefs = await rpc.prefs.get.query();
+    // Cards, whose height follows the listing's width.
+    await rpc.prefs.set.mutate({ ...prefs, view: "grid" });
+    try {
+      // The right pane last showed Archive, which this page has not listed: the split asks for it,
+      // and the answer is slow to come.
+      await page.addInitScript((right) => {
+        localStorage.setItem(
+          "nimbus.split-view",
+          JSON.stringify({ right, ratio: 50 }),
+        );
+      }, `${root}/Archive`);
+      await page.route(/\/api\/trpc\/.*files\.list/, async (route) => {
+        if (decodeURIComponent(route.request().url()).includes("/Archive"))
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        await route.continue();
+      });
+      await page.goto(`/browse/${root}/Projects`);
+      await expect(entry(page.locator("main"), "Client Alpha")).toBeVisible();
+      // The split's code is in before the tap, as once the page has settled or its listing has
+      // taken focus.
+      await entry(page.locator("main"), "Client Alpha").focus();
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            performance
+              .getEntriesByType("resource")
+              .some((resource) => resource.name.includes("split-view")),
+          ),
+        )
+        .toBe(true);
+      await page.waitForTimeout(200);
+      // Each frame from the tap: whether anything has moved, and the folder card's layout.
+      const frames = page.evaluate(
+        () =>
+          new Promise<{ since: number; moved: boolean; layout: number[] }[]>(
+            (resolve, reject) => {
+              const card = document.querySelector<HTMLElement>(
+                '[data-slot="folder-card"]',
+              );
+              const tile =
+                card?.querySelector<HTMLElement>("[data-entry-name]");
+              if (!card || !tile) return reject(new Error("No folder card"));
+              const rest = card.getBoundingClientRect();
+              const seen: {
+                since: number;
+                moved: boolean;
+                layout: number[];
+              }[] = [];
+              let tapped: number | null = null;
+              document.addEventListener(
+                "pointerup",
+                (event) => (tapped = event.timeStamp),
+                { capture: true, once: true },
+              );
+              const look = () => {
+                if (tapped !== null) {
+                  const box = card.getBoundingClientRect();
+                  const incoming = document
+                    .querySelector('[data-split-view] > [data-pane="right"]')
+                    ?.getBoundingClientRect();
+                  seen.push({
+                    since: performance.now() - tapped,
+                    moved:
+                      Math.abs(box.left - rest.left) > 0.5 ||
+                      Math.abs(box.width - rest.width) > 0.5 ||
+                      Math.abs(box.top - rest.top) > 0.5 ||
+                      (incoming !== undefined &&
+                        incoming.left < window.innerWidth),
+                    layout: [
+                      card.offsetWidth,
+                      card.offsetHeight,
+                      tile.offsetLeft,
+                      tile.offsetTop,
+                      tile.offsetWidth,
+                      tile.offsetHeight,
+                    ],
+                  });
+                }
+                if (tapped === null || performance.now() - tapped < 1600)
+                  requestAnimationFrame(look);
+                else resolve(seen);
+              };
+              requestAnimationFrame(look);
+            },
+          ),
+      );
+      await page.getByRole("button", { name: "Split", exact: true }).tap();
+      const seen = await frames;
+      const first = seen.findIndex((frame) => frame.moved);
+      expect(first).toBeGreaterThanOrEqual(0);
+      // The card took its pane's layout before it moved, and keeps it through the motion, the
+      // address changing, the other folder arriving and the new pane taking its stand-in's place.
+      for (const frame of seen.slice(first))
+        expect(frame.layout).toEqual(seen[first]?.layout);
+      // The motion starts in the frames after the tap, not once the other folder has come, 800 ms
+      // on; with room for a slow machine's first frame.
+      expect(seen[first]?.since).toBeLessThan(300);
+      await expect(entry(rightPane(page), "2025")).toBeVisible();
+      await expect(page).toHaveURL(/right=/);
+    } finally {
+      await rpc.prefs.set.mutate(prefs);
+    }
+  });
+
   test("Close split keeps the folder in view, however often the split opens and closes", async ({
     page,
   }) => {

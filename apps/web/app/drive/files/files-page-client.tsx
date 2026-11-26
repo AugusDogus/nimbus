@@ -67,7 +67,6 @@ import {
   type FolderMoves,
 } from "./folder-card";
 import { fileHref } from "./types";
-import { SplitRoom } from "./split-room";
 import { ActivePane } from "./split/active-pane";
 
 export function FilesPageClient() {
@@ -99,9 +98,9 @@ export function FilesPageClient() {
     frameRef.current = element;
     setFrame(element);
   }, []);
-  // The split view's code loads once a folder page has settled, so the split opens at once.
+  // The split view's code loads once a folder page has settled, so the split opens at once, on a
+  // phone as on a wide screen.
   useEffect(() => {
-    if (SplitRoom.modeOfThisWindow() !== "side-by-side") return;
     const timer = setTimeout(() => {
       if ("requestIdleCallback" in window)
         requestIdleCallback(SplitCode.preload, { timeout: 1000 });

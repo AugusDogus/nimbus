@@ -13,11 +13,6 @@ export const deviceModules: readonly { path: string; reason: string }[] = [
     reason: "The Device module: the one place that asks about the device.",
   },
   {
-    path: "app/drive/files/split-room.ts",
-    reason:
-      "The split view's rule: where two panes fit side by side. It decides the split; Device decides touch and phone-sized.",
-  },
-  {
     path: "lib/color-scheme.ts",
     reason: "Reads the system's colour scheme, which is not a device question.",
   },
