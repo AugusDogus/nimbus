@@ -147,9 +147,9 @@ export function FilesPageClient() {
               : split?.mode === "swipe"
                 ? // One pane at a time: the frame reaches the window's edges and scrolls sideways,
                   // snapping to a pane, and never hands a swipe past its ends to the page. Each
-                  // pane leaves the other's edge in view, 56 px, where its name is (`EdgeLabel`):
-                  // the first pane snaps to the frame's start, the second to its end.
-                  "-mx-4 flex min-h-0 flex-1 snap-x snap-mandatory gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain px-2 scroll-px-2 [scrollbar-width:none] *:w-[calc(100%-3.5rem)] *:min-w-0 *:shrink-0 *:snap-start [&>*+*]:snap-end"
+                  // pane leaves about 32 px of the other in view, a step back (`PaneDepth`): the
+                  // first pane snaps to the frame's start, the second to its end.
+                  "-mx-4 flex min-h-0 flex-1 snap-x snap-mandatory gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain px-2 scroll-px-2 [scrollbar-width:none] *:w-[calc(100%-2rem)] *:min-w-0 *:shrink-0 *:snap-start [&>*+*]:snap-end"
                 : "md:flex md:min-h-0 md:flex-1 md:flex-col"
           }
           style={split?.style}
@@ -213,11 +213,11 @@ export type PaneFrame = {
   /** Says why the pane's folder cannot be shown, with ways on that keep the pane open. */
   failure: (failure: PaneFailure) => ReactNode;
   /**
-   * What the pane's edge shows while the other pane is in view, given its folder's name and how
-   * many items it lists (null until listed): one pane at a time, the edge's label; null side by
-   * side, where both show.
+   * What lies over the pane while the other pane is in view, given its folder's name: one pane at
+   * a time, its depth and a way to bring it into view (`PaneDepth`); null side by side, where
+   * both show.
    */
-  edge: ((folder: { name: string; count: number | null }) => ReactNode) | null;
+  away: ((folder: { name: string }) => ReactNode) | null;
   /** Makes the pane active as focus enters it. */
   onActivate: () => void;
   /**
@@ -542,9 +542,8 @@ export const FolderPane = memo(function FolderPane({
           hint: (
             <>
               <DragHint drag={drag} placement="pane" shown={pane.dragOver} />
-              {pane.edge?.({
+              {pane.away?.({
                 name: trail.crumbs.at(-1)?.label ?? trail.root.label,
-                count: listQuery.data ? entries.length : null,
               })}
             </>
           ),

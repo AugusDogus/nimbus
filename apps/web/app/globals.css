@@ -173,6 +173,35 @@
       background-color: transparent;
     }
   }
+  /* A phone's split view: the pane out of view sits a step back, scaled and tinted as far as it
+     is out, following the frame's scroll on the compositor (see `useSwipePanes`, whose numbers
+     these are: 7% smaller and a 55% tint when wholly out). */
+  @keyframes pane-back {
+    to {
+      transform: scale(0.93);
+    }
+  }
+  @keyframes pane-forward {
+    from {
+      transform: scale(0.93);
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes pane-tint-in {
+    to {
+      opacity: 0.55;
+    }
+  }
+  @keyframes pane-tint-out {
+    from {
+      opacity: 0.55;
+    }
+    to {
+      opacity: 0;
+    }
+  }
   @keyframes spinner-turn {
     to {
       transform: rotate(360deg);
@@ -673,4 +702,29 @@ html.transitioning *::after {
 .dark [role="dialog"][data-nested-dialog-open]::after,
 .dark [role="alertdialog"][data-nested-dialog-open]::after {
   background: rgb(0 0 0 / 0.8);
+}
+
+/* The panes' depth follows the frame's own scroll timeline where the browser has one; elsewhere
+   `useSwipePanes` sets it frame by frame. The left pane recedes as the frame scrolls to the right
+   one, which comes forward. */
+@supports (animation-timeline: scroll()) {
+  [data-split-view="swipe"] {
+    scroll-timeline: --panes x;
+  }
+  [data-split-view="swipe"] > [data-pane="left"] {
+    animation: pane-back linear both;
+    animation-timeline: --panes;
+  }
+  [data-split-view="swipe"] > [data-pane="right"] {
+    animation: pane-forward linear both;
+    animation-timeline: --panes;
+  }
+  [data-split-view="swipe"] > [data-pane="left"] > [data-depth-tint] {
+    animation: pane-tint-in linear both;
+    animation-timeline: --panes;
+  }
+  [data-split-view="swipe"] > [data-pane="right"] > [data-depth-tint] {
+    animation: pane-tint-out linear both;
+    animation-timeline: --panes;
+  }
 }

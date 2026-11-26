@@ -489,10 +489,10 @@ test("every split view action is reachable where the split rule offers it", asyn
     const both =
       (await onScreen(panes.nth(0))) && (await onScreen(panes.nth(1)));
     if (both) found.set("see both panes", "both pane cards on screen");
-    // One pane at a time, the other pane's edge names it and brings it into view.
-    const edge = panes.locator("[data-edge-label]");
-    if (await edge.first().isVisible())
-      found.set("switch pane", "the other pane's edge");
+    // One pane at a time, the other pane shows a step back, and a tap on it brings it into view.
+    const away = panes.locator("[data-depth-show]");
+    if (await away.first().isVisible())
+      found.set("switch pane", "a tap on the other pane");
     else if (both) found.set("switch pane", "the other pane, beside this one");
     if (await page.getByRole("separator", { name: "Resize panes" }).isVisible())
       found.set("resize panes", "the divider between the panes");

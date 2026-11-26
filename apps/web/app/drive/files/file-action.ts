@@ -172,7 +172,7 @@ function unavailableInSplit(
       action === "resize panes" ||
       action === "collapse pane")
   )
-    return "One pane at a time: there is no room for two side by side, so neither sits beside the other to see, resize or collapse; the other pane's edge, named, and a swipe move between them.";
+    return "One pane at a time: there is no room for two side by side, so neither sits beside the other to see, resize or collapse; a tap on the other pane, a step back at the edge, and a swipe move between them.";
   if (action === "drag to other pane" && !device.anyFine)
     return "A finger never drags files in Nimbus, so it cannot scroll by mistake into a move: Move to and Copy to the other pane do it from the selection bar.";
   return null;

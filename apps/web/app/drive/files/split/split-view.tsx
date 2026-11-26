@@ -59,9 +59,9 @@ import { SplitAddress } from "./split-address";
 import { SplitMemory } from "./split-memory";
 import { SplitRoom } from "../split-room";
 import { useSidebarFold } from "./split-page";
-import { useSwipePanes } from "./swipe-panes";
+import { SwipePanes, useSwipePanes } from "./swipe-panes";
 import { ActivePane } from "./active-pane";
-import { EdgeLabel } from "./edge-label";
+import { EnteringPane, PaneDepth } from "./pane-depth";
 import { AppFrame } from "@/components/app-frame";
 
 const { minPaneWidth, dividerWidth } = SplitRoom;
@@ -411,13 +411,12 @@ export const SplitController = memo(function SplitController({
         />
       ),
       failure: (failure) => <PaneFailureView failure={failure} moves={moves} />,
-      edge: sideBySide
+      away: sideBySide
         ? null
         : (folder) => (
-            <EdgeLabel
+            <PaneDepth
               side={side}
               name={folder.name}
-              count={folder.count}
               onShow={() => ActivePane.set(side)}
             />
           ),
@@ -446,17 +445,34 @@ export const SplitController = memo(function SplitController({
       onExpand={() => go({ collapsed: null }, undefined, true)}
     />
   );
-  const right = (
-    <PaneLinks.Provider value={links.right}>
-      <FolderPane
+  // A split a person opens one pane at a time brings its new pane in with a light stand-in, its
+  // card, header and placeholder rows, so the motion starts at once; the pane itself is drawn once
+  // in place (see `useSwipePanes`).
+  const [entering, setEntering] = useState(() => SwipePanes.entering());
+  useEffect(() => {
+    if (!entering) return;
+    const timer = setTimeout(() => setEntering(0), entering + 32);
+    return () => clearTimeout(timer);
+  }, [entering]);
+  const right =
+    entering && !sideBySide && layout.active === "left" ? (
+      <EnteringPane
         key="right"
-        path={paths.right}
-        pane={frameFor("right")}
-        other={others.right}
-        split={controlFor("right")}
+        side="right"
+        name={labelOf(paths.right)}
+        view={panePrefs.right.prefs.view}
       />
-    </PaneLinks.Provider>
-  );
+    ) : (
+      <PaneLinks.Provider value={links.right}>
+        <FolderPane
+          key="right"
+          path={paths.right}
+          pane={frameFor("right")}
+          other={others.right}
+          split={controlFor("right")}
+        />
+      </PaneLinks.Provider>
+    );
   // One pane at a time, a swipe or the other pane's edge apart: both folders stay reachable, whichever
   // pane a wider screen had folded away.
   const rest = !sideBySide ? (

@@ -624,6 +624,15 @@ async function swipeAcross(page: Page, distance: number) {
   await cdp.detach();
 }
 
+/**
+ * A tap on the part of the pane out of view that shows at the window's edge: by the screen's
+ * coordinates, as a finger does, since an element's own tap first scrolls all of it into view.
+ */
+async function tapEdge(page: Page, side: "left" | "right") {
+  const width = page.viewportSize()?.width ?? 0;
+  await page.touchscreen.tap(side === "right" ? width - 10 : 10, 400);
+}
+
 /** Whether the pane's card is the one in the window. */
 const inView = (pane: Locator) =>
   pane.evaluate((element) => {
@@ -634,7 +643,7 @@ const inView = (pane: Locator) =>
 test.describe("split view on a phone", () => {
   test.skip(({ isMobile }) => !isMobile, "Wide screens show both panes.");
 
-  test("opens from the folder's own Split with a nudge toward the new pane, names the other pane at its edge, switches by that edge, a swipe and the keyboard, and closes per pane", async ({
+  test("opens from the folder's own Split in one motion, sets the other pane a step back, switches by a tap on it, a swipe and the keyboard", async ({
     page,
   }) => {
     const { root } = await seed(page);
@@ -643,7 +652,7 @@ test.describe("split view on a phone", () => {
     // On a phone the folder's card opens a split; the header's toggle is for wider windows.
     await expect(page.getByRole("button", { name: "Split view" })).toBeHidden();
     const frame = page.locator("[data-split-view]");
-    // Where the frame scrolls in the moment after opening: it leans toward the new pane.
+    // Where the frame scrolls in the moment after opening: nowhere, the person stays on their folder.
     const lean = page.evaluate(
       () =>
         new Promise<number>((resolve) => {
@@ -652,7 +661,7 @@ test.describe("split view on a phone", () => {
           const look = () => {
             const element = document.querySelector("[data-split-view]");
             most = Math.max(most, element?.scrollLeft ?? 0);
-            if (performance.now() - start < 1500) requestAnimationFrame(look);
+            if (performance.now() - start < 1200) requestAnimationFrame(look);
             else resolve(most);
           };
           requestAnimationFrame(look);
@@ -660,21 +669,29 @@ test.describe("split view on a phone", () => {
     );
     await page.getByRole("button", { name: "Split", exact: true }).click();
     await expect(frame).toHaveAttribute("data-split-view", "swipe");
-    expect(await lean).toBeGreaterThan(20);
+    expect(await lean).toBeLessThan(2);
     await expect.poll(() => inView(leftPane(page))).toBe(true);
     expect(await inView(rightPane(page))).toBe(false);
 
-    // The other pane's edge names its folder; the pane in view has no label of its own.
-    const showRight = rightPane(page).locator("[data-edge-label]");
-    const showLeft = leftPane(page).locator("[data-edge-label]");
+    // The pane out of view sits a step back, smaller and tinted, and a tap anywhere on it shows it.
+    const scale = (pane: Locator) =>
+      pane.evaluate(
+        (element) => new DOMMatrix(getComputedStyle(element).transform).a,
+      );
+    await expect.poll(() => scale(rightPane(page))).toBeLessThan(0.95);
+    expect(await scale(leftPane(page))).toBeCloseTo(1, 2);
+    const showRight = rightPane(page).locator("[data-depth-show]");
+    const showLeft = leftPane(page).locator("[data-depth-show]");
     await expect(showRight).toHaveJSProperty("inert", false);
-    // The pane in view keeps its label out of reach: no press, no focus, nothing read out.
+    // The pane in view keeps its tap target out of reach: no press, no focus, nothing read out.
     await expect(showLeft).toHaveJSProperty("inert", true);
-    await showRight.click();
+    // A tap on the part of it that shows, at the window's edge, as a finger does it.
+    await tapEdge(page, "right");
     await expect.poll(() => inView(rightPane(page))).toBe(true);
     await expect(page).toHaveURL(/active=right/);
     await expect(showLeft).toHaveJSProperty("inert", false);
     await expect(showLeft).toHaveAccessibleName("Show Projects");
+    await expect.poll(() => scale(leftPane(page))).toBeLessThan(0.95);
 
     await swipeAcross(page, 260);
     await expect(page).toHaveURL(/active=left/);
@@ -767,7 +784,7 @@ test.describe("split view on a phone", () => {
     // The link's active pane shows first; the other is a tap on its edge away.
     await expect(entry(rightPane(page), "2025")).toBeVisible();
     await expect.poll(() => inView(rightPane(page))).toBe(true);
-    await leftPane(page).getByRole("button", { name: "Show Projects" }).click();
+    await tapEdge(page, "left");
     await expect.poll(() => inView(leftPane(page))).toBe(true);
     const row = entry(leftPane(page), "Client Beta");
     await expect(row).toHaveAttribute("draggable", "false");

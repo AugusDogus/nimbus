@@ -184,7 +184,7 @@ const raised =
  * A pane's card. Side by side, the active one is raised and white, the other flatter, tinted and
  * quieter; a drop target is washed and ringed inside, unlike the active pane, which only rises.
  * One at a time, on a phone, each pane is a folder's card as it is alone, whichever is active: the
- * one in view is the one in use, the other's edge names it (`EdgeLabel`), and its path needs the
+ * one in view is the one in use, the other sits a step back (`PaneDepth`), and its path needs the
  * header's room, so Back and Up are left to the browser and the path, as alone.
  */
 export function paneCard(
@@ -199,8 +199,10 @@ export function paneCard(
       label,
       classes: {
         // Contained: what changes in one card never lays out or paints the other.
+        // Its own layer, as it is scaled with the frame's scroll (`useSwipePanes`), so a swipe
+        // moves pixels already drawn rather than drawing the pane again each frame.
         section: cn(
-          "flex min-h-0 min-w-0 flex-col overflow-hidden [contain:content]",
+          "flex min-h-0 min-w-0 flex-col overflow-hidden will-change-transform [contain:content]",
           raised,
         ),
         header:
