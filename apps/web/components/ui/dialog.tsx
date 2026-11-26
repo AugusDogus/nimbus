@@ -35,6 +35,12 @@ interface DialogProps {
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
   modal?: boolean;
+  /**
+   * The form inside differs from what it opened with. A press outside then leaves the dialog
+   * open, so typing is not lost to a stray tap; Escape, Cancel and the close button still close
+   * it, as deliberate ways out.
+   */
+  unsavedInput?: boolean;
   children?: ReactNode;
 }
 
@@ -83,6 +89,7 @@ function Dialog({
   defaultOpen = false,
   onOpenChange,
   modal,
+  unsavedInput = false,
 }: DialogProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
   const open = openProp ?? uncontrolledOpen;
@@ -103,6 +110,7 @@ function Dialog({
         onOpenChange={handleOpenChange}
         actionsRef={actionsRef}
         modal={modal}
+        disablePointerDismissal={unsavedInput}
       >
         {children}
       </DialogPrimitive.Root>

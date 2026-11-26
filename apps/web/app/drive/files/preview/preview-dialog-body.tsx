@@ -10,6 +10,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/alert-dialog";
 import { FilePreview } from "../preview-dialog";
 import type { FileEntry } from "../types";
 
@@ -49,6 +59,9 @@ export default function PreviewDialog({
     index >= 0 && index < entries.length - 1 ? entries[index + 1] : undefined;
   const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
   const [dirty, setDirty] = useState(false);
+  // Closing with unsaved edits asks first: they can be minutes of typing. A press outside is
+  // ignored instead, as a stray tap rather than a choice.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const guard = () => {
     if (dirty) toast("Save or cancel your edits first.");
     return dirty;
@@ -78,8 +91,11 @@ export default function PreviewDialog({
   return (
     <Dialog
       open
+      unsavedInput={dirty}
       onOpenChange={(open) => {
-        if (!open && !guard()) onClose();
+        if (open) return;
+        if (dirty) setConfirmDiscard(true);
+        else onClose();
       }}
     >
       <DialogContent
@@ -146,6 +162,30 @@ export default function PreviewDialog({
           )}
           <Button render={<a href={url} download />}>Download</Button>
         </DialogFooter>
+        <AlertDialog
+          open={confirmDiscard}
+          onOpenChange={(open) => {
+            if (!open) setConfirmDiscard(false);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-balance">
+                Discard your edits?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Your changes to {entry.name} have not been saved. The file
+                itself is unchanged.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep editing</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={onClose}>
+                Discard edits
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

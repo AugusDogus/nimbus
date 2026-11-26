@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useFormChanges } from "@/lib/form-changes";
 import { refreshAccount } from "@/lib/account-refresh";
 import { CodeLoad, CodeLoadError } from "@/lib/code-load";
 import { Fingerprint, Plus } from "lucide-react";
@@ -42,6 +43,7 @@ const cancelled = (error: unknown) =>
 
 export function PasskeySettings({ passkeys }: { passkeys: PasskeySummary[] }) {
   const [adding, setAdding] = useState(false);
+  const form = useFormChanges();
   const [removing, setRemoving] = useState<PasskeySummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -155,13 +157,19 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeySummary[] }) {
       )}
       <Dialog
         open={adding}
-        onOpenChange={(open) => !open && !busy && setAdding(false)}
+        unsavedInput={form.changed}
+        onOpenChange={(open) => {
+          if (open || busy) return;
+          setAdding(false);
+          form.reset();
+        }}
       >
         <DialogContent
           className="max-h-[calc(100dvh-2rem)] overflow-y-auto [&>*]:min-w-0"
           showCloseButton={!busy}
         >
           <form
+            onInput={form.onInput}
             className="space-y-5"
             onSubmit={(event) => {
               event.preventDefault();

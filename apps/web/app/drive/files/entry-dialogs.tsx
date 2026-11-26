@@ -205,6 +205,7 @@ function RenameDialog({
   return (
     <Dialog
       open
+      unsavedInput={name !== entry.name}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}

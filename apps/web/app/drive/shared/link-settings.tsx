@@ -35,6 +35,11 @@ export const LinkSettingsDraft = {
       mode: share.mode,
     };
   },
+  /** Whether two drafts hold the same settings. */
+  same: (a: LinkSettingsDraft, b: LinkSettingsDraft) =>
+    a.expiry === b.expiry &&
+    a.maxDownloads === b.maxDownloads &&
+    a.mode === b.mode,
   toSettings(draft: LinkSettingsDraft) {
     return {
       expiresAt: draft.expiry ? new Date(draft.expiry).getTime() : null,

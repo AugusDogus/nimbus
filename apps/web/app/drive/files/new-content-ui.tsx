@@ -15,6 +15,7 @@ export function NewFolderDialog({ state }: { state: NewContentState }) {
   return (
     <Dialog
       open={state.folderDialogOpen}
+      unsavedInput={state.folderName !== ""}
       onOpenChange={state.setFolderDialogOpen}
     >
       <DialogContent>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useFormChanges } from "@/lib/form-changes";
 import { refreshAccount } from "@/lib/account-refresh";
 import { ShieldCheck } from "lucide-react";
 import * as z from "zod/mini";
@@ -42,6 +43,7 @@ const failure = (
 
 export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
   const [flow, setFlow] = useState<Flow>({ kind: "closed" });
+  const form = useFormChanges();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const close = () => {
@@ -49,6 +51,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
     const changed = flow.kind === "codes";
     setFlow({ kind: "closed" });
     setError(null);
+    form.reset();
     if (changed) void refreshAccount();
   };
   const run = async (action: () => Promise<void>) => {
@@ -106,6 +109,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
       </div>
       <Dialog
         open={flow.kind !== "closed"}
+        unsavedInput={form.changed}
         onOpenChange={(value) => !value && close()}
       >
         <DialogContent
@@ -114,6 +118,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
         >
           {flow.kind === "password" && (
             <form
+              onInput={form.onInput}
               className="space-y-5"
               onSubmit={(event) => {
                 event.preventDefault();
@@ -241,6 +246,7 @@ export function TwoFactorSettings({ enabled }: { enabled: boolean }) {
           )}
           {flow.kind === "scan" && (
             <form
+              onInput={form.onInput}
               className="space-y-5"
               onSubmit={(event) => {
                 event.preventDefault();

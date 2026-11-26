@@ -14,6 +14,10 @@ import {
 } from "@/components/ui/dialog";
 import { FieldLabel } from "@/components/ui/field";
 
+/** Whether two lists hold the same items, in any order. */
+const sameItems = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((item) => b.includes(item));
+
 export type GroupEditor =
   | { kind: "create" }
   | { kind: "edit"; group: { id: string; name: string; memberIds: string[] } };
@@ -35,9 +39,13 @@ export function GroupDialog({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const unsavedInput =
+    name !== (editor.kind === "edit" ? editor.group.name : "") ||
+    !sameItems(members, editor.kind === "edit" ? editor.group.memberIds : []);
   return (
     <Dialog
       open
+      unsavedInput={unsavedInput}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}

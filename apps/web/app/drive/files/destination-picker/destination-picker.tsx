@@ -170,6 +170,8 @@ export function DestinationPicker({
   const [creating, setCreating] = useState<
     { kind: "closed" } | { kind: "naming"; error: string | null; busy: boolean }
   >({ kind: "closed" });
+  // A new folder's name typed and not yet created holds the picker against a press outside.
+  const [newFolderTyped, setNewFolderTyped] = useState(false);
   const [phase, setPhase] = useState<Phase>(
     resume ? { kind: "clashes", result: resume } : { kind: "choosing" },
   );
@@ -858,9 +860,10 @@ export function DestinationPicker({
               variant="ghost"
               size="compact"
               disabled={!canCreate}
-              onClick={() =>
-                setCreating({ kind: "naming", error: null, busy: false })
-              }
+              onClick={() => {
+                setCreating({ kind: "naming", error: null, busy: false });
+                setNewFolderTyped(false);
+              }}
               className="touch-hit shrink-0 gap-1.5"
               leadingIcon={FolderPlus}
             >
@@ -873,6 +876,7 @@ export function DestinationPicker({
               error={creating.error}
               onCancel={() => setCreating({ kind: "closed" })}
               onCreate={(name) => void createFolder(name)}
+              onTyped={setNewFolderTyped}
             />
           )}
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -952,7 +956,11 @@ export function DestinationPicker({
   // A full-height sheet on phones: their dialog, centred and as large as the visible viewport,
   // which the on-screen keyboard shrinks.
   return (
-    <Dialog open onOpenChange={onOpenChange}>
+    <Dialog
+      open
+      unsavedInput={creating.kind === "naming" && newFolderTyped}
+      onOpenChange={onOpenChange}
+    >
       <DialogContent
         data-picker=""
         size="lg"
@@ -1088,11 +1096,14 @@ function NewFolderForm({
   error,
   onCancel,
   onCreate,
+  onTyped,
 }: {
   busy: boolean;
   error: string | null;
   onCancel: () => void;
   onCreate: (name: string) => void;
+  /** Whether a name is typed, which the picker keeps against a press outside. */
+  onTyped: (typed: boolean) => void;
 }) {
   const [name, setName] = useState("");
   const trimmed = name.trim();
@@ -1111,7 +1122,10 @@ function NewFolderForm({
           autoFocus
           autoComplete="off"
           value={name}
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) => {
+            setName(event.target.value);
+            onTyped(event.target.value !== "");
+          }}
           onKeyDown={(event) => {
             if (event.key !== "Escape") return;
             event.preventDefault();

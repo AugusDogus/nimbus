@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useFormChanges } from "@/lib/form-changes";
 import { UserPlus } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { queryClient } from "@/lib/trpc";
@@ -16,10 +17,12 @@ import { FieldLabel } from "@/components/ui/field";
 
 export function CreateAccountDialog({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
+  const form = useFormChanges();
   const [error, setError] = useState<string | null>(null);
   return (
     <Dialog
       open
+      unsavedInput={form.changed}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
@@ -40,6 +43,7 @@ export function CreateAccountDialog({ onClose }: { onClose: () => void }) {
           </DialogDescription>
         </DialogHeader>
         <form
+          onInput={form.onInput}
           className="space-y-4"
           onSubmit={(event) =>
             void (async () => {

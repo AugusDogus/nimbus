@@ -51,6 +51,14 @@ type Draft = {
   maxTotalMegabytes: string;
 };
 
+/** Whether two drafts hold the same values. */
+const sameDraft = (a: Draft, b: Draft) =>
+  a.expiry === b.expiry &&
+  a.note === b.note &&
+  a.maxFileMegabytes === b.maxFileMegabytes &&
+  a.maxFiles === b.maxFiles &&
+  a.maxTotalMegabytes === b.maxTotalMegabytes;
+
 const draftFor = (mode: FileRequestDialogMode): Draft =>
   mode.kind === "create"
     ? {
@@ -162,9 +170,14 @@ export default function FileRequestDialog({
     mode.kind === "create"
       ? BreadcrumbTrail.name(mode.folder.path, top)
       : BreadcrumbTrail.name(mode.request.path, top);
+  const unsavedInput =
+    !sameDraft(draft, draftFor(mode)) ||
+    choice !== (protectedRequest ? "keep" : "set") ||
+    password !== "";
   return (
     <Dialog
       open
+      unsavedInput={unsavedInput}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}

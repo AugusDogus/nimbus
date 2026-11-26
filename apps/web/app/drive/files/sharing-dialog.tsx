@@ -114,9 +114,16 @@ export function SharingDialog({
       exposure?.kind === "none" ? undefined : "share-link-homes",
     disabled: busy || HomesExposureGate.blocked(exposure, linkAcknowledged),
   } as const;
+  // Anything chosen or typed in either form is held against a stray press outside.
+  const unsavedInput =
+    subject !== null ||
+    permission !== "read" ||
+    password !== "" ||
+    !LinkSettingsDraft.same(settings, LinkSettingsDraft.empty);
   return (
     <Dialog
       open
+      unsavedInput={unsavedInput}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}

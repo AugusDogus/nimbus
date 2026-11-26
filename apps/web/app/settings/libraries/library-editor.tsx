@@ -23,6 +23,10 @@ type View =
   | { kind: "confirm" };
 
 /** Create a library, or change one's title and folders. */
+/** Whether two lists hold the same items, in any order. */
+const sameItems = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((item) => b.includes(item));
+
 export function LibraryEditor({
   editing,
   onClose,
@@ -78,9 +82,13 @@ export function LibraryEditor({
       return next;
     });
 
+  const unsavedInput =
+    title !== (existing?.title ?? "") ||
+    !sameItems(folders, existing?.folders ?? []);
   return (
     <Dialog
       open
+      unsavedInput={unsavedInput}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}

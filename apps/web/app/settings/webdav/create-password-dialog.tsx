@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useFormChanges } from "@/lib/form-changes";
 import { KeyRound } from "lucide-react";
 import { queryClient, trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -20,11 +21,13 @@ type PasswordStep =
 
 export function CreatePasswordDialog({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState<PasswordStep>({ kind: "create" });
+  const form = useFormChanges();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
     <Dialog
       open
+      unsavedInput={form.changed}
       onOpenChange={(open) => {
         if (!open && !busy && step.kind === "create") onClose();
       }}
@@ -61,6 +64,7 @@ export function CreatePasswordDialog({ onClose }: { onClose: () => void }) {
           </>
         ) : (
           <form
+            onInput={form.onInput}
             className="space-y-5"
             onSubmit={(event) =>
               void (async () => {

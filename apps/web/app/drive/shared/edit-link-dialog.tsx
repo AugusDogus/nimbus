@@ -82,9 +82,14 @@ export default function EditLinkDialog({
       setBusy(false);
     }
   };
+  const unsavedInput =
+    !LinkSettingsDraft.same(settings, LinkSettingsDraft.from(link)) ||
+    choice !== (link.passwordProtected ? "keep" : "set") ||
+    password !== "";
   return (
     <Dialog
       open
+      unsavedInput={unsavedInput}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
