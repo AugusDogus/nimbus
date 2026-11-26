@@ -7,8 +7,10 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import {
+  memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -66,11 +68,17 @@ import {
 } from "./folder-card";
 import { fileHref } from "./types";
 import { SplitRoom } from "./split-room";
+import { ActivePane } from "./split/active-pane";
 
 export function FilesPageClient() {
   const left = useFolderPath();
   const layout = useSplitLayout();
   const navigate = useNavigate();
+  // The address says which pane is active whenever it changes; between, a swipe or a tap has
+  // shown its pane first (see `ActivePane`).
+  useLayoutEffect(() => {
+    ActivePane.set(layout?.active ?? null);
+  }, [layout?.active, layout?.right, layout?.ratio, layout?.collapsed, left]);
   const alone = useMemo<SplitControl>(
     () => ({
       kind: "closed",
@@ -109,7 +117,13 @@ export function FilesPageClient() {
           onToggle={() =>
             layout
               ? void navigate({
-                  href: fileHref(SplitLayout.activePath(left, layout)),
+                  href: fileHref(
+                    SplitLayout.pathOf(
+                      left,
+                      layout,
+                      ActivePane.get() ?? layout.active,
+                    ),
+                  ),
                 })
               : openSplit(navigate, left, null)
           }
@@ -174,21 +188,27 @@ export type PaneFailure = {
 };
 
 /**
- * A pane of a split view, given by the split view: which one, whether commands act on it, the
- * drag both panes share, its own sort and view, its Back and Up, and what its card shows that a
- * page's one folder does not.
+ * A pane of a split view, given by the split view: which one, the drag both panes share, its own
+ * sort and view, its Back and Up, and what its card shows that a page's one folder does not.
+ * Whether commands act on it is not here but in `ActivePane`, so switching panes leaves the
+ * panes' listings as they are.
  */
 export type PaneFrame = {
   id: string;
   side: PaneSide;
-  active: boolean;
   drag: FileDrag;
   prefs: PanePrefs;
   moves: FolderMoves;
   /** After the path in the pane's header: its sort and view menu, and Close. */
   tools: ReactNode;
-  /** The pane's card, given whether a drag would drop into its folder (see `FolderCard`). */
-  card: (highlighted: boolean) => { label: string; classes: FolderCardClasses };
+  /**
+   * The pane's card, given whether a drag would drop into its folder and whether it is the
+   * active pane (see `FolderCard`).
+   */
+  card: (
+    highlighted: boolean,
+    active: boolean,
+  ) => { label: string; classes: FolderCardClasses };
   /** Says why the pane's folder cannot be shown, with ways on that keep the pane open. */
   failure: (failure: PaneFailure) => ReactNode;
   onActivate: () => void;
@@ -196,6 +216,18 @@ export type PaneFrame = {
   dragOver: boolean;
   onDragOver: () => void;
 };
+
+/** What only the active pane shows, or the page's one folder (`side` null). */
+function WhenActive({
+  side,
+  children,
+}: {
+  side: PaneSide | null;
+  children: ReactNode;
+}) {
+  const active = ActivePane.useIs(side);
+  return side === null || active ? children : null;
+}
 
 const failureCode = (code: string | null | undefined) =>
   code === "NOT_FOUND" || code === "FORBIDDEN" ? code : null;
@@ -205,7 +237,7 @@ const failureCode = (code: string | null | undefined) =>
  * split view (`pane`) it keeps its own sort, view, selection, scroll position and dialogs, and
  * hands its parts to the pane's frame.
  */
-export function FolderPane({
+export const FolderPane = memo(function FolderPane({
   path: currentPath,
   pane,
   other,
@@ -216,7 +248,12 @@ export function FolderPane({
   other: OtherPane | null;
   split: SplitControl;
 }) {
-  const { session } = useRouteContext({ from: "/_authed" });
+  // The session alone: the route's context is rebuilt on every navigation, which would render
+  // this again each time, even for a change of the active pane.
+  const session = useRouteContext({
+    from: "/_authed",
+    select: (context) => context.session,
+  });
   const isAuthed = Boolean(session);
   // The layout loads the account before any folder shows, so the root is right from the start.
   const me = useQuery({ ...trpc.access.me.queryOptions(), enabled: isAuthed });
@@ -385,7 +422,7 @@ export function FolderPane({
   ) : (
     <div className="space-y-6">
       {/* Page tools act on one folder: the active pane's in a split view. */}
-      {(pane?.active ?? true) && (
+      <WhenActive side={pane?.side ?? null}>
         <WebMcpFileTools
           currentPath={currentPath}
           entries={sortedEntries}
@@ -394,7 +431,7 @@ export function FolderPane({
           openDialog={onDialog}
           createFolder={actions.createFolder}
         />
-      )}
+      </WhenActive>
       {/* Such a folder lists only what leads to grants inside it; it is not empty or partial. */}
       {listQuery.data && capabilities.data?.canRead === false && (
         <p role="note" className="text-pretty text-sm text-muted-foreground">
@@ -481,8 +518,8 @@ export function FolderPane({
         pane && {
           id: pane.id,
           side: pane.side,
-          active: pane.active,
-          ...pane.card(drag.dropState(target.path) === "allowed"),
+          card: (active) =>
+            pane.card(drag.dropState(target.path) === "allowed", active),
           handlers: {
             onPointerDownCapture: pane.onActivate,
             onFocusCapture: pane.onActivate,
@@ -512,4 +549,4 @@ export function FolderPane({
       }
     />
   );
-}
+});

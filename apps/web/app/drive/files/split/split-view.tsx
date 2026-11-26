@@ -61,6 +61,7 @@ import { SplitMemory } from "./split-memory";
 import { SplitRoom } from "../split-room";
 import { useSidebarFold } from "./split-page";
 import { useSwipePanes } from "./swipe-panes";
+import { ActivePane } from "./active-pane";
 import { AppFrame } from "@/components/app-frame";
 
 const { minPaneWidth, dividerWidth } = SplitRoom;
@@ -118,12 +119,15 @@ type ControllerProps = {
   frame: HTMLDivElement | null;
 };
 
+/**
+ * Which pane is active is left out: `ActivePane` carries it to what marks it, so switching panes
+ * renders neither the controller nor the panes' listings.
+ */
 const sameProps = (a: ControllerProps, b: ControllerProps) =>
   a.left === b.left &&
   a.frameRef === b.frameRef &&
   a.frame === b.frame &&
   a.layout.right === b.layout.right &&
-  a.layout.active === b.layout.active &&
   a.layout.ratio === b.layout.ratio &&
   a.layout.collapsed === b.layout.collapsed;
 
@@ -144,7 +148,12 @@ export const SplitController = memo(function SplitController({
   frame: frameElement,
 }: ControllerProps) {
   const navigate = useNavigate();
-  const { session } = useRouteContext({ from: "/_authed" });
+  // The session alone: the route's context is rebuilt on every navigation, which would render
+  // this again each time, even for a change of the active pane.
+  const session = useRouteContext({
+    from: "/_authed",
+    select: (context) => context.session,
+  });
   const isAuthed = Boolean(session);
   const top = useQuery({ ...trpc.access.me.queryOptions(), enabled: isAuthed })
     .data?.top;
@@ -156,9 +165,12 @@ export const SplitController = memo(function SplitController({
     () => ({ left, right: layout.right }),
     [left, layout.right],
   );
+  // Moves made by dragging act from the pane the address names; the panes' own actions, from
+  // their own folders.
   const activePath = paths[layout.active];
 
-  // Callbacks run after later renders, such as from a toast or a drag, and read the address now.
+  // Callbacks run after later renders, such as from a toast or a drag, and read the address now,
+  // with the active pane as shown (see `ActivePane`), which the address may not have caught up to.
   const latest = useRef({ left, layout });
   useLayoutEffect(() => {
     latest.current = { left, layout };
@@ -169,6 +181,7 @@ export const SplitController = memo(function SplitController({
       void navigate({
         href: SplitAddress.href(leftPath ?? now.left, {
           ...now.layout,
+          active: ActivePane.get() ?? now.layout.active,
           ...change,
         }),
         replace,
@@ -184,10 +197,25 @@ export const SplitController = memo(function SplitController({
         : go({ active: "right", right: path }),
     [go],
   );
+  /**
+   * Makes `side` the active pane: shown at once, then recorded in the address in a task of its
+   * own, so the frame that shows it does not wait for the router. Nothing is written when the
+   * address has it already, read from the window, which has it before this controller would, or
+   * when another pane was chosen meanwhile.
+   */
   const activate = useCallback(
     (side: PaneSide) => {
-      if (latest.current.layout.active !== side)
-        go({ active: side }, undefined, true);
+      ActivePane.set(side);
+      const record = () => {
+        if (
+          ActivePane.get() === side &&
+          SplitAddress.here()?.layout.active !== side
+        )
+          go({ active: side }, undefined, true);
+      };
+      if ("requestIdleCallback" in window)
+        requestIdleCallback(record, { timeout: 300 });
+      else setTimeout(record, 0);
     },
     [go],
   );
@@ -290,11 +318,7 @@ export const SplitController = memo(function SplitController({
   // While the sidebar folds, the panes stay side by side as the room for them grows.
   const sideBySide = fits || (foldHelps && sidebar.foldedForSplit);
   const mode: SplitMode = sideBySide ? "side-by-side" : "swipe";
-  useSwipePanes(
-    mode === "swipe" ? frameElement : null,
-    layout.active,
-    activate,
-  );
+  useSwipePanes(mode === "swipe" ? frameElement : null, activate);
   // Which pane a drag is over: that pane says where the drag would drop.
   const [dragOver, setDragOver] = useState<PaneSide | null>(null);
   if (drag.state.status !== "dragging" && dragOver !== null) setDragOver(null);
@@ -329,7 +353,7 @@ export const SplitController = memo(function SplitController({
 
   const controlFor = (side: PaneSide): SplitControl => ({
     kind: "open",
-    close: () => keepOnly(latest.current.layout.active),
+    close: () => keepOnly(ActivePane.get() ?? latest.current.layout.active),
     openInOther: (path) => openIn(SplitLayout.other(side), path),
     // Beside this pane, or a swipe away, where focus going there brings it into view; not while
     // folded away.
@@ -353,19 +377,16 @@ export const SplitController = memo(function SplitController({
   };
   const frameFor = (side: PaneSide): PaneFrame => {
     const moves = movesFor(side);
-    const active = layout.active === side;
     return {
       id: ids[side],
       side,
-      active,
       drag,
       prefs: panePrefs[side],
       moves,
-      card: (highlighted) => paneCard(side, active, highlighted, mode),
+      card: (highlighted, active) => paneCard(side, active, highlighted, mode),
       tools: (
         <PaneTools
           prefs={panePrefs[side]}
-          active={active}
           onClose={() => keepOnly(SplitLayout.other(side))}
           // One pane at a time, there is nothing to fold away.
           onCollapse={
@@ -464,8 +485,7 @@ export const SplitController = memo(function SplitController({
           before: !sideBySide && (
             <PaneSwitcher
               labels={{ left: labelOf(left), right: labelOf(layout.right) }}
-              active={layout.active}
-              onShow={activate}
+              frame={frameElement}
             />
           ),
           first: !sideBySide

@@ -167,6 +167,13 @@
       transform: rotate(360deg);
     }
   }
+  /* A split view's pane switcher: its thumb, over the left pane, then over the right one, as
+     the panes' frame scrolls (see `PaneSwitcher`). The gap is the switcher's own. */
+  @keyframes pane-thumb {
+    to {
+      transform: translateX(calc(100% + 0.25rem));
+    }
+  }
   @keyframes spinner-breathe {
     0%,
     100% {

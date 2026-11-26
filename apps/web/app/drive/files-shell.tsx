@@ -73,7 +73,12 @@ export function FilesShell({ children }: FilesShellProps) {
   // New, Upload and dropped files go to the folder shown, or the active pane's in a split view.
   const split = useSplitLayout();
   const currentPath = SplitLayout.activePath(useFolderPath(), split);
-  const { session } = useRouteContext({ from: "/_authed" });
+  // The session alone: the route's context is rebuilt on every navigation, which would render
+  // this again each time, even for a change of the active pane.
+  const session = useRouteContext({
+    from: "/_authed",
+    select: (context) => context.session,
+  });
 
   const isAuthed = Boolean(session);
 

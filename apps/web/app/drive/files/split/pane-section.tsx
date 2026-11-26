@@ -75,11 +75,9 @@ const recessed =
 /** The pane's sort, grouping and view, and folding the pane away, in one menu. */
 function PaneViewMenu({
   prefs: { prefs, updatePreferences },
-  muted,
   onCollapse,
 }: {
   prefs: PanePrefs;
-  muted: boolean;
   onCollapse: (() => void) | null;
 }) {
   const sort = SortOption.value({
@@ -112,7 +110,9 @@ function PaneViewMenu({
             title="Sort, view and collapse"
             className={cn(
               "touch-hit shrink-0",
-              muted && "text-muted-foreground",
+              // Quieter on the inactive pane, as its card marks it (`data-active`): a switch
+              // restyles it without rendering the menu again.
+              "text-muted-foreground group-data-active/pane:text-foreground",
             )}
           />
         }
@@ -225,12 +225,10 @@ export function paneCard(
 /** After a pane's path: its sort, grouping and view in one menu, and Close. */
 export function PaneTools({
   prefs,
-  active,
   onClose,
   onCollapse,
 }: {
   prefs: PanePrefs;
-  active: boolean;
   /** Closes this pane, keeping the other pane's folder as the page's one folder. */
   onClose: () => void;
   /** Folds this pane into a strip at its edge, which opens it again; null where panes cannot fold. */
@@ -238,7 +236,7 @@ export function PaneTools({
 }) {
   return (
     <>
-      <PaneViewMenu prefs={prefs} muted={!active} onCollapse={onCollapse} />
+      <PaneViewMenu prefs={prefs} onCollapse={onCollapse} />
       <Button
         variant="ghost"
         size="icon-compact"

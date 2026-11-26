@@ -5,6 +5,7 @@ import { PageSurface } from "@/components/page-surface";
 import { cn } from "@/lib/utils";
 import type { PaneSide } from "./split-layout";
 import { SplitRoom } from "./split-room";
+import { ActivePane } from "./split/active-pane";
 
 /** Where a folder's Back and Up go; null where there is nowhere to go. */
 export type FolderMoves = {
@@ -23,11 +24,12 @@ export type FolderCardClasses = {
 export type FolderCardPane = {
   id: string;
   side: PaneSide;
-  /** Names the pane, and says whether it is the active one. */
-  label: string;
-  /** The pane New, Upload and the page's commands act on. */
-  active: boolean;
-  classes: FolderCardClasses;
+  /**
+   * The pane's name and look, active or not. The active pane, the one New, Upload and the page's
+   * commands act on, is read here (see `ActivePane`), so switching panes redraws the card and
+   * not the listing inside it.
+   */
+  card: (active: boolean) => { label: string; classes: FolderCardClasses };
   /** The pane's own pointer, focus and drop handlers. */
   handlers: HTMLAttributes<HTMLElement>;
   /** Says where a drag over the pane would drop. */
@@ -57,19 +59,21 @@ export function FolderCard({
   tools: ReactNode;
   body: ReactNode;
 }) {
+  const active = ActivePane.useIs(pane?.side ?? null);
+  const look = pane?.card(active);
   return (
     <section
       data-slot="folder-card"
       id={pane?.id}
       data-pane={pane?.side}
-      data-active={pane?.active ? true : undefined}
-      aria-label={pane?.label}
-      aria-current={pane?.active ? "true" : undefined}
+      data-active={active ? true : undefined}
+      aria-label={look?.label}
+      aria-current={active ? "true" : undefined}
       {...pane?.handlers}
       className={cn(
-        "relative transition-[background-color,box-shadow] duration-150 ease-out motion-reduce:transition-none",
-        pane
-          ? pane.classes.section
+        "group/pane relative transition-[background-color,box-shadow] duration-150 ease-out motion-reduce:transition-none",
+        look
+          ? look.classes.section
           : cn(
               "md:flex md:min-h-0 md:min-w-0 md:flex-1 md:flex-col md:overflow-hidden",
               PageSurface.raisedFromTablet,
@@ -82,8 +86,8 @@ export function FolderCard({
         className={cn(
           // The selection bar covers this row and takes its colour (`bg-inherit`), so it is solid.
           "z-10 items-center gap-1 border-b",
-          pane
-            ? pane.classes.header
+          look
+            ? look.classes.header
             : "surface-grain sticky top-16 -mx-4 -mt-6 mb-6 grid grid-cols-[minmax(0,1fr)_auto] border-border/70 bg-background px-4 py-3 md:relative md:top-auto md:m-0 md:flex md:h-14 md:shrink-0 md:border-border/60 md:bg-card md:bg-none md:px-2 md:pl-4 md:py-0 lg:pl-2",
         )}
       >
@@ -139,8 +143,8 @@ export function FolderCard({
         data-slot="folder-list"
         className={cn(
           "overflow-x-clip",
-          pane
-            ? pane.classes.body
+          look
+            ? look.classes.body
             : "md:min-h-0 md:flex-1 md:overflow-y-auto md:p-4 md:[scrollbar-gutter:stable]",
         )}
       >
