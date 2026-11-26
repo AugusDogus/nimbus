@@ -111,7 +111,7 @@ export function EntriesView({
   const coarse = Device.useCoarsePointer();
   const canDrag = Device.useAnyFinePointer();
   const containerRef = useRef<HTMLDivElement>(null);
-  const gridTrack = useGridTrack(containerRef, view === "grid");
+  const gridTrack = useGridTrack(containerRef, view === "grid", compact);
   const { columns, height } =
     view === "grid" ? gridTrack : EntryLayout.listTrack;
   const layout = useMemo(

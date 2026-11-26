@@ -1,4 +1,5 @@
 import { useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { flushSync } from "react-dom";
 
 /**
  * What the app may assume about the device it runs on. It asks two separate questions, and
@@ -110,15 +111,27 @@ export const Device = {
 
   /**
    * The layout question for one component: its element's width in pixels, measured before the
-   * first paint and whenever it changes; null until there is an element.
+   * first paint and whenever it changes, in the frame it changes in; null until there is an
+   * element. Its laid-out width: a transform, such as a card's while it moves, leaves it be.
    */
+  /**
+   * An element's laid-out width in pixels, fractions included, as the page lays it out before any
+   * transform scales it on screen.
+   */
+  layoutWidth(element: HTMLElement): number {
+    const width = parseFloat(getComputedStyle(element).width);
+    return Number.isFinite(width) ? width : element.offsetWidth;
+  },
+
   useWidth(element: HTMLElement | null): number | null {
     const [width, setWidth] = useState<number | null>(null);
     useLayoutEffect(() => {
       if (!element) return;
-      const measure = () => setWidth(element.getBoundingClientRect().width);
-      measure();
-      const observer = new ResizeObserver(measure);
+      setWidth(Device.layoutWidth(element));
+      const observer = new ResizeObserver(([entry]) => {
+        const next = entry?.borderBoxSize[0]?.inlineSize;
+        if (next !== undefined) flushSync(() => setWidth(next));
+      });
       observer.observe(element);
       return () => observer.disconnect();
     }, [element]);
