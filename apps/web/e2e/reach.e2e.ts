@@ -507,9 +507,11 @@ test("every split view action is reachable where the split rule offers it", asyn
       await closeSurfaces(page);
     }
     if (
-      await active.getByRole("button", { name: "Close this pane" }).isVisible()
+      await active
+        .getByRole("button", { name: /^Close (this pane|split)$/ })
+        .isVisible()
     )
-      found.set("close split", "Close this pane");
+      found.set("close split", "the pane's Close");
     const row = (name: string) =>
       active.locator(`[data-entry-name="${name}"]`).first();
     if ((await row(s.files[0]).getAttribute("draggable")) === "true")
@@ -560,7 +562,9 @@ test("every split view action is reachable where the split rule offers it", asyn
         );
     }
     // Closing is a route too: it must work, not only show.
-    const close = active.getByRole("button", { name: "Close this pane" });
+    const close = active.getByRole("button", {
+      name: /^Close (this pane|split)$/,
+    });
     if (await close.isVisible()) await press(close);
     else if (await toggle.isVisible()) await press(toggle);
     await expect(panes).toHaveCount(0);

@@ -243,12 +243,15 @@ export function paneCard(
 /** After a pane's path: its sort, grouping and view in one menu, and Close. */
 export function PaneTools({
   prefs,
-  onClose,
+  close,
   onCollapse,
 }: {
   prefs: PanePrefs;
-  /** Closes this pane, keeping the other pane's folder as the page's one folder. */
-  onClose: () => void;
+  /**
+   * Ends this pane or the split, keeping one folder as the page's one folder, and what it says it
+   * does: "Close this pane" side by side, "Close split" one pane at a time.
+   */
+  close: { label: string; run: () => void };
   /** Folds this pane into a strip at its edge, which opens it again; null where panes cannot fold. */
   onCollapse: (() => void) | null;
 }) {
@@ -258,9 +261,9 @@ export function PaneTools({
       <Button
         variant="ghost"
         size="icon-compact"
-        aria-label="Close this pane"
-        title="Close this pane"
-        onClick={onClose}
+        aria-label={close.label}
+        title={close.label}
+        onClick={close.run}
         className="touch-hit shrink-0 text-muted-foreground"
       >
         <X className="size-4" />

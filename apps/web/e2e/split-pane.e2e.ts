@@ -699,13 +699,30 @@ test.describe("split view on a phone", () => {
       page.getByRole("menuitem", { name: "Collapse pane" }),
     ).toHaveCount(0);
     await page.keyboard.press("Escape");
+  });
 
-    // Closing a pane keeps the other's folder as the page's one folder.
-    await rightPane(page)
-      .getByRole("button", { name: "Close this pane" })
-      .click();
+  test("Close split keeps the folder in view, however often the split opens and closes", async ({
+    page,
+  }) => {
+    const { root } = await seed(page);
+    await page.goto(splitHref(root));
+    await expect.poll(() => inView(leftPane(page))).toBe(true);
+    const frame = page.locator("[data-split-view]");
+    // Over to the right pane's folder, Archive, and close: Archive stays.
+    await swipeAcross(page, -260);
+    await expect(page).toHaveURL(/active=right/);
+    await rightPane(page).getByRole("button", { name: "Close split" }).click();
     await expect(frame).toHaveCount(0);
-    await expect(page).toHaveURL(new RegExp(`/browse/${root}/Projects$`));
+    await expect(page).toHaveURL(new RegExp(`/browse/${root}/Archive$`));
+    // Split and close again, as often as one likes: Archive each time, never Projects.
+    for (let round = 0; round < 2; round++) {
+      await page.getByRole("button", { name: "Split", exact: true }).click();
+      await expect(frame).toHaveAttribute("data-split-view", "swipe");
+      await expect.poll(() => inView(leftPane(page))).toBe(true);
+      await leftPane(page).getByRole("button", { name: "Close split" }).click();
+      await expect(frame).toHaveCount(0);
+      await expect(page).toHaveURL(new RegExp(`/browse/${root}/Archive$`));
+    }
   });
 
   test("a long folder in a pane keeps its rows on screen as the pane scrolls", async ({

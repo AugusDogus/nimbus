@@ -387,7 +387,16 @@ export const SplitController = memo(function SplitController({
       tools: (
         <PaneTools
           prefs={panePrefs[side]}
-          onClose={() => keepOnly(SplitLayout.other(side))}
+          // Side by side, Close ends this pane and keeps the other's folder. One at a time, the
+          // pane in view is the folder the person is in: Close ends the split and keeps it.
+          close={
+            sideBySide
+              ? {
+                  label: "Close this pane",
+                  run: () => keepOnly(SplitLayout.other(side)),
+                }
+              : { label: "Close split", run: () => keepOnly(side) }
+          }
           // One pane at a time, there is nothing to fold away.
           onCollapse={
             sideBySide
