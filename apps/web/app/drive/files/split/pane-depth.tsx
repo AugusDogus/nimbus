@@ -3,6 +3,7 @@ import { EntrySkeleton } from "../loading-skeleton";
 import type { PaneSide } from "../split-layout";
 import { ActivePane } from "./active-pane";
 import { paneCard } from "./pane-section";
+import { SwipePanes } from "./swipe-panes";
 
 /**
  * A phone's split view shows one pane and, about 32 px of it, the other, which sits a step back:
@@ -17,16 +18,20 @@ export function PaneDepth({
   side,
   name,
   onShow,
+  tint,
 }: {
   side: PaneSide;
   name: string;
   onShow: () => void;
+  /** The tint's strength from the start, for a pane that comes in wholly out of view. */
+  tint?: number;
 }) {
   return (
     <>
       <span
         aria-hidden
         data-depth-tint={side}
+        style={tint === undefined ? undefined : { opacity: tint }}
         className="pointer-events-none absolute inset-0 z-20 bg-background opacity-0 will-change-[opacity]"
       />
       <button
@@ -56,8 +61,14 @@ export function EnteringPane({
   view: "list" | "grid";
 }) {
   const { classes } = paneCard(side, false, false, "swipe");
+  // Wholly out of view for all its short life: a step back from the start, whether or not the
+  // frame's scroll timeline is running yet (the stylesheet's own depth, when it is, is the same).
   return (
-    <section data-pane={side} className={cn("relative", classes.section)}>
+    <section
+      data-pane={side}
+      className={cn("relative", classes.section)}
+      style={{ transform: `scale(${SwipePanes.back.scale})` }}
+    >
       <div className={cn("z-10 items-center gap-1 border-b", classes.header)}>
         <span className="min-w-0 truncate px-2 text-sm font-medium">
           {name}
@@ -66,7 +77,12 @@ export function EnteringPane({
       <div data-slot="folder-list" className={classes.body}>
         <EntrySkeleton view={view} />
       </div>
-      <PaneDepth side={side} name={name} onShow={() => ActivePane.set(side)} />
+      <PaneDepth
+        side={side}
+        name={name}
+        onShow={() => ActivePane.set(side)}
+        tint={SwipePanes.back.tint}
+      />
     </section>
   );
 }

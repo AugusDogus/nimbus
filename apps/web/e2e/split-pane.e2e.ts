@@ -718,6 +718,56 @@ test.describe("split view on a phone", () => {
     await page.keyboard.press("Escape");
   });
 
+  test("the new pane comes in a step back, smaller and tinted, all the way, and nothing changes once it lands", async ({
+    page,
+  }) => {
+    const { root } = await seed(page);
+    await page.goto(`/browse/${root}/Projects`);
+    await expect(entry(page.locator("main"), "Client Alpha")).toBeVisible();
+    // Each frame from the press: how far the incoming card has still to go, its scale and its tint.
+    const frames = page.evaluate(
+      () =>
+        new Promise<{ x: number; scale: number; tint: number }[]>((resolve) => {
+          const seen: { x: number; scale: number; tint: number }[] = [];
+          const start = performance.now();
+          const look = () => {
+            const card = document.querySelector(
+              '[data-split-view] > [data-pane="right"]',
+            );
+            const tint = card?.querySelector(":scope > [data-depth-tint]");
+            if (card && tint) {
+              const matrix = new DOMMatrix(getComputedStyle(card).transform);
+              seen.push({
+                x: matrix.e,
+                scale: matrix.d,
+                tint: Number(getComputedStyle(tint).opacity),
+              });
+            }
+            if (performance.now() - start < 1200) requestAnimationFrame(look);
+            else resolve(seen);
+          };
+          requestAnimationFrame(look);
+        }),
+    );
+    await page.getByRole("button", { name: "Split", exact: true }).click();
+    const seen = await frames;
+    const moving = seen.slice(seen.findIndex((frame) => frame.x > 0.5));
+    const landed = moving.findIndex((frame) => Math.abs(frame.x) < 0.5);
+    // It moved over some frames, then came to rest.
+    expect(landed).toBeGreaterThan(1);
+    for (const frame of moving) {
+      expect(frame.scale).toBeLessThan(0.95);
+      expect(frame.tint).toBeGreaterThan(0.5);
+    }
+    // Once in place it holds still: the same place, scale and tint, also as the pane itself takes over.
+    const rest = moving[landed];
+    for (const frame of moving.slice(landed)) {
+      expect(frame.x).toBeCloseTo(0, 0);
+      expect(frame.scale).toBeCloseTo(rest?.scale ?? 0, 3);
+      expect(frame.tint).toBeCloseTo(rest?.tint ?? 0, 3);
+    }
+  });
+
   test("Close split keeps the folder in view, however often the split opens and closes", async ({
     page,
   }) => {

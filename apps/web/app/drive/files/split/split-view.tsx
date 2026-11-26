@@ -448,12 +448,19 @@ export const SplitController = memo(function SplitController({
   // A split a person opens one pane at a time brings its new pane in with a light stand-in, its
   // card, header and placeholder rows, so the motion starts at once; the pane itself is drawn once
   // in place (see `useSwipePanes`).
+  // It gives way once the entrance is over, however long the page took to start it; a frame that
+  // never makes one, as when it is wide enough for both panes, lets it go after a while all the same.
   const [entering, setEntering] = useState(() => SwipePanes.entering());
   useEffect(() => {
     if (!entering) return;
-    const timer = setTimeout(() => setEntering(0), entering + 32);
-    return () => clearTimeout(timer);
-  }, [entering]);
+    const done = () => setEntering(0);
+    frameElement?.addEventListener(SwipePanes.enteredEvent, done);
+    const timer = setTimeout(done, 2000);
+    return () => {
+      frameElement?.removeEventListener(SwipePanes.enteredEvent, done);
+      clearTimeout(timer);
+    };
+  }, [entering, frameElement]);
   const right =
     entering && !sideBySide && layout.active === "left" ? (
       <EnteringPane

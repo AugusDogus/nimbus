@@ -56,6 +56,9 @@ const sideAt = (frame: HTMLElement): PaneSide =>
 const offsetOf = (frame: HTMLElement, side: PaneSide) =>
   side === "left" ? 0 : frame.scrollWidth - frame.clientWidth;
 
+/** Sent on the frame once a split's entrance is over (see `SwipePanes.enteredEvent`). */
+const enteredEvent = "split-entered";
+
 /** When a person last asked for a split, which opens with an entrance; null once shown. */
 let openedAt: number | null = null;
 
@@ -203,7 +206,7 @@ export function useSwipePanes(
       if (!entering || !kept || !incoming) return;
       entering = false;
       openedAt = null;
-      if (latest.current.reduce) return;
+      if (latest.current.reduce) return entered();
       const style = getComputedStyle(frame);
       const whole =
         frame.clientWidth -
@@ -241,16 +244,18 @@ export function useSwipePanes(
       const box = incoming.getBoundingClientRect();
       const from =
         side === "left" ? edge.right - box.left : edge.left - box.right;
-      // Its own depth, from the scroll position, holds throughout.
-      const rest = getComputedStyle(incoming).transform;
-      incoming.animate(
-        [
-          { transform: `translateX(${from}px) ${rest === "none" ? "" : rest}` },
-          { transform: rest },
-        ],
-        timing,
-      );
+      // It arrives a step back, wholly out of view, and holds that depth all the way: set here
+      // rather than read from the scroll timeline, which may not be running yet on a new frame.
+      const back = `scale(${1 - depth.scale})`;
+      incoming
+        .animate(
+          [{ transform: `translateX(${from}px) ${back}` }, { transform: back }],
+          timing,
+        )
+        .finished.then(entered, entered);
     };
+    /** The entrance is over: the pane standing in for the new one may give way to it. */
+    const entered = () => frame.dispatchEvent(new Event(enteredEvent));
 
     const resized = new ResizeObserver(align);
     resized.observe(frame);
@@ -334,6 +339,13 @@ export function useSwipePanes(
 
 /** The split view's swiping frame, one pane at a time on a phone (see `useSwipePanes`). */
 export const SwipePanes = {
+  /**
+   * How far back a pane wholly out of view sits: as the stylesheet sets it from the scroll, and as
+   * a pane coming in holds it until the scroll timeline takes over.
+   */
+  back: { scale: 1 - depth.scale, tint: depth.tint },
+  /** The event the frame gets once a split's entrance is over. */
+  enteredEvent,
   /** How long a split a person asked for takes to make its entrance, in ms, or 0 once made. */
   entering: () =>
     openedAt !== null && performance.now() - openedAt < openingMs
