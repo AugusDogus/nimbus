@@ -9,6 +9,9 @@ import { TransferUndo } from "./transfer-undo";
 import { fileHref, type FileEntry } from "./types";
 import { FolderPath } from "./folder-path";
 import { SplitAddress } from "./split/split-address";
+import { ActivePane } from "./split/active-pane";
+import { Arrivals } from "./arrivals";
+import { SplitLayout, type PaneSide } from "./split-layout";
 
 /**
  * What Nimbus says and offers after a move or copy: a summary toast with Undo, Open folder and
@@ -342,6 +345,9 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
   if (!first) return;
   const account = queryClient.getQueryData(sessionQuery.queryKey)?.user.id;
   const reached = results.filter((result) => result.transferred.length);
+  Arrivals.record(
+    reached.flatMap((result) => result.transferred.map((item) => item.path)),
+  );
   if (account)
     for (const result of reached)
       RecentDestinations.record(account, result.destination);
@@ -362,11 +368,18 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
   const [onlyPlace, ...otherPlaces] = results.filter(
     (result) => result.transferred.length || result.unconfirmed.length,
   );
-  if (onlyPlace && otherPlaces.length === 0)
-    actions.push({
-      label: "Open folder",
-      run: () => handlers.open(onlyPlace.destination),
-    });
+  if (onlyPlace && otherPlaces.length === 0) {
+    // The other pane of a split shows it already: Show brings that pane into view.
+    const pane = otherPaneShowing(onlyPlace.destination);
+    actions.push(
+      pane
+        ? { label: "Show", run: () => ActivePane.set(pane) }
+        : {
+            label: "Open folder",
+            run: () => handlers.open(onlyPlace.destination),
+          },
+    );
+  }
   const clashing = results.filter((result) => result.clashes.length);
   if (clashing.length)
     actions.push({
@@ -412,6 +425,17 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
  * Where "Open folder" goes: the active pane of the split view the window shows, which stays
  * split, or otherwise the folder as the page's one folder.
  */
+/** The pane of the split view shown now, other than the active one, that shows `folder`. */
+function otherPaneShowing(folder: string): PaneSide | null {
+  const split = SplitAddress.here();
+  if (!split || !FolderPath.isShownAt(window.location.pathname)) return null;
+  const active = ActivePane.get() ?? split.layout.active;
+  const other = SplitLayout.other(active);
+  return SplitLayout.pathOf(split.left, split.layout, other) === folder
+    ? other
+    : null;
+}
+
 function folderHref(folder: string): string {
   const split = SplitAddress.here();
   return split && FolderPath.isShownAt(window.location.pathname)

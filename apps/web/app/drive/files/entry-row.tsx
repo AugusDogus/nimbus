@@ -1,4 +1,5 @@
 import { Check, FileText, Folder } from "lucide-react";
+import { Arrivals } from "./arrivals";
 import { FolderLink } from "./folder-link";
 import {
   memo,
@@ -193,6 +194,7 @@ export const EntryRow = memo(function EntryRow({
     className: classes(
       EntryShape.entry,
       view === "list" ? EntryShape.listRow : EntryShape.card,
+      "data-arrived:animate-[entry-arrived_1.6s_cubic-bezier(0.23,1,0.32,1)]",
       // Background states are exclusive, so no class merging is needed.
       selected || dropState === "allowed"
         ? "bg-accent"
@@ -207,6 +209,8 @@ export const EntryRow = memo(function EntryRow({
     tabIndex: tabbable ? 0 : -1,
     "data-entry-name": entry.name,
     "data-entry-path": entry.path,
+    // Just moved or copied here: highlighted once as it shows, where it landed.
+    "data-arrived": Arrivals.has(entry.path) || undefined,
     onClick: (event: MouseEvent<HTMLElement>) =>
       handlers.click(event, entry, index),
     onPointerDown: (event: PointerEvent<HTMLElement>) =>

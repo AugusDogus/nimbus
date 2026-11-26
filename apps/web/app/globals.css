@@ -162,6 +162,17 @@
       opacity: 0;
     }
   }
+  /* An item a transfer just put here: tinted as it shows, then fading back (see `Arrivals`).
+     A change of colour, not of place, so it stays where less motion is preferred. */
+  @keyframes entry-arrived {
+    0%,
+    35% {
+      background-color: color-mix(in oklab, var(--primary) 30%, var(--card));
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
   @keyframes spinner-turn {
     to {
       transform: rotate(360deg);

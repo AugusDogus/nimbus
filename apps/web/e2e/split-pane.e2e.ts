@@ -777,5 +777,9 @@ test.describe("split view on a phone", () => {
     await bar.getByRole("button", { name: "Move to Archive" }).click();
     await expect(row).toHaveCount(0);
     expect(await names(`${root}/Archive`)).toContain("Client Beta");
+    // The report shows where it went, and what arrived is marked there.
+    await page.getByRole("button", { name: "Show", exact: true }).click();
+    await expect.poll(() => inView(rightPane(page))).toBe(true);
+    await expect(entry(rightPane(page), "Client Beta")).toBeVisible();
   });
 });
