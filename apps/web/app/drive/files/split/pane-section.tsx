@@ -219,6 +219,9 @@ export function paneCard(
       moves: "",
       section: cn(
         "flex min-h-0 min-w-0 flex-col overflow-hidden",
+        // Side by side, the pane made active rises and the other recedes, softly. Nowhere else:
+        // a folder becoming a pane, or a pane the page's one folder, changes in the frame it does.
+        "transition-[background-color,box-shadow] duration-150 ease-out motion-reduce:transition-none",
         active
           ? raised
           : cn(

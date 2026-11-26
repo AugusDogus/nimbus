@@ -73,7 +73,7 @@ export function FolderCard({
       aria-current={active ? "true" : undefined}
       {...pane?.handlers}
       className={cn(
-        "group/pane relative transition-[background-color,box-shadow] duration-150 ease-out motion-reduce:transition-none",
+        "group/pane relative",
         look
           ? look.classes.section
           : cn(
