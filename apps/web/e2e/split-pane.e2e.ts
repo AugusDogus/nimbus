@@ -728,19 +728,18 @@ test.describe("split view on a phone", () => {
     await list.evaluate((element) =>
       element.scrollTo({ top: element.scrollHeight / 2 }),
     );
-    await expect(
-      leftPane(page).locator("[data-entry-row]").first(),
-    ).toBeAttached();
-    const shown = await leftPane(page)
-      .locator("[data-entry-row]")
-      .evaluateAll(
-        (rows) =>
-          rows.filter((row) => {
-            const box = row.getBoundingClientRect();
-            return box.bottom > 0 && box.top < window.innerHeight;
-          }).length,
-      );
-    expect(shown).toBeGreaterThan(4);
+    // The listing renders the rows for where it scrolled to on its next frame.
+    const shown = () =>
+      leftPane(page)
+        .locator("[data-entry-row]")
+        .evaluateAll(
+          (rows) =>
+            rows.filter((row) => {
+              const box = row.getBoundingClientRect();
+              return box.bottom > 0 && box.top < window.innerHeight;
+            }).length,
+        );
+    await expect.poll(shown).toBeGreaterThan(4);
   });
 
   test("a split link shows both folders, and moves a selection straight to the other one", async ({
