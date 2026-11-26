@@ -24,8 +24,6 @@ export type SplitFrame = {
    */
   mode: SplitMode;
   style: CSSProperties | undefined;
-  /** Above the frame: on narrow screens, which pane shows and a way to the other. */
-  before: ReactNode;
   /** The first place: a folder, as a pane or alone, or the left pane folded away. */
   first:
     | {
@@ -41,7 +39,11 @@ export type SplitFrame = {
   rest: ReactNode;
   /** Outside the frame: the split's own dialog and announcements. */
   extras: ReactNode;
-  otherPaneActions: (props: OtherPaneActionsProps) => ReactNode;
+  /** What the panes' selection bars offer for the other pane (see `OtherPaneActionsSlot`). */
+  otherPaneActions: {
+    render: (props: OtherPaneActionsProps) => ReactNode;
+    prominent: boolean;
+  };
 };
 
 export type { SplitMode } from "./split-room";

@@ -8,6 +8,15 @@ describe("SplitRoom", () => {
     );
   });
 
+  test("splits the window's controls for opening a split at the narrowest window for two panes", () => {
+    expect<string>(SplitRoom.swipeOnly).toBe(
+      `min-[${SplitRoom.minViewport}px]:hidden`,
+    );
+    expect<string>(SplitRoom.sideBySideOnly).toBe(
+      `max-[${SplitRoom.minViewport - 1}px]:hidden`,
+    );
+  });
+
   test("fits two of the narrowest panes and the divider, and nothing narrower", () => {
     const both = 2 * SplitRoom.minPaneWidth + SplitRoom.dividerWidth;
     expect(SplitRoom.fits(both)).toBe(true);

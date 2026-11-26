@@ -202,3 +202,24 @@ export async function asMember(
   if (home === null) throw new Error(`${email} got no home folder.`);
   return { member, memberContext, email, home };
 }
+
+/**
+ * Chooses a folder's list or grid view: from the row's toggle, or on a phone, where the folder's
+ * own Split takes the toggle's place, from the sort and filter drawer.
+ */
+export async function chooseView(
+  page: Page,
+  view: "List view" | "Grid view",
+  mobile: boolean,
+) {
+  if (!mobile) {
+    await page.getByRole("button", { name: view, exact: true }).click();
+    return;
+  }
+  await page
+    .getByRole("button", { name: "Sort and filter options", exact: true })
+    .click();
+  const drawer = page.getByRole("dialog", { name: "Sort & filter" });
+  await drawer.getByRole("button", { name: view, exact: true }).click();
+  await expect(drawer).toBeHidden();
+}

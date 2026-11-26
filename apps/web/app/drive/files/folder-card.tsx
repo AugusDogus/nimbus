@@ -16,6 +16,8 @@ export type FolderMoves = {
 /** How a pane draws its card, its header row and its listing; they load with the split view. */
 export type FolderCardClasses = {
   section: string;
+  /** Back and Up, before the path. */
+  moves: string;
   header: string;
   body: string;
 };
@@ -98,7 +100,7 @@ export function FolderCard({
         <div
           className={cn(
             "flex shrink-0 items-center",
-            !pane && SplitRoom.roomOnly,
+            look ? look.classes.moves : SplitRoom.roomOnly,
           )}
         >
           <Button

@@ -5,7 +5,7 @@ import path from "node:path";
 import { expect } from "@playwright/test";
 import sharp from "sharp";
 import { z } from "zod";
-import { client, port, test } from "./helpers";
+import { client, port, test, chooseView } from "./helpers";
 
 async function dataRoot() {
   const manifest: unknown = JSON.parse(
@@ -254,6 +254,7 @@ test("serves cached thumbnails that revalidate and work on public links", async 
   page,
   context,
   browser,
+  isMobile,
 }) => {
   const folder = `thumbnails-${randomUUID()}`;
   const rpc = await client(context);
@@ -319,7 +320,7 @@ test("serves cached thumbnails that revalidate and work on public links", async 
   await anonymous.close();
 
   await page.goto(`/browse/${folder}`);
-  await page.getByRole("button", { name: "Grid view", exact: true }).click();
+  await chooseView(page, "Grid view", isMobile);
   const thumbnail = page
     .locator('[data-entry-name="photo.png"] img')
     .filter({ visible: true });
@@ -334,7 +335,7 @@ test("serves cached thumbnails that revalidate and work on public links", async 
       ),
     )
     .toBe(256);
-  await page.getByRole("button", { name: "List view", exact: true }).click();
+  await chooseView(page, "List view", isMobile);
   await expect
     .poll(async () => (await rpc.prefs.get.query()).view)
     .toBe("list");

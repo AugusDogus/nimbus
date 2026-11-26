@@ -181,8 +181,11 @@ const raised =
   "rounded-xl bg-card ring-1 ring-border/80 shadow-raised dark:ring-white/[0.08]";
 
 /**
- * A pane's card: the active one raised and white, the other flatter, tinted and quieter. A drop
- * target is washed and ringed inside, unlike the active pane, which only rises.
+ * A pane's card. Side by side, the active one is raised and white, the other flatter, tinted and
+ * quieter; a drop target is washed and ringed inside, unlike the active pane, which only rises.
+ * One at a time, on a phone, each pane is a folder's card as it is alone, whichever is active: the
+ * one in view is the one in use, the other's edge names it (`EdgeLabel`), and its path needs the
+ * header's room, so Back and Up are left to the browser and the path, as alone.
  */
 export function paneCard(
   side: PaneSide,
@@ -190,9 +193,28 @@ export function paneCard(
   highlighted: boolean,
   mode: SplitMode,
 ): { label: string; classes: FolderCardClasses } {
+  const label = `${sideName[side]} pane${active ? " (active)" : ""}`;
+  if (mode === "swipe")
+    return {
+      label,
+      classes: {
+        // Contained: what changes in one card never lays out or paints the other.
+        section: cn(
+          "flex min-h-0 min-w-0 flex-col overflow-hidden [contain:content]",
+          raised,
+        ),
+        header:
+          "@container relative flex h-14 shrink-0 border-border/60 bg-card px-2",
+        // reach: alone on a phone a folder has no Back or Up either; its path goes up.
+        moves: "hidden",
+        // Its last rows clear the floating New button.
+        body: "min-h-0 flex-1 overflow-y-auto p-4 pb-24 [scrollbar-gutter:stable]",
+      },
+    };
   return {
-    label: `${sideName[side]} pane${active ? " (active)" : ""}`,
+    label,
     classes: {
+      moves: "",
       section: cn(
         "flex min-h-0 min-w-0 flex-col overflow-hidden",
         active
@@ -213,11 +235,7 @@ export function paneCard(
               "text-muted-foreground [&_[data-slot=breadcrumb-page]]:text-muted-foreground",
             ),
       ),
-      body: cn(
-        "min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]",
-        // One pane at a time on a phone: its last rows clear the floating New button.
-        mode === "swipe" && "max-md:pb-24",
-      ),
+      body: "min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]",
     },
   };
 }

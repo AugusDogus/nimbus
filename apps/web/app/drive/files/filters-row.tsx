@@ -24,6 +24,14 @@ import { Tooltip } from "@/components/ui/tooltip";
 import type { LucideIcon } from "lucide-react";
 import type { UserPreferences } from "@nimbus/api/context";
 import { SortOption } from "./sort-option";
+import { SplitRoom } from "./split-room";
+import { cn } from "@/lib/utils";
+
+/** The views a listing offers, in the sort and filter drawer. */
+const views = [
+  { value: "list", label: "List view", icon: List },
+  { value: "grid", label: "Grid view", icon: Grid2X2 },
+] as const;
 
 /** One order a listing's sort control offers. */
 export type SortChoice = { value: string; label: string; icon: LucideIcon };
@@ -81,7 +89,19 @@ export function folderFilters(
   };
 }
 
-export function FiltersRow({ sort, view, group }: FiltersRowProps) {
+export function FiltersRow({
+  sort,
+  view,
+  group,
+  inlineView = "always",
+}: FiltersRowProps & {
+  /**
+   * Where the view's toggle shows in the row: at every width, or only where a window has room
+   * for two panes (`SplitRoom`), as a folder alone, whose own Split takes its place on a phone;
+   * there the sort and filter drawer offers the view instead.
+   */
+  inlineView?: "always" | "wide";
+}) {
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
   const selectedValue = sort.value;
@@ -112,7 +132,11 @@ export function FiltersRow({ sort, view, group }: FiltersRowProps) {
           <DrawerHeader>
             <DrawerTitle>Sort &amp; filter</DrawerTitle>
             <DrawerDescription className="sr-only">
-              {group ? "Choose sort order and grouping" : "Choose sort order"}
+              {[
+                "Choose sort order",
+                ...(group ? ["grouping"] : []),
+                ...(view && inlineView === "wide" ? ["view"] : []),
+              ].join(", ")}
             </DrawerDescription>
           </DrawerHeader>
           <div className="flex flex-col gap-1 px-4 pb-6">
@@ -158,6 +182,41 @@ export function FiltersRow({ sort, view, group }: FiltersRowProps) {
                     <Check aria-hidden className="size-4 text-primary" />
                   )}
                 </DrawerActionItem>
+              </>
+            )}
+            {/* The view, where the row's toggle gives way on a phone (`inlineView`). */}
+            {view && inlineView === "wide" && (
+              <>
+                <div className="my-2 h-px bg-border" />
+                <p
+                  id="view-drawer-label"
+                  className="px-3 pb-1 text-xs font-medium text-muted-foreground"
+                >
+                  View
+                </p>
+                <div
+                  role="group"
+                  aria-labelledby="view-drawer-label"
+                  className="flex flex-col gap-1"
+                >
+                  {views.map((option) => (
+                    <DrawerClose
+                      key={option.value}
+                      render={
+                        <DrawerActionItem
+                          aria-pressed={option.value === view.current}
+                          onClick={() => view.onChange(option.value)}
+                        />
+                      }
+                    >
+                      <option.icon className="size-5 text-muted-foreground" />
+                      <span className="flex-1 text-left">{option.label}</span>
+                      {option.value === view.current && (
+                        <Check aria-hidden className="size-4 text-primary" />
+                      )}
+                    </DrawerClose>
+                  ))}
+                </div>
               </>
             )}
           </div>
@@ -214,7 +273,8 @@ export function FiltersRow({ sort, view, group }: FiltersRowProps) {
         </Tooltip>
       )}
 
-      {/* The view, where the listing has one to choose, is visible at every width. */}
+      {/* The view, where the listing has one to choose: in the row at every width, or where it
+          gives way to a folder's own Split on a phone (`inlineView`). */}
       {view && (
         <ToggleGroup
           aria-label="File view"
@@ -226,7 +286,11 @@ export function FiltersRow({ sort, view, group }: FiltersRowProps) {
           variant="default"
           size="sm"
           spacing={1}
-          className="rounded-lg bg-muted/70 p-1"
+          className={cn(
+            "rounded-lg bg-muted/70 p-1",
+            // reach: below the split's widest phone window the sort and filter drawer offers it.
+            inlineView === "wide" && SplitRoom.sideBySideOnly,
+          )}
         >
           <Tooltip content="List view">
             <ToggleGroupItem

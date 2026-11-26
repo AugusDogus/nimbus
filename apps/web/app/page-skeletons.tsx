@@ -23,7 +23,7 @@ import { FiltersRow, folderFilters } from "./drive/files/filters-row";
 import { FolderCard } from "./drive/files/folder-card";
 import { EntrySkeleton } from "./drive/files/loading-skeleton";
 import type { NavPlace } from "./drive/files/nav-place";
-import { SplitToggle } from "./drive/files/split-toggle";
+import { AloneFolderTools, SplitToggle } from "./drive/files/split-toggle";
 import { SearchField } from "./drive/search/search-field";
 import type { ListPage } from "./drive/files/list-order";
 import { ListHeader, listFilters } from "./drive/list-filters";
@@ -202,7 +202,12 @@ export function FilesSkeleton({
                 <Skeleton className={cn("h-4 w-32 max-w-[38vw]", bar)} />
               </div>
             }
-            tools={<FiltersRow {...folderFilters(page.prefs, nothing)} />}
+            tools={
+              <AloneFolderTools
+                filters={folderFilters(page.prefs, nothing)}
+                onSplit={nothing}
+              />
+            }
             body={<EntrySkeleton view={page.prefs.view} />}
           />
         ) : page.shows === "trash" ? (

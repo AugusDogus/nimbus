@@ -1,4 +1,5 @@
 import type { UseNavigateResult } from "@tanstack/react-router";
+import { SwipePanes } from "./swipe-panes";
 import { queryClient } from "@/lib/trpc";
 import { fileListQueryOptions } from "../use-file-list";
 import { needsStats, prefsQueryOptions } from "../use-file-preferences";
@@ -56,6 +57,8 @@ export async function openSplit({
     ))
       ? remembered
       : left);
+  // Asked for by a person: one pane at a time, it opens with an entrance.
+  SwipePanes.opening();
   await navigate({
     href: SplitAddress.href(left, {
       right: folder,

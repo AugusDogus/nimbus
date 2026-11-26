@@ -48,7 +48,6 @@ import { useFilePreferences } from "../use-file-preferences";
 import { renderOtherPaneActions } from "./other-pane-actions";
 import { PaneDivider } from "./pane-divider";
 import { PaneHistory } from "./pane-history";
-import { PaneSwitcher } from "./pane-switcher";
 import {
   CollapsedPane,
   PaneFailureView,
@@ -62,6 +61,7 @@ import { SplitRoom } from "../split-room";
 import { useSidebarFold } from "./split-page";
 import { useSwipePanes } from "./swipe-panes";
 import { ActivePane } from "./active-pane";
+import { EdgeLabel } from "./edge-label";
 import { AppFrame } from "@/components/app-frame";
 
 const { minPaneWidth, dividerWidth } = SplitRoom;
@@ -402,6 +402,16 @@ export const SplitController = memo(function SplitController({
         />
       ),
       failure: (failure) => <PaneFailureView failure={failure} moves={moves} />,
+      edge: sideBySide
+        ? null
+        : (folder) => (
+            <EdgeLabel
+              side={side}
+              name={folder.name}
+              count={folder.count}
+              onShow={() => ActivePane.set(side)}
+            />
+          ),
       onActivate: () => activate(side),
       dragOver: dragOver === side,
       onDragOver: () => {
@@ -437,7 +447,7 @@ export const SplitController = memo(function SplitController({
       />
     </PaneLinks.Provider>
   );
-  // One pane at a time, a swipe or the switcher apart: both folders stay reachable, whichever
+  // One pane at a time, a swipe or the other pane's edge apart: both folders stay reachable, whichever
   // pane a wider screen had folded away.
   const rest = !sideBySide ? (
     right
@@ -482,12 +492,6 @@ export const SplitController = memo(function SplitController({
                 columnGap: layout.collapsed ? dividerWidth : 0,
               }
             : undefined,
-          before: !sideBySide && (
-            <PaneSwitcher
-              labels={{ left: labelOf(left), right: labelOf(layout.right) }}
-              frame={frameElement}
-            />
-          ),
           first: !sideBySide
             ? paneFor("left")
             : layout.collapsed === "left"
@@ -512,7 +516,10 @@ export const SplitController = memo(function SplitController({
               />
             </>
           ),
-          otherPaneActions: renderOtherPaneActions,
+          otherPaneActions: {
+            render: renderOtherPaneActions,
+            prominent: !sideBySide,
+          },
         };
   // After every render: the page shows this frame until the next one, or none once closed.
   useLayoutEffect(() => {

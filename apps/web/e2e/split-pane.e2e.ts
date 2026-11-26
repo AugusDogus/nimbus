@@ -634,28 +634,47 @@ const inView = (pane: Locator) =>
 test.describe("split view on a phone", () => {
   test.skip(({ isMobile }) => !isMobile, "Wide screens show both panes.");
 
-  test("opens from the toggle, shows one pane at a time, switches by tap and swipe, and closes to the active pane", async ({
+  test("opens from the folder's own Split with a nudge toward the new pane, names the other pane at its edge, switches by that edge, a swipe and the keyboard, and closes per pane", async ({
     page,
   }) => {
     const { root } = await seed(page);
     await page.goto(`/browse/${root}/Projects`);
     await expect(entry(page.locator("main"), "Client Alpha")).toBeVisible();
-    await page.getByRole("button", { name: "Split view" }).click();
-    await expect(page.locator("[data-split-view]")).toHaveAttribute(
-      "data-split-view",
-      "swipe",
+    // On a phone the folder's card opens a split; the header's toggle is for wider windows.
+    await expect(page.getByRole("button", { name: "Split view" })).toBeHidden();
+    const frame = page.locator("[data-split-view]");
+    // Where the frame scrolls in the moment after opening: it leans toward the new pane.
+    const lean = page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          let most = 0;
+          const start = performance.now();
+          const look = () => {
+            const element = document.querySelector("[data-split-view]");
+            most = Math.max(most, element?.scrollLeft ?? 0);
+            if (performance.now() - start < 1500) requestAnimationFrame(look);
+            else resolve(most);
+          };
+          requestAnimationFrame(look);
+        }),
     );
-    const panes = page.getByRole("group", { name: "Panes" });
-    const showLeft = panes.getByRole("button", { name: "Left pane: Projects" });
-    const showRight = panes.getByRole("button", { name: /^Right pane: / });
-    await expect(showLeft).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Split", exact: true }).click();
+    await expect(frame).toHaveAttribute("data-split-view", "swipe");
+    expect(await lean).toBeGreaterThan(20);
     await expect.poll(() => inView(leftPane(page))).toBe(true);
     expect(await inView(rightPane(page))).toBe(false);
 
+    // The other pane's edge names its folder; the pane in view has no label of its own.
+    const showRight = rightPane(page).locator("[data-edge-label]");
+    const showLeft = leftPane(page).locator("[data-edge-label]");
+    await expect(showRight).toHaveJSProperty("inert", false);
+    // The pane in view keeps its label out of reach: no press, no focus, nothing read out.
+    await expect(showLeft).toHaveJSProperty("inert", true);
     await showRight.click();
-    await expect(page).toHaveURL(/active=right/);
     await expect.poll(() => inView(rightPane(page))).toBe(true);
-    await expect(showRight).toHaveAttribute("aria-pressed", "true");
+    await expect(page).toHaveURL(/active=right/);
+    await expect(showLeft).toHaveJSProperty("inert", false);
+    await expect(showLeft).toHaveAccessibleName("Show Projects");
 
     await swipeAcross(page, 260);
     await expect(page).toHaveURL(/active=left/);
@@ -680,11 +699,12 @@ test.describe("split view on a phone", () => {
       page.getByRole("menuitem", { name: "Collapse pane" }),
     ).toHaveCount(0);
     await page.keyboard.press("Escape");
-    await showLeft.click();
-    await expect(page).toHaveURL(/active=left/);
 
-    await page.getByRole("button", { name: "Split view" }).click();
-    await expect(page.locator("[data-split-view]")).toHaveCount(0);
+    // Closing a pane keeps the other's folder as the page's one folder.
+    await rightPane(page)
+      .getByRole("button", { name: "Close this pane" })
+      .click();
+    await expect(frame).toHaveCount(0);
     await expect(page).toHaveURL(new RegExp(`/browse/${root}/Projects$`));
   });
 
@@ -728,13 +748,10 @@ test.describe("split view on a phone", () => {
   }) => {
     const { root, names } = await seed(page);
     await page.goto(splitHref(root, "right"));
-    // The link's active pane shows first; the other is a tap away.
+    // The link's active pane shows first; the other is a tap on its edge away.
     await expect(entry(rightPane(page), "2025")).toBeVisible();
     await expect.poll(() => inView(rightPane(page))).toBe(true);
-    await page
-      .getByRole("group", { name: "Panes" })
-      .getByRole("button", { name: "Left pane: Projects" })
-      .click();
+    await leftPane(page).getByRole("button", { name: "Show Projects" }).click();
     await expect.poll(() => inView(leftPane(page))).toBe(true);
     const row = entry(leftPane(page), "Client Beta");
     await expect(row).toHaveAttribute("draggable", "false");
@@ -751,19 +768,14 @@ test.describe("split view on a phone", () => {
     await row.dispatchEvent("click", press);
     const bar = leftPane(page).getByRole("toolbar", { name: "Selected items" });
     await expect(bar).toContainText("1");
-    // Select all is there for a touch phone too, in the bar's menu.
+    // The bar keeps to Move to the other pane and Copy; the rest is in its menu, Select all too.
+    await expect(bar.getByRole("button", { name: "Download" })).toHaveCount(0);
     await bar.getByRole("button", { name: "More actions" }).click();
-    await expect(
-      page.getByRole("menuitem", { name: "Select all" }),
-    ).toBeVisible();
+    for (const name of ["Select all", "Download", "Move to trash"])
+      await expect(page.getByRole("menuitem", { name })).toBeVisible();
     await page.keyboard.press("Escape");
     await bar.getByRole("button", { name: "Move to Archive" }).click();
     await expect(row).toHaveCount(0);
     expect(await names(`${root}/Archive`)).toContain("Client Beta");
-    await page
-      .getByRole("group", { name: "Panes" })
-      .getByRole("button", { name: /^Right pane: / })
-      .click();
-    await expect(entry(rightPane(page), "Client Beta")).toBeVisible();
   });
 });

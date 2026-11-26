@@ -238,6 +238,18 @@ async function routesIn(page: Page, view: FileView, s: Seed) {
       if (!seen.has(name)) seen.set(name, { role, where });
   };
   note("the page", await visibleControls(page));
+  // On a phone the sort and filter drawer holds the sort, and a folder's view.
+  const drawer = page.getByRole("button", {
+    name: "Sort and filter options",
+    exact: true,
+  });
+  if (await drawer.isVisible()) {
+    if (device.pointer === "coarse") await drawer.tap();
+    else await drawer.click();
+    await page.getByRole("dialog").first().waitFor();
+    note("the sort and filter drawer", await visibleControls(page));
+    await closeSurfaces(page);
+  }
 
   const grid = page.getByRole("grid").first();
   const entries = view !== "trash" && (await grid.count()) > 0;
@@ -452,9 +464,13 @@ test("every split view action is reachable where the split rule offers it", asyn
       name: "Split view",
       exact: true,
     });
+    const own = page.getByRole("button", { name: "Split", exact: true });
     if (await toggle.isVisible()) {
       found.set("open split", "the Split view toggle");
       await press(toggle);
+    } else if (await own.isVisible()) {
+      found.set("open split", "the folder's own Split");
+      await press(own);
     } else await page.keyboard.press("|");
     const panes = page.locator("[data-pane]");
     await expect(panes).toHaveCount(2);
@@ -473,9 +489,10 @@ test("every split view action is reachable where the split rule offers it", asyn
     const both =
       (await onScreen(panes.nth(0))) && (await onScreen(panes.nth(1)));
     if (both) found.set("see both panes", "both pane cards on screen");
-    const switcher = page.getByRole("group", { name: "Panes" });
-    if (await switcher.isVisible())
-      found.set("switch pane", "the pane switcher");
+    // One pane at a time, the other pane's edge names it and brings it into view.
+    const edge = panes.locator("[data-edge-label]");
+    if (await edge.first().isVisible())
+      found.set("switch pane", "the other pane's edge");
     else if (both) found.set("switch pane", "the other pane, beside this one");
     if (await page.getByRole("separator", { name: "Resize panes" }).isVisible())
       found.set("resize panes", "the divider between the panes");

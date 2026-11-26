@@ -69,4 +69,13 @@ export const SplitRoom = {
    * content area (`room`, see `PageLayout.filesContent`) is narrower than two panes.
    */
   roomOnly: "@max-[727px]/room:hidden",
+  /**
+   * Hides what only a window showing one pane at a time offers, from `minViewport` up: a folder
+   * card's own Split, where a thumb reaches it.
+   */
+  // reach: wider windows open a split from the header's Split view toggle (`sideBySideOnly`).
+  swipeOnly: "min-[760px]:hidden",
+  /** Hides what only a window with room for two panes offers, below `minViewport`. */
+  // reach: narrower windows open a split from the folder card's own Split (`swipeOnly`).
+  sideBySideOnly: "max-[759px]:hidden",
 } as const;

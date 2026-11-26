@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
-import { test } from "./helpers";
+import { test, chooseView } from "./helpers";
 import {
   action,
   client,
@@ -207,7 +207,7 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
     path: testInfo.outputPath("files.png"),
     fullPage: true,
   });
-  await page.getByRole("button", { name: "Grid view", exact: true }).click();
+  await chooseView(page, "Grid view", isMobile);
   await expect
     .poll(async () => (await rpc.prefs.get.query()).view)
     .toBe("grid");
@@ -216,10 +216,21 @@ test("creates, uploads, previews, downloads, renames, moves and restores files",
   );
   await page.reload();
   await hydrated;
-  await expect(
-    page.getByRole("button", { name: "Grid view", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "List view", exact: true }).click();
+  if (isMobile) {
+    await page
+      .getByRole("button", { name: "Sort and filter options", exact: true })
+      .click();
+    await expect(
+      page
+        .getByRole("dialog", { name: "Sort & filter" })
+        .getByRole("button", { name: "Grid view", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("Escape");
+  } else
+    await expect(
+      page.getByRole("button", { name: "Grid view", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+  await chooseView(page, "List view", isMobile);
   await expect
     .poll(async () => (await rpc.prefs.get.query()).view)
     .toBe("list");

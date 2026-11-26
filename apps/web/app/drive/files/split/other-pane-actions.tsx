@@ -11,7 +11,11 @@ import { MenuItem } from "@/components/ui/menu-item";
 import { trpc } from "@/lib/trpc";
 import type { MenuAction, OtherPaneActionsProps } from "../selection-bar";
 
-/** The renderer the split view puts in `OtherPaneActionsSlot`. */
+/**
+ * The renderer the split view puts in `OtherPaneActionsSlot`. One pane at a time, on a phone, the
+ * other pane is out of view, so Move to it is the bar's main action, a pill that names its folder,
+ * with Copy beside it (`prominent`).
+ */
 export const renderOtherPaneActions = (props: OtherPaneActionsProps) => (
   <OtherPaneActions {...props} />
 );
@@ -58,6 +62,7 @@ export function OtherPaneActions({
   canMove,
   more,
   actions,
+  prominent,
 }: OtherPaneActionsProps) {
   const top = useQuery(trpc.access.me.queryOptions()).data?.top ?? "";
   const target = { path: other.path, writable: other.writable };
@@ -86,6 +91,43 @@ export function OtherPaneActions({
       run: () => void actions.copyEntries(targets, other.path),
     },
   ];
+  if (prominent)
+    return (
+      <>
+        {[...items].reverse().map((item) => {
+          const reason = refusal(item.operation);
+          return item.operation === "copy" ? (
+            <Button
+              key={item.operation}
+              variant="ghost"
+              size="icon-compact"
+              disabled={reason !== undefined}
+              aria-label={item.label}
+              title={reason ?? item.label}
+              onClick={item.run}
+              className="touch-hit shrink-0 pointer-coarse:w-11"
+            >
+              <item.icon className="size-4" />
+            </Button>
+          ) : (
+            <Button
+              key={item.operation}
+              variant="primary"
+              size="compact"
+              disabled={reason !== undefined}
+              title={reason ?? item.label}
+              onClick={item.run}
+              leadingIcon={item.icon}
+              // The folder's name truncates inside the button's own spans when room is short.
+              className="touch-hit min-w-0 rounded-full [&>span:last-child]:min-w-0 [&>span:last-child]:max-w-full [&>span:last-child>span]:min-w-0 [&>span:last-child>span]:overflow-hidden"
+            >
+              <span className="block min-w-0 truncate">{item.label}</span>
+            </Button>
+          );
+        })}
+        {more && <MoreActions items={more} />}
+      </>
+    );
   const labelled = more !== null;
   const buttons = items.map((item) => {
     const reason = refusal(item.operation);
@@ -103,7 +145,7 @@ export function OtherPaneActions({
         className="touch-hit min-w-0 gap-2 pointer-coarse:min-w-11 @max-md:shrink-0 [&>span:last-child]:min-w-0 [&>span:last-child]:max-w-full [&>span:last-child>span]:min-w-0 [&>span:last-child>span]:overflow-hidden"
       >
         {/* In a pane's bar the folder's name shows where the pane has room for it; narrower,
-            as on a phone, Move still says what it does, and the panes' switcher names where. */}
+            as in a narrow pane, Move still says what it does. */}
         <span
           aria-hidden
           className={

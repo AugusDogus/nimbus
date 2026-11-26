@@ -86,6 +86,8 @@ export type OtherPaneActionsProps = {
    */
   more: readonly MenuAction[] | null;
   actions: ReturnType<typeof useFileActions>;
+  /** One pane at a time, on a phone: Move to the other pane is the bar's main action. */
+  prominent: boolean;
 };
 
 /** One action in a menu: what it says, and what it does. */
@@ -94,10 +96,13 @@ export type MenuAction = { label: string; run: () => void };
 /**
  * Renders the actions that move or copy the selection straight into the other pane's folder.
  * The split view gives it, so their code loads with the split view rather than every folder.
+ * `prominent` where it shows one pane at a time: the pane's bar then keeps to its main actions,
+ * Move to the other pane and Copy, and gathers Download and Trash under More.
  */
-export const OtherPaneActionsSlot = createContext<
-  ((props: OtherPaneActionsProps) => ReactNode) | null
->(null);
+export const OtherPaneActionsSlot = createContext<{
+  render: (props: OtherPaneActionsProps) => ReactNode;
+  prominent: boolean;
+} | null>(null);
 
 /**
  * Actions for the selected entries. It overlays the folder toolbar, or floats above the content
@@ -138,6 +143,9 @@ export function SelectionBar({
   const up = MoveUp.steady(moveUpAtOpen, moveUp);
   const star = starControl(targets, useStarredPaths(true), actions.setStarred);
   const otherPaneActions = useContext(OtherPaneActionsSlot);
+  // A phone's pane keeps its bar to the main actions (see `OtherPaneActionsSlot`).
+  const gathered =
+    compact && other !== null && otherPaneActions?.prominent === true;
   // The room the bar has is that of what it sits in, whichever window or sidebar surrounds it.
   const toolbar = useRef<HTMLDivElement>(null);
   const [host, setHost] = useState<HTMLElement | null>(null);
@@ -188,10 +196,11 @@ export function SelectionBar({
       </p>
       <div className="ml-auto flex min-w-0 items-center gap-0.5">
         {other &&
-          otherPaneActions?.({
+          otherPaneActions?.render({
             targets,
             other,
             canMove,
+            prominent: otherPaneActions.prominent,
             more: compact
               ? [
                   ...(targets.length < total
@@ -221,6 +230,26 @@ export function SelectionBar({
                         },
                       ]
                     : []),
+                  ...(gathered
+                    ? [
+                        {
+                          label: "Download",
+                          run: () => actions.downloadEntries(targets),
+                        },
+                        ...(canTrash
+                          ? [
+                              {
+                                label: "Move to trash",
+                                run: () =>
+                                  onOpen({
+                                    action: "delete",
+                                    entries: targets,
+                                  }),
+                              },
+                            ]
+                          : []),
+                      ]
+                    : []),
                 ]
               : null,
             actions,
@@ -233,12 +262,14 @@ export function SelectionBar({
             onClick={onSelectAll}
           />
         )}
-        <Action
-          label="Download"
-          iconOnly={iconOnly}
-          icon={Download}
-          onClick={() => actions.downloadEntries(targets)}
-        />
+        {!gathered && (
+          <Action
+            label="Download"
+            iconOnly={iconOnly}
+            icon={Download}
+            onClick={() => actions.downloadEntries(targets)}
+          />
+        )}
         {!compact && (
           <Action
             label={star.label}
@@ -277,7 +308,7 @@ export function SelectionBar({
             }}
           />
         )}
-        {canTrash && (
+        {canTrash && !gathered && (
           <Action
             label="Trash"
             iconOnly={iconOnly}

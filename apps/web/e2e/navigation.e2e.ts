@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { FileListing } from "@nimbus/api/file-listing";
-import { client, test } from "./helpers";
+import { client, test, chooseView } from "./helpers";
 
 test("keeps primary navigation and utility actions usable in both themes", async ({
   page,
@@ -330,7 +330,7 @@ test("keeps sorting controls and the final row reachable while scrolling", async
     ),
     animations: "disabled",
   });
-  await page.getByRole("button", { name: "Grid view", exact: true }).click();
+  await chooseView(page, "Grid view", isMobile);
   await page.getByRole("main").hover();
   await page.mouse.wheel(0, 10_000);
   await expect(last).toBeInViewport();
@@ -348,7 +348,7 @@ test("keeps sorting controls and the final row reachable while scrolling", async
     ),
     animations: "disabled",
   });
-  await page.getByRole("button", { name: "List view", exact: true }).click();
+  await chooseView(page, "List view", isMobile);
   await expect
     .poll(async () => (await rpc.prefs.get.query()).view)
     .toBe("list");
@@ -420,6 +420,9 @@ test("header and toolbar controls have 44 px touch areas on touch screens of eve
             named("Group files by type"),
             named("List view"),
             named("Grid view"),
+            [...document.querySelectorAll("button")].find(
+              (button) => button.textContent?.trim() === "Split",
+            ),
           ];
     return controls
       .filter((control) => control instanceof HTMLElement)
@@ -452,7 +455,9 @@ test("header and toolbar controls have 44 px touch areas on touch screens of eve
     await page.setViewportSize({ width, height: 900 });
     // Three levels deep, so the breadcrumb shows the root link and the path folders button.
     await page.goto(`/browse/${folder}/middle/inner`);
-    await expect(page.getByRole("button", { name: "List view" })).toBeVisible();
+    await expect(
+      page.locator('[data-shape="folder-toolbar"]').first(),
+    ).toBeVisible();
     // Each control answers a touch 21 px from its center in every direction, and no neighbor
     // takes it: a 44 px area of its own. With a mouse, controls keep their visible size.
     const header: Scope = "header";

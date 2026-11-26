@@ -59,7 +59,7 @@ import { collectDrop } from "@/lib/upload-sources";
 import { useFileList } from "./use-file-list";
 import { WebMcpFileTools } from "./webmcp-tools";
 import { useFilePreferences } from "./use-file-preferences";
-import { openSplit, SplitToggle } from "./split-toggle";
+import { AloneFolderTools, openSplit, SplitToggle } from "./split-toggle";
 import { HeaderTools } from "./header-tools";
 import {
   FolderCard,
@@ -138,7 +138,6 @@ export function FilesPageClient() {
         />
       )}
       <OtherPaneActionsSlot.Provider value={split?.otherPaneActions ?? null}>
-        {split?.before}
         <div
           ref={attachFrame}
           data-split-view={split?.mode}
@@ -146,9 +145,11 @@ export function FilesPageClient() {
             split?.mode === "side-by-side"
               ? "grid min-h-0 flex-1"
               : split?.mode === "swipe"
-                ? // One pane at a time, each the frame's width: the frame scrolls sideways and
-                  // snaps to a pane, and never hands a swipe past its ends to the page.
-                  "flex min-h-0 flex-1 snap-x snap-mandatory gap-4 overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] *:w-full *:min-w-0 *:shrink-0 *:snap-start *:snap-always"
+                ? // One pane at a time: the frame reaches the window's edges and scrolls sideways,
+                  // snapping to a pane, and never hands a swipe past its ends to the page. Each
+                  // pane leaves the other's edge in view, 56 px, where its name is (`EdgeLabel`):
+                  // the first pane snaps to the frame's start, the second to its end.
+                  "-mx-4 flex min-h-0 flex-1 snap-x snap-mandatory gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain px-2 scroll-px-2 [scrollbar-width:none] *:w-[calc(100%-3.5rem)] *:min-w-0 *:shrink-0 *:snap-start [&>*+*]:snap-end"
                 : "md:flex md:min-h-0 md:flex-1 md:flex-col"
           }
           style={split?.style}
@@ -211,6 +212,12 @@ export type PaneFrame = {
   ) => { label: string; classes: FolderCardClasses };
   /** Says why the pane's folder cannot be shown, with ways on that keep the pane open. */
   failure: (failure: PaneFailure) => ReactNode;
+  /**
+   * What the pane's edge shows while the other pane is in view, given its folder's name and how
+   * many items it lists (null until listed): one pane at a time, the edge's label; null side by
+   * side, where both show.
+   */
+  edge: ((folder: { name: string; count: number | null }) => ReactNode) | null;
   onActivate: () => void;
   /** Whether a drag is over this pane, which then says where it would drop. */
   dragOver: boolean;
@@ -526,7 +533,15 @@ export const FolderPane = memo(function FolderPane({
             onDragOverCapture: pane.onDragOver,
             ...drag.targetProps(target),
           },
-          hint: <DragHint drag={drag} placement="pane" shown={pane.dragOver} />,
+          hint: (
+            <>
+              <DragHint drag={drag} placement="pane" shown={pane.dragOver} />
+              {pane.edge?.({
+                name: trail.crumbs.at(-1)?.label ?? trail.root.label,
+                count: listQuery.data ? entries.length : null,
+              })}
+            </>
+          ),
         }
       }
       attachToolbar={attachToolbar}
@@ -535,6 +550,11 @@ export const FolderPane = memo(function FolderPane({
       tools={
         pane ? (
           pane.tools
+        ) : split.kind === "closed" ? (
+          <AloneFolderTools
+            filters={folderFilters(prefs, updatePreferences)}
+            onSplit={() => split.open(null)}
+          />
         ) : (
           <FiltersRow {...folderFilters(prefs, updatePreferences)} />
         )
