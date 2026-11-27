@@ -5,6 +5,7 @@ import { fileListQueryOptions } from "../use-file-list";
 import { needsStats, prefsQueryOptions } from "../use-file-preferences";
 import { SplitAddress } from "./split-address";
 import { SplitMemory } from "./split-memory";
+import type { SplitLayout } from "../split-layout";
 
 /**
  * Whether the folder at `path` still lists for this account. A listing this page already has
@@ -30,9 +31,26 @@ async function opens(path: string, includeStats: boolean) {
 }
 
 /**
- * Opens a split view with `left` in the left pane, which stays active. The right pane shows
- * `right` when given ("Open in other pane"), otherwise the folder this browser last had there
- * while it still opens, otherwise `left` again. The ratio is the last one used.
+ * The split a person asks for beside `left`, with `left` active: the right pane shows `right`
+ * when given ("Open in other pane"), otherwise the folder this browser last had there, otherwise
+ * `left` again. The ratio is the last one used.
+ */
+export function plannedSplit(left: string, right: string | null): SplitLayout {
+  const memory = SplitMemory.read();
+  const remembered = memory.right;
+  return {
+    right:
+      right ?? (remembered !== null && remembered !== left ? remembered : left),
+    active: "left",
+    ratio: memory.ratio,
+    collapsed: null,
+  };
+}
+
+/**
+ * Opens a split view with `left` in the left pane, as `plannedSplit` plans it, or as `planned`
+ * when a press has shown it already (see `SplitPress`); `entrance` false then, as it has made its
+ * own.
  *
  * It opens at once, without waiting to hear whether the remembered folder still opens: that is
  * asked meanwhile, and a folder that no longer does gives way to `left` in the split it opened.
@@ -41,31 +59,28 @@ export async function openSplit({
   navigate,
   left,
   right,
+  planned = plannedSplit(left, right),
+  entrance = true,
 }: {
   navigate: UseNavigateResult<string>;
   left: string;
   right: string | null;
+  planned?: SplitLayout;
+  entrance?: boolean;
 }) {
-  const memory = SplitMemory.read();
-  const remembered = memory.right;
-  const folder =
-    right ?? (remembered !== null && remembered !== left ? remembered : left);
+  const folder = planned.right;
   const show = (path: string, replace: boolean) =>
     navigate({
-      href: SplitAddress.href(left, {
-        right: path,
-        active: "left",
-        ratio: memory.ratio,
-        collapsed: null,
-      }),
+      href: SplitAddress.href(left, { ...planned, right: path }),
       replace,
     });
   // Asked for by a person: one pane at a time, it opens with an entrance.
-  SwipePanes.opening();
+  if (entrance) SwipePanes.opening();
   const shown = show(folder, false);
   if (right === null && folder !== left) {
+    const prefs = SplitMemory.read().prefs;
     const includeStats = needsStats(
-      memory.prefs ?? (await queryClient.ensureQueryData(prefsQueryOptions)),
+      prefs ?? (await queryClient.ensureQueryData(prefsQueryOptions)),
     );
     if (!(await opens(folder, includeStats))) {
       const now = SplitAddress.here();

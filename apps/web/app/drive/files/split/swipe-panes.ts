@@ -70,13 +70,16 @@ const enteredEvent = "split-entered";
 
 /**
  * When a person last asked for a split, which opens with an entrance, and where their folder's
- * card was on screen then; null once the entrance has started.
+ * card was on screen then; null once the entrance has started. `held` while a press prepares the
+ * split out of sight: its entrance waits for the press to end in a click (see `SplitPress`).
  */
-let asked: { at: number; from: DOMRect | null } | null = null;
+let asked: { at: number; from: DOMRect | null; held: boolean } | null = null;
 const isAsked = () =>
   asked !== null && performance.now() - asked.at < openingMs;
 /** The entrance under way, on its frame, and how to end it at once; null between them. */
 let running: { frame: HTMLElement; stop: () => void } | null = null;
+/** Each swiping frame's way to start an entrance, with its motion preference. */
+const greeters = new Map<HTMLElement, () => void>();
 
 /**
  * A split's entrance on `frame`, once both panes are in it, when one was asked for: the person's
@@ -91,7 +94,7 @@ function enter(frame: HTMLElement, reduce: boolean) {
   const incoming = frame.querySelector<HTMLElement>(
     `:scope > [data-pane="${side === "left" ? "right" : "left"}"]`,
   );
-  if (!isAsked() || !kept || !incoming) return;
+  if (!isAsked() || asked?.held || !kept || !incoming) return;
   const before = asked?.from ?? null;
   asked = null;
   /** The entrance is over: the pane standing in for the new one may give way to it. */
@@ -312,6 +315,7 @@ export function useSwipePanes(
 
     // A split just opened: its entrance starts once both panes are in the frame.
     const greet = () => enter(frame, latest.current.reduce ?? false);
+    greeters.set(frame, greet);
 
     const resized = new ResizeObserver(align);
     resized.observe(frame);
@@ -373,6 +377,7 @@ export function useSwipePanes(
       clearTimeout(timer);
       cancelAnimationFrame(painting);
       if (running?.frame === frame) running.stop();
+      greeters.delete(frame);
       // Side by side, or once closed, the panes stand as they are.
       for (const { pane } of panes()) {
         pane.style.removeProperty("transform");
@@ -409,15 +414,26 @@ export const SwipePanes = {
   entering: () => (isAsked() || running !== null ? opening.ms : 0),
   /**
    * A person asked for a split: when it shows one pane at a time, it opens with an entrance,
-   * which starts from where their folder's card is now.
+   * which starts from where their folder's card is now. A `held` one waits for `release`.
    */
-  opening: () => {
+  opening: (held = false) => {
     const card = document.querySelector<HTMLElement>(
       '[data-slot="folder-card"]',
     );
     asked = {
       at: performance.now(),
       from: card?.getBoundingClientRect() ?? null,
+      held,
     };
+  },
+  /** Starts the held entrance on `frame`, whose panes are laid out already, in its next frame. */
+  release: (frame: HTMLElement) => {
+    if (!asked?.held) return;
+    asked = { ...asked, at: performance.now(), held: false };
+    greeters.get(frame)?.();
+  },
+  /** Drops a held entrance: the press it waited for ended some other way. */
+  forget: () => {
+    if (asked?.held) asked = null;
   },
 } as const;
