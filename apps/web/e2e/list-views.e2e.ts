@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
-import { client, test } from "./helpers";
+import { chooseView, client, test } from "./helpers";
 
 // Recent, Starred, Shared, search results and Trash order and show their items as folders do:
 // the folder's sort control with each page's own orders, its default in the address as nothing,
@@ -94,7 +94,8 @@ test("Recent shows the most recent first, sorts by name from its address, and sh
       .poll(() => shown(page, tag))
       .toEqual(["Banana", "Apple", "Cherry"]);
 
-    await page.getByRole("button", { name: "Grid view", exact: true }).click();
+    // As on a folder, a phone offers the view in the sort and filter drawer.
+    await chooseView(page, "Grid view", isMobile);
     await expect.poll(() => isGrid(page)).toBe(true);
     // The account's view, so folders show cards now too.
     await expect

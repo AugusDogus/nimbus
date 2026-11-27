@@ -726,7 +726,9 @@ test("empties trash in one step after confirmation", async ({
   const dialog = page.getByRole("alertdialog", { name: "Empty trash?" });
   await expect(dialog).toContainText("including items other people deleted");
   await dialog.getByRole("button", { name: "Empty trash" }).click();
-  await expect(page.getByText("Trash is empty.")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Trash is empty", exact: true }),
+  ).toBeVisible();
   expect(await rpc.trash.list.query()).toEqual([]);
   await expect(
     page.getByRole("button", { name: "Empty trash", exact: true }),
