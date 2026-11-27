@@ -202,11 +202,4 @@ async function directory(
 export const BuiltInIconThemeSources = {
   directory,
   buildBundled,
-  /** Bytes a first use downloads, for the picker to say. */
-  pinned: (id: ThemedBuiltIn) => {
-    const source = sources[id];
-    return source.kind === "open-vsx"
-      ? `${source.namespace}.${source.name}@${source.version}`
-      : null;
-  },
 } as const;

@@ -61,16 +61,7 @@ const all: readonly BuiltInIconTheme[] = [
   },
 ];
 
-const isBuiltIn = (id: string): id is BuiltInIconThemeId =>
-  all.some((theme) => theme.id === id);
-
-const byId = new Map(all.map((theme) => [theme.id, theme]));
-
-export const BuiltInIconThemes = {
-  all,
-  isBuiltIn,
-  get: (id: BuiltInIconThemeId) => byId.get(id),
-} as const;
+export const BuiltInIconThemes = { all } as const;
 
 /** Names the settings preview shows, chosen so most sets have an icon for each. */
 export const iconPreviewNames = [

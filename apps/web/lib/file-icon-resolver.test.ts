@@ -141,7 +141,7 @@ describe("IconManifest.parse", () => {
     },
   };
   test("accepts a manifest whose associations point at its icons", () => {
-    expect(IconManifest.parse(valid)).toEqual(valid);
+    expect<unknown>(IconManifest.parse(valid)).toEqual(valid);
   });
   test("refuses indexes outside its icons, odd icon names, and other versions", () => {
     expect(

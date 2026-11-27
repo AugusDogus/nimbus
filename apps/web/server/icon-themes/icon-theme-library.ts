@@ -239,5 +239,4 @@ export const IconThemeLibrary = {
   list,
   choose,
   remove,
-  served,
 } as const;
