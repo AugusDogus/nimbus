@@ -1,9 +1,39 @@
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 import { protectedProcedure, router } from "@nimbus/api";
-import { IconThemeLibrary } from "./icon-theme-library";
+import { allowedOrigins } from "@/lib/auth";
+import { RequestOrigin } from "../request-origin";
+import { IconThemeLibrary, type LibraryResult } from "./icon-theme-library";
+
+/** Changes must come from Nimbus's own pages, as for other cookie-authenticated writes. */
+const fromNimbusPage = protectedProcedure.use(({ ctx, next }) => {
+  if (!RequestOrigin.fromNimbus(ctx, allowedOrigins))
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "This request did not come from a Nimbus page. Nothing was changed.",
+    });
+  return next();
+});
+
+const unwrap = <T>(result: LibraryResult<T>): T => {
+  if (result.ok) return result.value;
+  throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
+};
+
+const themeId = z.string().min(1).max(100);
 
 /** The signed-in account's appearance: its file icon set. */
 export const appearanceRouter = router({
   icons: protectedProcedure.query(({ ctx }) =>
     IconThemeLibrary.current(ctx.access.user.id),
   ),
+  iconSets: protectedProcedure.query(({ ctx }) =>
+    IconThemeLibrary.list(ctx.access.user.id),
+  ),
+  chooseIcons: fromNimbusPage
+    .input(z.object({ id: themeId }))
+    .mutation(async ({ ctx, input }) =>
+      unwrap(await IconThemeLibrary.choose(ctx.access.user.id, input.id)),
+    ),
 });

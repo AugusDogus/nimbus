@@ -25,6 +25,7 @@ import { ThemePreferences } from "@/lib/theme-preferences";
 import { VsCodeTheme, type ThemeResult } from "@/lib/vscode-theme";
 import { ThemeSearch } from "./theme-search";
 import { AppearanceModes, ThemeLibrary } from "./theme-library";
+import { IconThemeSettings } from "./icon-theme-settings";
 
 type Confirmation = { type: "remove"; theme: VsCodeTheme } | { type: "reset" };
 
@@ -162,6 +163,7 @@ export function ThemeSettings() {
           disabled={disabled}
         />
       </div>
+      <IconThemeSettings />
       <input
         ref={input}
         type="file"

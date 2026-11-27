@@ -169,6 +169,13 @@
       "when": 1795477828992,
       "tag": "0023_known_addresses",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1795817179095,
+      "tag": "0024_user_appearance",
+      "breakpoints": true
     }
   ]
 }

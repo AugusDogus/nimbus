@@ -10,5 +10,6 @@ export const iconChoiceQuery = queryOptions<IconChoice>({
     IconChoice.cache(choice);
     return choice;
   },
-  staleTime: 60_000,
+  // Another browser may change it; a focused page checks again after a few seconds.
+  staleTime: 5_000,
 });

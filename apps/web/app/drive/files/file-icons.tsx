@@ -103,13 +103,11 @@ export type FileIcons = {
 const lucideOnly: FileIcons = { resolver: null, url: () => "", pending: false };
 const FileIconsContext = createContext<FileIcons>(lucideOnly);
 
-/** The account's icon set, resolved for the color scheme on screen. */
-export function useFileIconTheme(): FileIcons {
-  const choice = useQuery({
-    ...iconChoiceQuery,
-    placeholderData: () => IconChoice.cached() ?? undefined,
-  });
-  const url = choice.data?.manifest ?? null;
+/**
+ * The set whose manifest is at `url` (null for Nimbus's own icons), resolved for the color
+ * scheme on screen. `waiting` holds icons back while the caller still learns which set to use.
+ */
+function useFileIcons(url: string | null, waiting = false): FileIcons {
   const manifest = useQuery(manifestQuery(url));
   const scheme = useResolvedColorScheme();
   const base = url?.slice(0, url.lastIndexOf("/") + 1) ?? "";
@@ -118,28 +116,43 @@ export function useFileIconTheme(): FileIcons {
       manifest.data ? FileIconResolver.create(manifest.data, scheme) : null,
     [manifest.data, scheme],
   );
+  const pending = waiting || (url !== null && manifest.isPending);
   return useMemo(
     () => ({
       resolver,
       url: (index: number) => `${base}${manifest.data?.icons[index] ?? ""}`,
-      pending:
-        (choice.data === undefined && choice.isPending) ||
-        (url !== null && manifest.isPending),
+      pending,
     }),
-    [
-      resolver,
-      base,
-      manifest.data,
-      choice.data,
-      choice.isPending,
-      url,
-      manifest.isPending,
-    ],
+    [resolver, base, manifest.data, pending],
+  );
+}
+
+/** The account's icon set, resolved for the color scheme on screen. */
+export function useFileIconTheme(): FileIcons {
+  const choice = useQuery({
+    ...iconChoiceQuery,
+    placeholderData: () => IconChoice.cached() ?? undefined,
+  });
+  return useFileIcons(
+    choice.data?.manifest ?? null,
+    choice.data === undefined && choice.isPending,
   );
 }
 
 export function FileIconsProvider({ children }: { children: ReactNode }) {
   const icons = useFileIconTheme();
+  return <FileIconsContext value={icons}>{children}</FileIconsContext>;
+}
+
+/** Icons from the set whose manifest is at `manifest`, as the settings previews show them. */
+export function FileIconsScope({
+  manifest,
+  children,
+}: {
+  manifest: string | null;
+  children: ReactNode;
+}) {
+  const icons = useFileIcons(manifest);
   return <FileIconsContext value={icons}>{children}</FileIconsContext>;
 }
 

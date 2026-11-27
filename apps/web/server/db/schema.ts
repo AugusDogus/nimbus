@@ -48,3 +48,4 @@ export * from "./file-request-schema";
 export * from "./file-version-schema";
 export * from "./mcp-schema";
 export * from "./library-schema";
+export * from "./appearance-schema";
