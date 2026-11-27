@@ -54,6 +54,7 @@ import {
 import { useFileActions } from "./use-file-actions";
 import { useFileDrag, type FileDrag } from "./use-file-drag";
 import { DragHint } from "./drag-hint";
+import { EmptyListing } from "./empty-listing";
 import { useUploads } from "@/components/upload-provider";
 import { collectDrop } from "@/lib/upload-sources";
 import { useFileList } from "./use-file-list";
@@ -65,6 +66,7 @@ import {
   FolderCard,
   type FolderCardClasses,
   type FolderMoves,
+  useToolbarSlot,
 } from "./folder-card";
 import { fileHref } from "./types";
 import { ActivePane } from "./split/active-pane";
@@ -374,14 +376,7 @@ export const FolderPane = memo(function FolderPane({
   const [shownPath, setShownPath] = useState(currentPath);
   if (!listQuery.isPlaceholderData && shownPath !== currentPath)
     setShownPath(currentPath);
-  const toolbarRef = useRef<HTMLDivElement>(null);
-  const [selectionSlot, setSelectionSlot] = useState<HTMLDivElement | null>(
-    null,
-  );
-  const attachToolbar = (element: HTMLDivElement | null) => {
-    toolbarRef.current = element;
-    setSelectionSlot(element);
-  };
+  const { toolbarRef, selectionSlot, attach: attachToolbar } = useToolbarSlot();
 
   const breadcrumbs = (
     <FileBreadcrumbs
@@ -489,32 +484,30 @@ export const FolderPane = memo(function FolderPane({
           dragHint={pane === null}
         />
       ) : (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
+        <>
           {/* Files from the computer can still be dropped on the breadcrumb's folders. */}
           {!pane && <DragHint drag={drag} />}
-          <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-muted">
-            <Folder className="size-8 text-muted-foreground" />
-          </div>
-          <h3 className="text-balance text-lg font-medium">
-            This folder is empty
-          </h3>
-          {/* Suggests adding only once the folder is known to take it. Files can be dropped
-              in only with a mouse or trackpad; touch alone cannot drag them. */}
-          {capabilities.data?.canWrite === true ? (
-            <p className="text-pretty mt-1 text-sm text-muted-foreground">
-              <span className="hidden any-pointer-fine:inline">
-                Drop files here or use the New button to add content
-              </span>
-              <span className="any-pointer-fine:hidden">
-                Tap New to upload files or create a folder
-              </span>
-            </p>
-          ) : capabilities.data?.canWrite === false ? (
-            <p className="text-pretty mt-1 text-sm text-muted-foreground">
-              You can view this folder but not add to it.
-            </p>
-          ) : null}
-        </div>
+          <EmptyListing
+            icon={Folder}
+            title="This folder is empty"
+            // Suggests adding only once the folder is known to take it. Files can be dropped in
+            // only with a mouse or trackpad; touch alone cannot drag them.
+            description={
+              capabilities.data?.canWrite === true ? (
+                <>
+                  <span className="hidden any-pointer-fine:inline">
+                    Drop files here or use the New button to add content
+                  </span>
+                  <span className="any-pointer-fine:hidden">
+                    Tap New to upload files or create a folder
+                  </span>
+                </>
+              ) : capabilities.data?.canWrite === false ? (
+                "You can view this folder but not add to it."
+              ) : null
+            }
+          />
+        </>
       )}
     </div>
   );

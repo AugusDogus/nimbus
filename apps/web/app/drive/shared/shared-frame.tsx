@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
+import { PageLayout } from "@/components/page-layout";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FolderCard, type FolderMoves } from "../files/folder-card";
+import { pageTitles } from "../list-filters";
 
 export type SharedTab = "with-me" | "links" | "requests";
 const tabs: { value: SharedTab; label: string }[] = [
@@ -15,42 +18,58 @@ export const SharedTab = {
 } as const;
 
 /**
- * Shared's title and tabs around the chosen tab's content: the page, and the server's
- * placeholder for it, which passes the content each tab shows while it loads.
+ * Shared's card: its title, the chosen tab's tools after it, and its tabs around the tab's
+ * content. The page uses it, and the server's placeholder for it, which passes what each tab shows
+ * while it loads.
  */
 export function SharedFrame({
   tab,
   onTab,
+  moves,
+  tools,
+  attachToolbar,
   children,
 }: {
   tab: SharedTab;
   onTab: (tab: SharedTab) => void;
+  moves: FolderMoves;
+  /** Sort and view for the files shared with you; the other tabs have none. */
+  tools: ReactNode;
+  attachToolbar: (element: HTMLDivElement | null) => void;
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-6">
-      <h1 className="text-balance text-2xl font-semibold">Shared</h1>
-      <Tabs
-        value={tab}
-        onValueChange={(value) => {
-          const next = tabs.find((entry) => entry.value === value)?.value;
-          if (next) onTab(next);
-        }}
-        className="gap-6"
-      >
-        <TabsList
-          aria-label="Shared files"
-          activateOnFocus
-          data-shape="shared-tabs"
+    <FolderCard
+      pane={null}
+      attachToolbar={attachToolbar}
+      moves={moves}
+      breadcrumbs={
+        <h1 className={PageLayout.cardTitle}>{pageTitles.shared}</h1>
+      }
+      tools={tools}
+      body={
+        <Tabs
+          value={tab}
+          onValueChange={(value) => {
+            const next = tabs.find((entry) => entry.value === value)?.value;
+            if (next) onTab(next);
+          }}
+          className="gap-6"
         >
-          {tabs.map(({ value, label }) => (
-            <TabsTrigger key={value} value={value}>
-              {label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        {children}
-      </Tabs>
-    </div>
+          <TabsList
+            aria-label="Shared files"
+            activateOnFocus
+            data-shape="shared-tabs"
+          >
+            {tabs.map(({ value, label }) => (
+              <TabsTrigger key={value} value={value}>
+                {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {children}
+        </Tabs>
+      }
+    />
   );
 }

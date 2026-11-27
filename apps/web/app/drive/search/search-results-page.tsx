@@ -1,4 +1,5 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
+import { SearchX } from "lucide-react";
 import { Link } from "@/components/link";
 import { useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,10 @@ import { useSearch, type SearchResultEntry } from "./use-search";
 import { DriveRoot } from "@nimbus/api/drive-root";
 import { EntrySkeleton } from "../files/loading-skeleton";
 import { ListOrder } from "../files/list-order";
-import { ListHeader, useListFilters } from "../list-filters";
+import { useListFilters } from "../list-filters";
+import { EmptyListing } from "../files/empty-listing";
+import { FiltersRow } from "../files/filters-row";
+import { FolderCard, useBackOnly, useToolbarSlot } from "../files/folder-card";
 
 const PAGE = 200;
 /**
@@ -130,139 +134,141 @@ export function SearchResultsPage({
     () => (split ? SplitAddress.paneLinks(split, split.layout.active) : null),
     [split],
   );
-  return (
-    <PaneLinks.Provider value={links}>
-      <div className="space-y-6">
-        <div className="space-y-1">
-          <ListHeader
-            title={<h1 className={PageLayout.title}>{title}</h1>}
-            filters={filters}
-          />
-          {split && (
-            <p className="text-pretty text-sm text-muted-foreground">
-              Folders open in the {split.layout.active} pane of your split view.{" "}
-              <FolderLink
-                path={SplitLayout.activePath(split.left, split.layout)}
-                className="font-medium text-foreground underline-offset-4 hover:underline"
-              >
-                Back to split view
-              </FolderLink>
-            </p>
-          )}
-        </div>
-        <TransferDialog
-          dialog={dialog}
+  const moves = useBackOnly();
+  const { toolbarRef, selectionSlot, attach } = useToolbarSlot();
+  const body = (
+    <div className="space-y-6">
+      {split && (
+        <p className="text-pretty text-sm text-muted-foreground">
+          Folders open in the {split.layout.active} pane of your split view.{" "}
+          <FolderLink
+            path={SplitLayout.activePath(split.left, split.layout)}
+            className="font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            Back to split view
+          </FolderLink>
+        </p>
+      )}
+      <TransferDialog
+        dialog={dialog}
+        actions={actions}
+        onClose={() => onDialog(null)}
+      />
+      {(search.pending || !search.settled) &&
+      query &&
+      !search.entries.length &&
+      !search.problem ? (
+        <EntrySkeleton view={view} titled={false} />
+      ) : search.entries.length ? (
+        <EntriesView
+          view={view}
+          sections={sections}
           actions={actions}
-          onClose={() => onDialog(null)}
+          drag={drag}
+          restoreKey={`search:${query}:${view}`}
+          label={title}
+          toolbarRef={toolbarRef}
+          selectionSlot={selectionSlot}
+          renderName={renderName}
+          dialog={dialog}
+          onDialog={onDialog}
         />
-        {(search.pending || !search.settled) &&
-        query &&
-        !search.entries.length &&
-        !search.problem ? (
-          <EntrySkeleton view={view} titled={false} />
-        ) : search.entries.length ? (
-          <EntriesView
-            view={view}
-            sections={sections}
-            actions={actions}
-            drag={drag}
-            restoreKey={`search:${query}:${view}`}
-            label={title}
-            renderName={renderName}
-            dialog={dialog}
-            onDialog={onDialog}
-          />
-        ) : search.problem ? null : (
-          <div className="space-y-3 rounded-lg border p-8 text-center">
-            <p className="text-pretty text-muted-foreground">
-              No matching files. Try a different filename.
-            </p>
+      ) : search.problem ? null : (
+        <EmptyListing
+          icon={SearchX}
+          title="No matching files"
+          description="Try a different filename."
+          action={
             <Button variant="tertiary" render={<Link to="/" />}>
               Open {DriveRoot.label}
             </Button>
-          </div>
-        )}
-        {/* Said even when the rebuilt list is empty. */}
-        {search.restarted && (
+          }
+        />
+      )}
+      {/* Said even when the rebuilt list is empty. */}
+      {search.restarted && (
+        <p role="status" className="text-pretty text-sm text-muted-foreground">
+          The results changed while you were looking through them, so the list
+          was rebuilt from the top.
+        </p>
+      )}
+      {/* Results already shown stay; the problem is said below them, calmly when a moment fixes it. */}
+      {search.problem && (
+        <div className="flex flex-wrap items-center gap-3">
           <p
-            role="status"
-            className="text-pretty text-sm text-muted-foreground"
-          >
-            The results changed while you were looking through them, so the list
-            was rebuilt from the top.
-          </p>
-        )}
-        {/* Results already shown stay; the problem is said below them, calmly when a moment fixes it. */}
-        {search.problem && (
-          <div className="flex flex-wrap items-center gap-3">
-            <p
-              role={search.problem.kind === "failed" ? "alert" : "status"}
-              className={cn(
-                "text-pretty text-sm",
-                search.problem.kind === "failed"
-                  ? "text-destructive"
-                  : "text-muted-foreground",
-              )}
-            >
-              {search.problem.message}
-            </p>
-            <Button variant="tertiary" size="compact" onClick={search.retry}>
-              Search again
-            </Button>
-          </div>
-        )}
-        {(gathering || tooMany) && search.entries.length > 0 && (
-          <p
-            role="status"
-            className="text-pretty text-sm text-muted-foreground"
-          >
-            {tooMany
-              ? `Sorting by ${order.label.toLowerCase()} needs every match, and there are more than ${count.format(sortCap)}: the most relevant show first. Narrow the search to sort them.`
-              : `Loading every match to sort them by ${order.label.toLowerCase()}…`}
-          </p>
-        )}
-        {!search.complete && (
-          <p
-            role="status"
-            className="text-pretty text-sm text-muted-foreground"
-          >
-            Nimbus is still indexing your drive after starting. Some matches may
-            be missing; search again in a minute.
-          </p>
-        )}
-        {total && search.entries.length > 0 && (
-          <div className="flex flex-wrap items-center gap-3">
-            <p
-              role="status"
-              className="text-pretty text-sm text-muted-foreground"
-            >
-              {search.more
-                ? `Showing ${count.format(search.entries.length)} of ${count.format(total.count)}${total.exact ? "" : " or more"} matches.`
-                : `${count.format(search.entries.length)} ${search.entries.length === 1 ? "match" : "matches"}.`}
-            </p>
-            {search.more && (
-              <Button
-                variant="tertiary"
-                size="compact"
-                className="aria-disabled:opacity-50"
-                // Keyboard focus stays on the button while the next page loads, which Base UI's
-                // button keeps where this one renders it.
-                render={
-                  <ButtonPrimitive
-                    focusableWhenDisabled
-                    disabled={!total.exact || search.loadingMore}
-                    onClick={search.loadMore}
-                  />
-                }
-              >
-                {search.loadingMore
-                  ? "Loading…"
-                  : `Show ${count.format(Math.min(PAGE, total.count - search.entries.length))} more`}
-              </Button>
+            role={search.problem.kind === "failed" ? "alert" : "status"}
+            className={cn(
+              "text-pretty text-sm",
+              search.problem.kind === "failed"
+                ? "text-destructive"
+                : "text-muted-foreground",
             )}
-          </div>
-        )}
-      </div>
+          >
+            {search.problem.message}
+          </p>
+          <Button variant="tertiary" size="compact" onClick={search.retry}>
+            Search again
+          </Button>
+        </div>
+      )}
+      {(gathering || tooMany) && search.entries.length > 0 && (
+        <p role="status" className="text-pretty text-sm text-muted-foreground">
+          {tooMany
+            ? `Sorting by ${order.label.toLowerCase()} needs every match, and there are more than ${count.format(sortCap)}: the most relevant show first. Narrow the search to sort them.`
+            : `Loading every match to sort them by ${order.label.toLowerCase()}…`}
+        </p>
+      )}
+      {!search.complete && (
+        <p role="status" className="text-pretty text-sm text-muted-foreground">
+          Nimbus is still indexing your drive after starting. Some matches may
+          be missing; search again in a minute.
+        </p>
+      )}
+      {total && search.entries.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <p
+            role="status"
+            className="text-pretty text-sm text-muted-foreground"
+          >
+            {search.more
+              ? `Showing ${count.format(search.entries.length)} of ${count.format(total.count)}${total.exact ? "" : " or more"} matches.`
+              : `${count.format(search.entries.length)} ${search.entries.length === 1 ? "match" : "matches"}.`}
+          </p>
+          {search.more && (
+            <Button
+              variant="tertiary"
+              size="compact"
+              className="aria-disabled:opacity-50"
+              // Keyboard focus stays on the button while the next page loads, which Base UI's
+              // button keeps where this one renders it.
+              render={
+                <ButtonPrimitive
+                  focusableWhenDisabled
+                  disabled={!total.exact || search.loadingMore}
+                  onClick={search.loadMore}
+                />
+              }
+            >
+              {search.loadingMore
+                ? "Loading…"
+                : `Show ${count.format(Math.min(PAGE, total.count - search.entries.length))} more`}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <PaneLinks.Provider value={links}>
+      <FolderCard
+        pane={null}
+        attachToolbar={attach}
+        moves={moves}
+        breadcrumbs={<h1 className={PageLayout.cardTitle}>{title}</h1>}
+        // As a folder's: on a phone the sort and filter drawer offers the view.
+        tools={<FiltersRow {...filters} inlineView="wide" />}
+        body={body}
+      />
     </PaneLinks.Provider>
   );
 }

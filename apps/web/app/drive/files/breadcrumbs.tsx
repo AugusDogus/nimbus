@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown";
 import { MenuItem } from "@/components/ui/menu-item";
 import { menuRowLink } from "@/components/menu-row-link";
+import { PageLayout } from "@/components/page-layout";
 import { Device } from "@/lib/device";
 import { cn } from "@/lib/utils";
 import type { BreadcrumbTrail, Crumb } from "./breadcrumb-trail";
@@ -142,11 +143,7 @@ export function FileBreadcrumbs({
   const parentClassName = showParent ? undefined : "hidden";
 
   if (!isNested) {
-    return (
-      <h1 className="truncate text-balance text-xl font-medium sm:text-2xl">
-        {trail.root.label}
-      </h1>
-    );
+    return <h1 className={PageLayout.cardTitle}>{trail.root.label}</h1>;
   }
 
   return (

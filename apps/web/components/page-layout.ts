@@ -55,21 +55,23 @@ export const PageLayout = {
     user.email?.charAt(0).toUpperCase() ||
     "U",
   /**
-   * The files pages' content: a folder lays out its own card, or one per pane; other pages sit on
-   * one card here.
+   * The files pages' content: each page lays out its own card (see `FolderCard`), a folder one per
+   * pane of a split view, so every files page shares one card, header and spacing.
    */
-  filesContent: (folder: boolean) =>
-    cn(
-      "flex-1 overflow-x-clip px-4 pb-24 pt-6",
-      // A folder's area is the room a split view measures (see `SplitRoom`). On phones it is
-      // the page and scrolls with it; holding a split's panes, it is as tall as the window below
-      // the header, and each pane scrolls on its own.
-      folder
-        ? "@container/room md:flex md:min-h-0 md:flex-col md:p-0 max-md:has-[>[data-split-view=swipe]]:flex max-md:has-[>[data-split-view=swipe]]:h-[calc(100dvh-4rem)] max-md:has-[>[data-split-view=swipe]]:flex-col max-md:has-[>[data-split-view=swipe]]:pt-3 max-md:has-[>[data-split-view=swipe]]:pb-3"
-        : cn(PageSurface.card, "md:px-6 md:pb-6 lg:px-8 lg:pt-8"),
-    ),
+  filesContent: cn(
+    "flex-1 overflow-x-clip px-4 pb-24 pt-6",
+    // A folder's area is the room a split view measures (see `SplitRoom`). On phones it is the
+    // page and scrolls with it; holding a split's panes, it is as tall as the window below the
+    // header, and each pane scrolls on its own.
+    "@container/room md:flex md:min-h-0 md:flex-col md:p-0 max-md:has-[>[data-split-view=swipe]]:flex max-md:has-[>[data-split-view=swipe]]:h-[calc(100dvh-4rem)] max-md:has-[>[data-split-view=swipe]]:flex-col max-md:has-[>[data-split-view=swipe]]:pt-3 max-md:has-[>[data-split-view=swipe]]:pb-3",
+  ),
   settingsContent: cn("flex-1", PageSurface.card),
   settingsColumn: "mx-auto w-full max-w-4xl px-4 py-6 md:px-6 lg:px-8 lg:py-8",
-  /** A page's title, such as Trash's or a settings page's. */
+  /** A page's title, such as a settings page's. */
   title: "text-balance text-2xl font-semibold",
+  /**
+   * A files page's title on its card, where a folder's path goes: the root folder's name, or a
+   * page's such as Recent or Trash.
+   */
+  cardTitle: "truncate text-balance text-xl font-medium sm:text-2xl",
 } as const;

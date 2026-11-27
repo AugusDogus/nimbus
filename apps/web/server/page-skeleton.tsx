@@ -4,6 +4,7 @@ import { SearchTitle } from "@/app/drive/search/search-title";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import type { Bootstrap } from "@/client/bootstrap";
+import { pageTitles } from "@/app/drive/list-filters";
 import { SharedTab } from "@/app/drive/shared/shared-frame";
 import {
   FilesSkeleton,
@@ -95,11 +96,11 @@ export const PageSkeleton = {
       shows,
       view: prefs?.view ?? "list",
       // Named by the page's own choices, so odd addresses share the default's markup.
-      // A search's results are titled by what it looks for, which may take more than a line.
+      // A search's results are titled by what it looks for.
       title:
         shows === "search"
           ? SearchTitle.of(params.get("q")?.trim() ?? "")
-          : undefined,
+          : pageTitles[shows],
       sort:
         shows === "trash"
           ? TrashOrder.pick(sort ?? undefined).value

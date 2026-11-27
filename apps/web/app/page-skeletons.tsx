@@ -26,7 +26,7 @@ import type { NavPlace } from "./drive/files/nav-place";
 import { AloneFolderTools, SplitToggle } from "./drive/files/split-toggle";
 import { SearchField } from "./drive/search/search-field";
 import type { ListPage } from "./drive/files/list-order";
-import { ListHeader, listFilters } from "./drive/list-filters";
+import { listFilters } from "./drive/list-filters";
 import { SharedFrame, type SharedTab } from "./drive/shared/shared-frame";
 import {
   FileRequestsPending,
@@ -53,6 +53,13 @@ import {
 
 const bar = "motion-reduce:animate-none";
 const nothing = () => undefined;
+/** Back and Up, still off: the app turns Back on once it knows the history. */
+const noMoves = { back: null, up: null };
+
+/** A files page's title on its card, where a folder's path goes. */
+function CardTitle({ title }: { title: string }) {
+  return <h1 className={PageLayout.cardTitle}>{title}</h1>;
+}
 
 /**
  * What the app measures as its header moves (see `useHeaderEdges`), here from the sidebar's state
@@ -137,8 +144,8 @@ export function FilesSkeleton({
         /** The account's view, and the order the address names, if any. */
         view: UserPreferences["view"];
         sort: string | undefined;
-        /** The page's title where the server knows it, as a search's; a placeholder otherwise. */
-        title?: string;
+        /** The page's title on its card, as `pageTitles` names it or a search's. */
+        title: string;
         /** Shared's tab, from the address. */
         tab: SharedTab;
       };
@@ -189,15 +196,12 @@ export function FilesSkeleton({
           <AccountButton initial={account.initial} />
         </div>
       </header>
-      <div
-        data-slot={folder ? undefined : "page-card"}
-        className={PageLayout.filesContent(folder)}
-      >
+      <div className={PageLayout.filesContent}>
         {page.kind === "folder" ? (
           <FolderCard
             pane={null}
             attachToolbar={nothing}
-            moves={{ back: null, up: null }}
+            moves={noMoves}
             breadcrumbs={
               <div className="flex h-5 items-center sm:h-6">
                 <Skeleton className={cn("h-4 w-32 max-w-[38vw]", bar)} />
@@ -212,49 +216,70 @@ export function FilesSkeleton({
             body={<EntrySkeleton view={page.prefs.view} />}
           />
         ) : page.shows === "trash" ? (
-          <div className="space-y-6">
-            <div className={TrashShape.header}>
-              <TrashIntro />
+          <FolderCard
+            pane={null}
+            attachToolbar={nothing}
+            moves={noMoves}
+            breadcrumbs={<CardTitle title={page.title} />}
+            tools={
               <div className={TrashShape.tools}>
                 <FiltersRow {...trashFilters(page.sort, nothing)} />
-                <Button variant="tertiary" disabled tabIndex={-1}>
+                <Button
+                  variant="tertiary"
+                  size="compact"
+                  className="touch-hit"
+                  disabled
+                  tabIndex={-1}
+                >
                   {TrashShape.emptyLabel}
                 </Button>
               </div>
-            </div>
-            <TrashSkeleton />
-          </div>
+            }
+            body={
+              <div className="space-y-6">
+                <TrashIntro />
+                <TrashSkeleton />
+              </div>
+            }
+          />
         ) : page.shows !== "shared" ? (
-          <div className="space-y-6">
-            <ListHeader
-              title={
-                page.title === undefined ? (
-                  <PendingTitle />
-                ) : (
-                  <h1 className={PageLayout.title}>{page.title}</h1>
-                )
-              }
-              filters={listFilters(page.shows, page.sort, page.view, {
-                order: nothing,
-                view: nothing,
-              })}
-            />
-            <EntrySkeleton view={page.view} titled={false} />
-          </div>
+          <FolderCard
+            pane={null}
+            attachToolbar={nothing}
+            moves={noMoves}
+            breadcrumbs={<CardTitle title={page.title} />}
+            tools={
+              <FiltersRow
+                {...listFilters(page.shows, page.sort, page.view, {
+                  order: nothing,
+                  view: nothing,
+                })}
+                inlineView="wide"
+              />
+            }
+            body={<EntrySkeleton view={page.view} titled={false} />}
+          />
         ) : (
-          <SharedFrame tab={page.tab} onTab={nothing}>
+          <SharedFrame
+            tab={page.tab}
+            onTab={nothing}
+            moves={noMoves}
+            tools={
+              page.tab === "with-me" && (
+                <FiltersRow
+                  {...listFilters("shared", page.sort, page.view, {
+                    order: nothing,
+                    view: nothing,
+                  })}
+                  inlineView="wide"
+                />
+              )
+            }
+            attachToolbar={nothing}
+          >
             <TabsContent value={page.tab}>
               {page.tab === "with-me" ? (
-                <div className="space-y-6">
-                  <ListHeader
-                    title={false}
-                    filters={listFilters("shared", page.sort, page.view, {
-                      order: nothing,
-                      view: nothing,
-                    })}
-                  />
-                  <EntrySkeleton view={page.view} titled={false} />
-                </div>
+                <EntrySkeleton view={page.view} titled={false} />
               ) : page.tab === "links" ? (
                 <PublicLinksPending />
               ) : (

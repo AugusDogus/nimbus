@@ -1,4 +1,3 @@
-import { PageLayout } from "@/components/page-layout";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -10,8 +9,7 @@ import { TrashOrder } from "./trash-order";
  * that replace it.
  */
 export const TrashShape = {
-  header: "flex flex-wrap items-start justify-between gap-3",
-  /** The header's end: the sort control, then Empty trash. */
+  /** The card header's tools: the sort control, then Empty trash. */
   tools: "flex shrink-0 items-center gap-2",
   list: "divide-y rounded-lg border",
   item: "flex flex-wrap items-center gap-3 p-4",
@@ -42,16 +40,13 @@ export function trashFilters(
   };
 }
 
-/** Trash's title and what it keeps, the same before and after it loads. */
+/** What Trash keeps, above its items, the same before and after they load. */
 export function TrashIntro() {
   return (
-    <div className="min-w-0 flex-1">
-      <h1 className={PageLayout.title}>Trash</h1>
-      <p className="text-pretty mt-2 text-sm text-muted-foreground">
-        Items are kept for 30 days. Restoring an item brings back its share
-        links and direct permissions.
-      </p>
-    </div>
+    <p className="text-pretty text-sm text-muted-foreground">
+      Items are kept for 30 days. Restoring an item brings back its share links
+      and direct permissions.
+    </p>
   );
 }
 

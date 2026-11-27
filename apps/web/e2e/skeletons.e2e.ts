@@ -32,8 +32,10 @@ function boxes(): Shapes {
   const root = document.querySelector("[data-skeleton]") ?? document;
   for (const element of root.querySelectorAll("[data-shape]"))
     put(element.getAttribute("data-shape") ?? "", element);
-  // A page's title is the first heading on its card.
-  const title = root.querySelector('[data-slot="page-card"] h1');
+  // A page's title is the first heading on its card: a settings page's, or a files page's.
+  const title = root.querySelector(
+    '[data-slot="page-card"] h1, [data-slot="folder-card"] h1',
+  );
   if (title) put("page-title", title);
   const entries = [
     ...root.querySelectorAll("[data-entry-placeholder], [data-entry-row]"),
@@ -341,6 +343,65 @@ test.describe("skeletons", () => {
       await expect(page.locator("[data-entry-skeleton]")).toHaveCount(0);
       await listed(page);
       expectInPlace(placeholder, await shapesAt(page, at));
+    });
+
+  // Recent, Starred, Shared and Trash loading in the app, after a folder: their cards stand and
+  // their placeholders take the places of the items that replace them.
+  for (const { path, request, placeholder } of [
+    {
+      path: "/recent",
+      request: "catalog.bookmarks",
+      placeholder: "[data-entry-skeleton]",
+    },
+    {
+      path: "/starred",
+      request: "catalog.bookmarks",
+      placeholder: "[data-entry-skeleton]",
+    },
+    {
+      path: "/shared",
+      request: "catalog.shared",
+      placeholder: "[data-entry-skeleton]",
+    },
+    {
+      path: "/trash",
+      request: "trash.list",
+      placeholder: "[data-trash-placeholder]",
+    },
+  ] as const)
+    test(`${path} loading in the app is where its items will be`, async ({
+      page,
+      isMobile,
+    }) => {
+      const { rpc, name } = await folderOfEight(page);
+      for (let index = 0; index < 8; index++)
+        await rpc.catalog.bookmark.mutate({
+          path: `${name}/Folder ${index}`,
+          starred: true,
+        });
+      if (path === "/trash")
+        await rpc.files.delete.mutate({ path: `${name}/Folder 0` });
+      const at = widths(isMobile);
+      await page.setViewportSize({ width: at[0] ?? 1280, height: 1000 });
+      await page.goto(`/browse/${name}`);
+      await listed(page);
+      const release = await holdBack(page, (url) =>
+        url.pathname.includes(request),
+      );
+      await page.evaluate((href) => {
+        history.pushState(null, "", href);
+        dispatchEvent(new PopStateEvent("popstate"));
+      }, path);
+      await expect(page.locator(placeholder).first()).toBeVisible();
+      const held = await shapesAt(page, at);
+      release();
+      await expect(page.locator(placeholder)).toHaveCount(0);
+      // Shared with the administrator holds nothing; its header and tabs stay where they were.
+      if (path === "/trash")
+        await expect(page.locator("[data-trash-item]").first()).toBeVisible();
+      else if (path !== "/shared") await listed(page);
+      await settled(page);
+      expectInPlace(held, await shapesAt(page, at));
     });
 
   test("a split view's new pane loading is where its listing will be", async ({

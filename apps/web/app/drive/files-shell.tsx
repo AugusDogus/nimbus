@@ -298,8 +298,7 @@ export function FilesShell({ children }: FilesShellProps) {
         </AlertDialogContent>
       </AlertDialog>
       <div
-        data-slot={FolderPath.isShownAt(pathname) ? undefined : "page-card"}
-        className={PageLayout.filesContent(FolderPath.isShownAt(pathname))}
+        className={PageLayout.filesContent}
         onDragOver={(event) => {
           if (
             canWrite &&

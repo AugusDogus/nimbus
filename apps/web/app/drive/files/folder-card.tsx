@@ -1,5 +1,12 @@
+import { useCanGoBack, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, ArrowUp } from "lucide-react";
-import type { HTMLAttributes, ReactNode } from "react";
+import {
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { PageSurface } from "@/components/page-surface";
 import { cn } from "@/lib/utils";
@@ -12,6 +19,36 @@ export type FolderMoves = {
   back: (() => void) | null;
   up: (() => void) | null;
 };
+
+/**
+ * The moves of a page that lists items from many folders, such as Recent or Trash: Back, and no
+ * Up, as at the drive's root, so its title sits where a folder's path does.
+ */
+export function useBackOnly(): FolderMoves {
+  const router = useRouter();
+  const canGoBack = useCanGoBack();
+  return { back: canGoBack ? () => router.history.back() : null, up: null };
+}
+
+/**
+ * The card's header row, for the selection bar to cover (`selectionSlot`) and for the listing to
+ * keep the entry it moves to clear of (`toolbarRef`); `attach` takes the row (`attachToolbar`).
+ */
+export function useToolbarSlot(): {
+  toolbarRef: RefObject<HTMLDivElement | null>;
+  selectionSlot: HTMLDivElement | null;
+  attach: (element: HTMLDivElement | null) => void;
+} {
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [selectionSlot, setSelectionSlot] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const attach = (element: HTMLDivElement | null) => {
+    toolbarRef.current = element;
+    setSelectionSlot(element);
+  };
+  return { toolbarRef, selectionSlot, attach };
+}
 
 /** How a pane draws its card, its header row and its listing; they load with the split view. */
 export type FolderCardClasses = {
@@ -44,7 +81,8 @@ export type FolderCardPane = {
  * listing, which scrolls on its own below the header. The page's one folder and each pane of a
  * split view use the same card, element for element, so opening or closing the split keeps the
  * first folder's listing, selection and scroll position as they are. On phones the header row
- * sticks below the page header and the page itself scrolls.
+ * sticks below the page header and the page itself scrolls. Every other files page, such as
+ * Recent, Shared, Trash or a search, uses the card too, its title where the path goes.
  */
 export function FolderCard({
   pane,
@@ -57,8 +95,12 @@ export function FolderCard({
   pane: FolderCardPane | null;
   attachToolbar: (element: HTMLDivElement | null) => void;
   moves: FolderMoves;
+  /** The folder's path, or another page's title (`PageLayout.cardTitle`). */
   breadcrumbs: ReactNode;
-  /** After the path: sort and view for the page's folder; a menu and Close for a pane. */
+  /**
+   * After the path: sort and view for the page's folder, or another page's, with any of its own
+   * tools after them, such as Trash's Empty trash; a menu and Close for a pane.
+   */
   tools: ReactNode;
   body: ReactNode;
 }) {

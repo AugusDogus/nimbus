@@ -1,10 +1,17 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import type { ReactNode } from "react";
 import type { UserPreferences } from "@nimbus/api/context";
 import { SearchParams } from "@/client/search-params";
-import { FiltersRow, type FiltersRowProps } from "./files/filters-row";
+import type { FiltersRowProps } from "./files/filters-row";
 import { ListOrder, type ListPage } from "./files/list-order";
 import { useFilePreferences } from "./files/use-file-preferences";
+
+/** The titles of the files pages that are not a folder, on their cards; a search names its own. */
+export const pageTitles = {
+  recent: "Recent",
+  starred: "Starred",
+  shared: "Shared",
+  trash: "Trash",
+} as const;
 
 /**
  * A list page's controls for an order and a view, choosing with `choose`: the page's sort
@@ -65,23 +72,4 @@ export function useAddressSort() {
       resetScroll: false,
     });
   };
-}
-
-/**
- * A list page's title, if it shows one, taking the row's room, and its sort and view controls at
- * the row's end. The server's skeleton draws the same row with a placeholder title.
- */
-export function ListHeader({
-  title,
-  filters,
-}: {
-  title: ReactNode;
-  filters: FiltersRowProps;
-}) {
-  return (
-    <div data-shape="list-header" className="flex min-h-9 items-center gap-3">
-      <div className="min-w-0 flex-1">{title}</div>
-      <FiltersRow {...filters} />
-    </div>
-  );
 }
