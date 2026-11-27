@@ -35,12 +35,13 @@ export function StorageIndicator({ storage }: { storage: StorageSummary }) {
       className="overflow-hidden rounded-xl bg-sidebar-accent/50"
     >
       <div className="space-y-3 rounded-xl bg-background/80 p-3">
-        <div className="flex items-center justify-between gap-2 text-sm">
-          <span className="font-medium text-foreground">
+        {/* At the sidebar's narrowest the share goes below the title, rather than either breaking. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-2 text-sm">
+          <span className="whitespace-nowrap font-medium text-foreground">
             {capacity || loading ? "Disk storage" : "Storage"}
           </span>
           {capacity && (
-            <span className="text-xs tabular-nums text-muted-foreground">
+            <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
               {capacity.usedPercent}% used
             </span>
           )}
@@ -54,7 +55,12 @@ export function StorageIndicator({ storage }: { storage: StorageSummary }) {
               className={progressClass}
             />
             <p className="text-xs tabular-nums text-muted-foreground">
-              {capacity.availableLabel} free of {capacity.totalLabel}
+              <span className="whitespace-nowrap">
+                {capacity.availableLabel} free
+              </span>{" "}
+              <span className="whitespace-nowrap">
+                of {capacity.totalLabel}
+              </span>
             </p>
           </>
         ) : loading ? (
