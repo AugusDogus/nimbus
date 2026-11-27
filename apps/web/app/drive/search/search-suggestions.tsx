@@ -1,5 +1,12 @@
 import { FileText, Folder } from "lucide-react";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
 import { cn } from "@/lib/utils";
 import { PreviewDialog } from "../files/preview-dialog";
 import { fileHref, type FileEntry } from "../files/types";
@@ -34,7 +41,19 @@ export default function SearchSuggestions({
   input: RefObject<HTMLInputElement | null>;
   navigate: (href: string) => void;
 }) {
-  const [value, setValue] = useState(() => input.current?.value ?? "");
+  // Read from the element, not copied into state: text typed after this renders and before its
+  // effects attach listeners reaches no listener, and a copy would keep the text at first render.
+  const value = useSyncExternalStore(
+    useCallback(
+      (changed: () => void) => {
+        const element = input.current;
+        element?.addEventListener("input", changed);
+        return () => element?.removeEventListener("input", changed);
+      },
+      [input],
+    ),
+    () => input.current?.value ?? "",
+  );
   const [open, setOpen] = useState(true);
   const query = useDebounced(value.trim(), 80);
   // Selection belongs to the text it was made for: any keystroke clears it,
@@ -80,10 +99,7 @@ export default function SearchSuggestions({
   useEffect(() => {
     const element = input.current;
     if (!element) return;
-    const onInput = () => {
-      setValue(element.value);
-      setOpen(true);
-    };
+    const onInput = () => setOpen(true);
     const onFocus = () => setOpen(true);
     const onBlur = () => setOpen(false);
     const onKeyDown = (event: KeyboardEvent) => {
