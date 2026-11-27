@@ -4,8 +4,10 @@ import { lazyComponent } from "@/components/lazy-component";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileKind } from "@/lib/file-kind";
+import { THUMBNAIL_SIZE } from "@/lib/thumbnail-kind";
+import { cn } from "@/lib/utils";
 import type { EditBase } from "./text-editor";
-import { PreviewShape, TextPreviewLoading } from "./preview-shape";
+import { PreviewShape, TextFrameLoading } from "./preview-shape";
 import { TEXT_LIMIT, TextContent } from "./text-content";
 
 export type FilePreviewProps = {
@@ -16,15 +18,24 @@ export type FilePreviewProps = {
   editPath?: string;
   /** Reports whether unsaved edits exist, so the dialog can guard closing. */
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * The file's thumbnail, drawn in the media's own proportions: shown in the media's place, at
+   * the size the media will have, until the media can show itself.
+   */
+  poster?: string;
 };
 
 function Unavailable({ children }: { children: ReactNode }) {
   return (
-    <p className="text-pretty text-sm text-muted-foreground">{children}</p>
+    <div className="flex min-h-0 flex-1 items-center justify-center rounded-md bg-muted p-6">
+      <p className="max-w-sm text-pretty text-center text-sm text-muted-foreground">
+        {children}
+      </p>
+    </div>
   );
 }
 
-const loading = <TextPreviewLoading />;
+const loading = <TextFrameLoading />;
 /** A view's code loading inside the text frame, which it fills. */
 const inFrame = (
   <Skeleton
@@ -34,7 +45,7 @@ const inFrame = (
 );
 
 const pdfLoading = (
-  <Skeleton aria-label="Loading preview" className="h-[65dvh] w-full" />
+  <Skeleton aria-label="Loading preview" className="min-h-0 w-full flex-1" />
 );
 
 const MarkdownView = lazyComponent(() => import("./markdown-view"), inFrame);
@@ -46,11 +57,21 @@ const PdfPagesView = lazyComponent(
   pdfLoading,
 );
 
-export default function FilePreview({
+/** The preview in its stage, which has the same size whatever the file and however it loads. */
+export default function FilePreview(props: FilePreviewProps) {
+  return (
+    <div data-preview-stage className={PreviewShape.stage}>
+      <StageContent {...props} />
+    </div>
+  );
+}
+
+function StageContent({
   name,
   url,
   editPath,
   onDirtyChange,
+  poster,
 }: FilePreviewProps) {
   const kind = FileKind.of(name);
   const [failed, setFailed] = useState(false);
@@ -74,39 +95,40 @@ export default function FilePreview({
   switch (kind.type) {
     case "image":
       return (
-        <div className="flex justify-center rounded-md bg-muted">
-          {/* The original bytes, as the browser decodes them natively. */}
-          <img
-            src={url}
-            alt={name}
-            decoding="async"
-            onError={() => setFailed(true)}
-            className="h-auto max-h-[65dvh] w-auto max-w-full object-contain"
-          />
-        </div>
+        <ImagePreview
+          name={name}
+          url={url}
+          poster={poster}
+          onError={() => setFailed(true)}
+        />
       );
     case "video":
       return (
+        // The stage sets its size, which so never follows the video's as it loads. The poster
+        // fits as the frames will, and shows until playback starts.
         <video
           controls
           playsInline
           preload="metadata"
           src={url}
+          poster={poster}
           onError={() => setFailed(true)}
-          className="max-h-[65dvh] w-full rounded-md bg-black"
+          className="min-h-0 w-full flex-1 rounded-md bg-black object-contain"
         >
           <track kind="captions" />
         </video>
       );
     case "audio":
       return (
-        <audio
-          controls
-          preload="metadata"
-          src={url}
-          onError={() => setFailed(true)}
-          className="w-full"
-        />
+        <div className="flex min-h-0 flex-1 items-center rounded-md bg-muted p-4">
+          <audio
+            controls
+            preload="metadata"
+            src={url}
+            onError={() => setFailed(true)}
+            className="w-full"
+          />
+        </div>
       );
     case "pdf":
       return <PdfPreview name={name} url={url} />;
@@ -119,6 +141,64 @@ export default function FilePreview({
         </Unavailable>
       );
   }
+}
+
+/**
+ * How an image fits the stage: enlarged to fill it, or at its own size when smaller than a
+ * thumbnail. A thumbnail is never larger than its image, so one this small is the image's own
+ * size, and the thumbnail and the image so fit alike.
+ */
+type Fit = "object-scale-down" | "object-contain";
+const fit = (image: HTMLImageElement): Fit =>
+  Math.max(image.naturalWidth, image.naturalHeight) < THUMBNAIL_SIZE
+    ? "object-scale-down"
+    : "object-contain";
+
+/**
+ * The original bytes, as the browser decodes them natively, shown once decoded. Until then its
+ * thumbnail stands in, fit as the image will be, so the picture only sharpens.
+ */
+function ImagePreview({
+  name,
+  url,
+  poster,
+  onError,
+}: {
+  name: string;
+  url: string;
+  poster: string | undefined;
+  onError: () => void;
+}) {
+  const [posterFit, setPosterFit] = useState<Fit | null>(null);
+  const [imageFit, setImageFit] = useState<Fit | null>(null);
+  return (
+    <div className="relative min-h-0 flex-1 overflow-hidden rounded-md bg-muted">
+      {poster !== undefined && imageFit === null && (
+        <img
+          src={poster}
+          alt=""
+          aria-hidden
+          decoding="async"
+          draggable={false}
+          onLoad={(event) => setPosterFit(fit(event.currentTarget))}
+          className={cn("absolute inset-0 size-full", posterFit ?? "invisible")}
+        />
+      )}
+      <img
+        src={url}
+        alt={name}
+        decoding="async"
+        onLoad={(event) => {
+          const image = event.currentTarget;
+          // Shown decoded, so the thumbnail never gives way to an empty frame.
+          const show = () => setImageFit(fit(image));
+          image.decode().then(show, show);
+        }}
+        onError={onError}
+        className={cn("absolute inset-0 size-full", imageFit ?? "invisible")}
+      />
+    </div>
+  );
 }
 
 const subscribe = () => () => {};
@@ -138,12 +218,12 @@ const usePdfViewer = () =>
 function PdfPreview({ name, url }: { name: string; url: string }) {
   const viewer = usePdfViewer();
   return (
-    <div className="space-y-2">
+    <>
       {viewer === "native" ? (
         <iframe
           title={`Preview of ${name}`}
           src={url}
-          className="h-[65dvh] w-full rounded-md border bg-muted"
+          className="min-h-0 w-full flex-1 rounded-md border bg-muted"
         />
       ) : viewer === "pages" ? (
         <PdfPagesView name={name} url={url} />
@@ -154,11 +234,11 @@ function PdfPreview({ name, url }: { name: string; url: string }) {
         href={url}
         target="_blank"
         rel="noopener"
-        className="font-medium text-primary underline-offset-4 hover:underline"
+        className="shrink-0 self-start font-medium text-primary underline-offset-4 hover:underline"
       >
         Open in a new tab
       </a>
-    </div>
+    </>
   );
 }
 
@@ -225,9 +305,11 @@ function TextPreview({
   if (content.isPending) return loading;
   if (content.isError)
     return (
-      <p role="alert" className="text-pretty text-sm">
-        {content.error.message}
-      </p>
+      <div className="flex min-h-0 flex-1 items-center justify-center rounded-md bg-muted p-6">
+        <p role="alert" className="max-w-sm text-pretty text-center text-sm">
+          {content.error.message}
+        </p>
+      </div>
     );
   const data = content.data;
   if (data.type === "binary")
@@ -258,7 +340,7 @@ function TextPreview({
     );
   const hasRendered = kind.type === "markdown" || kind.type === "table";
   return (
-    <div className={PreviewShape.text}>
+    <>
       <div className={PreviewShape.frame} data-preview-scroll>
         {view}
       </div>
@@ -305,6 +387,6 @@ function TextPreview({
           )}
         </div>
       </div>
-    </div>
+    </>
   );
 }

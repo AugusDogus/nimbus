@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -339,6 +340,113 @@ test("serves cached thumbnails that revalidate and work on public links", async 
   await expect
     .poll(async () => (await rpc.prefs.get.query()).view)
     .toBe("list");
+});
+
+test("keeps the preview the size it opened at, through a video's playback and to the next file", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  const folder = `steady-preview-${randomUUID()}`;
+  await (await client(context)).files.createFolder.mutate({ name: folder });
+  const directory = path.join(await dataRoot(), folder);
+  const video = (name: string, size: string) =>
+    expect(
+      spawnSync("ffmpeg", [
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        `testsrc2=size=${size}:rate=10:duration=3`,
+        "-c:v",
+        "libvpx-vp9",
+        "-deadline",
+        "realtime",
+        path.join(directory, name),
+      ]).status,
+    ).toBe(0);
+  video("a-wide.webm", "640x360");
+  await sharp({
+    create: { width: 300, height: 600, channels: 3, background: "#aa7744" },
+  })
+    .png()
+    .toFile(path.join(directory, "b-tall.png"));
+  video("c-tall.webm", "360x640");
+  await page.goto(`/browse/${folder}`);
+  // Every frame from the click on: the dialog's size and the media's, as laid out.
+  await page.evaluate(() => {
+    const samples: string[] = [];
+    Object.assign(window, { previewSamples: samples });
+    const frame = () => {
+      const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+      const media = dialog?.querySelector<HTMLElement>(
+        "[data-preview-stage], video, img",
+      );
+      if (dialog)
+        samples.push(
+          `dialog ${dialog.offsetWidth}x${dialog.offsetHeight}, media ${media?.offsetWidth}x${media?.offsetHeight}`,
+        );
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+  const samples = () =>
+    page.evaluate(() =>
+      "previewSamples" in window && Array.isArray(window.previewSamples)
+        ? window.previewSamples.map(String)
+        : [],
+    );
+  // Until playback can start: enough of the video for its first frames.
+  const playable = (name: string) =>
+    page.waitForFunction((title) => {
+      const dialog = document.querySelector('[role="dialog"]');
+      const video = dialog?.querySelector("video");
+      return (
+        dialog?.querySelector("h2")?.textContent === title &&
+        video instanceof HTMLVideoElement &&
+        video.readyState >= 3
+      );
+    }, name);
+  await page
+    .locator('[data-entry-name="a-wide.webm"]')
+    .filter({ visible: true })
+    .click();
+  await playable("a-wide.webm");
+  // The arrow keys step on from a video too: its controls do not take them when it opens.
+  if (isMobile) await page.getByRole("button", { name: "Next file" }).click();
+  else await page.keyboard.press("ArrowRight");
+  const image = page
+    .getByRole("dialog", { name: "b-tall.png", exact: true })
+    .getByRole("img", { name: "b-tall.png" });
+  await expect
+    .poll(() =>
+      image.evaluate(
+        (element) => element instanceof HTMLImageElement && element.complete,
+      ),
+    )
+    .toBe(true);
+  await page.getByRole("button", { name: "Next file" }).click();
+  await playable("c-tall.webm");
+  const seen = await samples();
+  expect(seen.length).toBeGreaterThan(10);
+  expect([...new Set(seen)]).toEqual([seen[0]]);
+  // The poster stands in at the video's own proportions, so playback starts without a change.
+  const shapes = await page
+    .getByRole("dialog", { name: "c-tall.webm", exact: true })
+    .locator("video")
+    .evaluate(async (element) => {
+      if (!(element instanceof HTMLVideoElement) || !element.poster)
+        return null;
+      const poster = new Image();
+      poster.src = element.poster;
+      await poster.decode();
+      return {
+        poster: poster.naturalWidth / poster.naturalHeight,
+        video: element.videoWidth / element.videoHeight,
+      };
+    });
+  expect(shapes?.poster).toBeCloseTo(shapes?.video ?? 0, 2);
 });
 
 test("the editor says the same limits as the server: open up to 1 MB, save up to 5 MB", async ({

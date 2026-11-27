@@ -6,6 +6,7 @@ import { TRPCError } from "@trpc/server";
 import sharp from "sharp";
 import { isFsError } from "@nimbus/api/safe-path";
 import type { FileKind } from "@/lib/file-kind";
+import { THUMBNAIL_SIZE } from "@/lib/thumbnail-kind";
 
 /** A file on disk whose thumbnail is requested. */
 export type ThumbnailSource = {
@@ -36,7 +37,7 @@ export type ThumbnailRenderer = (
 
 type RendererKind = "image" | "pdf" | "video";
 
-export const THUMBNAIL_SIZE = 256;
+export { THUMBNAIL_SIZE };
 /**
  * Bumped per kind when its thumbnails are drawn differently, so cached ones and ETags are
  * replaced. Video 2: the frame's own shape, no longer letterboxed into a square.

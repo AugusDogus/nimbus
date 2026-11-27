@@ -21,6 +21,9 @@ const THUMBNAIL_EXTENSIONS = new Set([
   "ogv",
 ]);
 
+/** The square thumbnails fit inside, in pixels. They are never larger than their image. */
+export const THUMBNAIL_SIZE = 256;
+
 export const hasThumbnail = (name: string) => {
   const dot = name.lastIndexOf(".");
   return dot > 0 && THUMBNAIL_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());

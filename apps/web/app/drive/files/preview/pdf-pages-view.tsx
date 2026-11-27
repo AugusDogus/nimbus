@@ -38,21 +38,27 @@ function Pages({ name, pagesUrl }: { name: string; pagesUrl: string }) {
   });
   if (pages.isPending)
     return (
-      <Skeleton aria-label="Loading preview" className="h-[65dvh] w-full" />
+      <Skeleton
+        aria-label="Loading preview"
+        className="min-h-0 w-full flex-1"
+      />
     );
   if (pages.isError)
     return (
-      <p role="alert" className="text-pretty text-sm text-muted-foreground">
+      <p
+        role="alert"
+        className="min-h-0 flex-1 text-pretty text-sm text-muted-foreground"
+      >
         {pages.error.message}
       </p>
     );
   const { count, sizes } = pages.data;
   return (
-    <div className="space-y-2">
+    <>
       <div
         role="region"
         aria-label={`Pages of ${name}`}
-        className="h-[65dvh] w-full overflow-auto overscroll-contain rounded-md border bg-muted"
+        className="min-h-0 w-full flex-1 overflow-auto overscroll-contain rounded-md border bg-muted"
         data-preview-scroll
       >
         <div className="mx-auto flex max-w-3xl flex-col gap-3 p-3">
@@ -71,12 +77,12 @@ function Pages({ name, pagesUrl }: { name: string; pagesUrl: string }) {
         </div>
       </div>
       {count > sizes.length && (
-        <p className="text-pretty text-xs text-muted-foreground">
+        <p className="shrink-0 text-pretty text-xs text-muted-foreground">
           Showing the first {sizes.length.toLocaleString()} of{" "}
           {count.toLocaleString()} pages. Open the PDF to see the rest.
         </p>
       )}
-    </div>
+    </>
   );
 }
 

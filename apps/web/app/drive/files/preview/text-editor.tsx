@@ -70,7 +70,7 @@ export default function TextEditor({
 
   return (
     <form
-      className="space-y-2"
+      className="flex min-h-0 flex-1 flex-col gap-2"
       aria-busy={saving}
       onSubmit={(event) => {
         event.preventDefault();
@@ -96,12 +96,12 @@ export default function TextEditor({
         autoCapitalize="off"
         autoComplete="off"
         autoCorrect="off"
-        className="h-[min(60dvh,32rem)] w-full resize-none rounded-md border bg-muted p-4 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className="min-h-0 w-full flex-1 resize-none rounded-md border bg-muted p-4 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
       />
       {status.type === "conflict" && (
         <div
           role="alert"
-          className="space-y-2 rounded-md border border-destructive/50 p-3 text-sm"
+          className="shrink-0 space-y-2 rounded-md border border-destructive/50 p-3 text-sm"
         >
           <p className="text-pretty">
             This file changed after you started editing, so your edits were not
@@ -124,11 +124,14 @@ export default function TextEditor({
         </div>
       )}
       {status.type === "failed" && (
-        <p role="alert" className="text-pretty text-sm text-destructive">
+        <p
+          role="alert"
+          className="shrink-0 text-pretty text-sm text-destructive"
+        >
           {status.message}
         </p>
       )}
-      <div className="flex justify-end gap-2">
+      <div className="flex shrink-0 justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onClose}>
           Cancel
         </Button>

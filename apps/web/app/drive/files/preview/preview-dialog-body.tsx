@@ -20,8 +20,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/alert-dialog";
-import { FilePreview } from "../preview-dialog";
+import { hasThumbnail, thumbnailSrc } from "../entry-thumbnail";
 import type { FileEntry } from "../types";
+// In this chunk, not a lazy one of its own: the dialog's first frame then holds the preview's
+// stage and poster, not a placeholder of another shape.
+import FilePreview from "./file-preview";
 
 const formatSize = (bytes: number) =>
   new Intl.NumberFormat(undefined, {
@@ -57,6 +60,7 @@ export default function PreviewDialog({
   const previous = index > 0 ? entries[index - 1] : undefined;
   const next =
     index >= 0 && index < entries.length - 1 ? entries[index + 1] : undefined;
+  const panel = useRef<HTMLDivElement>(null);
   const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
   const [dirty, setDirty] = useState(false);
   // Closing with unsaved edits asks first: they can be minutes of typing. A press outside is
@@ -99,6 +103,10 @@ export default function PreviewDialog({
       }}
     >
       <DialogContent
+        ref={panel}
+        // The panel, not the first control inside: a video's would keep the arrow keys that
+        // step between files.
+        initialFocus={panel}
         className="sm:max-w-5xl"
         onKeyDown={(event) => {
           if (event.defaultPrevented || ownsArrowKeys(event.target)) return;
@@ -133,6 +141,7 @@ export default function PreviewDialog({
             url={`${url}&preview=1`}
             editPath={entry.permission === "read" ? undefined : entry.path}
             onDirtyChange={setDirty}
+            poster={hasThumbnail(entry) ? thumbnailSrc(entry) : undefined}
           />
         </div>
         <DialogFooter className="flex-row items-center justify-end gap-2">
