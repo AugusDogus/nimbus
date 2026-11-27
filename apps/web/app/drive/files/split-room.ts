@@ -44,8 +44,19 @@ const mode = (contentWidth: number, foldWidth: number): SplitMode =>
 const modeForWindow = (width: number): SplitMode =>
   width >= minViewport ? "side-by-side" : "swipe";
 
+/** A content area's width inside its padding: on phones the area pads the folder from the window's edges. */
+function contentWidth(area: HTMLElement) {
+  const style = getComputedStyle(area);
+  return (
+    area.clientWidth -
+    parseFloat(style.paddingLeft) -
+    parseFloat(style.paddingRight)
+  );
+}
+
 export const SplitRoom = {
   mode,
+  contentWidth,
   modeForWindow,
   minPaneWidth,
   dividerWidth,
