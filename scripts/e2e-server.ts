@@ -3,6 +3,7 @@ import { openSync } from "node:fs";
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { startOpenVsxFixture } from "../apps/web/e2e/fixtures/open-vsx-fixture";
 
 const port = process.env.NIMBUS_E2E_PORT ?? "3100";
 const origin = `http://localhost:${port}`;
@@ -12,6 +13,8 @@ const data = path.join(temporary, "data");
 const config = path.join(temporary, "config");
 await mkdir(data);
 await cp(path.join(app, "e2e/fixtures/data-root"), data, { recursive: true });
+// Icon theme imports reach this local stand-in for Open VSX, never the internet.
+const openVsx = startOpenVsxFixture(Number(port) + 20_000);
 const manifest = path.join(os.tmpdir(), `nimbus-e2e-${port}.json`);
 await writeFile(manifest, JSON.stringify({ dataRoot: data }));
 // CI builds first. Exercise that build without compilation delays during tests. Locally the
@@ -39,6 +42,7 @@ const child = Bun.spawn(
       NIMBUS_DATA_ROOT: data,
       NIMBUS_CONFIG_ROOT: config,
       NIMBUS_TRUSTED_PROXIES: "127.0.0.1, ::1",
+      NIMBUS_OPEN_VSX_URL: `http://127.0.0.1:${openVsx.port}`,
     },
   },
 );
@@ -48,6 +52,7 @@ process.on("SIGINT", stop);
 try {
   process.exitCode = await child.exited;
 } finally {
+  await openVsx.stop(true);
   await rm(manifest, { force: true });
   await rm(temporary, { recursive: true, force: true });
 }

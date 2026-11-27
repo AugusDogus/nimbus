@@ -1,7 +1,25 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, Download } from "lucide-react";
+import { Check, Download, Plus, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/alert-dialog";
 import { EntryIcon, FileIconsScope } from "@/app/drive/files/file-icons";
 import { IconChoice } from "@/lib/icon-choice";
 import { iconChoiceQuery } from "@/lib/icon-choice-query";
@@ -9,6 +27,7 @@ import { iconPreviewNames } from "@/lib/icon-themes";
 import { queryClient, trpc, trpcClient } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { TRPCClientError } from "@trpc/client";
+import { IconThemeSearch } from "./icon-theme-search";
 
 type IconSet = {
   id: string;
@@ -19,6 +38,7 @@ type IconSet = {
   state: "ready" | "download" | "unavailable";
   manifest: string | null;
   problem: string | null;
+  imported: boolean;
 };
 
 /** A row of sample entries drawn with `set`'s icons, or Nimbus's own before it downloads. */
@@ -74,7 +94,7 @@ function IconSetCard({
         className="flex w-full cursor-pointer flex-col gap-3 rounded-xl p-3 text-left outline-none hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60"
       >
         <IconPreview manifest={set.state === "ready" ? set.manifest : null} />
-        <span className="flex min-h-5 items-center gap-2 pr-8">
+        <span className="flex min-h-5 items-center gap-2 pr-9">
           <span className="truncate text-sm font-medium" title={set.name}>
             {set.name}
           </span>
@@ -82,7 +102,7 @@ function IconSetCard({
             <Check aria-hidden className="size-4 shrink-0 text-primary" />
           )}
         </span>
-        <span className="text-pretty text-xs text-muted-foreground">
+        <span className="pr-9 text-pretty text-xs text-muted-foreground">
           {busy
             ? "Downloading from Open VSX…"
             : set.state === "download"
@@ -100,7 +120,9 @@ function IconSetCard({
           className="pointer-events-none absolute right-3 top-3 size-4 text-muted-foreground"
         />
       )}
-      {actions && <div className="absolute bottom-2 right-2">{actions}</div>}
+      {actions && (
+        <div className="absolute bottom-1.5 right-1.5">{actions}</div>
+      )}
     </article>
   );
 }
@@ -130,12 +152,43 @@ export function IconThemeSettings() {
     },
   });
   const chosen = choosing ?? sets.data?.chosen ?? null;
+  const [adding, setAdding] = useState(false);
+  // The set stays named while the dialog closes.
+  const [removing, setRemoving] = useState<IconSet | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const refresh = () =>
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: trpc.appearance.iconSets.queryKey(),
+      }),
+      queryClient.invalidateQueries({ queryKey: iconChoiceQuery.queryKey }),
+    ]);
+  const remove = useMutation({
+    mutationFn: (id: string) =>
+      trpcClient.appearance.removeIconSet.mutate({ id }),
+    onSuccess: async () => {
+      setConfirming(false);
+      await refresh();
+    },
+  });
+  const busy = choose.isPending || remove.isPending;
 
   return (
     <div className="space-y-3">
-      <h3 className="text-balance text-sm font-medium text-muted-foreground">
-        File icons
-      </h3>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-balance text-sm font-medium text-muted-foreground">
+          File icons
+        </h3>
+        <Button
+          variant="tertiary"
+          size="compact"
+          disabled={busy}
+          onClick={() => setAdding(true)}
+          leadingIcon={Plus}
+        >
+          Add icon set
+        </Button>
+      </div>
       {sets.isPending ? (
         <div
           role="status"
@@ -165,8 +218,27 @@ export function IconThemeSettings() {
               set={set}
               selected={chosen === set.id}
               busy={choose.isPending && choosing === set.id}
-              disabled={choose.isPending}
+              disabled={busy}
               onChoose={() => choose.mutate(set.id)}
+              actions={
+                set.imported ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-compact"
+                    className="text-muted-foreground"
+                    disabled={busy}
+                    aria-label={`Remove ${set.name}`}
+                    title={`Remove ${set.name}`}
+                    onClick={() => {
+                      remove.reset();
+                      setRemoving(set);
+                      setConfirming(true);
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                ) : undefined
+              }
             />
           ))}
         </div>
@@ -218,6 +290,52 @@ export function IconThemeSettings() {
             ))}
         </ul>
       )}
+      <Dialog open={adding} onOpenChange={setAdding}>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Add icon set</DialogTitle>
+            <DialogDescription>
+              Import a file icon theme from Open VSX for your account.
+            </DialogDescription>
+          </DialogHeader>
+          <IconThemeSearch disabled={busy} onImported={() => void refresh()} />
+        </DialogContent>
+      </Dialog>
+      <AlertDialog
+        open={confirming}
+        onOpenChange={(open) => {
+          if (!open && !remove.isPending) setConfirming(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-balance">
+              Remove {removing?.name}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-pretty">
+              Its icons are deleted from the server. If you use it, Nimbus
+              switches to Material+. You can import it again later. Your files
+              are unchanged.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {remove.isError && (
+            <p role="alert" className="text-pretty text-sm text-destructive">
+              {message(remove.error)}
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={remove.isPending}
+              onClick={() => {
+                if (removing) remove.mutate(removing.id);
+              }}
+            >
+              Remove icon set
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

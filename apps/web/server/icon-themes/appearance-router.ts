@@ -3,7 +3,9 @@ import { z } from "zod";
 import { protectedProcedure, router } from "@nimbus/api";
 import { allowedOrigins } from "@/lib/auth";
 import { RequestOrigin } from "../request-origin";
+import { IconThemeImport } from "./icon-theme-import";
 import { IconThemeLibrary, type LibraryResult } from "./icon-theme-library";
+import { OpenVsxClient } from "./open-vsx-client";
 
 /** Changes must come from Nimbus's own pages, as for other cookie-authenticated writes. */
 const fromNimbusPage = protectedProcedure.use(({ ctx, next }) => {
@@ -22,6 +24,11 @@ const unwrap = <T>(result: LibraryResult<T>): T => {
 };
 
 const themeId = z.string().min(1).max(100);
+const extensionPart = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[\w.-]+$/);
 
 /** The signed-in account's appearance: its file icon set. */
 export const appearanceRouter = router({
@@ -35,5 +42,30 @@ export const appearanceRouter = router({
     .input(z.object({ id: themeId }))
     .mutation(async ({ ctx, input }) =>
       unwrap(await IconThemeLibrary.choose(ctx.access.user.id, input.id)),
+    ),
+  /**
+   * Open VSX extensions that contribute file icon themes. The server asks Open VSX, so only
+   * Nimbus's own pages may make it.
+   */
+  searchIconSets: fromNimbusPage
+    .input(z.object({ query: z.string().trim().min(1).max(200) }))
+    .query(async ({ input, signal }) =>
+      unwrap(await OpenVsxClient.search(input.query, signal)),
+    ),
+  importIconSets: fromNimbusPage
+    .input(z.object({ namespace: extensionPart, name: extensionPart }))
+    .mutation(async ({ ctx, input }) =>
+      unwrap(
+        await IconThemeImport.importExtension(
+          ctx.access.user.id,
+          input.namespace,
+          input.name,
+        ),
+      ),
+    ),
+  removeIconSet: fromNimbusPage
+    .input(z.object({ id: themeId }))
+    .mutation(async ({ ctx, input }) =>
+      unwrap(await IconThemeLibrary.remove(ctx.access.user.id, input.id)),
     ),
 });

@@ -128,3 +128,90 @@ test("switching sets changes icons without a reload, and follows the account to 
     await chooseSet(page, "Material+");
   }
 });
+
+test("imports an icon set from Open VSX, serves it safely, and removes it", async ({
+  page,
+  playwright,
+  isMobile,
+}) => {
+  const folder = await sampleFolder(page);
+  await page.goto("/settings/appearance");
+  await page.getByRole("button", { name: "Add icon set", exact: true }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "Add icon set",
+    exact: true,
+  });
+  await dialog.getByLabel("Search icon themes").fill("icons");
+  await dialog.getByRole("button", { name: "Search", exact: true }).click();
+  const results = dialog.getByRole("list", { name: "Icon themes on Open VSX" });
+  await expect(results.getByRole("listitem")).toHaveCount(2);
+  // A color theme is not offered here.
+  await expect(results.getByText("Paper Colors")).toHaveCount(0);
+
+  await dialog
+    .getByRole("button", { name: "Add Glyph Icons", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toContainText(
+    "draws its icons with a font",
+  );
+
+  await dialog
+    .getByRole("button", { name: "Add Pixel Icons", exact: true })
+    .click();
+  await expect(dialog.getByRole("status")).toHaveText("Added Pixel Icons.");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  try {
+    await chooseSet(page, "Pixel Icons");
+    await page.goto(`/browse/${folder}`);
+    await chooseView(page, "List view", isMobile);
+    const image = entry(page, "index.ts").locator("img");
+    await expect(image).toHaveAttribute(
+      "src",
+      /^\/api\/icon-themes\/[0-9a-f-]{36}\/[a-f0-9]{32}\.svg$/,
+    );
+    // The set's generic page is not specific: Nimbus's own icon stands in.
+    await expect(entry(page, "notes.xyz").locator("svg text")).toHaveText(
+      "XYZ",
+    );
+    await expect(entry(page, "src").locator("img")).toHaveCount(1);
+
+    const src = (await image.getAttribute("src")) ?? "";
+    const response = await page.request.get(src);
+    expect(response.status()).toBe(200);
+    expect(response.headers()["content-type"]).toBe("image/svg+xml");
+    expect(response.headers()["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers()["content-security-policy"]).toBe(
+      "sandbox; default-src 'none'",
+    );
+    expect(response.headers()["cache-control"]).toContain("immutable");
+    // Nobody signed out can read it.
+    const anonymous = await playwright.request.newContext({
+      baseURL: page.url(),
+      storageState: { cookies: [], origins: [] },
+    });
+    try {
+      expect((await anonymous.get(src)).status()).toBe(401);
+    } finally {
+      await anonymous.dispose();
+    }
+  } finally {
+    await page.goto("/settings/appearance");
+    await page
+      .getByRole("button", { name: "Remove Pixel Icons", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Remove icon set", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", {
+        name: "Use Pixel Icons file icons",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+  }
+  // Removing the set in use returns the account to the default set.
+  await expect(
+    page.getByRole("button", { name: "Use Material+ file icons", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+});

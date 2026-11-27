@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { user } from "./auth-schema";
 
 /**
@@ -17,3 +17,27 @@ export const userAppearance = sqliteTable("nimbus_user_appearance", {
     .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull(),
 });
+
+/**
+ * An icon set an account imported from Open VSX. Its files live under the config root in
+ * `icon-themes/imported/<id>`; only this account can read or choose it.
+ */
+export const importedIconTheme = sqliteTable(
+  "nimbus_imported_icon_theme",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** `namespace.name@version` on Open VSX. */
+    extension: text("extension").notNull(),
+    /** The extension's declared licence, such as MIT, when it names one. */
+    licence: text("licence"),
+    bytes: integer("bytes").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+  },
+  (table) => [index("imported_icon_theme_user_idx").on(table.userId)],
+);

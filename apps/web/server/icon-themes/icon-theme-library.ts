@@ -1,4 +1,5 @@
-import { eq } from "drizzle-orm";
+import path from "node:path";
+import { and, asc, eq } from "drizzle-orm";
 import type { IconChoice } from "@/lib/icon-choice";
 import {
   BuiltInIconThemes,
@@ -6,7 +7,8 @@ import {
   type BuiltInIconTheme,
 } from "@/lib/icon-themes";
 import { db } from "../db";
-import { userAppearance } from "../db/schema";
+import { importedIconTheme, userAppearance } from "../db/schema";
+import { getConfigRoot } from "../storage-paths";
 import {
   BuiltInIconThemeSources,
   isThemedBuiltIn,
@@ -32,15 +34,34 @@ export type IconSetOption = {
   manifest: string | null;
   /** Why the set cannot be used, when it cannot. */
   problem: string | null;
+  /** Imported by this account, which can remove it. */
+  imported: boolean;
 };
 
 export type LibraryResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string };
 
+/** Where an imported set's files live. Ids are Nimbus's own UUIDs, never names from the set. */
+export const importedDirectory = (id: string) =>
+  path.join(getConfigRoot(), "icon-themes", "imported", id);
+
+const importedRow = async (userId: string, theme: string) =>
+  (
+    await db
+      .select()
+      .from(importedIconTheme)
+      .where(
+        and(
+          eq(importedIconTheme.id, theme),
+          eq(importedIconTheme.userId, userId),
+        ),
+      )
+  )[0];
+
 /** The directory of `theme` when the account may read it and it is on the server. */
 async function directory(
-  _userId: string,
+  userId: string,
   theme: string,
 ): Promise<string | null> {
   if (isThemedBuiltIn(theme)) {
@@ -49,13 +70,14 @@ async function directory(
     });
     return found.ok ? found.value : null;
   }
-  return null;
+  const row = await importedRow(userId, theme);
+  return row ? importedDirectory(row.id) : null;
 }
 
 async function served(theme: string, folder: string) {
   const manifest = await IconThemeFiles.manifest(folder);
   if (!manifest) return null;
-  const licence = await Bun.file(`${folder}/LICENSE.txt`).exists();
+  const licence = await Bun.file(path.join(folder, "LICENSE.txt")).exists();
   return {
     manifest: themeUrl(theme, manifest),
     licence: licence ? themeUrl(theme, "LICENSE.txt") : null,
@@ -95,6 +117,7 @@ async function builtInOption(theme: BuiltInIconTheme): Promise<IconSetOption> {
     name: theme.name,
     credit: theme.credit,
     homepage: theme.homepage,
+    imported: false,
   };
   if (!isThemedBuiltIn(theme.id))
     return {
@@ -118,10 +141,62 @@ async function builtInOption(theme: BuiltInIconTheme): Promise<IconSetOption> {
   };
 }
 
+async function importedOptions(userId: string): Promise<IconSetOption[]> {
+  const rows = await db
+    .select()
+    .from(importedIconTheme)
+    .where(eq(importedIconTheme.userId, userId))
+    .orderBy(asc(importedIconTheme.createdAt));
+  return Promise.all(
+    rows.map(async (row): Promise<IconSetOption> => {
+      const files = await served(row.id, importedDirectory(row.id));
+      return {
+        id: row.id,
+        name: row.name,
+        credit: `${row.extension} on Open VSX${row.licence ? `, ${row.licence} licence` : ""}`,
+        homepage: null,
+        licence: files?.licence ?? null,
+        state: files ? "ready" : "unavailable",
+        manifest: files?.manifest ?? null,
+        problem: files
+          ? null
+          : "Its files are missing from the server. Remove it and import it again.",
+        imported: true,
+      };
+    }),
+  );
+}
+
 /** Every set the account can choose, and which it chose. */
 async function list(userId: string) {
-  const sets = await Promise.all(BuiltInIconThemes.all.map(builtInOption));
+  const sets = [
+    ...(await Promise.all(BuiltInIconThemes.all.map(builtInOption))),
+    ...(await importedOptions(userId)),
+  ];
   return { chosen: (await current(userId)).id, sets };
+}
+
+/** Removes an imported set and its files. An account using it falls back to the default. */
+async function remove(
+  userId: string,
+  theme: string,
+): Promise<LibraryResult<null>> {
+  const row = await importedRow(userId, theme);
+  if (!row)
+    return {
+      ok: false,
+      error: "This icon set is not one you imported, so it was not removed.",
+    };
+  await db
+    .delete(importedIconTheme)
+    .where(
+      and(
+        eq(importedIconTheme.id, row.id),
+        eq(importedIconTheme.userId, userId),
+      ),
+    );
+  await IconThemeFiles.remove(importedDirectory(row.id));
+  return { ok: true, value: null };
 }
 
 /** Saves the account's set, downloading a built-in set the server does not have yet. */
@@ -158,4 +233,11 @@ async function choose(
   return { ok: true, value: resolved };
 }
 
-export const IconThemeLibrary = { directory, current, list, choose } as const;
+export const IconThemeLibrary = {
+  directory,
+  current,
+  list,
+  choose,
+  remove,
+  served,
+} as const;
