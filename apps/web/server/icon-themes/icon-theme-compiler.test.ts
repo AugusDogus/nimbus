@@ -34,6 +34,7 @@ const theme = {
     tsLight: { iconPath: "./icons/ts-light.svg" },
     json: { iconPath: "./icons/json.png" },
     missing: { iconPath: "./icons/missing.svg" },
+    placeholder: { iconPath: "" },
   },
   file: "file",
   folder: "folder",

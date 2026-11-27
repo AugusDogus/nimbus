@@ -213,7 +213,8 @@ function compileTheme(
     );
   const resolved = new Map<string, number>();
   for (const [id, definition] of definitions) {
-    if (definition.iconPath === undefined) continue;
+    // An empty path draws nothing in VS Code, as vscode-icons' light placeholders do.
+    if (!definition.iconPath) continue;
     const file = archivePath(definition.iconPath, path);
     if (file === null)
       return fail(
