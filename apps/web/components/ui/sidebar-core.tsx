@@ -54,6 +54,8 @@ export const SIDEBAR_MAX_WIDTH = 360;
  *  bottoming out — the same "throw it at the edge to dismiss" affordance
  *  native apps use. */
 export const SIDEBAR_COLLAPSE_SLOP = 56;
+/** How far one arrow-key press on the rail resizes the sidebar (px). */
+export const SIDEBAR_KEYBOARD_STEP = 16;
 
 // ─── Context ─────────────────────────────────────────────────────────────────
 
@@ -1054,10 +1056,12 @@ export interface SidebarRailProps extends HTMLAttributes<HTMLButtonElement> {
 /** The grab strip on the sidebar's inner edge, rendered by default inside
  *  the desktop shell: drag it to resize (clamped), click it to collapse, and
  *  its tooltip explains both with the toggle keystroke. Hovering it
- *  brightens the edge border. */
+ *  brightens the edge border. From the keyboard it is a tab stop while the
+ *  sidebar is open: the arrow keys resize, Enter or Space collapses and
+ *  hands focus to the trigger. */
 const SidebarRail = forwardRef<HTMLButtonElement, SidebarRailProps>(
   ({ className, tooltipOpen, ...props }, ref) => {
-    const { toggleSidebar, setOpen, setWidth, side, setIsResizing } = useSidebar();
+    const { open, toggleSidebar, setOpen, setWidth, side, setIsResizing } = useSidebar();
     const shortcutKey = useShortcutKey();
     const railRef = useRef<HTMLButtonElement | null>(null);
     const dragRef = useRef<{ startX: number; startWidth: number; moved: boolean; collapsed: boolean } | null>(null);
@@ -1119,6 +1123,34 @@ const SidebarRail = forwardRef<HTMLButtonElement, SidebarRailProps>(
       setIsResizing(false);
     };
 
+    const onKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      const grow = side === "left" ? "ArrowRight" : "ArrowLeft";
+      const shrink = side === "left" ? "ArrowLeft" : "ArrowRight";
+      if (event.key !== grow && event.key !== shrink) return;
+      // The panel the rail sits in takes the new width at once, while the
+      // column springs after it: repeated presses step from where the last
+      // one is going, not from mid-spring.
+      const panel = railRef.current?.parentElement;
+      if (!panel) return;
+      event.preventDefault();
+      const step = event.key === grow ? SIDEBAR_KEYBOARD_STEP : -SIDEBAR_KEYBOARD_STEP;
+      const next = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, panel.offsetWidth + step));
+      setWidth(`${next}px`);
+    };
+
+    // Enter or Space (a click with no pointer press behind it, detail 0):
+    // pointer clicks are already handled on release, above. The rail slides
+    // away with the sidebar, so focus moves to the trigger, which opens it
+    // again.
+    const onClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+      if (event.detail !== 0) return;
+      const trigger = railRef.current
+        ?.closest('[data-slot="sidebar-wrapper"]')
+        ?.querySelector('[data-sidebar="trigger"]');
+      toggleSidebar();
+      if (trigger instanceof HTMLElement) trigger.focus();
+    };
+
     const semibold = { fontVariationSettings: fontWeights.semibold };
 
     return (
@@ -1154,7 +1186,9 @@ const SidebarRail = forwardRef<HTMLButtonElement, SidebarRailProps>(
           type="button"
           data-sidebar="rail"
           aria-label="Resize or collapse sidebar"
-          tabIndex={-1}
+          tabIndex={open ? 0 : -1}
+          onKeyDown={onKeyDown}
+          onClick={onClick}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -1171,6 +1205,7 @@ const SidebarRail = forwardRef<HTMLButtonElement, SidebarRailProps>(
             // the hover it stands in for.
             "after:absolute after:inset-y-0 after:w-px after:bg-transparent hover:after:bg-foreground/25 after:transition-colors after:duration-80",
             tooltipOpen && "after:bg-foreground/25",
+            "focus-visible:after:w-0.5 focus-visible:after:bg-[color:var(--focus-ring,#6B97FF)]",
             side === "left" ? "after:right-0" : "after:left-0",
             className
           )}
