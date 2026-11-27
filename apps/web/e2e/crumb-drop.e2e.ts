@@ -63,7 +63,9 @@ test.describe("dropping on the breadcrumb", () => {
       async (target) => {
         await expect(target).toHaveAttribute("data-drop-target", "true");
         await expect(
-          page.getByRole("status").filter({ hasText: "Move to “two”" }),
+          page
+            .getByRole("status")
+            .filter({ hasText: "Move “Up a level” to “two” · Esc to cancel" }),
         ).toBeVisible();
       },
     );

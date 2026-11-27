@@ -173,3 +173,47 @@ describe("moving or copying items into a folder", () => {
     expect(DropTarget.alreadyThere(sources, folder("projects"), "")).toBeNull();
   });
 });
+
+describe("the hint while items are dragged", () => {
+  it("names what a drop does, and says Esc cancels, over a folder or not", () => {
+    const three = moving("a/x", "a/y", "a/z");
+    expect(DropTarget.dragText(three, null, "")).toBe(
+      "Drop on a folder to move 3 items · Esc to cancel",
+    );
+    expect(
+      DropTarget.dragText(
+        three,
+        { target: folder("b/Photos"), verdict: { kind: "move" } },
+        "",
+      ),
+    ).toBe("Move 3 items to “Photos” · Esc to cancel");
+    expect(
+      DropTarget.dragText(
+        moving("a/x.txt"),
+        { target: folder("b"), verdict: { kind: "copy" } },
+        "",
+      ),
+    ).toBe("Copy “x.txt” to “b” · Esc to cancel");
+    expect(
+      DropTarget.dragText(
+        moving("a/x"),
+        {
+          target: folder("a"),
+          verdict: { kind: "refused", reason: "already-there" },
+        },
+        "",
+      ),
+    ).toBe("Already in “a” · Esc to cancel");
+  });
+
+  it("says only where files from the computer go, and nothing before they are over a folder", () => {
+    expect(
+      DropTarget.dragText(
+        { kind: "files" },
+        { target: folder("b"), verdict: { kind: "upload" } },
+        "",
+      ),
+    ).toBe("Upload to “b”");
+    expect(DropTarget.dragText({ kind: "files" }, null, "")).toBe("");
+  });
+});

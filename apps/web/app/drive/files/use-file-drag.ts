@@ -155,11 +155,17 @@ export function useFileDrag({ moveEntries, copyEntries, uploadInto }: Options) {
         },
         over: null,
       });
-    },
-    onDragEnd() {
-      // A successful drop starts moving before the browser ends its drag session.
-      setState((current) =>
-        current.status === "dragging" ? { status: "idle" } : current,
+      // The drag ends here however it ends: dropped, or cancelled with Esc or outside the
+      // window. Listened to on the item itself, not through React, so it is heard also when
+      // the item has left the page meanwhile, as a long list's rows do once scrolled away.
+      event.currentTarget.addEventListener(
+        "dragend",
+        () =>
+          // A successful drop starts moving before the browser ends its drag session.
+          setState((current) =>
+            current.status === "dragging" ? { status: "idle" } : current,
+          ),
+        { once: true },
       );
     },
   });

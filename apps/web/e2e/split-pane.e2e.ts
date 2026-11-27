@@ -332,7 +332,9 @@ test.describe("split view on a wide screen", () => {
     await page.mouse.move(emptySpace.x, emptySpace.y, { steps: 6 });
     await page.mouse.move(emptySpace.x + 10, emptySpace.y, { steps: 2 });
     await expect(
-      page.getByRole("status").filter({ hasText: "Move to “Archive”" }),
+      page
+        .getByRole("status")
+        .filter({ hasText: "Move “Notes.txt” to “Archive” · Esc to cancel" }),
     ).toBeVisible();
     await page.mouse.up();
     await expect(entry(rightPane(page), "Notes.txt")).toBeVisible();
@@ -348,7 +350,9 @@ test.describe("split view on a wide screen", () => {
     await page.mouse.move(emptySpace.x, emptySpace.y, { steps: 6 });
     await page.mouse.move(emptySpace.x + 10, emptySpace.y, { steps: 2 });
     await expect(
-      page.getByRole("status").filter({ hasText: "Copy to “Archive”" }),
+      page
+        .getByRole("status")
+        .filter({ hasText: "Copy “Report.txt” to “Archive” · Esc to cancel" }),
     ).toBeVisible();
     await page.mouse.up();
     await page.keyboard.up("Control");

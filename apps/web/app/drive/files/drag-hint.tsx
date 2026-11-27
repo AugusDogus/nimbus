@@ -5,7 +5,7 @@ import { DropTarget } from "./drop-target";
 import type { FileDrag } from "./use-file-drag";
 
 /**
- * Says where a drag would put things, or why it cannot, while it is over a folder: shown near the
+ * Says where a drag would put things, or why it cannot, and how to cancel it: shown near the
  * bottom of the window, or of a split view's pane (`placement`), and announced to screen readers.
  * The region stays mounted so each change is read; a pane's says nothing while the drag is over
  * the other pane (`shown`).
@@ -22,22 +22,7 @@ export function DragHint({
   const { over } = drag;
   const top = useQuery(trpc.access.me.queryOptions()).data?.top ?? "";
   const payload = drag.state.status === "dragging" ? drag.state.payload : null;
-  const behind =
-    payload?.kind === "entries"
-      ? DropTarget.leftBehind({
-          dragged: payload.sources.length,
-          skipped: payload.skipped,
-        })
-      : null;
-  const staying =
-    payload?.kind === "entries" && over?.verdict.kind === "move"
-      ? DropTarget.alreadyThere(payload.sources, over.target, top)
-      : null;
-  const text = !shown
-    ? ""
-    : [over && DropTarget.hint(over.verdict, over.target, top), staying, behind]
-        .filter(Boolean)
-        .join(". ");
+  const text = shown && payload ? DropTarget.dragText(payload, over, top) : "";
   return (
     <p
       role="status"

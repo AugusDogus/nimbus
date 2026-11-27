@@ -84,15 +84,22 @@ const notIn = <T extends { path: string }>(
 
 /**
  * What the pointer says over a target: where things go, or why they cannot. The target is named
- * as the breadcrumb names it for an account whose top folder is `top`.
+ * as the breadcrumb names it for an account whose top folder is `top`; `subject`, such as
+ * “a.txt” or "3 items", names what moves or copies.
  */
-function hint(result: DropVerdict, target: DropTarget, top: string) {
+function hint(
+  result: DropVerdict,
+  target: DropTarget,
+  top: string,
+  subject?: string,
+) {
   const name = `“${BreadcrumbTrail.name(target.path, top)}”`;
+  const what = subject ? ` ${subject}` : "";
   switch (result.kind) {
     case "move":
-      return `Move to ${name}`;
+      return `Move${what} to ${name}`;
     case "copy":
-      return `Copy to ${name}`;
+      return `Copy${what} to ${name}`;
     case "upload":
       return `Upload to ${name}`;
     case "refused":
@@ -137,7 +144,42 @@ function leftBehind({
   return `${skipped.toLocaleString()} of ${total.toLocaleString()} items cannot be moved from here`;
 }
 
+/** “a.txt”, or "3 items": what a drag of `sources` carries. */
+function subjectOf(sources: readonly { name: string }[]) {
+  const [only, ...others] = sources;
+  return only && others.length === 0
+    ? `“${only.name}”`
+    : `${sources.length.toLocaleString()} items`;
+}
+
+/**
+ * The hint while something is dragged, over the folder `over` or none. A drag of items says
+ * what a drop there does, and that Esc cancels it, from the moment it starts; files from the
+ * computer only where they would go.
+ */
+function dragText(
+  payload: DragPayload,
+  over: { target: DropTarget; verdict: DropVerdict } | null,
+  top: string,
+) {
+  if (payload.kind === "files")
+    return over ? hint(over.verdict, over.target, top) : "";
+  const subject = subjectOf(payload.sources);
+  return `${[
+    over
+      ? hint(over.verdict, over.target, top, subject)
+      : `Drop on a folder to move ${subject}`,
+    over?.verdict.kind === "move"
+      ? alreadyThere(payload.sources, over.target, top)
+      : null,
+    leftBehind({ dragged: payload.sources.length, skipped: payload.skipped }),
+  ]
+    .filter(Boolean)
+    .join(". ")} · Esc to cancel`;
+}
+
 export const DropTarget = {
+  dragText,
   leftBehind,
   alreadyThere,
   /** A folder row as a target. Files are not targets. */
