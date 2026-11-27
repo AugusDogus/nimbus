@@ -128,3 +128,41 @@ describe("FileCategory", () => {
     expect(FileCategory.glyph(".hidden")).toEqual({ kind: "plain" });
   });
 });
+
+describe("IconManifest.parse", () => {
+  const valid = {
+    version: 1,
+    icons: [`${"a".repeat(32)}.svg`],
+    base: {
+      fileNames: { a: 0 },
+      fileExtensions: {},
+      languageIds: {},
+      folderNames: {},
+    },
+  };
+  test("accepts a manifest whose associations point at its icons", () => {
+    expect(IconManifest.parse(valid)).toEqual(valid);
+  });
+  test("refuses indexes outside its icons, odd icon names, and other versions", () => {
+    expect(
+      IconManifest.parse({
+        ...valid,
+        base: { ...valid.base, fileNames: { a: 1 } },
+      }),
+    ).toBeNull();
+    expect(
+      IconManifest.parse({ ...valid, base: { ...valid.base, file: -1 } }),
+    ).toBeNull();
+    expect(
+      IconManifest.parse({ ...valid, icons: ["../secret.svg"] }),
+    ).toBeNull();
+    expect(
+      IconManifest.parse({ ...valid, icons: [`${"a".repeat(32)}.html`] }),
+    ).toBeNull();
+    expect(IconManifest.parse({ ...valid, version: 2 })).toBeNull();
+    expect(
+      IconManifest.parse({ ...valid, light: { fileNames: {} } }),
+    ).toBeNull();
+    expect(IconManifest.parse("not a manifest")).toBeNull();
+  });
+});
