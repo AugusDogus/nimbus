@@ -1,0 +1,1 @@
+ALTER TABLE `nimbus_user_appearance` ADD `color_themes` text;

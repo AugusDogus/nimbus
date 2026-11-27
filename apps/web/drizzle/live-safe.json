@@ -10,6 +10,7 @@
     "0022_mcp_upload_claim_owner",
     "0023_known_addresses",
     "0024_user_appearance",
-    "0025_imported_icon_themes"
+    "0025_imported_icon_themes",
+    "0026_synced_color_themes"
   ]
 }

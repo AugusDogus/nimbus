@@ -17,7 +17,7 @@ export function ThemeSearch({
   onInstall,
   disabled,
 }: {
-  onInstall: (themes: VsCodeTheme[]) => ThemeResult<unknown>;
+  onInstall: (themes: VsCodeTheme[]) => Promise<ThemeResult<unknown>>;
   disabled: boolean;
 }) {
   const [query, setQuery] = useState("");
@@ -51,7 +51,7 @@ export function ThemeSearch({
     const result = await OpenVsxThemes.install(extension, controller.signal);
     if (controller.signal.aborted) return;
     if (result.ok) {
-      const saved = onInstall(result.value);
+      const saved = await onInstall(result.value);
       setMessage(
         saved.ok
           ? {

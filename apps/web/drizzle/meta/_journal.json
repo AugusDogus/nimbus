@@ -183,6 +183,13 @@
       "when": 1795817473254,
       "tag": "0025_imported_icon_themes",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1795818108139,
+      "tag": "0026_synced_color_themes",
+      "breakpoints": true
     }
   ]
 }

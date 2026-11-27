@@ -139,3 +139,63 @@ describe("saved themes", () => {
     expect(style.textContent).toBe("");
   });
 });
+
+describe("synced themes", () => {
+  test("installing selects one variant per appearance it brings", () => {
+    const night = imported("Night", "#112233");
+    const paper = imported("Paper", "#faf4e8");
+    const result = ThemePreferences.apply(ThemePreferences.empty, {
+      kind: "install",
+      themes: [night, paper],
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.dark).toBe(night.id);
+    expect(result.value.light).toBe(paper.id);
+  });
+
+  test("refuses selecting a theme that is not installed", () => {
+    expect(
+      ThemePreferences.apply(ThemePreferences.empty, {
+        kind: "select",
+        appearance: "dark",
+        id: "missing",
+      }).ok,
+    ).toBe(false);
+  });
+
+  test("a browser's pre-sync themes become the account's when it has none", () => {
+    const night = imported("Night", "#112233");
+    const local = {
+      ...ThemePreferences.empty,
+      themes: [night],
+      dark: night.id,
+    };
+    expect(ThemePreferences.merge(null, local)).toEqual(local);
+  });
+
+  test("merging keeps the account's choices, adds new themes once, and fills empty choices", () => {
+    const night = imported("Night", "#112233");
+    const nightAgain = { ...imported("Night", "#112233"), id: "other-id" };
+    const paper = imported("Paper", "#faf4e8");
+    const server = {
+      ...ThemePreferences.empty,
+      themes: [night],
+      dark: night.id,
+    };
+    const local = {
+      ...ThemePreferences.empty,
+      themes: [nightAgain, paper],
+      dark: nightAgain.id,
+      light: paper.id,
+    };
+    const merged = ThemePreferences.merge(server, local);
+    expect(merged.themes.map((theme) => theme.name)).toEqual([
+      "Night",
+      "Paper",
+    ]);
+    expect(merged.dark).toBe(night.id);
+    expect(merged.light).toBe(paper.id);
+    // Merging the same browser again changes nothing.
+    expect(ThemePreferences.merge(merged, local)).toEqual(merged);
+  });
+});

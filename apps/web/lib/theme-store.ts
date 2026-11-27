@@ -69,27 +69,29 @@ function save(value: ThemePreferences): ThemeResult<ThemePreferences> {
   }
 }
 
-function update(
-  change: (value: ThemePreferences) => ThemeResult<ThemePreferences>,
-): ThemeResult<ThemePreferences> {
+/** This browser's copy, or why it cannot be read. */
+function current(): ThemeResult<ThemePreferences> {
   const snapshot = getSnapshot();
-  if (snapshot.status !== "ready")
-    return {
-      ok: false,
-      error:
-        snapshot.status === "error"
-          ? snapshot.error
-          : "Themes are still loading. Try again shortly.",
-    };
-  const next = change(snapshot.value);
-  return next.ok ? save(next.value) : next;
+  return snapshot.status === "ready"
+    ? { ok: true, value: snapshot.value }
+    : {
+        ok: false,
+        error:
+          snapshot.status === "error"
+            ? snapshot.error
+            : "Themes are still loading. Try again shortly.",
+      };
 }
 
 export function useThemePreferences() {
   return useSyncExternalStore(subscribe, getSnapshot, () => serverSnapshot);
 }
 
+/**
+ * This browser's copy of the account's color themes, which the boot script paints from. The
+ * server holds the account's copy; `ColorThemeSync` keeps this one in step with it.
+ */
 export const ThemeStore = {
-  update,
-  reset: () => save(ThemePreferences.empty),
+  current,
+  replace: save,
 } as const;

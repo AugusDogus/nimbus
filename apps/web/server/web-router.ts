@@ -13,7 +13,7 @@ import { mailConfig } from "./mail";
 import { mcpResource, readMcpConfig } from "./mcp/config";
 import { listConnections } from "./mcp/oauth/connections";
 import { librariesRouter } from "./libraries/libraries-router";
-import { appearanceRouter } from "./icon-themes/appearance-router";
+import { appearanceRouter } from "./appearance/appearance-router";
 
 /** The Better Auth session as the account page needs it, read from the request context. */
 const SignedIn = z.object({

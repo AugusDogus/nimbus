@@ -20,7 +20,8 @@ import {
   AlertDialogTitle,
 } from "@/components/alert-dialog";
 import { CustomThemeStyles } from "@/components/custom-theme-styles";
-import { ThemeStore, useThemePreferences } from "@/lib/theme-store";
+import { useThemePreferences } from "@/lib/theme-store";
+import { ColorThemeSync } from "@/lib/color-theme-sync";
 import { ThemePreferences } from "@/lib/theme-preferences";
 import { VsCodeTheme, type ThemeResult } from "@/lib/vscode-theme";
 import { ThemeSearch } from "./theme-search";
@@ -41,27 +42,21 @@ export function ThemeSettings() {
     snapshot.status === "ready" ? snapshot.value : ThemePreferences.empty;
   const disabled = snapshot.status !== "ready" || reading;
 
-  function choose(appearance: "light" | "dark", id: string | null) {
+  async function choose(appearance: "light" | "dark", id: string | null) {
     setError(null);
-    const result = ThemeStore.update((current) => ({
-      ok: true,
-      value: ThemePreferences.select(current, appearance, id),
-    }));
+    const result = await ColorThemeSync.change({
+      kind: "select",
+      appearance,
+      id,
+    });
     if (!result.ok) setError(result.error);
   }
 
-  function install(themes: VsCodeTheme[]): ThemeResult<ThemePreferences> {
-    const result = ThemeStore.update((current) => {
-      const installed = ThemePreferences.install(current, themes);
-      if (!installed.ok) return installed;
-      let next = installed.value;
-      // Select one variant per appearance, so System can use both immediately.
-      for (const mode of ["light", "dark"] as const) {
-        const variant = themes.find((theme) => theme.appearance === mode);
-        if (variant) next = ThemePreferences.select(next, mode, variant.id);
-      }
-      return { ok: true, value: next };
-    });
+  /** Saves themes to the account, selecting one variant per appearance so System can use both. */
+  async function install(
+    themes: VsCodeTheme[],
+  ): Promise<ThemeResult<ThemePreferences>> {
+    const result = await ColorThemeSync.change({ kind: "install", themes });
     if (result.ok) setError(null);
     return result;
   }
@@ -90,7 +85,7 @@ export function ThemeSettings() {
         }
         themes.push(result.value);
       }
-      const result = install(themes);
+      const result = await install(themes);
       if (!result.ok) setError(result.error);
       else setAdding(false);
     } catch {
@@ -102,15 +97,15 @@ export function ThemeSettings() {
     }
   }
 
-  function confirm() {
+  async function confirm() {
     const result =
       confirmation?.type === "reset"
-        ? ThemeStore.reset()
+        ? await ColorThemeSync.change({ kind: "reset" })
         : confirmation?.type === "remove"
-          ? ThemeStore.update((current) => ({
-              ok: true,
-              value: ThemePreferences.remove(current, confirmation.theme.id),
-            }))
+          ? await ColorThemeSync.change({
+              kind: "remove",
+              id: confirmation.theme.id,
+            })
           : null;
     if (result && !result.ok) setError(result.error);
     else {
@@ -155,7 +150,7 @@ export function ThemeSettings() {
         </div>
         <ThemeLibrary
           preferences={preferences}
-          onChoose={choose}
+          onChoose={(appearance, id) => void choose(appearance, id)}
           onRemove={(theme) => {
             setError(null);
             setConfirmation({ type: "remove", theme });
@@ -206,7 +201,7 @@ export function ThemeSettings() {
             <DialogTitle>Add theme</DialogTitle>
             <DialogDescription>
               Import a VS Code theme or find one on Open VSX. Themes are saved
-              in this browser.
+              to your account and follow you to every device.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed p-4">
@@ -232,8 +227,8 @@ export function ThemeSettings() {
             </p>
           )}
           <ThemeSearch
-            onInstall={(themes) => {
-              const result = install(themes);
+            onInstall={async (themes) => {
+              const result = await install(themes);
               if (result.ok) setAdding(false);
               return result;
             }}
@@ -257,7 +252,7 @@ export function ThemeSettings() {
             <AlertDialogDescription className="text-pretty">
               {confirmation?.type === "remove"
                 ? "Nimbus will use its default palette instead. You can import this theme again later. Your files are unchanged."
-                : "This removes all imported themes from this browser and restores Nimbus’s default palettes. Your files are unchanged."}
+                : "This removes all imported themes from your account and restores Nimbus’s default palettes. Your files are unchanged."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {error && (
@@ -269,7 +264,7 @@ export function ThemeSettings() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                confirm();
+                void confirm();
               }}
             >
               {confirmation?.type === "remove"

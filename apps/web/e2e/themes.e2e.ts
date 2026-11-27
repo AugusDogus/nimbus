@@ -1,7 +1,7 @@
-import { expect } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { strToU8, zipSync } from "fflate";
 import builtInThemes from "../lib/built-in-themes.json" with { type: "json" };
-import { test } from "./helpers";
+import { origin, test } from "./helpers";
 
 const dark = {
   name: "Test Night",
@@ -11,6 +11,18 @@ const light = {
   name: "Test Paper",
   colors: { "editor.background": "#faf4e8" },
 };
+
+// Imported themes and palette choices belong to the account, which every test shares: each
+// test starts from none and leaves none behind.
+const resetThemes = async ({ page }: { page: Page }) => {
+  const reset = await page.request.post(
+    "/api/trpc/appearance.changeColorThemes",
+    { headers: { Origin: origin }, data: { kind: "reset" } },
+  );
+  expect(reset.ok()).toBe(true);
+};
+test.beforeEach(resetThemes);
+test.afterEach(resetThemes);
 
 test("imports themes, preserves System mode, restores on reload, and removes safely", async ({
   page,

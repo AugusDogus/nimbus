@@ -4,7 +4,8 @@ import { user } from "./auth-schema";
 
 /**
  * How an account's Nimbus looks, kept on the server so every browser it signs in on agrees:
- * its file icon set. Browsers cache it to draw the first frame; this row is the truth.
+ * its file icon set and its color themes. Browsers cache both to draw the first frame; this
+ * row is the truth.
  */
 export const userAppearance = sqliteTable("nimbus_user_appearance", {
   userId: text("user_id")
@@ -12,6 +13,11 @@ export const userAppearance = sqliteTable("nimbus_user_appearance", {
     .references(() => user.id, { onDelete: "cascade" }),
   /** A built-in set's id or an imported set's id; null for the default set. */
   iconTheme: text("icon_theme"),
+  /**
+   * Imported color themes and the light and dark choices, as `ThemePreferences` JSON. Null
+   * until a browser first syncs, so the first one can bring the themes it saved locally.
+   */
+  colorThemes: text("color_themes"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
     .$onUpdate(() => /* @__PURE__ */ new Date())
