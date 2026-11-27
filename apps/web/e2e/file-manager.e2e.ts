@@ -577,7 +577,8 @@ test("on a touch tablet, a long-press selects without opening the item menu, and
     await expect(bar(page)).toContainText("1 selected");
     await expect(page.getByRole("menu")).toHaveCount(0);
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    // The actions button of a row opens the drawer, as on a phone.
+    // The actions button of a row opens the drawer, as on a phone, for that row alone: the
+    // selection stays as it was.
     await page
       .getByRole("button", { name: "Actions for two.txt", exact: true })
       .tap();
@@ -585,9 +586,131 @@ test("on a touch tablet, a long-press selects without opening the item menu, and
       page.getByRole("dialog", { name: "two.txt", exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(bar(page)).toContainText("1 selected");
+    // By attribute: the drawer hides the rows behind it from the accessibility tree.
+    const selectedRows = page.locator('[role="row"][aria-selected="true"]');
+    await expect(selectedRows).toHaveCount(1);
+    await expect(selectedRows).toHaveAttribute("data-row-path", /\/one\.txt$/);
   } finally {
     await context.close();
   }
+});
+
+test("opening an item's actions leaves the selection as it is, outlines the item while open, and acts on what it was opened for", async ({
+  page,
+  context,
+  isMobile,
+}) => {
+  // Every device: a mouse opens the menu at the ⋯ button, a finger the drawer.
+  const { folder } = await folderWithFiles([
+    "a.txt",
+    "b.txt",
+    "c.txt",
+    "d.txt",
+    "e.txt",
+  ]);
+  await page.goto(`/browse/${folder}`);
+  await expect(entry(page, "a.txt")).toHaveAttribute(
+    "draggable",
+    isMobile ? "false" : "true",
+  );
+  // By attribute: a drawer hides the rows behind it from the accessibility tree.
+  const selected = page.locator('[role="row"][aria-selected="true"]');
+  const actionsButton = (name: string) =>
+    page.getByRole("button", { name: `Actions for ${name}`, exact: true });
+  /** The open menu for an item, or under a finger its open drawer. */
+  const actions = (name: string) =>
+    page
+      .getByRole("menu")
+      .or(page.getByRole("dialog", { name, exact: true }))
+      .filter({ visible: true });
+  const action = (label: string) =>
+    page
+      .getByRole("menuitem", { name: label, exact: true })
+      .or(page.getByRole("dialog").getByRole("button", { name: label }))
+      .filter({ visible: true })
+      .first();
+  const outline = (name: string) =>
+    entry(page, name).evaluate(
+      (element) => getComputedStyle(element).outlineStyle,
+    );
+  const trash = async (subject: string) => {
+    const dialog = page.getByRole("alertdialog", { name: "Move to trash?" });
+    await expect(dialog).toContainText(subject);
+    await dialog.getByRole("button", { name: "Move to trash" }).click();
+    await expect(dialog).toHaveCount(0);
+  };
+  const remaining = async () =>
+    FileListing.entries(
+      await (await client(context)).files.list.query({ path: folder }),
+    )
+      .map((item) => item.name)
+      .sort();
+
+  // Nothing selected: the menu is for the item alone, which is outlined, not selected.
+  await actionsButton("c.txt").click();
+  await expect(actions("c.txt")).toBeVisible();
+  await expect(entry(page, "c.txt")).toHaveAttribute("data-menu-open");
+  expect(await outline("c.txt")).toBe("solid");
+  expect(await outline("b.txt")).toBe("none");
+  await expect(selected).toHaveCount(0);
+  await expect(bar(page)).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(actions("c.txt")).toHaveCount(0);
+  await expect(entry(page, "c.txt")).not.toHaveAttribute("data-menu-open");
+  await expect(selected).toHaveCount(0);
+  await expect(bar(page)).toHaveCount(0);
+  await actionsButton("c.txt").click();
+  await action("Move to trash").click();
+  await trash("“c.txt”");
+  expect(await remaining()).toEqual(["a.txt", "b.txt", "d.txt", "e.txt"]);
+  await expect(bar(page)).toHaveCount(0);
+
+  // Two others selected: the menu on a third leaves them selected and acts on the third alone.
+  await entry(page, "a.txt").focus();
+  await page.keyboard.press("Control+Space");
+  await page.keyboard.press(`${await listMod(page)}+ArrowDown`);
+  await page.keyboard.press("Control+Space");
+  await expect(bar(page)).toContainText("2 selected");
+  await actionsButton("d.txt").click();
+  await expect(actions("d.txt")).toBeVisible();
+  await expect(entry(page, "d.txt")).toHaveAttribute("data-menu-open");
+  await expect(selected).toHaveCount(2);
+  await expect(bar(page)).toContainText("2 selected");
+  await action("Move to trash").click();
+  await trash("“d.txt”");
+  expect(await remaining()).toEqual(["a.txt", "b.txt", "e.txt"]);
+  await expect(bar(page)).toContainText("2 selected");
+  await expect(selected).toHaveCount(2);
+
+  if (!isMobile) {
+    // A right-click, Shift+F10 and the menu key open the same menu, and leave the selection as
+    // it is too.
+    await entry(page, "e.txt").click({ button: "right" });
+    await expect(actions("e.txt")).toBeVisible();
+    await expect(entry(page, "e.txt")).toHaveAttribute("data-menu-open");
+    await expect(bar(page)).toContainText("2 selected");
+    await page.keyboard.press("Escape");
+    await expect(entry(page, "e.txt")).not.toHaveAttribute("data-menu-open");
+    for (const key of ["Shift+F10", "ContextMenu"]) {
+      await entry(page, "e.txt").focus();
+      await page.keyboard.press(key);
+      await expect(actions("e.txt")).toBeVisible();
+      await expect(entry(page, "e.txt")).toHaveAttribute("data-menu-open");
+      await expect(bar(page)).toContainText("2 selected");
+      await page.keyboard.press("Escape");
+      await expect(entry(page, "e.txt")).not.toHaveAttribute("data-menu-open");
+    }
+    await expect(bar(page)).toContainText("2 selected");
+    await expect(selected).toHaveCount(2);
+  }
+
+  // A selected item's menu acts on the whole selection.
+  await actionsButton("2 selected items").first().click();
+  await expect(entry(page, "a.txt")).toHaveAttribute("data-menu-open");
+  await action("Move to trash").click();
+  await trash("2 items");
+  expect(await remaining()).toEqual(["e.txt"]);
 });
 
 test("empties trash in one step after confirmation", async ({

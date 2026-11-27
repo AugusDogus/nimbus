@@ -202,6 +202,9 @@ export const EntryRow = memo(function EntryRow({
           ? "bg-muted/30 hover:bg-accent/70"
           : "hover:bg-accent/70",
       dragging && "opacity-50",
+      // Outlined as keyboard focus outlines it while its actions are open, to show what they are
+      // for. Selection is the background and the check, so this never reads as selected.
+      menuOpen && "outline-2 outline-ring",
       dropState === "allowed" && "ring-2 ring-inset ring-primary",
       dropState === "refused" &&
         "cursor-not-allowed ring-2 ring-inset ring-destructive/50",
@@ -209,6 +212,7 @@ export const EntryRow = memo(function EntryRow({
     tabIndex: tabbable ? 0 : -1,
     "data-entry-name": entry.name,
     "data-entry-path": entry.path,
+    "data-menu-open": menuOpen || undefined,
     // Just moved or copied here: highlighted once as it shows, where it landed.
     "data-arrived": Arrivals.has(entry.path) || undefined,
     onClick: (event: MouseEvent<HTMLElement>) =>

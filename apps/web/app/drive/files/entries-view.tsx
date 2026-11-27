@@ -445,17 +445,15 @@ export function EntriesView({
     null;
 
   /**
-   * Opening a menu on an entry focuses it, and selects only it unless it is already selected.
-   * The menu then acts on the whole selection when the entry is part of one.
+   * Opening a menu on an entry focuses it and leaves the selection as it is. The menu acts on the
+   * whole selection when the entry is part of one, otherwise on the entry alone.
    */
   const menuTarget = (path: string): EntryMenuTarget | null => {
     const index = order.index.get(path);
     const entry = index === undefined ? undefined : layout.entries[index];
     if (!entry) return null;
     setFocusPath(path);
-    if (selection.paths.has(path)) return { entry, targets: targetsFor(entry) };
-    setSelection(Selection.only(path));
-    return { entry, targets: [entry] };
+    return { entry, targets: targetsFor(entry) };
   };
 
   // One stable handler object for every row; its methods call this render's handlers.
