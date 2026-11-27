@@ -4,10 +4,10 @@
   "/login": 129000,
   "/pair": 296000,
   "/r/$token": 134000,
-  "/recent": 365000,
+  "/recent": 366000,
   "/reset-password": 129000,
   "/s/$token": 118000,
-  "/search": 369000,
+  "/search": 370000,
   "/settings/account": 310000,
   "/settings/admin": 345000,
   "/settings/admin/audit": 300000,
@@ -15,8 +15,8 @@
   "/settings/libraries": 280000,
   "/settings/mcp": 281000,
   "/settings/webdav": 284000,
-  "/shared": 371000,
+  "/shared": 372000,
   "/signup": 129000,
-  "/starred": 365000,
-  "/trash": 347000
+  "/starred": 366000,
+  "/trash": 348000
 }
