@@ -10,7 +10,8 @@ const listeners = new Set<() => void>();
 const parse = (value: string | null): ColorScheme =>
   value === "light" || value === "dark" ? value : "system";
 
-function read(): ColorScheme {
+/** The chosen scheme, `system` unresolved. */
+export function read(): ColorScheme {
   try {
     return parse(localStorage.getItem(colorSchemeStorageKey));
   } catch {
@@ -18,7 +19,7 @@ function read(): ColorScheme {
   }
 }
 
-const systemScheme = () =>
+export const systemScheme = () =>
   window.matchMedia(darkQuery).matches ? "dark" : "light";
 
 /**
@@ -46,7 +47,8 @@ function notify() {
   for (const listener of listeners) listener();
 }
 
-function subscribe(listener: () => void) {
+/** Calls `listener` when the chosen or the system scheme changes. */
+export function subscribe(listener: () => void) {
   if (listeners.size === 0) {
     window.addEventListener("storage", onStorage);
     window.matchMedia(darkQuery).addEventListener("change", notify);
@@ -78,16 +80,6 @@ export const ColorScheme = {
     for (const listener of listeners) listener();
   },
 } as const;
-
-const resolved = (): "light" | "dark" => {
-  const scheme = read();
-  return scheme === "system" ? systemScheme() : scheme;
-};
-
-/** The scheme on screen, `system` resolved, kept in step like `useColorScheme`. */
-export function useResolvedColorScheme() {
-  return useSyncExternalStore(subscribe, resolved, () => "light" as const);
-}
 
 /** The chosen color scheme, kept in step with other tabs and the operating system. */
 export function useColorScheme() {

@@ -1,9 +1,6 @@
 import { TRPCClientError } from "@trpc/client";
-import {
-  ThemePreferences,
-  themeOwnerStorageKey,
-  type ThemeChange,
-} from "./theme-preferences";
+import { ThemePreferences, themeOwnerStorageKey } from "./theme-preferences";
+import { ThemeOutbox, type StagedChange } from "./theme-outbox";
 import { ThemeStore } from "./theme-store";
 import { trpcClient } from "./trpc";
 import type { ThemeResult } from "./vscode-theme";
@@ -14,9 +11,13 @@ import type { ThemeResult } from "./vscode-theme";
  * frame; the server's copy is the truth. Changes apply here at once and are confirmed or undone
  * by the server's answer.
  *
- * On each load the browser takes the server's copy, with one exception: a browser whose copy
- * predates syncing (it has no owner mark) brings its themes to the account once, merged as
- * `ThemePreferences.merge` describes, then marks the copy as the account's.
+ * Pages stage a change with `ThemeOutbox.stage`, which applies and queues it at once, then send
+ * it here. Leaving the page can cut a request off unanswered; the next load sends what the
+ * outbox still holds before anything else, so a choice made just before navigating is not lost.
+ *
+ * On each load the browser then takes the server's copy, with one exception: a browser whose
+ * copy predates syncing (it has no owner mark) brings its themes to the account once, merged as
+ * `mergeColorThemes` on the server describes, then marks the copy as the account's.
  */
 const parse = (value: unknown): ThemePreferences | null => {
   const result = ThemePreferences.schema.safeParse(value);
@@ -42,32 +43,31 @@ function adopt(value: ThemePreferences, userId: string | null) {
 }
 
 const unreachable =
-  "Nimbus could not save the theme change to the server. Check your connection and try again. Your previous themes are unchanged.";
+  "Nimbus could not reach the server. The theme applies in this browser and is saved to your account the next time Nimbus loads with a connection.";
 
-async function change(
-  update: ThemeChange,
+/** Sends a change `ThemeOutbox.stage` applied, and takes the server's answer. */
+async function send(
+  staged: StagedChange,
 ): Promise<ThemeResult<ThemePreferences>> {
-  const previous = ThemeStore.current();
-  // An unreadable copy can still be reset: the server's answer replaces it.
-  if (!previous.ok && update.kind !== "reset") return previous;
-  const next = ThemePreferences.apply(
-    previous.ok ? previous.value : ThemePreferences.empty,
-    update,
-  );
-  if (!next.ok) return next;
-  ThemeStore.replace(next.value);
   try {
     const saved = parse(
-      await trpcClient.appearance.changeColorThemes.mutate(update),
+      await trpcClient.appearance.changeColorThemes.mutate(staged.change),
     );
+    ThemeOutbox.settle(staged.id);
+    const current = ThemeStore.current();
     if (saved) ThemeStore.replace(saved);
-    return { ok: true, value: saved ?? next.value };
+    return saved
+      ? { ok: true, value: saved }
+      : current.ok
+        ? current
+        : { ok: false, error: unreachable };
   } catch (error) {
-    if (previous.ok) ThemeStore.replace(previous.value);
-    return {
-      ok: false,
-      error: error instanceof TRPCClientError ? error.message : unreachable,
-    };
+    // No answer, as when the page is left mid-request: the change stays here and in the outbox.
+    if (!(error instanceof TRPCClientError && error.data))
+      return { ok: false, error: unreachable };
+    ThemeOutbox.settle(staged.id);
+    if (staged.previous) ThemeStore.replace(staged.previous);
+    return { ok: false, error: error.message };
   }
 }
 
@@ -77,6 +77,18 @@ let reconciled: string | null = null;
 async function reconcile(userId: string) {
   if (reconciled === userId) return;
   reconciled = userId;
+  // Changes a previous page sent without hearing back go first, in order. One the server
+  // refuses is dropped: the server's copy then shows what it kept. When the server cannot be
+  // reached they stay for the next load.
+  if (owner() === userId)
+    for (const pending of ThemeOutbox.pending()) {
+      try {
+        await trpcClient.appearance.changeColorThemes.mutate(pending.change);
+      } catch (error) {
+        if (!(error instanceof TRPCClientError && error.data)) throw error;
+      }
+      ThemeOutbox.settle(pending.id);
+    }
   const server = parse(await trpcClient.appearance.colorThemes.query());
   const local = ThemeStore.current();
   const legacy =
@@ -95,4 +107,4 @@ async function reconcile(userId: string) {
   adopt(server ?? ThemePreferences.empty, userId);
 }
 
-export const ColorThemeSync = { change, reconcile } as const;
+export const ColorThemeSync = { send, reconcile } as const;

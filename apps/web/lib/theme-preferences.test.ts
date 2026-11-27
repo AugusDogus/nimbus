@@ -5,6 +5,7 @@ import { VsCodeTheme } from "./vscode-theme";
 import { themeBootScript } from "./theme-boot-script";
 import { BuiltInThemes } from "./built-in-themes";
 import { importedThemeSchema } from "./vscode-theme";
+import { mergeColorThemes } from "../server/appearance/color-themes";
 
 function imported(name: string, background: string) {
   const result = VsCodeTheme.parse(
@@ -170,7 +171,7 @@ describe("synced themes", () => {
       themes: [night],
       dark: night.id,
     };
-    expect(ThemePreferences.merge(null, local)).toEqual(local);
+    expect(mergeColorThemes(null, local)).toEqual(local);
   });
 
   test("merging keeps the account's choices, adds new themes once, and fills empty choices", () => {
@@ -188,7 +189,7 @@ describe("synced themes", () => {
       dark: nightAgain.id,
       light: paper.id,
     };
-    const merged = ThemePreferences.merge(server, local);
+    const merged = mergeColorThemes(server, local);
     expect(merged.themes.map((theme) => theme.name)).toEqual([
       "Night",
       "Paper",
@@ -196,6 +197,6 @@ describe("synced themes", () => {
     expect(merged.dark).toBe(night.id);
     expect(merged.light).toBe(paper.id);
     // Merging the same browser again changes nothing.
-    expect(ThemePreferences.merge(merged, local)).toEqual(merged);
+    expect(mergeColorThemes(merged, local)).toEqual(merged);
   });
 });

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Check, Download, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/alert-dialog";
-import { EntryIcon, FileIconsScope } from "@/app/drive/files/file-icons";
+import { EntryIcon } from "@/app/drive/files/file-icons";
 import { IconChoice } from "@/lib/icon-choice";
 import { iconChoiceQuery } from "@/lib/icon-choice-query";
 import { iconPreviewNames } from "@/lib/icon-themes";
@@ -44,21 +44,20 @@ type IconSet = {
 /** A row of sample entries drawn with `set`'s icons, or Nimbus's own before it downloads. */
 function IconPreview({ manifest }: { manifest: string | null }) {
   return (
-    <FileIconsScope manifest={manifest}>
-      <span
-        aria-hidden
-        className="flex min-w-0 items-center gap-1.5 overflow-hidden sm:gap-2"
-      >
-        {iconPreviewNames.map((sample) => (
-          <EntryIcon
-            key={sample.name}
-            type={sample.type}
-            name={sample.name}
-            className="size-6 shrink-0 text-muted-foreground"
-          />
-        ))}
-      </span>
-    </FileIconsScope>
+    <span
+      aria-hidden
+      className="flex min-w-0 items-center gap-1.5 overflow-hidden sm:gap-2"
+    >
+      {iconPreviewNames.map((sample) => (
+        <EntryIcon
+          key={sample.name}
+          type={sample.type}
+          name={sample.name}
+          className="size-6 shrink-0 text-muted-foreground"
+          manifest={manifest}
+        />
+      ))}
+    </span>
   );
 }
 
@@ -134,24 +133,12 @@ const message = (error: unknown) =>
 
 export function IconThemeSettings() {
   const sets = useQuery(trpc.appearance.iconSets.queryOptions());
-  const [choosing, setChoosing] = useState<string | null>(null);
-  const choose = useMutation({
-    mutationFn: (id: string) =>
-      trpcClient.appearance.chooseIcons.mutate({ id }),
-    onMutate: (id) => setChoosing(id),
-    onSettled: () => setChoosing(null),
-    onSuccess: (choice) => {
-      const parsed = IconChoice.parse(choice);
-      if (parsed) {
-        queryClient.setQueryData(iconChoiceQuery.queryKey, parsed);
-        IconChoice.cache(parsed);
-      }
-      void queryClient.invalidateQueries({
-        queryKey: trpc.appearance.iconSets.queryKey(),
-      });
-    },
-  });
-  const chosen = choosing ?? sets.data?.chosen ?? null;
+  // What is being saved; one change at a time.
+  const [pending, setPending] = useState<
+    { kind: "choose"; id: string } | { kind: "remove" } | null
+  >(null);
+  const [chooseError, setChooseError] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   // The set stays named while the dialog closes.
   const [removing, setRemoving] = useState<IconSet | null>(null);
@@ -163,15 +150,43 @@ export function IconThemeSettings() {
       }),
       queryClient.invalidateQueries({ queryKey: iconChoiceQuery.queryKey }),
     ]);
-  const remove = useMutation({
-    mutationFn: (id: string) =>
-      trpcClient.appearance.removeIconSet.mutate({ id }),
-    onSuccess: async () => {
+
+  async function choose(id: string) {
+    setPending({ kind: "choose", id });
+    setChooseError(null);
+    try {
+      const choice = IconChoice.parse(
+        await trpcClient.appearance.chooseIcons.mutate({ id }),
+      );
+      if (choice) {
+        queryClient.setQueryData(iconChoiceQuery.queryKey, choice);
+        IconChoice.cache(choice);
+      }
+      await refresh();
+    } catch (error) {
+      setChooseError(message(error));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function remove(id: string) {
+    setPending({ kind: "remove" });
+    setRemoveError(null);
+    try {
+      await trpcClient.appearance.removeIconSet.mutate({ id });
       setConfirming(false);
       await refresh();
-    },
-  });
-  const busy = choose.isPending || remove.isPending;
+    } catch (error) {
+      setRemoveError(message(error));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  const choosing = pending?.kind === "choose" ? pending.id : null;
+  const chosen = choosing ?? sets.data?.chosen ?? null;
+  const busy = pending !== null;
 
   return (
     <div className="space-y-3">
@@ -217,9 +232,9 @@ export function IconThemeSettings() {
               key={set.id}
               set={set}
               selected={chosen === set.id}
-              busy={choose.isPending && choosing === set.id}
+              busy={choosing === set.id}
               disabled={busy}
-              onChoose={() => choose.mutate(set.id)}
+              onChoose={() => void choose(set.id)}
               actions={
                 set.imported ? (
                   <Button
@@ -230,7 +245,7 @@ export function IconThemeSettings() {
                     aria-label={`Remove ${set.name}`}
                     title={`Remove ${set.name}`}
                     onClick={() => {
-                      remove.reset();
+                      setRemoveError(null);
                       setRemoving(set);
                       setConfirming(true);
                     }}
@@ -243,9 +258,9 @@ export function IconThemeSettings() {
           ))}
         </div>
       )}
-      {choose.isError && (
+      {chooseError && (
         <p role="alert" className="text-pretty text-sm text-destructive">
-          {message(choose.error)}
+          {chooseError}
         </p>
       )}
       <p className="text-pretty text-xs text-muted-foreground">
@@ -304,7 +319,7 @@ export function IconThemeSettings() {
       <AlertDialog
         open={confirming}
         onOpenChange={(open) => {
-          if (!open && !remove.isPending) setConfirming(false);
+          if (!open && pending?.kind !== "remove") setConfirming(false);
         }}
       >
         <AlertDialogContent>
@@ -318,17 +333,17 @@ export function IconThemeSettings() {
               are unchanged.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {remove.isError && (
+          {removeError && (
             <p role="alert" className="text-pretty text-sm text-destructive">
-              {message(remove.error)}
+              {removeError}
             </p>
           )}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={remove.isPending}
+              disabled={pending?.kind === "remove"}
               onClick={() => {
-                if (removing) remove.mutate(removing.id);
+                if (removing) void remove(removing.id);
               }}
             >
               Remove icon set

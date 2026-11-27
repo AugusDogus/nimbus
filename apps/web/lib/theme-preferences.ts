@@ -106,22 +106,16 @@ function resolve(current: ThemePreferences, mode: "light" | "dark") {
   );
 }
 
-const themeId = z.string().check(z.minLength(1), z.maxLength(200));
-/** One change to an account's themes, applied to the server's copy, never a whole replacement. */
-const changeSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("install"),
-    themes: z.array(importedThemeSchema).check(z.minLength(1), z.maxLength(40)),
-  }),
-  z.object({
-    kind: z.literal("select"),
-    appearance: z.enum(["light", "dark"]),
-    id: z.nullable(themeId),
-  }),
-  z.object({ kind: z.literal("remove"), id: themeId }),
-  z.object({ kind: z.literal("reset") }),
-]);
-export type ThemeChange = z.infer<typeof changeSchema>;
+/**
+ * One change to an account's themes, applied to the server's copy, never a whole replacement.
+ * The server validates it (server/appearance/color-themes.ts); pages that load this module
+ * carry no schema for it.
+ */
+export type ThemeChange =
+  | { kind: "install"; themes: VsCodeTheme[] }
+  | { kind: "select"; appearance: "light" | "dark"; id: string | null }
+  | { kind: "remove"; id: string }
+  | { kind: "reset" };
 
 const invalidSelection: ThemeResult<ThemePreferences> = {
   ok: false,
@@ -162,42 +156,6 @@ function apply(
   }
 }
 
-/** The same theme, imported separately: same name, appearance and colors. */
-const sameTheme = (a: VsCodeTheme, b: VsCodeTheme) =>
-  a.name === b.name &&
-  a.appearance === b.appearance &&
-  JSON.stringify(a.colors) === JSON.stringify(b.colors);
-
-/**
- * Folds themes saved in one browser before themes synced into the account's server copy, once.
- * The server's themes and choices win; the browser adds themes the server lacks (up to the
- * limit) and fills a light or dark choice the server has not made.
- */
-function merge(
-  server: ThemePreferences | null,
-  local: ThemePreferences,
-): ThemePreferences {
-  if (server === null) return local;
-  const themes = [...server.themes];
-  for (const theme of local.themes)
-    if (
-      themes.length < 100 &&
-      !themes.some((known) => known.id === theme.id || sameTheme(known, theme))
-    )
-      themes.push(theme);
-  const merged: ThemePreferences = { ...server, themes };
-  for (const mode of ["light", "dark"] as const) {
-    if (server[mode] !== null || local[mode] === null) continue;
-    const wanted = local.themes.find((theme) => theme.id === local[mode]);
-    const kept = wanted
-      ? themes.find((theme) => sameTheme(theme, wanted))
-      : BuiltInThemes.all.find((theme) => theme.id === local[mode]);
-    if (kept) merged[mode] = kept.id;
-  }
-  const checked = schema.safeParse(merged);
-  return checked.success ? checked.data : server;
-}
-
 function css(current: ThemePreferences): string {
   return (["light", "dark"] as const)
     .map((mode) => {
@@ -219,7 +177,5 @@ export const ThemePreferences = {
   resolve,
   css,
   schema,
-  changeSchema,
   apply,
-  merge,
 } as const;

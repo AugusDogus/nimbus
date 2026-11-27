@@ -1,75 +1,98 @@
-import * as z from "zod/mini";
-
 /**
  * A file icon theme as Nimbus serves it: VS Code's associations from names to icons, compiled
  * on the server from the theme's JSON. Each association holds an index into `icons`, whose
  * entries are content-hashed file names served beside the manifest, so every icon URL is
  * immutable. Only what a file list needs is kept: no expanded or root folder variants.
+ *
+ * File pages parse it, so it is checked by hand rather than with a schema library: a manifest
+ * is thousands of entries, and the validator would otherwise ship with every file page.
  */
+export type IconTables = {
+  file?: number;
+  folder?: number;
+  fileNames: Record<string, number>;
+  fileExtensions: Record<string, number>;
+  languageIds: Record<string, number>;
+  folderNames: Record<string, number>;
+};
+
+export type IconManifest = {
+  version: 1;
+  icons: string[];
+  base: IconTables;
+  /** VS Code's `light` overrides, which apply over `base` in the light scheme. */
+  light?: IconTables;
+};
+
 export const maxManifestIcons = 20_000;
 const maxEntries = 50_000;
-const index = z
-  .number()
-  .check(z.int(), z.nonnegative(), z.lt(maxManifestIcons));
-const table = z.record(z.string().check(z.maxLength(256)), index);
-const tables = z.object({
-  file: z.optional(index),
-  folder: z.optional(index),
-  fileNames: table,
-  fileExtensions: table,
-  languageIds: table,
-  folderNames: table,
-});
-export type IconTables = z.infer<typeof tables>;
+const iconName = /^[a-f0-9]{32}\.(svg|png)$/;
+const tableNames = [
+  "fileNames",
+  "fileExtensions",
+  "languageIds",
+  "folderNames",
+] as const;
 
-const schema = z
-  .object({
-    version: z.literal(1),
-    icons: z
-      .array(z.string().check(z.regex(/^[a-f0-9]{32}\.(svg|png)$/)))
-      .check(z.maxLength(maxManifestIcons)),
-    base: tables,
-    /** VS Code's `light` overrides, which apply over `base` in the light scheme. */
-    light: z.optional(tables),
-  })
-  .check(
-    z.superRefine((value, context) => {
-      let entries = 0;
-      for (const part of [value.base, value.light]) {
-        if (!part) continue;
-        const all = [
-          part.file,
-          part.folder,
-          ...Object.values(part.fileNames),
-          ...Object.values(part.fileExtensions),
-          ...Object.values(part.languageIds),
-          ...Object.values(part.folderNames),
-        ];
-        entries += all.length;
-        if (
-          all.some((icon) => icon !== undefined && icon >= value.icons.length)
-        )
-          context.addIssue({ code: "custom", message: "Unknown icon index" });
-      }
-      if (entries > maxEntries)
-        context.addIssue({ code: "custom", message: "Too many associations" });
-    }),
-  );
-export type IconManifest = z.infer<typeof schema>;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
-const emptyTables = (): IconTables => ({
-  fileNames: {},
-  fileExtensions: {},
-  languageIds: {},
-  folderNames: {},
-});
+/** Checks `value` as tables pointing into `icons` icons; counts its entries into `seen`. */
+function parseTables(
+  value: unknown,
+  icons: number,
+  seen: { entries: number },
+): IconTables | null {
+  if (!isRecord(value)) return null;
+  const index = (icon: unknown): icon is number =>
+    typeof icon === "number" &&
+    Number.isInteger(icon) &&
+    icon >= 0 &&
+    icon < icons;
+  const single = (key: "file" | "folder") => {
+    const icon = value[key];
+    return icon === undefined || index(icon);
+  };
+  if (!single("file") || !single("folder")) return null;
+  const tables: IconTables = {
+    fileNames: {},
+    fileExtensions: {},
+    languageIds: {},
+    folderNames: {},
+  };
+  if (typeof value.file === "number") tables.file = value.file;
+  if (typeof value.folder === "number") tables.folder = value.folder;
+  for (const name of tableNames) {
+    const table = value[name];
+    if (!isRecord(table)) return null;
+    const entries = Object.entries(table);
+    seen.entries += entries.length;
+    if (seen.entries > maxEntries) return null;
+    for (const [key, icon] of entries) {
+      if (key.length > 256 || !index(icon)) return null;
+      tables[name][key] = icon;
+    }
+  }
+  return tables;
+}
 
-export const IconManifest = {
-  schema,
-  emptyTables,
-  /** Parses a manifest fetched from the server; null when it is not one. */
-  parse(value: unknown): IconManifest | null {
-    const result = schema.safeParse(value);
-    return result.success ? result.data : null;
-  },
-} as const;
+/** The manifest in `value`, or null when it is not one. */
+function parse(value: unknown): IconManifest | null {
+  if (!isRecord(value) || value.version !== 1) return null;
+  const { icons } = value;
+  if (
+    !Array.isArray(icons) ||
+    icons.length > maxManifestIcons ||
+    !icons.every((icon) => typeof icon === "string" && iconName.test(icon))
+  )
+    return null;
+  const names: string[] = icons.filter((icon) => typeof icon === "string");
+  const seen = { entries: 0 };
+  const base = parseTables(value.base, names.length, seen);
+  if (!base) return null;
+  if (value.light === undefined) return { version: 1, icons: names, base };
+  const light = parseTables(value.light, names.length, seen);
+  return light ? { version: 1, icons: names, base, light } : null;
+}
+
+export const IconManifest = { parse } as const;

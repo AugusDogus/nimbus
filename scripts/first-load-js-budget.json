@@ -1,6 +1,6 @@
 {
-  "/": 370000,
-  "/browse/$": 370000,
+  "/": 370200,
+  "/browse/$": 370200,
   "/login": 129000,
   "/pair": 296000,
   "/r/$token": 134000,
@@ -11,12 +11,12 @@
   "/settings/account": 310000,
   "/settings/admin": 345000,
   "/settings/admin/audit": 300000,
-  "/settings/appearance": 304000,
+  "/settings/appearance": 304500,
   "/settings/libraries": 280000,
   "/settings/mcp": 281000,
   "/settings/webdav": 284000,
   "/shared": 372000,
   "/signup": 129000,
-  "/starred": 366000,
+  "/starred": 366100,
   "/trash": 348000
 }

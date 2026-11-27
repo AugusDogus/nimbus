@@ -5,7 +5,7 @@ import { allowedOrigins } from "@/lib/auth";
 import { ThemePreferences } from "@/lib/theme-preferences";
 import { db } from "../db";
 import { RequestOrigin } from "../request-origin";
-import { ColorThemes } from "./color-themes";
+import { ColorThemes, themeChangeSchema } from "./color-themes";
 import { IconThemeImport } from "../icon-themes/icon-theme-import";
 import {
   IconThemeLibrary,
@@ -79,7 +79,7 @@ export const appearanceRouter = router({
     ColorThemes.get(db, ctx.access.user.id),
   ),
   changeColorThemes: fromNimbusPage
-    .input(ThemePreferences.changeSchema)
+    .input(themeChangeSchema)
     .mutation(({ ctx, input }) => {
       const result = ColorThemes.change(db, ctx.access.user.id, input);
       if (result.ok) return result.value;

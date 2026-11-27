@@ -1,10 +1,68 @@
 import { eq } from "drizzle-orm";
+import * as z from "zod/mini";
 import { ThemePreferences, type ThemeChange } from "@/lib/theme-preferences";
-import type { ThemeResult } from "@/lib/vscode-theme";
+import { BuiltInThemes } from "@/lib/built-in-themes";
+import {
+  importedThemeSchema,
+  type ThemeResult,
+  type VsCodeTheme,
+} from "@/lib/vscode-theme";
 import type { db as database } from "../db";
 import { userAppearance } from "../db/schema";
 
 type Database = typeof database;
+
+const themeId = z.string().check(z.minLength(1), z.maxLength(200));
+/** A change a browser sends, checked here; see `ThemeChange`. */
+export const themeChangeSchema: z.ZodMiniType<ThemeChange> = z.union([
+  z.object({
+    kind: z.literal("install"),
+    themes: z.array(importedThemeSchema).check(z.minLength(1), z.maxLength(40)),
+  }),
+  z.object({
+    kind: z.literal("select"),
+    appearance: z.enum(["light", "dark"]),
+    id: z.nullable(themeId),
+  }),
+  z.object({ kind: z.literal("remove"), id: themeId }),
+  z.object({ kind: z.literal("reset") }),
+]);
+
+/** The same theme, imported separately: same name, appearance and colors. */
+const sameTheme = (a: VsCodeTheme, b: VsCodeTheme) =>
+  a.name === b.name &&
+  a.appearance === b.appearance &&
+  JSON.stringify(a.colors) === JSON.stringify(b.colors);
+
+/**
+ * Folds themes saved in one browser before themes synced into the account's server copy, once.
+ * The server's themes and choices win; the browser adds themes the server lacks (up to the
+ * limit) and fills a light or dark choice the server has not made.
+ */
+export function mergeColorThemes(
+  server: ThemePreferences | null,
+  local: ThemePreferences,
+): ThemePreferences {
+  if (server === null) return local;
+  const themes = [...server.themes];
+  for (const theme of local.themes)
+    if (
+      themes.length < 100 &&
+      !themes.some((known) => known.id === theme.id || sameTheme(known, theme))
+    )
+      themes.push(theme);
+  const merged: ThemePreferences = { ...server, themes };
+  for (const mode of ["light", "dark"] as const) {
+    if (server[mode] !== null || local[mode] === null) continue;
+    const wanted = local.themes.find((theme) => theme.id === local[mode]);
+    const kept = wanted
+      ? themes.find((theme) => sameTheme(theme, wanted))
+      : BuiltInThemes.all.find((theme) => theme.id === local[mode]);
+    if (kept) merged[mode] = kept.id;
+  }
+  const checked = ThemePreferences.schema.safeParse(merged);
+  return checked.success ? checked.data : server;
+}
 
 /**
  * An account's color themes on the server: what it imported and which it chose for light and
@@ -57,14 +115,14 @@ export const ColorThemes = {
       return next;
     });
   },
-  /** Folds a browser's pre-sync themes into the account's copy. See `ThemePreferences.merge`. */
+  /** Folds a browser's pre-sync themes into the account's copy. See `mergeColorThemes`. */
   migrate(
     db: Database,
     userId: string,
     local: ThemePreferences,
   ): ThemePreferences {
     return db.transaction((tx) => {
-      const merged = ThemePreferences.merge(read(tx, userId), local);
+      const merged = mergeColorThemes(read(tx, userId), local);
       write(tx, userId, merged);
       return merged;
     });

@@ -1,35 +1,36 @@
-import * as z from "zod/mini";
-
 /**
  * The icon set an account uses, as the browser needs it: the set's id and its manifest's URL,
  * or no manifest for Nimbus's own icons. Browsers keep the last answer to draw icons at once on
- * the next load, then check it with the server.
+ * the next load, then check it with the server. Parsed by hand: every page's entry reads it,
+ * and no validator ships there.
  */
-const schema = z.object({
-  id: z.string().check(z.minLength(1), z.maxLength(100)),
-  manifest: z.nullable(
-    z
-      .string()
-      .check(
-        z.regex(/^\/api\/icon-themes\/[\w.-]+\/manifest-[a-f0-9]{16}\.json$/),
-      ),
-  ),
-});
-export type IconChoice = z.infer<typeof schema>;
+export type IconChoice = { id: string; manifest: string | null };
 
 export const iconChoiceStorageKey = "nimbus-icon-theme-v1";
 
+const manifestUrl =
+  /^\/api\/icon-themes\/[\w.-]+\/manifest-[a-f0-9]{16}\.json$/;
+
+function parse(value: unknown): IconChoice | null {
+  if (typeof value !== "object" || value === null) return null;
+  const id: unknown = Reflect.get(value, "id");
+  const manifest: unknown = Reflect.get(value, "manifest");
+  return typeof id === "string" &&
+    id.length > 0 &&
+    id.length <= 100 &&
+    (manifest === null ||
+      (typeof manifest === "string" && manifestUrl.test(manifest)))
+    ? { id, manifest }
+    : null;
+}
+
 export const IconChoice = {
-  schema,
-  parse(value: unknown): IconChoice | null {
-    const result = schema.safeParse(value);
-    return result.success ? result.data : null;
-  },
+  parse,
   /** The cached choice in this browser, or null. */
   cached(): IconChoice | null {
     try {
       const raw = localStorage.getItem(iconChoiceStorageKey);
-      return raw === null ? null : IconChoice.parse(JSON.parse(raw));
+      return raw === null ? null : parse(JSON.parse(raw));
     } catch {
       return null;
     }

@@ -19,7 +19,6 @@ import { cn } from "@/lib/utils";
 import { Device } from "@/lib/device";
 import { EntryMenu, EntryMenuHost, type EntryMenuTarget } from "./entry-menu";
 import { EntryRow, type EntryRowHandlers } from "./entry-row";
-import { FileIconsProvider } from "./file-icons";
 import { EditEntryDialog, type EntryDialog } from "./entry-dialogs";
 import { commandFor, typeaheadMatch } from "./entry-keys";
 import { EntryLayout, entryGeometry, type EntrySection } from "./entry-layout";
@@ -563,7 +562,7 @@ export function EntriesView({
     ) : null;
 
   return (
-    <FileIconsProvider>
+    <>
       {dragHint && <DragHint drag={drag} />}
       {dragHint && drag.state.status === "moving" && (
         <p role="status" className="sr-only">
@@ -730,6 +729,6 @@ export function EntriesView({
           />
         )
       )}
-    </FileIconsProvider>
+    </>
   );
 }

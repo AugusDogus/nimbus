@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ColorScheme, useColorScheme } from "@/lib/color-scheme";
 import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,16 +21,55 @@ import {
 } from "@/components/alert-dialog";
 import { CustomThemeStyles } from "@/components/custom-theme-styles";
 import { useThemePreferences } from "@/lib/theme-store";
-import { ColorThemeSync } from "@/lib/color-theme-sync";
-import { ThemePreferences } from "@/lib/theme-preferences";
+import { ThemeOutbox } from "@/lib/theme-outbox";
+import { ThemePreferences, type ThemeChange } from "@/lib/theme-preferences";
 import { VsCodeTheme, type ThemeResult } from "@/lib/vscode-theme";
 import { ThemeSearch } from "./theme-search";
 import { AppearanceModes, ThemeLibrary } from "./theme-library";
-import { IconThemeSettings } from "./icon-theme-settings";
+import { lazyComponent } from "@/components/lazy-component";
+import { CodeLoad } from "@/lib/code-load";
+import { Skeleton } from "@/components/ui/skeleton";
+
+// File icons load after the page: Appearance opens on colors, and its first load stays small.
+const IconThemeSettings = lazyComponent(
+  async () => ({
+    default: (await import("./icon-theme-settings")).IconThemeSettings,
+  }),
+  <Skeleton className="h-56 rounded-xl motion-reduce:animate-none" />,
+);
+
+/**
+ * Saving to the server loads just after the page, so the page opens with less code. The page
+ * starts the load when it mounts, so by the first click the change applies at once.
+ */
+const loadSync = () => CodeLoad.load(() => import("@/lib/color-theme-sync"));
+
+async function change(
+  update: ThemeChange,
+): Promise<ThemeResult<ThemePreferences>> {
+  // Applied and queued before anything is awaited: see ThemeOutbox.
+  const staged = ThemeOutbox.stage(update);
+  if (!staged.ok) return staged;
+  try {
+    const { ColorThemeSync } = await loadSync();
+    return await ColorThemeSync.send(staged.value);
+  } catch {
+    return {
+      ok: false,
+      error:
+        "Nimbus could not load the code that saves themes to your account. The change applies in this browser and is saved the next time Nimbus loads.",
+    };
+  }
+}
 
 type Confirmation = { type: "remove"; theme: VsCodeTheme } | { type: "reset" };
 
 export function ThemeSettings() {
+  useEffect(() => {
+    loadSync().catch(() => {
+      // The first change tries again and reports the failure where it happens.
+    });
+  }, []);
   const { scheme: mode, setScheme } = useColorScheme();
   const snapshot = useThemePreferences();
   const input = useRef<HTMLInputElement>(null);
@@ -44,7 +83,7 @@ export function ThemeSettings() {
 
   async function choose(appearance: "light" | "dark", id: string | null) {
     setError(null);
-    const result = await ColorThemeSync.change({
+    const result = await change({
       kind: "select",
       appearance,
       id,
@@ -56,7 +95,7 @@ export function ThemeSettings() {
   async function install(
     themes: VsCodeTheme[],
   ): Promise<ThemeResult<ThemePreferences>> {
-    const result = await ColorThemeSync.change({ kind: "install", themes });
+    const result = await change({ kind: "install", themes });
     if (result.ok) setError(null);
     return result;
   }
@@ -100,9 +139,9 @@ export function ThemeSettings() {
   async function confirm() {
     const result =
       confirmation?.type === "reset"
-        ? await ColorThemeSync.change({ kind: "reset" })
+        ? await change({ kind: "reset" })
         : confirmation?.type === "remove"
-          ? await ColorThemeSync.change({
+          ? await change({
               kind: "remove",
               id: confirmation.theme.id,
             })

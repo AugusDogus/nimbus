@@ -1,14 +1,29 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { TRPCClientError } from "@trpc/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FieldLabel } from "@/components/ui/field";
 import { trpcClient } from "@/lib/trpc";
-import { cn } from "@/lib/utils";
 
 type Imported = { added: { id: string; name: string }[]; skipped: string[] };
+type Extension = {
+  namespace: string;
+  name: string;
+  version: string;
+  displayName: string;
+  description: string | null;
+};
+type SearchState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; extensions: Extension[] }
+  | { status: "error"; error: string };
+type ImportState =
+  | { status: "idle" }
+  | { status: "importing"; namespace: string; name: string }
+  | { status: "done"; imported: Imported }
+  | { status: "error"; error: string };
 
 const message = (error: unknown) =>
   error instanceof TRPCClientError
@@ -27,16 +42,34 @@ export function IconThemeSearch({
   disabled: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const search = useMutation({
-    mutationFn: (text: string) =>
-      trpcClient.appearance.searchIconSets.query({ query: text }),
-  });
-  const install = useMutation({
-    mutationFn: (extension: { namespace: string; name: string }) =>
-      trpcClient.appearance.importIconSets.mutate(extension),
-    onSuccess: onImported,
-  });
-  const installing = install.isPending ? install.variables : null;
+  const [search, setSearch] = useState<SearchState>({ status: "idle" });
+  const [install, setInstall] = useState<ImportState>({ status: "idle" });
+  const importing = install.status === "importing";
+
+  async function find(text: string) {
+    setSearch({ status: "loading" });
+    setInstall({ status: "idle" });
+    try {
+      const extensions = await trpcClient.appearance.searchIconSets.query({
+        query: text,
+      });
+      setSearch({ status: "ready", extensions });
+    } catch (error) {
+      setSearch({ status: "error", error: message(error) });
+    }
+  }
+
+  async function add(extension: { namespace: string; name: string }) {
+    setInstall({ status: "importing", ...extension });
+    try {
+      const imported =
+        await trpcClient.appearance.importIconSets.mutate(extension);
+      setInstall({ status: "done", imported });
+      onImported(imported);
+    } catch (error) {
+      setInstall({ status: "error", error: message(error) });
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -57,7 +90,7 @@ export function IconThemeSearch({
         className="flex items-end gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          if (query.trim()) search.mutate(query.trim());
+          if (query.trim()) void find(query.trim());
         }}
       >
         <div className="min-w-0 flex-1 space-y-2">
@@ -77,26 +110,29 @@ export function IconThemeSearch({
           type="submit"
           variant="tertiary"
           disabled={
-            disabled || !query.trim() || search.isPending || install.isPending
+            disabled ||
+            !query.trim() ||
+            search.status === "loading" ||
+            importing
           }
         >
           Search
         </Button>
       </form>
-      {search.isPending && (
+      {search.status === "loading" && (
         <div role="status" className="space-y-2">
           <span className="sr-only">Searching Open VSX…</span>
           <Skeleton className="h-16 motion-reduce:animate-none" />
           <Skeleton className="h-16 motion-reduce:animate-none" />
         </div>
       )}
-      {search.isError && (
+      {search.status === "error" && (
         <p role="alert" className="text-pretty text-sm text-destructive">
-          {message(search.error)}
+          {search.error}
         </p>
       )}
-      {search.isSuccess &&
-        (search.data.length === 0 ? (
+      {search.status === "ready" &&
+        (search.extensions.length === 0 ? (
           <p
             role="status"
             className="text-pretty text-sm text-muted-foreground"
@@ -108,11 +144,12 @@ export function IconThemeSearch({
             aria-label="Icon themes on Open VSX"
             className="max-h-80 space-y-2 overflow-y-auto"
           >
-            {search.data.map((extension) => {
+            {search.extensions.map((extension) => {
               const id = `${extension.namespace}.${extension.name}`;
               const busy =
-                installing?.namespace === extension.namespace &&
-                installing.name === extension.name;
+                install.status === "importing" &&
+                install.namespace === extension.namespace &&
+                install.name === extension.name;
               return (
                 <li
                   key={id}
@@ -135,9 +172,9 @@ export function IconThemeSearch({
                     variant="tertiary"
                     size="compact"
                     aria-label={`Add ${extension.displayName}`}
-                    disabled={disabled || install.isPending}
+                    disabled={disabled || importing}
                     onClick={() =>
-                      install.mutate({
+                      void add({
                         namespace: extension.namespace,
                         name: extension.name,
                       })
@@ -150,17 +187,16 @@ export function IconThemeSearch({
             })}
           </ul>
         ))}
-      {(install.isError || install.isSuccess) && (
-        <p
-          role={install.isError ? "alert" : "status"}
-          className={cn(
-            "text-pretty text-sm",
-            install.isError ? "text-destructive" : "text-muted-foreground",
-          )}
-        >
-          {install.isError
-            ? message(install.error)
-            : `Added ${install.data.added.map((set) => set.name).join(", ")}.${install.data.skipped.length ? ` Skipped: ${install.data.skipped.join(" ")}` : ""}`}
+      {install.status === "error" && (
+        <p role="alert" className="text-pretty text-sm text-destructive">
+          {install.error}
+        </p>
+      )}
+      {install.status === "done" && (
+        <p role="status" className="text-pretty text-sm text-muted-foreground">
+          {`Added ${install.imported.added.map((set) => set.name).join(", ")}.`}
+          {install.imported.skipped.length > 0 &&
+            ` Skipped: ${install.imported.skipped.join(" ")}`}
         </p>
       )}
     </div>
