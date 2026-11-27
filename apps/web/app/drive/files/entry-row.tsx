@@ -1,4 +1,4 @@
-import { Check, FileText, Folder } from "lucide-react";
+import { Check } from "lucide-react";
 import { Arrivals } from "./arrivals";
 import { FolderLink } from "./folder-link";
 import {
@@ -14,6 +14,7 @@ const classes = (...values: (string | false)[]) =>
   values.filter(Boolean).join(" ");
 import { EntryActionsButton, openMenuAt } from "./entry-menu";
 import { EntryThumbnail } from "./entry-thumbnail";
+import { EntryIcon } from "./file-icons";
 import { FileEntry } from "./types";
 import type { useFileActions } from "./use-file-actions";
 import { EntryShape } from "./entry-shape";
@@ -98,7 +99,6 @@ export const EntryRow = memo(function EntryRow({
   width,
   renderName,
 }: Props) {
-  const Icon = entry.type === "dir" ? Folder : FileText;
   // Handlers resolve at event time: the view's handlers do not exist during server rendering.
   const drag = !canDrag
     ? { draggable: false }
@@ -137,10 +137,11 @@ export const EntryRow = memo(function EntryRow({
     <>
       {view === "list" ? (
         <span className={EntryShape.listIcon}>
-          <Icon
+          <EntryIcon
+            type={entry.type}
+            name={entry.name}
             className={classes(
               "size-5 text-muted-foreground transition-opacity duration-150",
-              entry.type === "dir" && "fill-muted",
               selected || selectionActive
                 ? "opacity-0"
                 : "pointer-fine:group-hover/entry:opacity-0",
@@ -157,11 +158,10 @@ export const EntryRow = memo(function EntryRow({
             entry={entry}
             fill
             fallback={
-              <Icon
-                className={classes(
-                  "size-10 shrink-0 text-muted-foreground",
-                  entry.type === "dir" && "fill-muted",
-                )}
+              <EntryIcon
+                type={entry.type}
+                name={entry.name}
+                className="size-10 shrink-0 text-muted-foreground"
               />
             }
             className={EntryShape.cardPicture}

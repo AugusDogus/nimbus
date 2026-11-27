@@ -6,6 +6,8 @@ import { trpc } from "@/lib/trpc";
 import { sessionQuery, type SignedIn } from "@/lib/session-query";
 import { prefsQueryOptions } from "@/app/drive/files/use-file-preferences";
 import { inlineJson, readInlineJson } from "@/lib/inline-json";
+import { IconChoice } from "@/lib/icon-choice";
+import { iconChoiceQuery } from "@/lib/icon-choice-query";
 
 type Me = inferRouterOutputs<WebRouter>["access"]["me"];
 
@@ -18,6 +20,8 @@ export type Bootstrap = {
   session?: SignedIn;
   prefs?: UserPreferences;
   me?: Me;
+  /** The account's file icon set, on file pages. */
+  icons?: IconChoice;
 };
 
 export const bootstrapElementId = "nimbus-bootstrap";
@@ -86,5 +90,10 @@ export const Bootstrap = {
     if (prefs) queryClient.setQueryData(prefsQueryOptions.queryKey, prefs);
     const me = parseMe(value.me);
     if (me) queryClient.setQueryData(trpc.access.me.queryKey(), me);
+    const icons = IconChoice.parse(value.icons);
+    if (icons) {
+      queryClient.setQueryData(iconChoiceQuery.queryKey, icons);
+      IconChoice.cache(icons);
+    }
   },
 } as const;

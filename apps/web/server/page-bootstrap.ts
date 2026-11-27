@@ -81,9 +81,10 @@ export const PageBootstrap = {
       };
     if (kind !== "files")
       return { kind: "page", data: { session }, requests: [], folder: false };
-    const [prefs, me] = await Promise.all([
+    const [prefs, me, icons] = await Promise.all([
       caller.prefs.get(),
       caller.access.me(),
+      caller.appearance.icons(),
     ]);
     const { pathname, search } = new URL(request.url);
     // Where an account starts is answered here, so the page never shows the wrong folder first.
@@ -100,7 +101,7 @@ export const PageBootstrap = {
     const folder = folderOf(pathname);
     return {
       kind: "page",
-      data: { session, prefs, me },
+      data: { session, prefs, me, icons },
       folder: folder !== null,
       requests:
         folder === null

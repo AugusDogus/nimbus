@@ -79,6 +79,16 @@ export const ColorScheme = {
   },
 } as const;
 
+const resolved = (): "light" | "dark" => {
+  const scheme = read();
+  return scheme === "system" ? systemScheme() : scheme;
+};
+
+/** The scheme on screen, `system` resolved, kept in step like `useColorScheme`. */
+export function useResolvedColorScheme() {
+  return useSyncExternalStore(subscribe, resolved, () => "light" as const);
+}
+
 /** The chosen color scheme, kept in step with other tabs and the operating system. */
 export function useColorScheme() {
   // A page the server renders cannot know the choice; the browser corrects it after hydration.

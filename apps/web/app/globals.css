@@ -740,3 +740,72 @@ html.transitioning *::after {
     animation: none;
   }
 }
+
+/* Tints of Nimbus's own file icons, by category (lib/file-category.ts). */
+:root {
+  --file-pdf: oklch(0.56 0.19 27);
+  --file-doc: oklch(0.55 0.15 255);
+  --file-text: oklch(0.52 0.03 250);
+  --file-markdown: oklch(0.5 0.03 250);
+  --file-sheet: oklch(0.55 0.14 150);
+  --file-slides: oklch(0.62 0.16 55);
+  --file-archive: oklch(0.62 0.13 80);
+  --file-code: oklch(0.55 0.16 295);
+  --file-web: oklch(0.55 0.12 200);
+  --file-config: oklch(0.55 0.05 250);
+  --file-settings: oklch(0.52 0.04 250);
+  --file-shell: oklch(0.55 0.1 190);
+  --file-patch: oklch(0.55 0.13 145);
+  --file-audio: oklch(0.58 0.17 350);
+  --file-video: oklch(0.55 0.17 315);
+  --file-subtitles: oklch(0.55 0.03 250);
+  --file-image: oklch(0.56 0.13 170);
+  --file-design: oklch(0.56 0.19 340);
+  --file-vector: oklch(0.62 0.16 45);
+  --file-model: oklch(0.56 0.12 205);
+  --file-disk: oklch(0.55 0.02 250);
+  --file-package: oklch(0.55 0.08 60);
+  --file-font: oklch(0.55 0.08 40);
+  --file-key: oklch(0.62 0.13 95);
+  --file-locked: oklch(0.6 0.13 90);
+  --file-database: oklch(0.56 0.11 215);
+  --file-book: oklch(0.52 0.15 275);
+  --file-map: oklch(0.55 0.13 140);
+  --file-binary: oklch(0.52 0.02 250);
+  --file-game: oklch(0.55 0.16 300);
+  --file-link: oklch(0.52 0.03 250);
+}
+
+.dark {
+  --file-pdf: oklch(0.72 0.15 27);
+  --file-doc: oklch(0.74 0.12 255);
+  --file-text: oklch(0.74 0.03 250);
+  --file-markdown: oklch(0.74 0.03 250);
+  --file-sheet: oklch(0.74 0.13 150);
+  --file-slides: oklch(0.78 0.13 60);
+  --file-archive: oklch(0.8 0.11 85);
+  --file-code: oklch(0.74 0.13 295);
+  --file-web: oklch(0.76 0.1 200);
+  --file-config: oklch(0.74 0.04 250);
+  --file-settings: oklch(0.74 0.04 250);
+  --file-shell: oklch(0.76 0.09 190);
+  --file-patch: oklch(0.76 0.12 145);
+  --file-audio: oklch(0.75 0.13 350);
+  --file-video: oklch(0.72 0.14 315);
+  --file-subtitles: oklch(0.74 0.03 250);
+  --file-image: oklch(0.76 0.11 170);
+  --file-design: oklch(0.74 0.15 340);
+  --file-vector: oklch(0.78 0.13 50);
+  --file-model: oklch(0.76 0.1 205);
+  --file-disk: oklch(0.74 0.02 250);
+  --file-package: oklch(0.76 0.07 65);
+  --file-font: oklch(0.75 0.07 50);
+  --file-key: oklch(0.82 0.12 95);
+  --file-locked: oklch(0.82 0.11 90);
+  --file-database: oklch(0.76 0.1 215);
+  --file-book: oklch(0.72 0.13 275);
+  --file-map: oklch(0.76 0.12 140);
+  --file-binary: oklch(0.72 0.02 250);
+  --file-game: oklch(0.74 0.13 300);
+  --file-link: oklch(0.72 0.03 250);
+}
