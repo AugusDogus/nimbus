@@ -159,10 +159,8 @@ function start(event: PointerEvent, button: HTMLElement, target: PressTarget) {
     event.pointerType !== "touch" ||
     !event.isPrimary ||
     area === null ||
-    SplitRoom.mode(
-      SplitRoom.contentWidth(area),
-      AppFrame.SidebarChoice.fromCookie(document.cookie).width,
-    ) !== "swipe"
+    SplitRoom.mode(SplitRoom.contentWidth(area), AppFrame.sidebarRem * 16) !==
+      "swipe"
   )
     return;
   const controller = new AbortController();
