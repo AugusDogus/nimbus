@@ -152,18 +152,58 @@ describe.skipIf(!ffmpeg)("video thumbnails (requires ffmpeg)", () => {
       ]);
       expect(made.exitCode).toBe(0);
       const output = sharp(await videoRenderer(ffmpeg ?? "")(file, signal()));
+      // The frame's own shape, with no letterboxing: a preview sizes its poster from it.
       expect(await output.metadata()).toMatchObject({
         format: "webp",
         width: 256,
-        height: 256,
+        height: 144,
       });
-      // Letterboxing is transparent, so a 16:9 frame leaves clear bars.
       const { data } = await output
         .ensureAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
-      expect(data[3]).toBe(0);
-      expect(data[(128 * 256 + 128) * 4 + 3]).toBe(255);
+      expect(data[3]).toBe(255);
+      expect(data[data.byteLength - 1]).toBe(255);
+    });
+
+  // Shown as a player shows them: stretched by their pixel shape, turned by their rotation.
+  for (const [name, input, output, size] of [
+    [
+      "anamorphic.mp4",
+      ["-vf", "setsar=64/45"],
+      [],
+      { width: 256, height: 144 },
+    ],
+    [
+      "rotated.mp4",
+      [],
+      ["-display_rotation", "90"],
+      { width: 144, height: 256 },
+    ],
+  ] as const)
+    test(`keeps the displayed shape of ${name}`, async () => {
+      const plain = path.join(root, `plain-${name}`);
+      const file = path.join(root, name);
+      const run = (args: readonly string[]) =>
+        Bun.spawnSync([ffmpeg ?? "", "-v", "error", "-y", ...args]).exitCode;
+      expect(
+        run([
+          "-f",
+          "lavfi",
+          "-i",
+          `testsrc=size=${name === "anamorphic.mp4" ? "720x576" : "640x360"}:rate=10:duration=2`,
+          ...input,
+          "-c:v",
+          "mpeg4",
+          plain,
+        ]),
+      ).toBe(0);
+      expect(run([...output, "-i", plain, "-c", "copy", file])).toBe(0);
+      expect(
+        await sharp(
+          await videoRenderer(ffmpeg ?? "")(file, signal()),
+        ).metadata(),
+      ).toMatchObject(size);
     });
 
   test("fails on input that is not a video", async () => {

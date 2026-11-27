@@ -37,7 +37,11 @@ export type ThumbnailRenderer = (
 type RendererKind = "image" | "pdf" | "video";
 
 export const THUMBNAIL_SIZE = 256;
-const FORMAT_VERSION = 1;
+/**
+ * Bumped per kind when its thumbnails are drawn differently, so cached ones and ETags are
+ * replaced. Video 2: the frame's own shape, no longer letterboxed into a square.
+ */
+const formatVersion = (kind: FileKind) => (kind.type === "video" ? 2 : 1);
 // Matches the decoded-pixel bound used before this module; about 160 MB of RGBA.
 export const MAX_INPUT_PIXELS = 40_000_000;
 /** How long a file whose render timed out shows its generic icon before one more try. */
@@ -45,11 +49,11 @@ const timeoutRetryMs = 10 * 60 * 1000;
 
 /** Content-addressed: changes whenever the file's path, mtime or size do. */
 export function thumbnailTag(
-  source: Pick<ThumbnailSource, "relative" | "mtimeMs" | "size">,
+  source: Pick<ThumbnailSource, "relative" | "mtimeMs" | "size" | "kind">,
 ) {
   return createHash("sha256")
     .update(
-      `${FORMAT_VERSION}\0${source.relative}\0${source.mtimeMs}\0${source.size}`,
+      `${formatVersion(source.kind)}\0${source.relative}\0${source.mtimeMs}\0${source.size}`,
     )
     .digest("hex");
 }

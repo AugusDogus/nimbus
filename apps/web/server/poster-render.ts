@@ -12,7 +12,7 @@ import {
   PdfRenderFailed,
   PdfRenderUnavailable,
 } from "./pdf-render";
-import { videoFrame } from "./thumbnail-renderers";
+import { paddedSize, videoFrame } from "./thumbnail-renderers";
 import {
   createLimiter,
   MAX_INPUT_PIXELS,
@@ -117,16 +117,6 @@ const masterBytes = (POSTER_MAX.width + 2) * (POSTER_MAX.height + 1) * 4;
 /** The frame's display width alone, as one row. Wider sources are refused. */
 const widthFilter = "scale=w='round(iw*sar)':h=1";
 const widthBytes = 65_536 * 4;
-
-/** The size of a raw RGBA frame ending each row with one transparent pixel, or null. */
-function paddedSize(raw: Uint8Array): Dimensions | null {
-  let width = 0;
-  while (width * 4 + 3 < raw.byteLength && raw[width * 4 + 3] !== 0) width++;
-  const rowBytes = (width + 1) * 4;
-  if (width === 0 || width * 4 + 3 >= raw.byteLength) return null;
-  if (raw.byteLength % rowBytes !== 0) return null;
-  return { width, height: raw.byteLength / rowBytes };
-}
 
 const fits = (size: Dimensions) =>
   size.width <= POSTER_MAX.width && size.height <= POSTER_MAX.height;

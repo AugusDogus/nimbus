@@ -103,7 +103,17 @@ export const pdfRenderer =
       ),
     );
 
-const FRAME_BYTES = THUMBNAIL_SIZE * THUMBNAIL_SIZE * 4;
+/** The size of a raw RGBA frame ending each row with one transparent pixel, or null. */
+export function paddedSize(
+  raw: Uint8Array,
+): { width: number; height: number } | null {
+  let width = 0;
+  while (width * 4 + 3 < raw.byteLength && raw[width * 4 + 3] !== 0) width++;
+  const rowBytes = (width + 1) * 4;
+  if (width === 0 || width * 4 + 3 >= raw.byteLength) return null;
+  if (raw.byteLength % rowBytes !== 0) return null;
+  return { width, height: raw.byteLength / rowBytes };
+}
 
 /**
  * One raw RGBA frame `seconds` into a video, through `filter`, from a single-threaded FFmpeg
@@ -175,6 +185,21 @@ export const videoFrame = (
     signal,
   );
 
+/**
+ * The frame at its display shape (square pixels, turned by its rotation, which FFmpeg applies
+ * itself), fit inside the thumbnail square. A preview shows it as the video's poster at the
+ * video's own proportions. Made opaque, then given one transparent column on the right: the raw
+ * output has no header, and that column marks where each row ends.
+ */
+const thumbnailFilter = [
+  "scale=w='round(iw*sar)':h=ih",
+  "setsar=1",
+  `scale=w=${THUMBNAIL_SIZE}:h=${THUMBNAIL_SIZE}:force_original_aspect_ratio=decrease`,
+  "format=rgb24",
+  "format=rgba",
+  "pad=w=iw+1:h=ih:x=0:y=0:color=black@0",
+].join(",");
+
 const frameAt = (
   ffmpeg: string,
   absolute: string,
@@ -185,9 +210,8 @@ const frameAt = (
     ffmpeg,
     absolute,
     seconds,
-    // Transparent letterboxing keeps the output size fixed and exact.
-    `scale=${THUMBNAIL_SIZE}:${THUMBNAIL_SIZE}:force_original_aspect_ratio=decrease,format=rgba,pad=${THUMBNAIL_SIZE}:${THUMBNAIL_SIZE}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1`,
-    FRAME_BYTES,
+    thumbnailFilter,
+    (THUMBNAIL_SIZE + 1) * THUMBNAIL_SIZE * 4,
     signal,
   );
 
@@ -195,17 +219,19 @@ const frameAt = (
 export const videoRenderer =
   (ffmpeg: string): ThumbnailRenderer =>
   async (absolute, signal) => {
-    let frame = await frameAt(ffmpeg, absolute, 1, signal);
+    let raw = await frameAt(ffmpeg, absolute, 1, signal);
     // Clips shorter than a second have no frame at 1s.
-    if (frame.byteLength !== FRAME_BYTES)
-      frame = await frameAt(ffmpeg, absolute, 0, signal);
-    if (frame.byteLength !== FRAME_BYTES)
+    if (raw.byteLength === 0) raw = await frameAt(ffmpeg, absolute, 0, signal);
+    const frame = paddedSize(raw);
+    if (!frame)
       throw new Error(
-        `FFmpeg produced ${frame.byteLength} bytes instead of one ${THUMBNAIL_SIZE}px frame.`,
+        `FFmpeg produced ${raw.byteLength} bytes of no frame size instead of one frame within ${THUMBNAIL_SIZE}px.`,
       );
-    return sharp(frame, {
-      raw: { width: THUMBNAIL_SIZE, height: THUMBNAIL_SIZE, channels: 4 },
+    return sharp(raw, {
+      raw: { width: frame.width + 1, height: frame.height, channels: 4 },
     })
+      .extract({ left: 0, top: 0, ...frame })
+      .removeAlpha()
       .webp({ quality: 75 })
       .toBuffer();
   };

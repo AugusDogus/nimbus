@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -41,6 +42,14 @@ test("tags change when the path, modification time or size change", () => {
   expect(thumbnailTag(a)).not.toBe(thumbnailTag(source("a.png", 2)));
   expect(thumbnailTag(a)).not.toBe(thumbnailTag({ ...a, size: 11 }));
   expect(thumbnailTag(a)).not.toBe(thumbnailTag(source("b.png")));
+});
+
+test("replaces letterboxed video thumbnails and keeps every other cached one", () => {
+  const firstFormat = (name: string) =>
+    createHash("sha256").update(`1\0${name}\x001\x0010`).digest("hex");
+  expect(thumbnailTag(source("a.png"))).toBe(firstFormat("a.png"));
+  expect(thumbnailTag(source("a.pdf"))).toBe(firstFormat("a.pdf"));
+  expect(thumbnailTag(source("a.mkv"))).not.toBe(firstFormat("a.mkv"));
 });
 
 test("renders once, then serves the cached file", async () => {
