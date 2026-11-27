@@ -970,7 +970,7 @@ test("closes during a move, which reports when it finishes without closing what 
   void moveToSibling(dialog, top, "archive");
   await moves.requested;
   await expect(dialog.getByRole("status")).toContainText(
-    "The move goes on if you close this",
+    "Closing this lets it go on.",
   );
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();

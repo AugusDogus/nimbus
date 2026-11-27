@@ -486,7 +486,9 @@ export function transferredOf(outcome: TransferOutcome) {
     throw new Error(
       outcome.kind === "clash"
         ? `Expected the item to be transferred, but its name “${outcome.name}” was taken.`
-        : `Expected the item to be transferred, but its outcome is not known: ${outcome.message}`,
+        : outcome.kind === "cancelled"
+          ? "Expected the item to be transferred, but its transfer was cancelled."
+          : `Expected the item to be transferred, but its outcome is not known: ${outcome.message}`,
     );
   return outcome;
 }

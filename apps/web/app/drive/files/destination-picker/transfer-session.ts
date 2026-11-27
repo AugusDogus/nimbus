@@ -15,13 +15,14 @@ type Open =
 
 /**
  * An item the session will not transfer again: its name was taken and skipped, it was there
- * already, or Nimbus could not learn whether its transfer was carried out. Trying that one
- * again could transfer it twice.
+ * already, Nimbus could not learn whether its transfer was carried out (trying that one again
+ * could transfer it twice), or the person cancelled the transfer before it changed.
  */
 type Settled =
   | { kind: "skipped"; destination: string; clash: TransferClash }
   | { kind: "already-there"; destination: string; source: FileEntry }
-  | { kind: "unconfirmed"; destination: string; source: FileEntry };
+  | { kind: "unconfirmed"; destination: string; source: FileEntry }
+  | { kind: "cancelled"; destination: string; source: FileEntry };
 
 /**
  * Everything one picker did, across every destination it was pointed at. Items that reached a
@@ -81,6 +82,11 @@ function record(
     })),
     ...result.unconfirmed.map((source): Settled => ({
       kind: "unconfirmed",
+      destination,
+      source,
+    })),
+    ...result.cancelled.map((source): Settled => ({
+      kind: "cancelled",
       destination,
       source,
     })),
@@ -167,6 +173,7 @@ function results(session: TransferSession): TransferResult[] {
         failed: [],
         alreadyThere: [],
         unconfirmed: [],
+        cancelled: [],
       },
     ]),
   );
@@ -183,6 +190,7 @@ function results(session: TransferSession): TransferResult[] {
     if (item.kind === "skipped") result?.skipped.push(item.clash);
     else if (item.kind === "already-there")
       result?.alreadyThere.push(item.source);
+    else if (item.kind === "cancelled") result?.cancelled.push(item.source);
     else result?.unconfirmed.push(item.source);
   }
   return [...byDestination.values()].filter(
@@ -192,7 +200,8 @@ function results(session: TransferSession): TransferResult[] {
         result.skipped.length +
         result.failed.length +
         result.alreadyThere.length +
-        result.unconfirmed.length >
+        result.unconfirmed.length +
+        result.cancelled.length >
       0,
   );
 }

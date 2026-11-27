@@ -41,6 +41,7 @@ import { FilesystemCapacity } from "./filesystem-capacity";
 import { driveUsage } from "./search-service";
 import { TransferReceipt } from "./transfer-receipt";
 import { VacantPath } from "./vacant-path";
+import { TransferCancel, TransferCancelledError } from "./transfer-cancel";
 
 import {
   publishFileEvent,
@@ -119,6 +120,11 @@ const transferInput = z.object({
    * the item the first free numbered name, as "report (1).txt". Nothing is ever replaced.
    */
   clash: z.enum(["refuse", "keep-both"]).optional(),
+  /**
+   * The transfer this item belongs to, an id the client chose for all of its items, so
+   * `cancelTransfer` can stop those not yet carried out.
+   */
+  transfer: z.uuid().optional(),
 });
 
 /** What a move or copy of one item did: transferred it, or found its name taken. */
@@ -132,7 +138,9 @@ export type TransferOutcome =
   /** `suggestion`: the first numbered name free in the destination when it was checked. */
   | { kind: "clash"; name: string; suggestion: string }
   /** It changed on disk, but something after that failed: what carried over is not known. */
-  | { kind: "unknown"; message: string };
+  | { kind: "unknown"; message: string }
+  /** Its transfer was cancelled before it changed: it is where it was, as it was. */
+  | { kind: "cancelled" };
 
 const joinPath = (folder: string, name: string) =>
   folder ? `${folder}/${name}` : name;
@@ -186,10 +194,12 @@ async function transferInto(options: {
   isFile: boolean;
   clash: "refuse" | "keep-both";
   attempt: (target: string) => Promise<{ path: string; identity: string }>;
+  signal: AbortSignal | undefined;
 }): Promise<TransferOutcome> {
   for (let index = 0; ; index++) {
     const name = numberedName(options.name, index, options.isFile);
     const target = joinPath(options.destination, name);
+    if (options.signal?.aborted) return { kind: "cancelled" };
     try {
       // A copy never lands on its own source: that name is taken by the source itself.
       if (target === options.source) throw new NameTakenError();
@@ -207,6 +217,7 @@ async function transferInto(options: {
         }),
       };
     } catch (error) {
+      if (error instanceof TransferCancelledError) return { kind: "cancelled" };
       if (error instanceof PartwayError) {
         console.error(
           `The ${options.operation} of ${options.source} to ${target} failed partway.`,
@@ -445,17 +456,25 @@ export const appRouter = router({
             message:
               "This item is already in that folder under that name, so nothing was moved. Choose another folder or name.",
           });
-        return transferInto({
-          operation: "move",
-          actor: ctx.access.user.id,
-          source: source.relative,
-          destination: destination.relative,
-          name,
-          isFile: existing.stats.isFile(),
-          clash: input.clash ?? "refuse",
-          attempt: (target) =>
-            moveItem(ctx.drive, ctx.access, source.relative, target),
-        });
+        return TransferCancel.within(
+          ctx.access.user.id,
+          input.transfer,
+          (signal) =>
+            transferInto({
+              operation: "move",
+              actor: ctx.access.user.id,
+              source: source.relative,
+              destination: destination.relative,
+              name,
+              isFile: existing.stats.isFile(),
+              clash: input.clash ?? "refuse",
+              attempt: (target) =>
+                moveItem(ctx.drive, ctx.access, source.relative, target, {
+                  signal,
+                }),
+              signal,
+            }),
+        );
       }),
     copy: protectedProcedure
       .input(transferInput)
@@ -470,17 +489,35 @@ export const appRouter = router({
         await requireFolder(into.relative);
         // Keep both on a name clash by default, as uploads do. Copying into the item's own
         // folder duplicates it.
-        return transferInto({
-          operation: "copy",
-          actor: ctx.access.user.id,
-          source: source.relative,
-          destination: into.relative,
-          name: input.name ?? path.posix.basename(source.relative),
-          isFile: source.stats.isFile(),
-          clash: input.clash ?? "keep-both",
-          attempt: (target) =>
-            copyItem(ctx.drive, ctx.access, source.relative, target),
-        });
+        return TransferCancel.within(
+          ctx.access.user.id,
+          input.transfer,
+          (signal) =>
+            transferInto({
+              operation: "copy",
+              actor: ctx.access.user.id,
+              source: source.relative,
+              destination: into.relative,
+              name: input.name ?? path.posix.basename(source.relative),
+              isFile: source.stats.isFile(),
+              clash: input.clash ?? "keep-both",
+              attempt: (target) =>
+                copyItem(ctx.drive, ctx.access, source.relative, target, {
+                  signal,
+                }),
+              signal,
+            }),
+        );
+      }),
+    /**
+     * Stop a move or copy sent as `transfer` (see `transferInput`): items of it waiting their
+     * turn, still being copied, or sent later answer `cancelled` and stay as they are. Items
+     * already carried out stay transferred, and their answers say so.
+     */
+    cancelTransfer: protectedProcedure
+      .input(z.object({ transfer: z.uuid() }))
+      .mutation(({ ctx, input }) => {
+        TransferCancel.cancel(ctx.access.user.id, input.transfer);
       }),
     /**
      * Undo moves and copies from their receipts, one after another, each checked again as of

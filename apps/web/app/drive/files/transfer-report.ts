@@ -28,7 +28,7 @@ function merge(earlier: TransferResult, later: TransferResult): TransferResult {
     ...[...later.transferred, ...later.clashes, ...later.failed].map(
       (item) => item.source.path,
     ),
-    ...later.unconfirmed.map((item) => item.path),
+    ...[...later.unconfirmed, ...later.cancelled].map((item) => item.path),
   ]);
   const keep = <T extends { source: FileEntry }>(items: readonly T[]) =>
     items.filter((item) => !retried.has(item.source.path));
@@ -38,6 +38,10 @@ function merge(earlier: TransferResult, later: TransferResult): TransferResult {
     clashes: [...keep(earlier.clashes), ...later.clashes],
     failed: [...keep(earlier.failed), ...later.failed],
     unconfirmed: [...earlier.unconfirmed, ...later.unconfirmed],
+    cancelled: [
+      ...earlier.cancelled.filter((item) => !retried.has(item.path)),
+      ...later.cancelled,
+    ],
   };
 }
 
@@ -73,6 +77,12 @@ function unconfirmedPart(result: TransferResult, place: string) {
     : `Nimbus could not confirm whether “${only.name}” ${verb.one}. Check ${place}.`;
 }
 
+/** "Cancelled: 24 items were not moved.": what a cancel left as it was, or null when nothing. */
+function cancelledPart(operation: TransferResult["operation"], n: number) {
+  if (n === 0) return null;
+  return `Cancelled: ${count(n)} ${n === 1 ? "was" : "were"} not ${verbs[operation].none}.`;
+}
+
 /**
  * A summary for a toast: "Moved 3 items to Archive.", "Copied “a.txt” to Archive as
  * “a (1).txt”.", or with failures "Moved 2 of 3 items to Archive. “b.txt”: reason". The
@@ -85,7 +95,8 @@ function describe(result: TransferResult, top = "") {
     result.transferred.length +
     result.clashes.length +
     result.failed.length +
-    result.unconfirmed.length;
+    result.unconfirmed.length +
+    result.cancelled.length;
   const done = result.transferred.length;
   const [stayed, ...alsoStayed] = result.alreadyThere;
   const skipped = `${
@@ -126,13 +137,22 @@ function describe(result: TransferResult, top = "") {
     } as const;
   }
   const unsure = unconfirmedPart(result, place);
+  if (done === 0 && result.cancelled.length === total)
+    return {
+      ok: true,
+      message: `Cancelled. Nothing was ${verb.none} to ${place}.${skipped}`,
+    } as const;
   // Nothing is said to have stayed while some items may have moved.
   const head = done
     ? `${verb.done} ${done.toLocaleString()} of ${count(total)} to ${place}.`
     : unsure
       ? ""
       : `Nothing was ${verb.none} to ${place}.`;
-  const parts = [(head + skipped).trim(), unsure ?? ""].filter(Boolean);
+  const parts = [
+    (head + skipped).trim(),
+    unsure ?? "",
+    cancelledPart(result.operation, result.cancelled.length) ?? "",
+  ].filter(Boolean);
   const [clash, ...otherClashes] = result.clashes;
   if (clash)
     parts.push(
@@ -149,7 +169,11 @@ function describe(result: TransferResult, top = "") {
           : ""
       }`,
     );
-  return { ok: false, message: parts.join(" ") } as const;
+  // Items left as they were by a cancel are as the person asked: nothing else went wrong.
+  return {
+    ok: !result.failed.length && !result.clashes.length && !unsure,
+    message: parts.join(" "),
+  } as const;
 }
 
 /** What the report's actions do in the page that made the transfer. */
@@ -245,7 +269,8 @@ function describeAll(results: readonly TransferResult[], top = "") {
   const skipped = sum((result) => result.skipped);
   const already = sum((result) => result.alreadyThere);
   const unsure = sum((result) => result.unconfirmed);
-  const total = done + failed + clashes + unsure;
+  const cancelled = sum((result) => result.cancelled);
+  const total = done + failed + clashes + unsure + cancelled;
   const reached = results.filter((result) => result.transferred.length);
   const [onlyReached] = reached;
   const where =
@@ -283,6 +308,8 @@ function describeAll(results: readonly TransferResult[], top = "") {
     parts.push(
       `${count(already)} ${already === 1 ? "was" : "were"} already there.`,
     );
+  const stopped = cancelledPart(first.operation, cancelled);
+  if (stopped) parts.push(stopped);
   return {
     ok: !failed && !clashes && !unsure,
     message: parts.join(" "),
@@ -325,6 +352,9 @@ function sections(
         ),
         ...result.alreadyThere.map(
           (item) => `“${item.name}”: already in ${place}.`,
+        ),
+        ...result.cancelled.map(
+          (item) => `“${item.name}”: not ${verb.none}, as you cancelled.`,
         ),
       ],
     };
@@ -397,6 +427,7 @@ function show(results: readonly TransferResult[], handlers: ReportHandlers) {
       failed: [],
       alreadyThere: [],
       unconfirmed: [],
+      cancelled: [],
     };
     actions.push({
       label: onlyClashing.clashes.length === 1 ? "Rename…" : "Choose…",

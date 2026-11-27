@@ -11,6 +11,14 @@ type Running = {
   destination: string | null;
   /** Whether something on screen already shows it, such as the picker that sent it. */
   watched: () => boolean;
+  /**
+   * How to stop it: running, which can be cancelled; cancelled, finishing the items already
+   * under way; or one that cannot be cancelled, such as an Undo.
+   */
+  stop:
+    | { kind: "cancellable"; cancel: () => void }
+    | { kind: "cancelled" }
+    | { kind: "uncancellable" };
   since: number;
 };
 
@@ -29,6 +37,8 @@ const count = (n: number) =>
 function describe(listed: readonly Running[]) {
   const [only, ...others] = listed;
   if (!only) return "";
+  if (listed.every((entry) => entry.stop.kind === "cancelled"))
+    return "Cancelling… Items already under way finish first.";
   if (others.length) {
     const items = listed.reduce(
       (total, entry) => total + entry.items.length,
@@ -51,7 +61,31 @@ function refresh() {
     (entry) => now - entry.since >= after && !entry.watched(),
   );
   if (listed.length) {
-    toast.loading(describe(listed), entryId);
+    const cancellable = listed.flatMap((entry) =>
+      entry.stop.kind === "cancellable" ? [entry.stop] : [],
+    );
+    toast.loading(
+      describe(listed),
+      entryId,
+      cancellable.length
+        ? {
+            actions: [
+              {
+                label: "Cancel",
+                run: () => {
+                  for (const entry of listed)
+                    if (entry.stop.kind === "cancellable") {
+                      const { cancel } = entry.stop;
+                      entry.stop = { kind: "cancelled" };
+                      cancel();
+                    }
+                  refresh();
+                },
+              },
+            ],
+          }
+        : undefined,
+    );
     shown = true;
   } else if (shown) {
     dismissToast(entryId);
@@ -67,12 +101,25 @@ function refresh() {
  * Transfers and Undos sent and not yet answered, shown in one "Moving 3 items to Archive…"
  * entry once one has run for a second with nothing else on screen saying so, as when its
  * picker was closed or it came from a drop or a menu. However long a request takes (a large
- * copy can take minutes), something says it is under way until its report replaces it.
+ * copy can take minutes), something says it is under way until its report replaces it. Its
+ * Cancel stops every transfer it lists that can be stopped.
  */
 export const RunningTransfers = {
-  /** List `entry` while it runs; call the returned function once it has its answer. */
-  start(entry: Omit<Running, "since">): () => void {
-    const listed: Running = { ...entry, since: Date.now() };
+  /**
+   * List `entry` while it runs, cancellable through `cancel` when given; call the returned
+   * function once it has its answer.
+   */
+  start({
+    cancel,
+    ...entry
+  }: Omit<Running, "since" | "stop"> & { cancel?: () => void }): () => void {
+    const listed: Running = {
+      ...entry,
+      stop: cancel
+        ? { kind: "cancellable", cancel }
+        : { kind: "uncancellable" },
+      since: Date.now(),
+    };
     running.add(listed);
     // A picker closing, or a second passing, changes what is shown: checked twice a second.
     ticking ??= setInterval(refresh, 500);

@@ -38,7 +38,9 @@ export type TransferOutcome =
       receipt: TransferReceipt;
     }
   | { kind: "clash"; name: string; suggestion: string }
-  | { kind: "unknown"; message: string };
+  | { kind: "unknown"; message: string }
+  /** The person cancelled the transfer before this item changed. */
+  | { kind: "cancelled" };
 
 /** What a move or copy of several items did to each one. */
 export type TransferResult = {
@@ -56,6 +58,8 @@ export type TransferResult = {
    * learned later: Nimbus does not know whether they moved.
    */
   unconfirmed: FileEntry[];
+  /** Items the person cancelled the transfer before: they are where they were, unchanged. */
+  cancelled: FileEntry[];
 };
 
 /** Errors that do not say the request was refused: it may still have been carried out. */
@@ -79,7 +83,11 @@ export const outcomeUnknown = (error: unknown) => {
 };
 
 /**
- * Transfer every item, a bounded number at a time (see `BulkResult.each`). An item the server
+ * Transfer every item, a bounded number at a time (see `BulkResult.each`), as one transfer the
+ * server knows by the id `transfer` is given. Cancelling it, from the entry that lists it
+ * running or through `signal`, sends no further items and asks the server to stop those it has
+ * not carried out yet (`cancel`); each such item is `cancelled`, and what was carried out stays
+ * transferred, with its receipt for Undo. An item the server
  * did not explicitly refuse, but did not answer for either, such as one whose answer was lost
  * or that failed partway, is not counted as failed, since it may have been carried out: it is
  * `unconfirmed`, and never sent again. Nothing could report the transfer, or offer its Undo,
@@ -90,17 +98,23 @@ async function run(
   operation: TransferOperation,
   destination: string,
   items: readonly FileEntry[],
-  transfer: (item: FileEntry) => Promise<TransferOutcome>,
+  transfer: (item: FileEntry, transfer: string) => Promise<TransferOutcome>,
   {
     hold = () => () => undefined,
     watched = () => false,
     concurrency = 16,
+    signal,
+    cancel = async () => undefined,
   }: {
     /** Holds the page while the transfer runs; returns what releases it (see `LeaveGuard`). */
     hold?: () => () => void;
     /** Whether something on screen shows the transfer running (see `RunningTransfers`). */
     watched?: () => boolean;
     concurrency?: number;
+    /** Cancels the transfer once aborted, as the picker's Cancel does while it runs. */
+    signal?: AbortSignal;
+    /** Asks the server to stop the transfer `transfer` (see `files.cancelTransfer`). */
+    cancel?: (transfer: string) => Promise<unknown>;
   } = {},
 ): Promise<TransferResult> {
   const result: TransferResult = {
@@ -112,21 +126,43 @@ async function run(
     failed: [],
     alreadyThere: [],
     unconfirmed: [],
+    cancelled: [],
   };
+  const id = crypto.randomUUID();
+  const stop = new AbortController();
+  const stopAll = () => {
+    if (stop.signal.aborted) return;
+    stop.abort();
+    // Should this request fail, the items already sent are carried out, and reported so.
+    cancel(id).catch((error: unknown) =>
+      console.error(
+        `Nimbus could not ask the server to stop transfer ${id}.`,
+        error,
+      ),
+    );
+  };
+  if (signal?.aborted) stopAll();
+  signal?.addEventListener("abort", stopAll, { once: true });
   const release = hold();
   const finish = RunningTransfers.start({
     verb: operation === "move" ? "Moving" : "Copying",
     items,
     destination,
     watched,
+    cancel: stopAll,
   });
   try {
     await BulkResult.each(
       items,
       async (source) => {
+        if (stop.signal.aborted) {
+          result.cancelled.push(source);
+          return;
+        }
         try {
-          const outcome = await transfer(source);
+          const outcome = await transfer(source, id);
           if (outcome.kind === "unknown") result.unconfirmed.push(source);
+          else if (outcome.kind === "cancelled") result.cancelled.push(source);
           else if (outcome.kind === "clash")
             result.clashes.push({
               source,
@@ -149,6 +185,7 @@ async function run(
       concurrency,
     );
   } finally {
+    signal?.removeEventListener("abort", stopAll);
     finish();
     release();
   }

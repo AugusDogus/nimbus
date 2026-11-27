@@ -4,7 +4,7 @@ import {
   toast as toastManager,
   useToastManager,
 } from "@/components/ui/toast";
-import { connectToasts } from "@/lib/toast";
+import { connectToasts, type ToastAction } from "@/lib/toast";
 
 /**
  * Whether a modal dialog or drawer covers the page, keeping toasts out of reach: every one is
@@ -58,7 +58,9 @@ function HoldWhileCovered() {
  * it comes back in front of them. Those it displaces return once it is gone.
  */
 function KeepWorkInView() {
-  const { toasts, add, close } = useToastManager();
+  const { toasts, add, close } = useToastManager<{
+    actions?: readonly ToastAction[];
+  }>();
   useEffect(() => {
     for (const shown of toasts)
       if (
@@ -67,9 +69,14 @@ function KeepWorkInView() {
         shown.transitionStatus !== "ending"
       ) {
         close(shown.id);
-        // Added again under the same id, it replaces the closing one, newest first. Work
-        // under way offers no actions, so it carries no data.
-        add({ id: shown.id, title: shown.title, type: shown.type });
+        // Added again under the same id, it replaces the closing one, newest first, with its
+        // actions, such as Cancel.
+        add({
+          id: shown.id,
+          title: shown.title,
+          type: shown.type,
+          data: shown.data,
+        });
       }
   }, [toasts, add, close]);
   return null;
@@ -83,7 +90,8 @@ function ConnectToasts() {
         ({ actions, ...request }) => {
           // An error may be the only place that says what failed: it stays until closed, and
           // screen readers announce it at once. A toast offering an action such as Undo stays
-          // long enough to reach it: ten seconds. Every toast's time is paused while the
+          // long enough to reach it: ten seconds. Work under way, which may offer Cancel, stays
+          // until it ends. Every toast's time is paused while the
           // toasts are hovered or focused or the window is in the background, and held while
           // a dialog covers the page (see `HoldWhileCovered`), Details included.
           toastManager.add({
@@ -91,7 +99,7 @@ function ConnectToasts() {
             data: { actions },
             ...(request.type === "error"
               ? { timeout: 0, priority: "high" }
-              : actions
+              : actions && request.type !== "loading"
                 ? { timeout: 10_000 }
                 : {}),
           });

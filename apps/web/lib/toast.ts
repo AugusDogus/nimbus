@@ -52,9 +52,12 @@ export const toast = Object.assign(
       add({ title, type: "success", ...options }),
     error: (title: ReactNode, options?: ToastOptions) =>
       add({ title, type: "error", ...options }),
-    /** Something still under way, under `id`, until another toast with it or `dismissToast`. */
-    loading: (title: ReactNode, id: string) =>
-      add({ title, type: "loading", id }),
+    /**
+     * Something still under way, under `id`, until another toast with it or `dismissToast`,
+     * with `actions` such as Cancel.
+     */
+    loading: (title: ReactNode, id: string, options?: ToastOptions) =>
+      add({ title, type: "loading", id, ...options }),
   },
 );
 

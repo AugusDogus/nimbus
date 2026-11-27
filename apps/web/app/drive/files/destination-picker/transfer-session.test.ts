@@ -36,6 +36,7 @@ const result = (
   failed: [],
   alreadyThere: [],
   unconfirmed: [],
+  cancelled: [],
   ...parts,
 });
 const moved = (source: FileEntry, destination: string) => {

@@ -49,6 +49,7 @@ const moved: TransferResult = {
   skipped: [],
   alreadyThere: [],
   unconfirmed: [],
+  cancelled: [],
   failed: [],
 };
 
@@ -128,6 +129,7 @@ describe("TransferUndo", () => {
       skipped: [],
       alreadyThere: [],
       unconfirmed: [],
+      cancelled: [],
       failed: [],
     };
     expect(

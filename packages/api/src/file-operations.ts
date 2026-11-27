@@ -35,6 +35,7 @@ import {
   type ReceiptRefusal,
 } from "./transfer-receipt";
 import { VacantPath } from "./vacant-path";
+import { TransferCancel } from "./transfer-cancel";
 
 export async function safePath(requested: string) {
   try {
@@ -134,6 +135,11 @@ export type ExistingDestination = "refuse" | "replace";
 export type TransferOptions = {
   lockTokens?: MutationCredentials["lockTokens"];
   existing?: ExistingDestination;
+  /**
+   * Aborts once the person cancels the transfer this item belongs to (see `TransferCancel`):
+   * the item then stops with `TransferCancelledError` unless it has changed on disk already.
+   */
+  signal?: AbortSignal;
 };
 /** What happened to an existing destination: none existed, a file's content was replaced, or it went to trash. */
 type Replacement =
@@ -346,6 +352,8 @@ async function stageCopy(
   source: { relative: string; absolute: string; stats: Stats },
   staging: string,
   depth: CopyDepth,
+  /** Stops the copy before its next folder or file; one being copied finishes first. */
+  signal: AbortSignal | undefined,
 ) {
   if (!source.stats.isDirectory()) {
     await DriveFile.copy(source.absolute, staging, copyMode);
@@ -357,6 +365,7 @@ async function stageCopy(
   while (pending.length) {
     const directory = pending.shift();
     if (directory === undefined) break;
+    TransferCancel.check(signal);
     const files: { from: string; to: string }[] = [];
     for (const entry of await readDirectory(directory, access)) {
       if (!access.can(entry.path, "read")) continue;
@@ -379,7 +388,8 @@ async function stageCopy(
     const copyNext = async () => {
       for (let index = next++; index < files.length; index = next++) {
         const file = files[index];
-        if (!file) continue;
+        // Every worker stops at its next file, so none writes once the copy has given up.
+        if (!file || signal?.aborted) return;
         try {
           // Listed as a plain file, but opened without following a symlink swapped in since.
           await DriveFile.copy(file.from, file.to, copyMode);
@@ -398,6 +408,7 @@ async function stageCopy(
       Array.from({ length: Math.min(copyConcurrency, files.length) }, copyNext),
     );
   }
+  TransferCancel.check(signal);
 }
 
 /** `0` copies a folder without its contents (RFC 4918, section 9.8.3). */
@@ -436,11 +447,20 @@ export async function copyItem(
   // However long the copy takes, maintenance must not clean its staging meanwhile.
   const release = Staging.hold(staging);
   try {
-    await stageCopy(access, source, staging, options.depth ?? "infinity");
+    TransferCancel.check(options.signal);
+    await stageCopy(
+      access,
+      source,
+      staging,
+      options.depth ?? "infinity",
+      options.signal,
+    );
     return await mutateFiles(
       [target.relative],
       { userId: access.user.id, lockTokens: options.lockTokens },
       async () => {
+        // The last point where a cancel leaves no copy: the staged one is removed below.
+        TransferCancel.check(options.signal);
         const current = await getAccess(store, access.user.id);
         current.require(source.relative, "read");
         current.require(target.relative, "write");
@@ -672,15 +692,18 @@ export async function moveItem(
   return mutateFiles(
     [source.relative, target.relative],
     { userId: access.user.id, lockTokens: options.lockTokens },
-    async () =>
-      moveUnlocked(
+    async () => {
+      // Checked once its turn comes: a move is one rename, never stopped halfway.
+      TransferCancel.check(options.signal);
+      return moveUnlocked(
         store,
         await getAccess(store, access.user.id),
         source.relative,
         target.relative,
         options.existing ?? "refuse",
         trashId,
-      ),
+      );
+    },
     { trash: [trashId] },
   );
 }

@@ -364,19 +364,29 @@ export function DestinationPicker({
         : TransferSession.start(operation, entries),
     ),
   );
+  /** Cancels the transfer running now, if any: what the picker's Cancel does meanwhile. */
+  const running = useRef<AbortController | null>(null);
   /** Transfer `items`, which are open in the session, and record what the server answered. */
-  const transfer = (
+  const transfer = async (
     items: readonly FileEntry[],
     to: string,
     options: Parameters<typeof actions.transferEntries>[3],
-  ) =>
-    held.run(() =>
-      actions.transferEntries(operation, items, to, {
-        ...options,
-        // Shown running in the picker while it is open; listed elsewhere once it closes.
-        watched: () => mounted.current,
-      }),
-    );
+  ) => {
+    const controller = new AbortController();
+    running.current = controller;
+    try {
+      return await held.run(() =>
+        actions.transferEntries(operation, items, to, {
+          ...options,
+          // Shown running in the picker while it is open; listed elsewhere once it closes.
+          watched: () => mounted.current,
+          signal: controller.signal,
+        }),
+      );
+    } finally {
+      if (running.current === controller) running.current = null;
+    }
+  };
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
@@ -426,6 +436,11 @@ export function DestinationPicker({
   const settle = (result: TransferResult) => {
     if (!mounted.current) return;
     setPending(TransferSession.pending(held.current()));
+    // Cancelled: what arrived stays, and the report offers its Undo.
+    if (result.cancelled.length) {
+      onClose();
+      return;
+    }
     if (result.clashes.length) {
       setPhase({ kind: "clashes", result });
       return;
@@ -536,7 +551,7 @@ export function DestinationPicker({
 
   const status = (() => {
     if (busy)
-      return `The ${operation} goes on if you close this, and Nimbus reports when it is done.`;
+      return `Cancel stops the ${operation}; what is done stays, with Undo. Closing this lets it go on.`;
     if (browsed === null) return "Choose a folder to open it.";
     if (capability.isError)
       return trpcErrorCode(capability.error) === "NOT_FOUND"
@@ -916,7 +931,10 @@ export function DestinationPicker({
           </p>
         )}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="tertiary" disabled={busy} onClick={onClose}>
+          <Button
+            variant="tertiary"
+            onClick={() => (busy ? running.current?.abort() : onClose())}
+          >
             Cancel
           </Button>
           <Button

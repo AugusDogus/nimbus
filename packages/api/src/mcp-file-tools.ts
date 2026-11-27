@@ -577,6 +577,13 @@ const move = defineTool({
         code: "INTERNAL_SERVER_ERROR",
         message: outcome.message,
       });
+    // Only a request naming a transfer can be cancelled, and these name none.
+    if (outcome.kind === "cancelled")
+      throw new TRPCError({
+        code: "CLIENT_CLOSED_REQUEST",
+        message:
+          "The transfer was cancelled before the item changed. Nothing was moved.",
+      });
     return { path: outcome.path };
   },
 });
@@ -607,6 +614,13 @@ const copy = defineTool({
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
         message: outcome.message,
+      });
+    // Only a request naming a transfer can be cancelled, and these name none.
+    if (outcome.kind === "cancelled")
+      throw new TRPCError({
+        code: "CLIENT_CLOSED_REQUEST",
+        message:
+          "The transfer was cancelled before the item changed. Nothing was copied.",
       });
     return { path: outcome.path };
   },

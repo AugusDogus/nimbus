@@ -192,6 +192,8 @@ export function useFileActions({
         names?: ReadonlyMap<string, string>;
         /** Whether something on screen shows it running, such as the picker that sent it. */
         watched?: () => boolean;
+        /** Cancels the transfer once aborted (see `TransferResult.run`). */
+        signal?: AbortSignal;
       } = {},
     ) => {
       const items = FileEntry.outermost(entries);
@@ -211,6 +213,7 @@ export function useFileActions({
           })),
           alreadyThere: [],
           unconfirmed: [],
+          cancelled: [],
         } satisfies TransferResult;
       const [{ TransferResult }] = code;
       // Items already in the destination stay as they are, and the result says so; the
@@ -222,14 +225,21 @@ export function useFileActions({
         operation,
         destinationPath,
         moving,
-        (entry) =>
+        (entry, transfer) =>
           trpcClient.files[operation].mutate({
             sourcePath: entry.path,
             destinationPath,
             name: options.names?.get(entry.path),
             clash: options.clash,
+            transfer,
           }),
-        { hold: LeaveGuard.hold, watched: options.watched },
+        {
+          hold: LeaveGuard.hold,
+          watched: options.watched,
+          signal: options.signal,
+          cancel: (transfer) =>
+            trpcClient.files.cancelTransfer.mutate({ transfer }),
+        },
       );
       return { ...result, alreadyThere: staying };
     },
@@ -302,7 +312,12 @@ export function useFileActions({
         destinationPath,
         operation === "copy" ? { clash: "refuse" } : {},
       );
-      if (result.clashes.length && clashes.current?.(result)) {
+      // A cancelled transfer is reported as it stands: the person asked it to stop.
+      if (
+        result.clashes.length &&
+        !result.cancelled.length &&
+        clashes.current?.(result)
+      ) {
         invalidateFileQueries();
         return result;
       }

@@ -220,6 +220,7 @@ describe("a report of several destinations", () => {
     failed: [],
     alreadyThere: [],
     unconfirmed: [],
+    cancelled: [],
     ...parts,
   });
 
@@ -343,6 +344,7 @@ describe("a retry whose outcome is not known", () => {
       failed: [],
       alreadyThere: [],
       unconfirmed: [],
+      cancelled: [],
     };
     const merged = TransferReport.merge(earlier, {
       ...earlier,
@@ -404,5 +406,70 @@ describe("a transfer whose answers are lost", () => {
     expect(TransferReport.describe(result).message).toBe(
       "Nimbus could not confirm whether “a.txt” was copied. Check archive.",
     );
+  });
+});
+
+describe("a cancelled transfer", () => {
+  it("sends no further items, asks the server to stop the rest, and keeps what arrived", async () => {
+    const items = ["a.txt", "b.txt", "c.txt", "d.txt"].map((name) =>
+      entry(name),
+    );
+    const controller = new AbortController();
+    const stopped: string[] = [];
+    const sent: string[] = [];
+    const result = await TransferResult.run(
+      "move",
+      "archive",
+      items,
+      async (item, transfer) => {
+        sent.push(item.name);
+        // The server refuses an item it had not carried out when the transfer was cancelled.
+        if (stopped.includes(transfer)) return { kind: "cancelled" };
+        if (item.name === "b.txt") controller.abort();
+        const to = `archive/${item.name}`;
+        return {
+          kind: "transferred",
+          name: item.name,
+          path: to,
+          receipt: receipt(item.path, to),
+        };
+      },
+      {
+        concurrency: 1,
+        signal: controller.signal,
+        cancel: async (transfer) => {
+          stopped.push(transfer);
+        },
+      },
+    );
+    expect(stopped).toHaveLength(1);
+    expect(sent).toEqual(["a.txt", "b.txt"]);
+    expect(result.transferred.map((item) => item.source.name)).toEqual([
+      "a.txt",
+      "b.txt",
+    ]);
+    expect(result.cancelled.map((item) => item.name)).toEqual([
+      "c.txt",
+      "d.txt",
+    ]);
+    expect(TransferReport.describe(result)).toEqual({
+      ok: true,
+      message:
+        "Moved 2 of 4 items to archive. Cancelled: 2 items were not moved.",
+    });
+  });
+
+  it("counts an item the server stopped as cancelled, not failed", async () => {
+    const result = await TransferResult.run(
+      "copy",
+      "archive",
+      [entry("a.txt")],
+      async () => ({ kind: "cancelled" }),
+    );
+    expect(result.cancelled).toEqual([entry("a.txt")]);
+    expect(TransferReport.describe(result)).toEqual({
+      ok: true,
+      message: "Cancelled. Nothing was copied to archive.",
+    });
   });
 });

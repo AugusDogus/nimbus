@@ -12,7 +12,10 @@ import os from "node:os";
 import path from "node:path";
 import { getAccess } from "./access";
 import type { DriveStore } from "./drive-store";
-import { copyItem, type CopyOptions } from "./file-operations";
+import { randomUUID } from "node:crypto";
+import { copyItem, moveItem, type CopyOptions } from "./file-operations";
+import type { Permission } from "./drive-store";
+import { TransferCancelledError } from "./transfer-cancel";
 import { lockFile, forgetFileMutationsForTest } from "./file-mutations";
 import { appRouter } from "./routers";
 import { createTestDriveStore } from "./testing";
@@ -283,5 +286,96 @@ describe("copying files and folders", () => {
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     expect(await readdir(path.join(root, "archive"))).toEqual([]);
+  });
+
+  it("stops a cancelled copy before its next file, leaving no copy and no staged files", async () => {
+    const access = await getAccess(memory.store, "user-1");
+    const controller = new AbortController();
+    // Cancelled once the copy reaches the nested folder's files: "first.txt" is staged by then.
+    const cancelling = {
+      ...access,
+      can: (requested: string, permission: Permission) => {
+        if (requested === "docs/nested/deep.txt") controller.abort();
+        return access.can(requested, permission);
+      },
+    };
+    await expect(
+      copyItem(memory.store, cancelling, "docs", "archive/docs", {
+        signal: controller.signal,
+      }),
+    ).rejects.toBeInstanceOf(TransferCancelledError);
+    expect(await readdir(path.join(root, "archive"))).toEqual([]);
+    expect(await readdir(path.join(root, ".nimbus/uploads"))).toEqual([]);
+    expect(await readFile(path.join(root, "docs/first.txt"), "utf8")).toBe(
+      "first",
+    );
+  });
+
+  it("answers cancelled for every item of a cancelled transfer, also those sent later, and copies the rest", async () => {
+    const transfer = randomUUID();
+    expect(
+      await caller().files.copy({
+        sourcePath: "docs/first.txt",
+        destinationPath: "archive",
+        transfer,
+      }),
+    ).toMatchObject({ kind: "transferred", path: "archive/first.txt" });
+    await caller().files.cancelTransfer({ transfer });
+    expect(
+      await caller().files.copy({
+        sourcePath: "docs/nested",
+        destinationPath: "archive",
+        transfer,
+      }),
+    ).toEqual({ kind: "cancelled" });
+    expect(await readdir(path.join(root, "archive"))).toEqual(["first.txt"]);
+    // Another account's transfer of the same id is its own.
+    memory.grants.set("write-root", {
+      id: "write-root",
+      subject: { type: "user", id: "reader" },
+      path: "",
+      permission: "write",
+    });
+    expect(
+      await caller("reader").files.copy({
+        sourcePath: "docs/nested",
+        destinationPath: "archive",
+        transfer,
+      }),
+    ).toMatchObject({ kind: "transferred", path: "archive/nested" });
+  });
+
+  it("leaves the items of a cancelled move where they are", async () => {
+    const transfer = randomUUID();
+    await caller().files.cancelTransfer({ transfer });
+    expect(
+      await caller().files.move({
+        sourcePath: "docs/first.txt",
+        destinationPath: "archive",
+        transfer,
+      }),
+    ).toEqual({ kind: "cancelled" });
+    expect(await readdir(path.join(root, "archive"))).toEqual([]);
+    expect(await readFile(path.join(root, "docs/first.txt"), "utf8")).toBe(
+      "first",
+    );
+  });
+
+  it("changes nothing for a move whose transfer was cancelled before its turn came", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      moveItem(
+        memory.store,
+        await getAccess(memory.store, "user-1"),
+        "docs/first.txt",
+        "docs/renamed.txt",
+        { signal: controller.signal },
+      ),
+    ).rejects.toBeInstanceOf(TransferCancelledError);
+    expect((await readdir(path.join(root, "docs"))).sort()).toEqual([
+      "first.txt",
+      "nested",
+    ]);
   });
 });
