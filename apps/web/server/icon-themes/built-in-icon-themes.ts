@@ -76,7 +76,8 @@ const developmentRoot = path.join(
 /** The `material-icon-theme` package as the archive layout the compiler reads. */
 async function packageFiles(root: string): Promise<Map<string, Uint8Array>> {
   const files = new Map<string, Uint8Array>();
-  for (const relative of await readdir(root, { recursive: true })) {
+  // Sorted, so every build writes the same manifest and browsers keep their cached copy.
+  for (const relative of (await readdir(root, { recursive: true })).sort()) {
     const name = `extension/${relative.split(path.sep).join("/")}`;
     if (!keptFile(name)) continue;
     const absolute = path.join(root, relative);
