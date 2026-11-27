@@ -16,7 +16,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { flushSync } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import type { UserPreferences } from "@nimbus/api/context";
@@ -72,47 +71,17 @@ import { ActivePane } from "./split/active-pane";
 
 export function FilesPageClient() {
   const left = useFolderPath();
-  const addressed = useSplitLayout();
+  const layout = useSplitLayout();
   const navigate = useNavigate();
   // The address says which pane is active whenever it changes; between, a swipe or a tap has
   // shown its pane first (see `ActivePane`).
   useLayoutEffect(() => {
-    ActivePane.set(addressed?.active ?? null);
-  }, [
-    addressed?.active,
-    addressed?.right,
-    addressed?.ratio,
-    addressed?.collapsed,
-    left,
-  ]);
-  // A split a finger on Split prepares out of sight before its address is written, which it is
-  // only if the press taps (see `SplitPress`).
-  const [held, setHeld] = useState<SplitLayout | null>(null);
-  if (held && addressed) setHeld(null);
-  const layout = addressed ?? held;
-  const frameRef = useRef<HTMLDivElement>(null);
+    ActivePane.set(layout?.active ?? null);
+  }, [layout?.active, layout?.right, layout?.ratio, layout?.collapsed, left]);
   const alone = useMemo<SplitControl>(
     () => ({
       kind: "closed",
       open: (right) => openSplit(navigate, left, right),
-      press: (event, button) => {
-        const frame = frameRef.current;
-        const code = SplitCode.current();
-        if (!frame || !code) return;
-        code.SplitPress.start(event, button, {
-          frame,
-          left,
-          hold: (layout) => flushSync(() => setHeld(layout)),
-          open: (layout) =>
-            void code.openSplit({
-              navigate,
-              left,
-              right: null,
-              planned: layout,
-              entrance: false,
-            }),
-        });
-      },
     }),
     [navigate, left],
   );
@@ -123,6 +92,7 @@ export function FilesPageClient() {
   const split = layout && code ? published : null;
   const first = split?.first.kind === "folder" ? split.first : null;
   // The frame as state too: a controller that mounts with the page measures it once it exists.
+  const frameRef = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
   const attachFrame = useCallback((element: HTMLDivElement | null) => {
     frameRef.current = element;
@@ -142,15 +112,15 @@ export function FilesPageClient() {
     <>
       <HeaderTools>
         <SplitToggle
-          open={addressed !== null}
+          open={layout !== null}
           onToggle={() =>
-            addressed
+            layout
               ? void navigate({
                   href: fileHref(
                     SplitLayout.pathOf(
                       left,
-                      addressed,
-                      ActivePane.get() ?? addressed.active,
+                      layout,
+                      ActivePane.get() ?? layout.active,
                     ),
                   ),
                 })
@@ -588,7 +558,6 @@ export const FolderPane = memo(function FolderPane({
           <AloneFolderTools
             filters={folderFilters(prefs, updatePreferences)}
             onSplit={() => split.open(null)}
-            onSplitPress={split.press}
           />
         ) : (
           <FiltersRow {...folderFilters(prefs, updatePreferences)} />

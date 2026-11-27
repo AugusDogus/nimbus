@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import sharp from "sharp";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { FileListing } from "@nimbus/api/file-listing";
 import { SplitRoom } from "../app/drive/files/split-room";
@@ -634,22 +633,6 @@ async function tapEdge(page: Page, side: "left" | "right") {
   await page.touchscreen.tap(side === "right" ? width - 10 : 10, 400);
 }
 
-/** A screenshot's pixels, to compare two by colour rather than by their encoding. */
-const pixels = (png: Buffer) => sharp(png).raw().toBuffer();
-
-/**
- * How many of a screenshot's pixels differ from `before` by more than 2 of 255 in any channel:
- * past what the same page drawn on another layer may round differently.
- */
-async function changed(before: Buffer, png: Buffer) {
-  const after = await pixels(png);
-  if (after.length !== before.length) return Number.POSITIVE_INFINITY;
-  let count = 0;
-  for (let i = 0; i < before.length; i++)
-    if (Math.abs((before[i] ?? 0) - (after[i] ?? 0)) > 2) count++;
-  return count;
-}
-
 /** Whether the pane's card is the one in the window. */
 const inView = (pane: Locator) =>
   pane.evaluate((element) => {
@@ -892,95 +875,6 @@ test.describe("split view on a phone", () => {
     } finally {
       await rpc.prefs.set.mutate(prefs);
     }
-  });
-
-  test("a finger on Split prepares the split out of sight: its tap moves in the next frame, and a press that slides off leaves nothing", async ({
-    page,
-  }) => {
-    const { root } = await seed(page);
-    await page.goto(`/browse/${root}/Projects`);
-    await expect(entry(page.locator("main"), "Client Alpha")).toBeVisible();
-    // The split's code comes in once the page has settled.
-    await expect
-      .poll(() =>
-        page.evaluate(() =>
-          performance
-            .getEntriesByType("resource")
-            .some((resource) => resource.name.includes("split-view")),
-        ),
-      )
-      .toBe(true);
-    await page.waitForTimeout(200);
-    const box = await page
-      .getByRole("button", { name: "Split", exact: true })
-      .boundingBox();
-    if (!box) throw new Error("No Split button");
-    const at = {
-      x: Math.round(box.x + box.width / 2),
-      y: Math.round(box.y + box.height / 2),
-    };
-    const cdp = await page.context().newCDPSession(page);
-    const touch = (
-      type: "touchStart" | "touchMove" | "touchEnd",
-      point?: { x: number; y: number },
-    ) =>
-      cdp.send("Input.dispatchTouchEvent", {
-        type,
-        touchPoints: point ? [point] : [],
-      });
-    const remembered = () =>
-      page.evaluate(() => localStorage.getItem("nimbus.split-view"));
-    const before = {
-      shot: await pixels(await page.screenshot()),
-      url: page.url(),
-      remembered: await remembered(),
-    };
-
-    // A press that slides off the button: the page shows nothing of the split it prepared, then
-    // or after, and keeps no trace of it.
-    await touch("touchStart", at);
-    await page.waitForTimeout(250);
-    expect(await changed(before.shot, await page.screenshot())).toBe(0);
-    for (let step = 1; step <= 6; step++)
-      await touch("touchMove", { x: at.x - step * 12, y: at.y });
-    await touch("touchEnd");
-    await page.waitForTimeout(300);
-    expect(await changed(before.shot, await page.screenshot())).toBe(0);
-    expect(page.url()).toBe(before.url);
-    expect(await remembered()).toBe(before.remembered);
-    await expect(page.locator("[data-split-press-cover]")).toHaveCount(0);
-    await expect(page.locator("[data-split-view], [data-pane]")).toHaveCount(0);
-
-    // A tap, its finger up 90 ms after it went down: the split's entrance is under way in the
-    // first frame after the click, as the press had the split laid out already.
-    const sinceClick = page.evaluate(
-      () =>
-        new Promise<number>((resolve) => {
-          let clicked: number | null = null;
-          window.addEventListener(
-            "click",
-            () => {
-              clicked ??= performance.now();
-            },
-            { capture: true },
-          );
-          const look = () => {
-            const frame = document.querySelector("[data-split-view]");
-            if (clicked !== null && frame?.hasAttribute("data-entering"))
-              resolve(performance.now() - clicked);
-            else requestAnimationFrame(look);
-          };
-          requestAnimationFrame(look);
-        }),
-    );
-    const down = touch("touchStart", at);
-    await page.waitForTimeout(90);
-    await Promise.all([down, touch("touchEnd")]);
-    // Within the frame after the click, where opening the split from the click alone takes the
-    // whole split's rendering first: about 14 ms against 30 to 45 ms here, 90 ms at half speed.
-    expect(await sinceClick).toBeLessThan(25);
-    await expect(page).toHaveURL(/right=/);
-    await expect(rightPane(page)).toBeVisible();
   });
 
   test("Close split keeps the folder in view, however often the split opens and closes", async ({

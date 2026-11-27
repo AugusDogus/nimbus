@@ -61,14 +61,7 @@ export function SplitToggle({
  * Opens a split view beside the folder, from the folder card's own header, where a thumb reaches
  * it: in windows that show one pane at a time. Wider, the header's toggle does (`SplitToggle`).
  */
-export function SplitButton({
-  onOpen,
-  onPress,
-}: {
-  onOpen: () => void;
-  /** A finger went down on it: what a tap would open may be prepared meanwhile. */
-  onPress: (event: PointerEvent, button: HTMLElement) => void;
-}) {
+export function SplitButton({ onOpen }: { onOpen: () => void }) {
   return (
     <Button
       variant="tertiary"
@@ -78,7 +71,6 @@ export function SplitButton({
       // reach: wider windows open a split from the header's Split view toggle.
       className={cn("touch-hit shrink-0", SplitRoom.swipeOnly)}
       onClick={onOpen}
-      onPointerDown={(event) => onPress(event.nativeEvent, event.currentTarget)}
       onPointerEnter={SplitCode.preload}
       onFocus={SplitCode.preload}
     >
@@ -94,16 +86,14 @@ export function SplitButton({
 export function AloneFolderTools({
   filters,
   onSplit,
-  onSplitPress,
 }: {
   filters: FiltersRowProps;
   onSplit: () => void;
-  onSplitPress: (event: PointerEvent, button: HTMLElement) => void;
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
       <FiltersRow {...filters} inlineView="wide" />
-      <SplitButton onOpen={onSplit} onPress={onSplitPress} />
+      <SplitButton onOpen={onSplit} />
     </div>
   );
 }

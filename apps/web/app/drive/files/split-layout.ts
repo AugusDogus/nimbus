@@ -39,15 +39,7 @@ export type OtherPane = {
  */
 export type SplitControl =
   | { kind: "none" }
-  | {
-      kind: "closed";
-      open: (right: string | null) => void;
-      /**
-       * A finger went down on Split, which may open a split: what it would show is prepared out
-       * of sight (see `SplitPress`).
-       */
-      press: (event: PointerEvent, button: HTMLElement) => void;
-    }
+  | { kind: "closed"; open: (right: string | null) => void }
   | {
       kind: "open";
       close: () => void;

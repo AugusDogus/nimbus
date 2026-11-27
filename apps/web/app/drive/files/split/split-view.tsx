@@ -60,7 +60,6 @@ import { SplitMemory } from "./split-memory";
 import { SplitRoom } from "../split-room";
 import { useSidebarFold } from "./split-page";
 import { SwipePanes, useSwipePanes } from "./swipe-panes";
-import { SplitPress } from "./split-press";
 import { ActivePane } from "./active-pane";
 import { EnteringPane, PaneDepth } from "./pane-depth";
 import { AppFrame } from "@/components/app-frame";
@@ -86,7 +85,15 @@ function useContentWidth(frame: HTMLDivElement | null) {
   useLayoutEffect(() => {
     const area = frame?.parentElement;
     if (!area) return;
-    const measure = () => setWidth(SplitRoom.contentWidth(area));
+    // Inside its padding: on phones the area pads the folder from the window's edges.
+    const measure = () => {
+      const style = getComputedStyle(area);
+      setWidth(
+        area.clientWidth -
+          parseFloat(style.paddingLeft) -
+          parseFloat(style.paddingRight),
+      );
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(area);
@@ -96,7 +103,6 @@ function useContentWidth(frame: HTMLDivElement | null) {
 }
 
 export { openSplit } from "./open-split";
-export { SplitPress } from "./split-press";
 
 type ControllerProps = {
   left: string;
@@ -191,19 +197,16 @@ export const SplitController = memo(function SplitController({
   /**
    * Makes `side` the active pane: shown at once, then recorded in the address in a task of its
    * own, so the frame that shows it does not wait for the router. Nothing is written when the
-   * address has it already, read from the window, which has it before this controller would, when
-   * another pane was chosen meanwhile, or while the address shows no split yet, as for one a
-   * press has shown and whose address is still to come (see `SplitPress`).
+   * address has it already, read from the window, which has it before this controller would, or
+   * when another pane was chosen meanwhile.
    */
   const activate = useCallback(
     (side: PaneSide) => {
       ActivePane.set(side);
       const record = () => {
-        const here = SplitAddress.here();
         if (
           ActivePane.get() === side &&
-          here !== null &&
-          here.layout.active !== side
+          SplitAddress.here()?.layout.active !== side
         )
           go({ active: side }, undefined, true);
       };
@@ -224,10 +227,8 @@ export const SplitController = memo(function SplitController({
     [navigate],
   );
 
-  // Not for a split a press only prepares: it is remembered once the press taps, if it does.
   useEffect(() => {
-    if (!SplitPress.holding())
-      SplitMemory.write({ right: layout.right, ratio: layout.ratio });
+    SplitMemory.write({ right: layout.right, ratio: layout.ratio });
   }, [layout.right, layout.ratio]);
   const panePrefs = useMemo<Record<PaneSide, PanePrefs>>(
     () => ({

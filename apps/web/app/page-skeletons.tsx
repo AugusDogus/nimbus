@@ -207,7 +207,6 @@ export function FilesSkeleton({
               <AloneFolderTools
                 filters={folderFilters(page.prefs, nothing)}
                 onSplit={nothing}
-                onSplitPress={nothing}
               />
             }
             body={<EntrySkeleton view={page.prefs.view} />}
