@@ -35,6 +35,10 @@ export default defineConfig({
         ...devices["iPhone 13"],
         defaultBrowserType: "chromium",
         storageState: "test-results/.auth/admin.json",
+        // Text as a phone draws it, in greyscale. Where the machine's fonts ask for LCD text, as
+        // CI's do, Chromium would otherwise switch text to greyscale wherever a layer of its own
+        // covers it, so the same page could draw its text two ways.
+        launchOptions: { args: ["--disable-lcd-text"] },
       },
     },
     // A touch tablet, wide enough for the wide layout: only the reach check runs here, which
