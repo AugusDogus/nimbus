@@ -69,9 +69,6 @@ const { minPaneWidth, dividerWidth } = SplitRoom;
 const parentOf = (path: string) =>
   path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
 
-/** What folding the sidebar away gives the page, in pixels. */
-const sidebarSpare = AppFrame.sidebarRem * 16;
-
 const columns = (ratio: number, collapsed: PaneSide | null) =>
   collapsed === "left"
     ? "2.75rem minmax(0, 1fr)"
@@ -309,6 +306,8 @@ export const SplitController = memo(function SplitController({
   const width = useContentWidth(frameElement);
   const [owner] = useState(() => Symbol("split controller"));
   const fits = width !== null && SplitRoom.fits(width);
+  // What folding the sidebar away gives the page.
+  const sidebarSpare = AppFrame.useSidebarWidth();
   // Short of roomy, folding the sidebar gives the panes room: it makes them fit, or wider.
   const foldHelps =
     width !== null &&

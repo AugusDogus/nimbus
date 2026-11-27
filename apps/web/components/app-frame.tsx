@@ -4,7 +4,9 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
@@ -15,6 +17,8 @@ import { Device } from "@/lib/device";
 import {
   SIDEBAR_COOKIE_MAX_AGE,
   SIDEBAR_COOKIE_NAME,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
   Sidebar,
   SidebarHeader,
   SidebarInset,
@@ -22,23 +26,51 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-/** The sidebar's width open, in rem; collapsed, it slides away entirely. */
-const sidebarRem = 16;
+/**
+ * Whether the person keeps the sidebar open, and how wide they dragged it, in pixels; collapsed,
+ * it slides away entirely.
+ */
+export type SidebarChoice = { open: boolean; width: number };
+
+const widthCookie = "sidebar_width";
+
+function cookieValue(cookie: string | null, name: string) {
+  for (const part of (cookie ?? "").split(";")) {
+    const [key, value] = part.trim().split("=");
+    if (key === name) return value;
+  }
+  return undefined;
+}
+
+function remember(name: string, value: string) {
+  document.cookie = `${name}=${value}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; samesite=lax`;
+}
 
 /**
- * Whether the person keeps the sidebar open, in the cookie Fluid Functionalism's sidebar names,
- * which the server reads too so a page's skeleton shows the sidebar as the page will.
+ * The person's choice, in the cookie Fluid Functionalism's sidebar names for whether it is open
+ * and a sibling for its width, which the server reads too so a page's skeleton shows the sidebar
+ * as the page will.
  */
 const SidebarChoice = {
   cookie: SIDEBAR_COOKIE_NAME,
-  /** Open unless the cookie says closed. */
-  fromCookie: (cookie: string | null) =>
-    !(cookie ?? "")
-      .split(";")
-      .some((part) => part.trim() === `${SIDEBAR_COOKIE_NAME}=false`),
-  remember(open: boolean) {
-    document.cookie = `${SIDEBAR_COOKIE_NAME}=${open}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; samesite=lax`;
+  widthCookie,
+  /** 16 rem, as the sidebar comes. */
+  defaultWidth: 256,
+  /** Open unless the cookie says closed, as wide as it says within the rail's bounds. */
+  fromCookie(cookie: string | null): SidebarChoice {
+    const width = Number(cookieValue(cookie, widthCookie));
+    return {
+      open: cookieValue(cookie, SIDEBAR_COOKIE_NAME) !== "false",
+      width: Number.isFinite(width)
+        ? Math.min(
+            SIDEBAR_MAX_WIDTH,
+            Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)),
+          )
+        : SidebarChoice.defaultWidth,
+    };
   },
+  remember: (open: boolean) => remember(SIDEBAR_COOKIE_NAME, String(open)),
+  rememberWidth: (width: number) => remember(widthCookie, String(width)),
 } as const;
 
 /**
@@ -51,6 +83,9 @@ const FoldContext = createContext<Fold>({
   setFolded: () => undefined,
 });
 
+/** The sidebar's width open, in pixels, as the rail drags it. */
+const WidthContext = createContext<number>(SidebarChoice.defaultWidth);
+
 /**
  * Whether the sidebar is sliding open or closed, from the moment it is told to until its column
  * reaches its new width. The page moves with it frame by frame; what would rearrange on each of
@@ -58,7 +93,7 @@ const FoldContext = createContext<Fold>({
  */
 const MotionContext = createContext(false);
 
-function useSidebarMotion(open: boolean) {
+function useSidebarMotion(open: boolean, width: number) {
   const [moving, setMoving] = useState(false);
   const [settledOpen, setSettledOpen] = useState(open);
   if (settledOpen !== open) {
@@ -68,7 +103,7 @@ function useSidebarMotion(open: boolean) {
   useEffect(() => {
     if (!moving) return;
     const column = document.querySelector('[data-slot="sidebar"]');
-    const target = open ? sidebarRem * 16 : 0;
+    const target = open ? width : 0;
     const done = () => setMoving(false);
     const check = () => {
       if (
@@ -85,8 +120,33 @@ function useSidebarMotion(open: boolean) {
       observer.disconnect();
       clearTimeout(fallback);
     };
-  }, [moving, open]);
+  }, [moving, open, width]);
   return moving;
+}
+
+/**
+ * Follows the width the rail gives the sidebar, and remembers it once a drag ends; a key press on
+ * the rail ends its change at once.
+ */
+function WidthWatch({
+  saved,
+  onChange,
+}: {
+  saved: number;
+  onChange: (width: number) => void;
+}) {
+  const { width, isResizing } = useSidebar();
+  // The rail sets whole pixels; the frame gives it pixels too.
+  const px = Number.parseFloat(width);
+  const remembered = useRef(saved);
+  useLayoutEffect(() => {
+    if (!Number.isFinite(px)) return;
+    onChange(px);
+    if (isResizing || px === remembered.current) return;
+    remembered.current = px;
+    SidebarChoice.rememberWidth(px);
+  }, [px, isResizing, onChange]);
+  return null;
 }
 
 /**
@@ -148,12 +208,15 @@ function Brand() {
  */
 function Layout({
   open,
+  width,
   onOpenChange,
   brand,
   sidebar,
   children,
 }: {
   open: boolean;
+  /** The width it opens at, in pixels; the rail changes it from there. */
+  width: number;
   onOpenChange?: (open: boolean) => void;
   brand: ReactNode;
   sidebar: ReactNode;
@@ -170,7 +233,7 @@ function Layout({
       // No peek: the collapsed sidebar would float in over the toggle, which sits at the
       // content's edge, so the toggle could not be reached to open it.
       peek="none"
-      width={`${sidebarRem}rem`}
+      width={`${width}px`}
       // The window's tint, which the sidebar and the header share and the content's cards
       // stand on.
       className="surface-grain h-dvh min-h-0 overflow-hidden bg-sidebar"
@@ -178,7 +241,6 @@ function Layout({
       <Sidebar
         variant="sidebar"
         bordered={false}
-        rail={false}
         // Their column fades in where it first appears, meant for a window widening past the
         // drawer's breakpoint; here it would fade in over the page's skeleton on every load.
         className="md:starting:opacity-100"
@@ -204,19 +266,21 @@ function Layout({
  * content as children.
  */
 function Root({ children }: { children: ReactNode }) {
-  const [chosen, setChosen] = useState(() =>
-    SidebarChoice.fromCookie(document.cookie),
-  );
+  const [saved] = useState(() => SidebarChoice.fromCookie(document.cookie));
+  const [chosen, setChosen] = useState(saved.open);
+  const [width, setWidth] = useState(saved.width);
   const [folded, setFolded] = useState(false);
   const { slot, attach } = useBodySlot();
   const fold = useMemo(() => ({ folded, setFolded }), [folded]);
   const open = chosen && !folded;
-  const moving = useSidebarMotion(open);
+  const moving = useSidebarMotion(open, width);
   return (
     <FoldContext.Provider value={fold}>
       <MotionContext.Provider value={moving}>
         <Layout
           open={open}
+          // Where it starts: the sidebar keeps its own width as the rail drags it.
+          width={saved.width}
           onOpenChange={(open) => {
             // The person's own toggle: theirs from now on, also over a fold.
             setChosen(open);
@@ -226,7 +290,10 @@ function Root({ children }: { children: ReactNode }) {
           brand={<Brand />}
           sidebar={<div ref={attach} className="contents" />}
         >
-          <BodySlot.Provider value={slot}>{children}</BodySlot.Provider>
+          <WidthWatch saved={saved.width} onChange={setWidth} />
+          <WidthContext.Provider value={width}>
+            <BodySlot.Provider value={slot}>{children}</BodySlot.Provider>
+          </WidthContext.Provider>
         </Layout>
       </MotionContext.Provider>
     </FoldContext.Provider>
@@ -253,10 +320,11 @@ export const AppFrame = {
   SidebarBody,
   Layout,
   BrandPlaceholder,
-  sidebarRem,
   SidebarChoice,
   /** The split view's channel for folding the sidebar without it being remembered. */
   useFold: () => useContext(FoldContext),
   /** Whether the sidebar is sliding open or closed right now. */
   useSidebarMoving: () => useContext(MotionContext),
+  /** The sidebar's width open, in pixels, as the rail drags it. */
+  useSidebarWidth: () => useContext(WidthContext),
 } as const;

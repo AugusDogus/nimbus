@@ -66,6 +66,25 @@ test("the skeleton shows the sidebar as the person left it", () => {
   expect(at("sidebar_state=true")).toContain('data-state="expanded"');
 });
 
+test("the skeleton shows the sidebar as wide as the person dragged it", () => {
+  const data = { session, prefs: prefs("list"), me: me(false) };
+  const at = (cookie: string | null) =>
+    PageSkeleton.markup(
+      "files",
+      { folder: true, data },
+      "/browse/Notes",
+      cookie,
+      new URLSearchParams(),
+    );
+  expect(at(null)).toContain("--sidebar-width:256px");
+  expect(at("sidebar_width=320")).toContain("--sidebar-width:320px");
+  // The header places its search from the sidebar's edge, as the app measures it.
+  expect(at("sidebar_width=320")).toContain("calc(320px + 0.5rem)");
+  // Out of the rail's bounds, or not a width: the nearest it allows, or the default.
+  expect(at("sidebar_width=9000")).toContain("--sidebar-width:360px");
+  expect(at("sidebar_width=wide")).toContain("--sidebar-width:256px");
+});
+
 test("other files pages keep the title's place where they have one", () => {
   const page = (path: string) =>
     PageSkeleton.markup(

@@ -72,7 +72,7 @@ export const PageSkeleton = {
     const account = {
       initial: PageLayout.initial(session.user),
       isAdmin: me?.isAdmin === true,
-      sidebarOpen: AppFrame.SidebarChoice.fromCookie(cookie),
+      sidebar: AppFrame.SidebarChoice.fromCookie(cookie),
     };
     if (kind === "settings")
       return cached(JSON.stringify(["settings", account, pathname]), () => (

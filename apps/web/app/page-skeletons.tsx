@@ -1,7 +1,7 @@
 import type { UserPreferences } from "@nimbus/api/context";
 import { Search } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
-import { AppFrame } from "@/components/app-frame";
+import { AppFrame, type SidebarChoice } from "@/components/app-frame";
 import { NimbusLogo } from "@/components/nimbus-logo";
 import { PageLayout } from "@/components/page-layout";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -60,11 +60,11 @@ const nothing = () => undefined;
  * the split view's toggle on a folder (`--end-w`).
  */
 function headerEdges(
-  sidebarOpen: boolean,
+  sidebar: SidebarChoice,
 ): CSSProperties & Record<`--${string}`, string> {
   return {
-    "--header-left": sidebarOpen
-      ? `calc(${AppFrame.sidebarRem}rem + 0.5rem)`
+    "--header-left": sidebar.open
+      ? `calc(${sidebar.width}px + 0.5rem)`
       : "0.5rem",
     "--start-edge":
       "calc(var(--header-left) + var(--header-pad, 0px) + 2rem + 1rem)",
@@ -77,8 +77,8 @@ function headerEdges(
 export type SkeletonAccount = {
   initial: string;
   isAdmin: boolean;
-  /** Whether the person keeps the sidebar open (see `AppFrame.SidebarChoice`). */
-  sidebarOpen: boolean;
+  /** How the person keeps the sidebar (see `AppFrame.SidebarChoice`). */
+  sidebar: SidebarChoice;
 };
 
 function AccountButton({ initial }: { initial: string }) {
@@ -146,7 +146,8 @@ export function FilesSkeleton({
   const folder = page.kind === "folder";
   return (
     <AppFrame.Layout
-      open={account.sidebarOpen}
+      open={account.sidebar.open}
+      width={account.sidebar.width}
       brand={<AppFrame.BrandPlaceholder />}
       sidebar={
         <AppSidebarPlaceholder
@@ -163,7 +164,7 @@ export function FilesSkeleton({
           // A folder's header holds the split view's toggle too.
           folder ? "[--end-w:4.75rem]" : "[--end-w:2.25rem]",
         )}
-        style={headerEdges(account.sidebarOpen)}
+        style={headerEdges(account.sidebar)}
       >
         <div className={PageLayout.filesHeaderStart}>
           <SidebarTrigger
@@ -298,7 +299,8 @@ export function SettingsSkeleton({
   );
   return (
     <AppFrame.Layout
-      open={account.sidebarOpen}
+      open={account.sidebar.open}
+      width={account.sidebar.width}
       brand={<AppFrame.BrandPlaceholder />}
       sidebar={
         <SettingsSidebarPlaceholder
