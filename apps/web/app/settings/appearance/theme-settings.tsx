@@ -161,10 +161,6 @@ export function ThemeSettings() {
           }}
           disabled={disabled}
         />
-        <p className="text-pretty text-xs text-muted-foreground">
-          Choose a light and dark palette independently. System follows your
-          device.
-        </p>
       </div>
       <input
         ref={input}
