@@ -1,5 +1,5 @@
 import { FolderPlus, FolderUp, Plus, Shield, Upload } from "lucide-react";
-import { Link, useRouteContext } from "@tanstack/react-router";
+import { Link, useNavigate, useRouteContext } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
 
@@ -62,6 +62,10 @@ import { useFilePreferences } from "./files/use-file-preferences";
 import { useFileStorage } from "./files/use-file-storage";
 import { useFileSubscription } from "./files/use-file-subscription";
 import { useNewContent } from "./files/use-new-content";
+import { Arrivals } from "./files/arrivals";
+import { NewButton } from "./files/new-button";
+import { NewTarget } from "./files/new-target";
+import { fileHref } from "./files/types";
 import { useUploads } from "@/components/upload-provider";
 import { collectDrop, type CollectedUpload } from "@/lib/upload-sources";
 
@@ -86,18 +90,10 @@ export function FilesShell({ children }: FilesShellProps) {
   const includeStats =
     prefs.sortField === "modified" || prefs.sortField === "size";
 
-  // The previous folder's answer stands until the next folder's arrives, as its listing does, so
-  // New does not turn off and back on with every move.
-  const capabilities = useQuery({
-    ...capabilitiesQueryOptions(currentPath),
-    enabled: isAuthed,
-    placeholderData: keepPreviousData,
-  });
-  const canWrite = capabilities.data?.canWrite === true;
-  // Only a folder page has a place to create in. Trash, Recent, Starred, Shared and search are
-  // not one, and New there would quietly create in the drive root; a folder that does not exist,
-  // or that the account may not open, has none either. Reads the folder's listing as the page
-  // loaded it, without fetching it again.
+  // Only a folder page has a folder to create in. Trash, Recent, Starred, Shared and search are
+  // not one; a folder that does not exist, or that the account may not open, is not either. New
+  // there creates in the Files home instead (see `NewTarget`). Reads the folder's listing as the
+  // page loaded it, without fetching it again.
   const pathname = usePathname();
   const listing = useQuery({
     ...fileListQueryOptions(currentPath, includeStats),
@@ -113,26 +109,98 @@ export function FilesShell({ children }: FilesShellProps) {
     (query) => query.isError && (!query.data || split !== null),
   );
   const listingCode = failed ? trpcErrorCode(failed.error) : null;
-  const offersNew =
+  const onFolder =
     FolderPath.isShownAt(pathname) &&
     listingCode !== "NOT_FOUND" &&
     listingCode !== "FORBIDDEN";
+  const me = useQuery(trpc.access.me.queryOptions()).data;
   // From the account, not the folder: the folder's answer is pending for a moment after every
   // move, and the storage panel would vanish and return.
-  const isAdmin =
-    useQuery(trpc.access.me.queryOptions()).data?.isAdmin === true;
+  const isAdmin = me?.isAdmin === true;
   const storage = useFileStorage(isAdmin);
+  // The previous folder's answer stands until the next folder's arrives, as its listing does, so
+  // New does not turn off and back on with every move.
+  const capabilities = useQuery({
+    ...capabilitiesQueryOptions(currentPath),
+    enabled: isAuthed && onFolder,
+    placeholderData: keepPreviousData,
+  });
+  const canWrite = capabilities.data?.canWrite === true;
+  // Off a folder: the folder Files opens, and the home folder should that be one it cannot add to.
+  const top = me?.top ?? "";
+  const topCapabilities = useQuery({
+    ...capabilitiesQueryOptions(top),
+    enabled: isAuthed && me !== undefined && !onFolder,
+  });
+  const home = me?.home ?? null;
+  const homeCapabilities = useQuery({
+    ...capabilitiesQueryOptions(home ?? ""),
+    enabled:
+      isAuthed &&
+      !onFolder &&
+      home !== null &&
+      home !== top &&
+      topCapabilities.data?.canWrite === false,
+  });
+  const newTarget = NewTarget.resolve(
+    onFolder
+      ? {
+          page: "folder",
+          path: currentPath,
+          canWrite: capabilities.data?.canWrite,
+        }
+      : {
+          page: "other",
+          top: { path: top, canWrite: topCapabilities.data?.canWrite },
+          home:
+            home === null || home === top
+              ? null
+              : { path: home, canWrite: homeCapabilities.data?.canWrite },
+        },
+  );
+  const newPath = NewTarget.path(newTarget);
   const actions = useFileActions({ currentPath, includeStats });
   const upload = useUploads();
-  const uploadFiles = useCallback(
-    (collected: CollectedUpload) => {
+  const navigate = useNavigate();
+  // Off a folder, New's work lands in the Files home: the page goes there, and what arrives is
+  // highlighted as it shows.
+  const goHome = useCallback(() => {
+    if (newTarget.kind === "home")
+      void navigate({ href: fileHref(newTarget.path) });
+  }, [navigate, newTarget]);
+  const uploadTo = useCallback(
+    (collected: CollectedUpload, path: string, arrive: boolean) => {
       if (session)
-        void upload.uploadFiles(collected, {
-          path: currentPath,
-          userId: session.user.id,
-        });
+        void upload.uploadFiles(
+          collected,
+          { path, userId: session.user.id },
+          arrive ? Arrivals.record : undefined,
+        );
     },
-    [upload, currentPath, session],
+    [upload, session],
+  );
+  // Dropped files go to the folder shown, only ever on a folder page.
+  const uploadFiles = useCallback(
+    (collected: CollectedUpload) => uploadTo(collected, currentPath, false),
+    [uploadTo, currentPath],
+  );
+  const uploadNew = useCallback(
+    (collected: CollectedUpload) => {
+      if (newPath === null) return;
+      goHome();
+      uploadTo(collected, newPath, newTarget.kind === "home");
+    },
+    [uploadTo, newPath, newTarget, goHome],
+  );
+  const createNewFolder = useCallback(
+    async (name: string) => {
+      if (newPath === null) return;
+      await actions.createFolder(name, newPath);
+      if (newTarget.kind !== "home") return;
+      Arrivals.record([[newPath, name].filter(Boolean).join("/")]);
+      goHome();
+    },
+    [actions, newPath, newTarget, goHome],
   );
 
   // Signing out ends the session at once, so a transfer or upload still running could not
@@ -164,23 +232,29 @@ export function FilesShell({ children }: FilesShellProps) {
   const [attachHeader, attachHeaderStart, attachHeaderEnd] = useHeaderEdges();
 
   // Single new-content instance shared by sidebar (desktop) and FAB (mobile)
-  const [fabDrawerOpen, setFabDrawerOpen] = useState(false);
-  const creatable = canWrite && offersNew;
-  // The drawer closes, and stays closed, once this page cannot create.
-  if (!creatable && fabDrawerOpen) setFabDrawerOpen(false);
+  // The folder the open drawer creates in; it closes, and stays closed, once the page creates
+  // elsewhere or nowhere.
+  const [fabDrawerFor, setFabDrawerFor] = useState<string | null>(null);
+  if (fabDrawerFor !== null && fabDrawerFor !== newPath) setFabDrawerFor(null);
   const newContent = useNewContent({
-    available: creatable,
-    onCreateFolder: actions.createFolder,
-    onUploadFiles: uploadFiles,
+    target: newPath,
+    onCreateFolder: createNewFolder,
+    onUploadFiles: uploadNew,
   });
+  // Where nothing can be created, New stays, dimmed, and a press says why: the sidebar's tooltip
+  // shows it on a pointer's hover or focus, which a finger has neither of.
+  const explainNew = () => {
+    if (newTarget.kind === "none") toast(newTarget.reason);
+  };
+  const fabState = NewButton.state(newTarget);
 
   return (
     <>
       <AppFrame.SidebarBody>
         <AppSidebar
           storage={storage}
-          canWrite={canWrite}
-          offersNew={offersNew}
+          newTarget={newTarget}
+          onExplainNew={explainNew}
           isAdmin={isAdmin}
           newContent={newContent}
         />
@@ -301,8 +375,8 @@ export function FilesShell({ children }: FilesShellProps) {
         className={PageLayout.filesContent}
         onDragOver={(event) => {
           if (
+            onFolder &&
             canWrite &&
-            offersNew &&
             event.dataTransfer.types.includes("Files")
           )
             event.preventDefault();
@@ -311,7 +385,7 @@ export function FilesShell({ children }: FilesShellProps) {
           if (!event.dataTransfer.types.includes("Files")) return;
           event.preventDefault();
           // Folder entries must be read during the drop event, before the browser clears them.
-          if (canWrite && offersNew)
+          if (onFolder && canWrite)
             void collectDrop(event.dataTransfer).then(uploadFiles);
         }}
       >
@@ -320,65 +394,61 @@ export function FilesShell({ children }: FilesShellProps) {
         </HeaderToolsSlot.Provider>
       </div>
 
-      {/* Mobile FAB for New actions */}
-      {canWrite && offersNew && (
-        <>
-          <Button
-            leadingIcon={Plus}
-            className={cn(
-              // reach: from 768 px the sidebar's New button
-              "fixed bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+var(--impersonation-offset,0px))] right-4 z-20 h-14 rounded-full px-6 shadow-lg md:hidden",
-              PageLayout.createButton,
-            )}
-            onClick={() => setFabDrawerOpen(true)}
-            aria-label="New file or folder"
-            data-toast-clearance="narrow"
-          >
-            New
-          </Button>
-
-          <Drawer
-            showSwipeHandle
-            open={fabDrawerOpen}
-            onOpenChange={setFabDrawerOpen}
-          >
-            <DrawerContent>
-              <DrawerHeader>
-                <DrawerTitle>Create new</DrawerTitle>
-                <DrawerDescription className="sr-only">
-                  Create a new file or folder
-                </DrawerDescription>
-              </DrawerHeader>
-              <div className="flex flex-col gap-1 px-4 pb-6">
-                <DrawerClose
-                  render={
-                    <DrawerActionItem onClick={newContent.openFolderDialog} />
-                  }
-                >
-                  <FolderPlus className="size-5 text-muted-foreground" />
-                  New folder
-                </DrawerClose>
-                <DrawerClose
-                  render={
-                    <DrawerActionItem onClick={newContent.triggerFileInput} />
-                  }
-                >
-                  <Upload className="size-5 text-muted-foreground" />
-                  Upload file
-                </DrawerClose>
-                <DrawerClose
-                  render={
-                    <DrawerActionItem onClick={newContent.triggerFolderInput} />
-                  }
-                >
-                  <FolderUp className="size-5 text-muted-foreground" />
-                  Upload folder
-                </DrawerClose>
-              </div>
-            </DrawerContent>
-          </Drawer>
-        </>
-      )}
+      {/* Mobile FAB for New actions, on every files page as the sidebar's New is. Their cards
+          keep room below their last rows for it (see `PageLayout.filesContent`). */}
+      <Button
+        leadingIcon={Plus}
+        {...fabState}
+        className={cn(NewButton.looks.floating, fabState.className)}
+        onClick={() =>
+          newPath === null ? explainNew() : setFabDrawerFor(newPath)
+        }
+        aria-label="New file or folder"
+        data-shape="new-floating"
+        data-toast-clearance="narrow"
+      >
+        New
+      </Button>
+      <Drawer
+        showSwipeHandle
+        open={fabDrawerFor !== null}
+        onOpenChange={(open) => setFabDrawerFor(open ? newPath : null)}
+      >
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Create new</DrawerTitle>
+            <DrawerDescription className="sr-only">
+              Create a new file or folder
+            </DrawerDescription>
+          </DrawerHeader>
+          <div className="flex flex-col gap-1 px-4 pb-6">
+            <DrawerClose
+              render={
+                <DrawerActionItem onClick={newContent.openFolderDialog} />
+              }
+            >
+              <FolderPlus className="size-5 text-muted-foreground" />
+              New folder
+            </DrawerClose>
+            <DrawerClose
+              render={
+                <DrawerActionItem onClick={newContent.triggerFileInput} />
+              }
+            >
+              <Upload className="size-5 text-muted-foreground" />
+              Upload file
+            </DrawerClose>
+            <DrawerClose
+              render={
+                <DrawerActionItem onClick={newContent.triggerFolderInput} />
+              }
+            >
+              <FolderUp className="size-5 text-muted-foreground" />
+              Upload folder
+            </DrawerClose>
+          </div>
+        </DrawerContent>
+      </Drawer>
 
       <HiddenFileInput
         fileInputRef={newContent.fileInputRef}

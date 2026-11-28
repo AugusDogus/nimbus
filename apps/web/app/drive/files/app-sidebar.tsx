@@ -1,4 +1,4 @@
-import { useState, type ReactElement, type ReactNode } from "react";
+import { useId, useState, type ReactElement, type ReactNode } from "react";
 import { Link } from "@/components/link";
 import { usePathname } from "@/hooks/use-pathname";
 import {
@@ -13,8 +13,8 @@ import {
   Upload,
   Users,
 } from "lucide-react";
-import { PageLayout } from "@/components/page-layout";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   DropdownContent,
@@ -35,6 +35,8 @@ import type { NewContentState } from "./use-new-content";
 import type { StorageSummary } from "./use-file-storage";
 import { StorageIndicator } from "./storage-indicator";
 import { NavPlace } from "./nav-place";
+import { NewButton } from "./new-button";
+import { NewTarget } from "./new-target";
 
 const navItems = [
   { icon: HardDrive, href: "/", place: "files" },
@@ -45,25 +47,19 @@ const navItems = [
 
 type NavHref = (typeof navItems)[number]["href"] | "/trash" | "/settings";
 
-/** The New button's look, in the create colour, as the sidebar and its skeleton draw it. */
-const newButtonClass = cn("h-12 w-full rounded-full", PageLayout.createButton);
-
 /**
- * The files pages' sidebar body: New, the places, and at the foot Trash, Settings and, for
- * administrators, the storage summary. `link` renders each place's link, or, in the skeleton the
+ * The files pages' sidebar body: New, on every files page so the sidebar keeps its shape, the
+ * places, and at the foot Trash, Settings and, for administrators, the storage summary. `link` renders each place's link, or, in the skeleton the
  * server sends before the app runs, what stands in for it, so both have the same parts.
  */
 function FilesNav({
   place,
-  offersNew,
   isAdmin,
   storage,
   newButton,
   link,
 }: {
   place: NavPlace | null;
-  /** Hidden in place where there is nothing to create in, so the places never move. */
-  offersNew: boolean;
   isAdmin: boolean;
   storage: StorageSummary;
   newButton: ReactNode;
@@ -72,14 +68,7 @@ function FilesNav({
   return (
     <>
       <SidebarContent className="gap-4 px-1 pt-2">
-        <div
-          className={cn(
-            "flex justify-center px-2",
-            !offersNew && "invisible *:transition-none",
-          )}
-        >
-          {newButton}
-        </div>
+        <div className="flex justify-center px-2">{newButton}</div>
         <nav aria-label="Files">
           <SidebarGroup>
             <SidebarMenu>
@@ -136,12 +125,10 @@ function FilesNav({
 
 type AppSidebarProps = {
   storage: StorageSummary;
-  canWrite: boolean;
-  /**
-   * Whether this page is a folder to create in. Trash, Recent, Starred, Shared, search, and a
-   * missing or refused folder are not.
-   */
-  offersNew: boolean;
+  /** Where New creates from this page (see `NewTarget`). */
+  newTarget: NewTarget;
+  /** Says why New has nowhere to create, when pressed then. */
+  onExplainNew: () => void;
   isAdmin: boolean;
   newContent: NewContentState;
 };
@@ -149,22 +136,24 @@ type AppSidebarProps = {
 export function AppSidebar({
   storage,
   newContent,
-  canWrite,
-  offersNew,
+  newTarget,
+  onExplainNew,
   isAdmin,
 }: AppSidebarProps) {
   const pathname = usePathname();
   const place = NavPlace.of(pathname);
   const { setOpenMobile } = useSidebar();
-  const creatable = canWrite && offersNew;
-  const [menuOpen, setMenuOpen] = useState(false);
-  if (!creatable && menuOpen) setMenuOpen(false);
+  const reasonId = useId();
+  const target = NewTarget.path(newTarget);
+  // The folder the open menu creates in; it closes once the page creates elsewhere.
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  if (menuFor !== null && menuFor !== target) setMenuFor(null);
   const closeNavigation = () => setOpenMobile(false);
+  const state = NewButton.state(newTarget);
 
   return (
     <FilesNav
       place={place}
-      offersNew={offersNew}
       isAdmin={isAdmin}
       storage={storage}
       link={(href, current) => (
@@ -175,54 +164,75 @@ export function AppSidebar({
         />
       )}
       newButton={
-        <DropdownMenu
-          open={menuOpen}
-          onOpenChange={(open) => setMenuOpen(open && creatable)}
-        >
-          <DropdownTrigger
-            render={
+        newTarget.kind === "none" ? (
+          <>
+            <Tooltip content={newTarget.reason} side="right">
               <Button
                 leadingIcon={Plus}
                 aria-label="New"
-                title="New"
-                disabled={!canWrite}
+                aria-describedby={reasonId}
                 data-shape="new"
-                className={newButtonClass}
-              />
-            }
+                {...state}
+                className={cn(NewButton.looks.sidebar, state.className)}
+                onClick={onExplainNew}
+              >
+                New
+              </Button>
+            </Tooltip>
+            <span id={reasonId} className="sr-only">
+              {newTarget.reason}
+            </span>
+          </>
+        ) : (
+          <DropdownMenu
+            open={menuFor !== null}
+            onOpenChange={(open) => setMenuFor(open ? target : null)}
           >
-            New
-          </DropdownTrigger>
-          <DropdownContent align="start" sideOffset={8} className="w-48">
-            <MenuItem
-              index={0}
-              icon={FolderPlus}
-              label="New folder"
-              onSelect={() => {
-                closeNavigation();
-                newContent.openFolderDialog();
-              }}
-            />
-            <MenuItem
-              index={1}
-              icon={Upload}
-              label="Upload file"
-              onSelect={() => {
-                closeNavigation();
-                newContent.triggerFileInput();
-              }}
-            />
-            <MenuItem
-              index={2}
-              icon={FolderUp}
-              label="Upload folder"
-              onSelect={() => {
-                closeNavigation();
-                newContent.triggerFolderInput();
-              }}
-            />
-          </DropdownContent>
-        </DropdownMenu>
+            <DropdownTrigger
+              render={
+                <Button
+                  leadingIcon={Plus}
+                  aria-label="New"
+                  title="New"
+                  data-shape="new"
+                  {...state}
+                  className={cn(NewButton.looks.sidebar, state.className)}
+                />
+              }
+            >
+              New
+            </DropdownTrigger>
+            <DropdownContent align="start" sideOffset={8} className="w-48">
+              <MenuItem
+                index={0}
+                icon={FolderPlus}
+                label="New folder"
+                onSelect={() => {
+                  closeNavigation();
+                  newContent.openFolderDialog();
+                }}
+              />
+              <MenuItem
+                index={1}
+                icon={Upload}
+                label="Upload file"
+                onSelect={() => {
+                  closeNavigation();
+                  newContent.triggerFileInput();
+                }}
+              />
+              <MenuItem
+                index={2}
+                icon={FolderUp}
+                label="Upload folder"
+                onSelect={() => {
+                  closeNavigation();
+                  newContent.triggerFolderInput();
+                }}
+              />
+            </DropdownContent>
+          </DropdownMenu>
+        )
       }
     />
   );
@@ -234,17 +244,14 @@ export function AppSidebar({
  */
 export function AppSidebarPlaceholder({
   place,
-  offersNew,
   isAdmin,
 }: {
   place: NavPlace | null;
-  offersNew: boolean;
   isAdmin: boolean;
 }) {
   return (
     <FilesNav
       place={place}
-      offersNew={offersNew}
       isAdmin={isAdmin}
       storage={{ status: "loading" }}
       link={() => <div />}
@@ -253,7 +260,7 @@ export function AppSidebarPlaceholder({
           leadingIcon={Plus}
           tabIndex={-1}
           data-shape="new"
-          className={newButtonClass}
+          className={NewButton.looks.sidebar}
         >
           New
         </Button>

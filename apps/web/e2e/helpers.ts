@@ -129,7 +129,7 @@ export async function whenCanCreate(page: Page) {
   await expect(
     page
       .locator(
-        'button[aria-label="New"]:not([disabled]), button[aria-label="New file or folder"]',
+        ':is(button[aria-label="New"], button[aria-label="New file or folder"]):not([disabled], [aria-disabled="true"])',
       )
       .filter({ visible: true })
       .first(),

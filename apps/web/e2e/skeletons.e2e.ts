@@ -165,6 +165,15 @@ async function checkServedSkeleton(
   await expect(page.locator("[data-skeleton]")).toHaveCount(0);
   await loaded(page);
   expectInPlace(placeholder, await shapesAt(page, at));
+  return placeholder;
+}
+
+/** New on every files page: in the sidebar, or floating where the sidebar is a drawer. */
+function expectNewDrawn(placeholder: Record<number, Shapes>) {
+  const missing = Object.entries(placeholder)
+    .filter(([, shapes]) => !shapes.new && !shapes["new-floating"])
+    .map(([width]) => `${width} px wide`);
+  expect(missing, "Skeletons without New").toEqual([]);
 }
 
 const listed = (page: Page) =>
@@ -244,13 +253,15 @@ test.describe("skeletons", () => {
         const prefs = await rpc.prefs.get.query();
         restore = () => rpc.prefs.set.mutate(prefs);
         await rpc.prefs.set.mutate({ ...prefs, view });
-        await checkServedSkeleton(
-          tab,
-          page === "search"
-            ? `/search?q=${encodeURIComponent(name)}&sort=name-desc`
-            : `/${page}`,
-          widths(isMobile),
-          listed,
+        expectNewDrawn(
+          await checkServedSkeleton(
+            tab,
+            page === "search"
+              ? `/search?q=${encodeURIComponent(name)}&sort=name-desc`
+              : `/${page}`,
+            widths(isMobile),
+            listed,
+          ),
         );
       });
 
@@ -279,11 +290,13 @@ test.describe("skeletons", () => {
           ...(await rpc.prefs.get.query()),
           view,
         });
-        await checkServedSkeleton(
-          member,
-          "/shared?sort=name-desc",
-          widths(isMobile),
-          listed,
+        expectNewDrawn(
+          await checkServedSkeleton(
+            member,
+            "/shared?sort=name-desc",
+            widths(isMobile),
+            listed,
+          ),
         );
       } finally {
         await memberContext.close();
@@ -305,7 +318,7 @@ test.describe("skeletons", () => {
         const { rpc, name } = await folderOfEight(page);
         await rpc.files.delete.mutate({ path: `${name}/Folder 0` });
       }
-      await checkServedSkeleton(
+      const placeholder = await checkServedSkeleton(
         page,
         path,
         widths(isMobile),
@@ -314,6 +327,7 @@ test.describe("skeletons", () => {
           await settled(loaded);
         },
       );
+      if (!path.startsWith("/settings")) expectNewDrawn(placeholder);
     });
 
   for (const view of ["list", "grid"] as const)
@@ -395,6 +409,7 @@ test.describe("skeletons", () => {
       await expect(page.locator(placeholder).first()).toBeVisible();
       const held = await shapesAt(page, at);
       release();
+      expectNewDrawn(held);
       await expect(page.locator(placeholder)).toHaveCount(0);
       // Shared with the administrator holds nothing; its header and tabs stay where they were.
       if (path === "/trash")

@@ -93,13 +93,6 @@ const names: Readonly<Record<FileAction, readonly RegExp[]>> = {
   search: [/^Search files$/],
 };
 
-const libraries: readonly FileView[] = [
-  "search results",
-  "recent",
-  "starred",
-  "shared",
-];
-
 /**
  * Where an action is genuinely not offered, and why: the one place such a gap is declared. Null
  * where the action should be reachable. Nothing here depends on the device today: every action
@@ -108,6 +101,8 @@ const libraries: readonly FileView[] = [
  * browser, which the reach check already reads.
  */
 function unavailable(action: FileAction, view: FileView): string | null {
+  // New is on every files page: off a folder it creates in the Files home (see `NewTarget`).
+  if (action === "new folder" || action === "upload") return null;
   if (view === "trash")
     return action === "search" || action === "sort"
       ? null
@@ -123,10 +118,6 @@ function unavailable(action: FileAction, view: FileView): string | null {
     if (action === "sort" || action === "change view")
       return `${lists}, each by the place it opens: it holds no files, with no type, size, date or picture to order them by or draw as cards. Shared with me lists files, so its own tab carries the folder's sort and view, on a row of their own under the tabs rather than in the page's header, which the other tabs share.`;
     return `${lists}, not files: each has Copy link, Edit and Revoke. Open the folder or file a link leads to for anything else.`;
-  }
-  if (libraries.includes(view)) {
-    if (action === "new folder" || action === "upload")
-      return "Not a folder: there is no folder here to create in or upload to.";
   }
   return null;
 }

@@ -60,12 +60,13 @@ test("a folder the account may not open says so, the same whether or not it exis
         ),
       ).toBeVisible();
       await expect(member.getByText("Could not open this folder")).toBeHidden();
+      // New stays, for the member's own home folder.
       await expect(
         member.getByRole("button", {
           name: isMobile ? "New file or folder" : "New",
           exact: true,
         }),
-      ).toBeHidden();
+      ).toBeEnabled();
       await expect(
         member
           .getByRole("region", { name: /Notifications/ })

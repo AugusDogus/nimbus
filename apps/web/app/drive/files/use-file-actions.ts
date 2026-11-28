@@ -104,10 +104,11 @@ export function useFileActions({
     clashes.current = onClashes;
   });
   const createFolder = useCallback(
-    async (name: string) => {
+    // In the folder shown, or in `parent`, as New off a folder page creates in the Files home.
+    async (name: string, parent = currentPath) => {
       try {
         await trpcClient.files.createFolder.mutate({
-          path: currentPath || undefined,
+          path: parent || undefined,
           name,
         });
         invalidateFileQueries();

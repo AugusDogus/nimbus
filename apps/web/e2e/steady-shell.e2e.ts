@@ -74,7 +74,7 @@ test("opening a folder leaves the sidebar exactly as it was", async ({
   expect(await itemBoxes(page)).toEqual(before);
 });
 
-test("New hides in the frame that leaving a folder shows the next page", async ({
+test("New stays where it is, at full strength, in every frame of leaving a folder", async ({
   page,
   isMobile,
 }) => {
@@ -82,22 +82,22 @@ test("New hides in the frame that leaving a folder shows the next page", async (
   await page.goto("/");
   await expect(
     page.getByRole("button", { name: "New", exact: true }),
-  ).toBeVisible();
-  // Samples every frame: once Trash is the current page, New must already be hidden.
+  ).toBeEnabled();
+  // Samples every frame until Trash shows: New must neither hide, move nor dim on the way.
   await page.evaluate(() => {
-    const late: string[] = [];
-    Object.assign(window, { lateNew: late });
-    const sample = () => {
-      const trash = document.querySelector(
-        '[data-slot="sidebar"] a[href="/trash"]',
-      );
+    const changes: string[] = [];
+    Object.assign(window, { newChanges: changes });
+    const look = () => {
       const create = document.querySelector('button[aria-label="New"]');
-      if (
-        trash?.getAttribute("aria-current") === "page" &&
-        create &&
-        getComputedStyle(create).visibility !== "hidden"
-      )
-        late.push(`${Math.round(performance.now())} ms`);
+      if (!create) return "gone";
+      const box = create.getBoundingClientRect();
+      const style = getComputedStyle(create);
+      return `${box.x},${box.y},${box.width},${box.height} ${style.visibility} ${style.opacity}`;
+    };
+    const first = look();
+    const sample = () => {
+      const now = look();
+      if (now !== first) changes.push(now);
       requestAnimationFrame(sample);
     };
     requestAnimationFrame(sample);
@@ -111,7 +111,9 @@ test("New hides in the frame that leaving a folder shows the next page", async (
   ).toBeVisible();
   await page.waitForTimeout(400);
   expect(
-    await page.evaluate(() => ("lateNew" in window ? window.lateNew : null)),
+    await page.evaluate(() =>
+      "newChanges" in window ? window.newChanges : null,
+    ),
   ).toEqual([]);
 });
 

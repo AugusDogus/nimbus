@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { FileListing } from "@nimbus/api/file-listing";
-import { client, test, chooseView } from "./helpers";
+import { client, test, chooseView, whenCanCreate } from "./helpers";
 
 test("keeps primary navigation and utility actions usable in both themes", async ({
   page,
@@ -545,41 +545,6 @@ test("header and toolbar controls have 44 px touch areas on touch screens of eve
   }
 });
 
-test("New is offered only where something can be created", async ({
-  page,
-  isMobile,
-}) => {
-  const fab = page.getByRole("button", { name: "New file or folder" });
-  const sidebarNew = page.getByRole("button", { name: "New", exact: true });
-  const offered = isMobile ? fab : sidebarNew;
-  await page.goto("/");
-  await expect(offered).toBeVisible();
-  await page.goto("/trash");
-  await expect(
-    page.getByRole("heading", { name: "Trash", exact: true }),
-  ).toBeVisible();
-  await expect(offered).toBeHidden();
-  // Pages that are not a folder have nowhere to create in, rather than the drive root.
-  for (const [address, heading] of [
-    ["/trash/", "Trash"],
-    ["/recent", "Recent"],
-    ["/starred", "Starred"],
-    ["/shared", "Shared"],
-    ["/search?q=alpha", "Search: alpha"],
-  ]) {
-    await page.goto(address);
-    await expect(
-      page.getByRole("heading", { name: heading, exact: true }),
-    ).toBeVisible();
-    await expect(offered).toBeHidden();
-  }
-  await page.goto(`/browse/missing-${randomUUID()}`);
-  await expect(
-    page.getByRole("heading", { name: "Folder not found", exact: true }),
-  ).toBeVisible();
-  await expect(offered).toBeHidden();
-});
-
 test("an empty folder suggests dropping files only where files can be dragged in", async ({
   page,
   context,
@@ -639,17 +604,19 @@ test("on a phone the share dialog keeps Create link in reach without scrolling",
   ).toBeInViewport();
 });
 
-test("New closes and creates nothing once the page has nowhere to create in", async ({
+test("New closes and creates nothing once the page creates somewhere else", async ({
   page,
   context,
   isMobile,
 }) => {
   const rpc = await client(context);
-  const rootNames = async () =>
-    FileListing.entries(await rpc.files.list.query({ path: "" })).map(
+  const folder = `new-closes-${randomUUID().slice(0, 8)}`;
+  await rpc.files.createFolder.mutate({ name: folder });
+  const listed = async (path: string) =>
+    FileListing.entries(await rpc.files.list.query({ path })).map(
       (item) => item.name,
     );
-  const before = await rootNames();
+  const rootBefore = await listed("");
   const openNew = () =>
     page
       .getByRole("button", {
@@ -665,51 +632,44 @@ test("New closes and creates nothing once the page has nowhere to create in", as
     name: "Upload file",
     exact: true,
   });
+  const empty = page.getByText("This folder is empty");
+  const trash = page.getByRole("heading", { name: "Trash", exact: true });
 
-  // In-app navigation keeps the page, so whatever New had open must close by itself.
-  const sidebarLink = async (name: string) => {
-    if (isMobile)
-      await page
-        .getByRole("button", { name: "Toggle Sidebar", exact: true })
-        .click();
-    await page.getByRole("link", { name, exact: true }).first().click();
-    if (isMobile) await page.keyboard.press("Escape");
-  };
-  // A menu or drawer open when Back returns to Trash closes, and does not come back.
-  await page.goto("/");
-  await sidebarLink("Trash");
-  await expect(
-    page.getByRole("heading", { name: "Trash", exact: true }),
-  ).toBeVisible();
-  await sidebarLink("Files");
-  await expect(
-    page.getByRole("heading", { name: "Files", exact: true }),
-  ).toBeVisible();
+  // In-app navigation keeps the page, so whatever New had open for the folder must close by
+  // itself on Trash, where New creates in Files instead.
+  await page.goto(`/browse/${folder}`);
+  await expect(empty).toBeVisible();
+  if (isMobile)
+    await page
+      .getByRole("button", { name: "Toggle Sidebar", exact: true })
+      .click();
+  await page.getByRole("link", { name: "Trash", exact: true }).first().click();
+  if (isMobile) await page.keyboard.press("Escape");
+  await expect(trash).toBeVisible();
+  await page.goBack();
+  await expect(empty).toBeVisible();
+  await whenCanCreate(page);
   await openNew();
   await expect(newFolder).toBeVisible();
-  await page.goBack();
-  await expect(
-    page.getByRole("heading", { name: "Trash", exact: true }),
-  ).toBeVisible();
+  await page.goForward();
+  await expect(trash).toBeVisible();
   await expect(newFolder).toBeHidden();
   await expect(upload).toBeHidden();
-  await page.goForward();
-  await expect(
-    page.getByRole("heading", { name: "Files", exact: true }),
-  ).toBeVisible();
+  await page.goBack();
+  await expect(empty).toBeVisible();
   await expect(newFolder).toBeHidden();
 
-  // A New folder dialog open when Back returns to Trash closes without creating.
+  // A New folder dialog open when the page moves on to Trash closes without creating.
+  await whenCanCreate(page);
   await openNew();
   await newFolder.click();
   const dialog = page.getByRole("dialog", { name: "New folder", exact: true });
   await dialog.getByRole("textbox").fill(`never-${randomUUID().slice(0, 8)}`);
-  await page.goBack();
-  await expect(
-    page.getByRole("heading", { name: "Trash", exact: true }),
-  ).toBeVisible();
+  await page.goForward();
+  await expect(trash).toBeVisible();
   await expect(dialog).toBeHidden();
-  expect(await rootNames()).toEqual(before);
+  expect(await listed(folder)).toEqual([]);
+  expect(await listed("")).toEqual(rootBefore);
 });
 
 test("the path shows the parent folder wherever it has room, beside the sidebar open or folded", async ({

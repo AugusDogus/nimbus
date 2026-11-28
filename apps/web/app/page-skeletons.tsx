@@ -22,6 +22,7 @@ import { AppSidebarPlaceholder } from "./drive/files/app-sidebar";
 import { FiltersRow, folderFilters } from "./drive/files/filters-row";
 import { FolderCard } from "./drive/files/folder-card";
 import { EntrySkeleton } from "./drive/files/loading-skeleton";
+import { NewButton } from "./drive/files/new-button";
 import type { NavPlace } from "./drive/files/nav-place";
 import { AloneFolderTools, SplitToggle } from "./drive/files/split-toggle";
 import { SearchField } from "./drive/search/search-field";
@@ -157,11 +158,7 @@ export function FilesSkeleton({
       width={account.sidebar.width}
       brand={<AppFrame.BrandPlaceholder />}
       sidebar={
-        <AppSidebarPlaceholder
-          place={place}
-          offersNew={folder}
-          isAdmin={account.isAdmin}
-        />
+        <AppSidebarPlaceholder place={place} isAdmin={account.isAdmin} />
       }
     >
       <header
@@ -290,6 +287,7 @@ export function FilesSkeleton({
           </SharedFrame>
         )}
       </div>
+      <NewButton.FloatingPlaceholder />
     </AppFrame.Layout>
   );
 }

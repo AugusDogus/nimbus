@@ -9,6 +9,7 @@ import { fetchFileList } from "./file-list";
 import type { ClashChoice, EntryKind, UploadClash } from "./upload-plan";
 import {
   createUploadQueue,
+  type UploadRequest,
   type UploadSummary,
   type UploadTransport,
 } from "./upload-queue";
@@ -156,7 +157,20 @@ async function createFolders(target: string, folders: readonly string[]) {
   }
 }
 
+/** The item an upload adds to its target folder, by path: the file, or the folder holding it. */
+function topPath(request: UploadRequest) {
+  const top = request.folder ? request.folder.split("/")[0] : request.filename;
+  return [request.targetPath, top].filter(Boolean).join("/");
+}
+
+/** Told of each item an upload adds to its target folder, by path, as it lands there. */
+export type UploadArrivals = (paths: readonly string[]) => void;
+
 export function useUploadQueue() {
+  // Uploads whose caller wants to know what landed (see `uploadFiles`).
+  const [watched] = useState(
+    () => new WeakMap<UploadRequest, UploadArrivals>(),
+  );
   const [refresh] = useState(() =>
     coalesce(() => {
       void queryClient.invalidateQueries(
@@ -172,7 +186,10 @@ export function useUploadQueue() {
   const [queue] = useState(() => {
     const created = createUploadQueue({
       transport: tusTransport,
-      onUploaded: refresh,
+      onUploaded(request) {
+        watched.get(request)?.([topPath(request)]);
+        refresh();
+      },
       // Leaving the page ends running uploads, so ask first while any are planned, queued or sending.
       hold: LeaveGuard.hold,
       onIdle(summary) {
@@ -226,6 +243,7 @@ export function useUploadQueue() {
     async (
       upload: CollectedUpload,
       target: { path: string; userId: string },
+      arrivals?: UploadArrivals,
     ) => {
       if (upload.sources.length === 0 && upload.emptyFolders.length === 0)
         return;
@@ -253,8 +271,15 @@ export function useUploadQueue() {
           );
           if (folders.length) {
             await createFolders(target.path, folders);
+            arrivals?.(
+              [...new Set(folders.map((folder) => folder.split("/")[0]))].map(
+                (top) => [target.path, top].filter(Boolean).join("/"),
+              ),
+            );
             refresh();
           }
+          if (arrivals)
+            for (const request of requests) watched.set(request, arrivals);
           queue.enqueue(requests);
         });
       } catch (error) {
@@ -263,7 +288,7 @@ export function useUploadQueue() {
         );
       }
     },
-    [decide, queue, refresh],
+    [decide, queue, refresh, watched],
   );
 
   return useMemo(
