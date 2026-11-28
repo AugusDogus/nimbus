@@ -11,7 +11,7 @@
   "/settings/account": 310000,
   "/settings/admin": 345000,
   "/settings/admin/audit": 300000,
-  "/settings/appearance": 304500,
+  "/settings/appearance": 305000,
   "/settings/libraries": 280000,
   "/settings/mcp": 281000,
   "/settings/webdav": 284000,

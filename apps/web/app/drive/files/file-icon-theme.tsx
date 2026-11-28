@@ -41,6 +41,8 @@ import { FolderIcons, folderIconsUrl } from "@/lib/folder-icons";
 import { readInlineJson } from "@/lib/inline-json";
 import { bootstrapElementId } from "@/client/bootstrap";
 import { entryGeometry } from "./entry-layout";
+import { sortEntries } from "./entry-sort";
+import type { FileEntry } from "./types";
 import type { EntryIconProps } from "./file-icons";
 
 const resolvedScheme = (): "light" | "dark" => {
@@ -204,18 +206,19 @@ const maxWaitMs = 4000;
 
 /**
  * Loads the account's set and decodes the icons `entries` use, so rows that show them paint
- * their final icon in their first frame. `entries` come in the order the page shows them; it
- * waits for the first screen's icons and starts the rest. Given the folder they list, the icons it needs come in
- * one response (which the page preloads for its first folder) rather than one request each.
- * It waits at most `maxWaitMs`. See `prepareEntryIcons` in file-icons.tsx.
+ * their final icon in their first frame. Sorted in the page's `order`, it waits for the first
+ * screen's icons and starts the rest. The icons `folder` needs come in one response (which the
+ * page preloads for its first folder) rather than one request each. It waits at most
+ * `maxWaitMs`. See `prepareEntryIcons` in file-icons.tsx.
  */
 export function prepareEntries(
-  entries: readonly { type: string; name: string }[],
-  folder?: string,
+  entries: readonly FileEntry[],
+  folder: string,
+  order: Parameters<typeof sortEntries>[1] | undefined,
 ): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
-    prepare(entries, folder),
+    prepare(order ? sortEntries(entries, order) : entries, folder),
     new Promise<void>((resolve) => {
       timer = setTimeout(resolve, maxWaitMs);
     }),

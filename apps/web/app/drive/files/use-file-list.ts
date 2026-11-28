@@ -10,7 +10,6 @@ import { fetchFileList } from "@/lib/file-list";
 import { queryClient } from "@/lib/trpc";
 import { trpcErrorCode } from "@/lib/trpc-error";
 
-import { sortEntries } from "./entry-sort";
 import { prepareEntryIcons } from "./file-icons";
 import { prefsQueryOptions } from "./use-file-preferences";
 import type { FileEntry } from "./types";
@@ -28,11 +27,11 @@ export const fileListQueryOptions = (path: string, includeStats: boolean) =>
     // A listing shows with its icons ready, so no row paints an empty or changing icon.
     queryFn: async () => {
       const entries = await fetchFileList(path, includeStats);
-      // In the order the page shows them, so the first screen's icons are the ones awaited.
-      const prefs = queryClient.getQueryData(prefsQueryOptions.queryKey);
+      // With the page's order, so the first screen's icons are the ones awaited.
       await prepareEntryIcons(
-        prefs ? sortEntries(entries, prefs) : entries,
+        entries,
         path,
+        queryClient.getQueryData(prefsQueryOptions.queryKey),
       );
       return entries;
     },

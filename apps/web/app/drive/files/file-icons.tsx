@@ -1,5 +1,12 @@
 import { useSyncExternalStore } from "react";
+import type { UserPreferences } from "@nimbus/api/context";
 import { CodeLoad } from "@/lib/code-load";
+import type { FileEntry } from "./types";
+
+type SortOrder = Pick<
+  UserPreferences,
+  "sortField" | "sortDirection" | "groupByType"
+>;
 
 export type EntryIconProps = {
   type: string;
@@ -16,42 +23,49 @@ export type EntryIconProps = {
 type IconRuntime = typeof import("./file-icon-theme");
 
 /**
- * File pages carry only this slot. The code that resolves names against an icon theme and draws
- * Nimbus's own icons (file-icon-theme.tsx) loads beside the page: the server hints it with the
- * page's chunks, and loading starts as soon as this module runs. Listings wait for
- * `prepareEntryIcons` before they show, so rows never paint an empty slot or swap icons.
+ * Pages carry only this slot. The code that resolves names against an icon theme and draws
+ * Nimbus's own icons (file-icon-theme.tsx) loads on first use; on file pages the server hints it
+ * with the page's chunks, so it downloads beside them. Listings wait for `prepareEntryIcons`
+ * before they show, so rows never paint an empty slot or swap icons.
  */
 let runtime: IconRuntime | null = null;
+let loading: Promise<IconRuntime> | null = null;
 const listeners = new Set<() => void>();
-const loading = CodeLoad.load(() => import("./file-icon-theme")).then(
-  (module) => {
-    runtime = module;
-    for (const listener of listeners) listener();
-    return module;
-  },
-);
-loading.catch(() => {
-  // The code load notice offers a reload; entries draw an empty slot until then.
-});
+
+/** Loads the icon code once, when a listing or a preview first needs it. */
+const load = () =>
+  (loading ??= CodeLoad.load(() => import("./file-icon-theme")).then(
+    (module) => {
+      runtime = module;
+      for (const listener of listeners) listener();
+      return module;
+    },
+  ));
 
 /**
  * Resolves once `entries` can draw their final icons at first paint: the icon code, the account's
  * set and every icon the first screen of them uses are loaded and decoded. `folder` is the folder
- * they list, whose icons then come in one response. It never fails, and a listing waits for it
+ * they list, whose icons then come in one response; `order` is the page's, which decides which
+ * entries are on the first screen. It never fails, and a listing waits for it
  * only so long (see `prepareEntries`).
  */
 export const prepareEntryIcons = (
-  entries: readonly { type: string; name: string }[],
-  folder?: string,
+  entries: readonly FileEntry[],
+  folder: string,
+  order: SortOrder | undefined,
 ) =>
-  loading
-    .then((module) => module.prepareEntries(entries, folder))
+  load()
+    .then((module) => module.prepareEntries(entries, folder, order))
     .catch(() => {
-      // Without the icon code or set, entries draw Nimbus's own icons or an empty slot.
+      // Without the icon code or set, entries draw Nimbus's own icons or an empty slot; the
+      // code load notice offers a reload.
     });
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
+  load().catch(() => {
+    // As above: the slot stays empty and the code load notice offers a reload.
+  });
   return () => {
     listeners.delete(listener);
   };
