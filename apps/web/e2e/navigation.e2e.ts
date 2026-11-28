@@ -555,7 +555,9 @@ test("New is offered only where something can be created", async ({
   await page.goto("/");
   await expect(offered).toBeVisible();
   await page.goto("/trash");
-  await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Trash", exact: true }),
+  ).toBeVisible();
   await expect(offered).toBeHidden();
   // Pages that are not a folder have nowhere to create in, rather than the drive root.
   for (const [address, heading] of [
@@ -676,7 +678,9 @@ test("New closes and creates nothing once the page has nowhere to create in", as
   // A menu or drawer open when Back returns to Trash closes, and does not come back.
   await page.goto("/");
   await sidebarLink("Trash");
-  await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Trash", exact: true }),
+  ).toBeVisible();
   await sidebarLink("Files");
   await expect(
     page.getByRole("heading", { name: "Files", exact: true }),
@@ -684,7 +688,9 @@ test("New closes and creates nothing once the page has nowhere to create in", as
   await openNew();
   await expect(newFolder).toBeVisible();
   await page.goBack();
-  await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Trash", exact: true }),
+  ).toBeVisible();
   await expect(newFolder).toBeHidden();
   await expect(upload).toBeHidden();
   await page.goForward();
@@ -699,7 +705,9 @@ test("New closes and creates nothing once the page has nowhere to create in", as
   const dialog = page.getByRole("dialog", { name: "New folder", exact: true });
   await dialog.getByRole("textbox").fill(`never-${randomUUID().slice(0, 8)}`);
   await page.goBack();
-  await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Trash", exact: true }),
+  ).toBeVisible();
   await expect(dialog).toBeHidden();
   expect(await rootNames()).toEqual(before);
 });

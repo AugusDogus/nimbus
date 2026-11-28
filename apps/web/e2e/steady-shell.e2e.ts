@@ -106,7 +106,9 @@ test("New hides in the frame that leaving a folder shows the next page", async (
     .locator('[data-slot="sidebar"]')
     .getByRole("link", { name: "Trash", exact: true })
     .click();
-  await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Trash", exact: true }),
+  ).toBeVisible();
   await page.waitForTimeout(400);
   expect(
     await page.evaluate(() => ("lateNew" in window ? window.lateNew : null)),

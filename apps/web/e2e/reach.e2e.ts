@@ -385,7 +385,7 @@ for (const view of FileAction.views)
         await viewer.goto(viewPath(view, s));
         if (view === "trash")
           await expect(
-            viewer.getByRole("heading", { name: "Trash" }),
+            viewer.getByRole("heading", { name: "Trash", exact: true }),
           ).toBeVisible();
         else if (view === "public links" || view === "file requests") {
           await expect(
