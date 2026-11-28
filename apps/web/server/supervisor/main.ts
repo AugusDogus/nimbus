@@ -426,16 +426,10 @@ async function installer(
   );
   const fail = (message: string) => ({ ok: false as const, message });
   if (updateIds) {
-    // Checked before it is given anything to do: setpriv has run once it is no longer root.
-    let wrong: string | null = "it did not start";
-    for (let tries = 0; tries < 100 && child.exitCode === null; tries++) {
-      const credentials = await Credentials.read(child.pid);
-      if (credentials && !credentials.uids.includes(0)) {
-        wrong = Credentials.dropped(credentials, updateIds);
-        break;
-      }
-      await Bun.sleep(20);
-    }
+    // Checked before it is given anything to do, once setpriv has dropped everything.
+    const wrong = await Credentials.untilDropped(child.pid, updateIds, {
+      running: () => child.exitCode === null,
+    });
     if (wrong) {
       child.kill("SIGKILL");
       await child.exited;

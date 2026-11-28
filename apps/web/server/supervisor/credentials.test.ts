@@ -44,6 +44,45 @@ test("any other id, group, capability or a missing no_new_privs fails, and says 
   );
 });
 
+test("a child setpriv is still dropping is judged only once it has dropped everything", async () => {
+  // As setpriv goes: still root, then the user set (keeping capabilities), then the groups,
+  // the bounding set and, at exec, the rest.
+  const steps = [
+    status({ uid: "0\t0\t0\t0", gid: "0\t0\t0\t0" }),
+    status({ gid: "0\t0\t0\t0", effective: "00000000000001e0" }),
+    status({ effective: "00000000000001e0", bounding: "00000000000001e0" }),
+    status(),
+  ];
+  let looks = 0;
+  const look = async () => Credentials.parse(steps[looks++] ?? status());
+  expect(
+    await Credentials.untilDropped(1, ids, {
+      running: () => true,
+      intervalMs: 0,
+      look,
+    }),
+  ).toBeNull();
+  expect(looks).toBe(steps.length);
+});
+
+test("a child that never drops everything is refused with what the last look saw", async () => {
+  const mixed = Credentials.parse(status({ effective: "00000000000001e0" }));
+  expect(
+    await Credentials.untilDropped(1, ids, {
+      running: () => true,
+      intervalMs: 0,
+      look: async () => mixed,
+    }),
+  ).toContain("effective");
+  expect(
+    await Credentials.untilDropped(1, ids, {
+      running: () => false,
+      intervalMs: 0,
+      look: async () => mixed,
+    }),
+  ).toBe("it did not start");
+});
+
 test("this process is found among its user's processes", async () => {
   const uid = process.getuid?.() ?? 0;
   expect(await Credentials.processesOf(uid)).toContain(process.pid);

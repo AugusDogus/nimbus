@@ -70,16 +70,17 @@ function parse(status: string): Credentials | null {
   };
 }
 
+/** `pid`'s credentials, or null when it is gone or they cannot be read. */
+async function read(pid: number): Promise<Credentials | null> {
+  const status = await readFile(`/proc/${pid}/status`, "utf8").catch(
+    () => null,
+  );
+  return status === null ? null : parse(status);
+}
+
 export const Credentials = {
   parse,
-
-  /** `pid`'s credentials, or null when it is gone or they cannot be read. */
-  async read(pid: number): Promise<Credentials | null> {
-    const status = await readFile(`/proc/${pid}/status`, "utf8").catch(
-      () => null,
-    );
-    return status === null ? null : parse(status);
-  },
+  read,
 
   /**
    * Why `credentials` are not exactly `ids` with nothing more (no other id, no supplementary
@@ -101,6 +102,38 @@ export const Credentials = {
     if (!credentials.noNewPrivs)
       return "it may gain privileges (no_new_privs is off)";
     return null;
+  },
+
+  /**
+   * Why `pid` has not dropped to `ids` with nothing more (see `dropped`), or null as soon as a
+   * look shows it has. setpriv drops in steps, the user first while keeping its capabilities,
+   * then the groups, the bounding and ambient sets, and the permitted set only at exec, so a
+   * look in between sees a mix that is no verdict yet. Judged on the last of at most `tries`
+   * looks (by `look`) `intervalMs` apart while `running`; "it did not start" if it never ran.
+   */
+  async untilDropped(
+    pid: number,
+    ids: Ids,
+    {
+      running,
+      tries = 100,
+      intervalMs = 20,
+      look = read,
+    }: {
+      running: () => boolean;
+      tries?: number;
+      intervalMs?: number;
+      look?: (pid: number) => Promise<Credentials | null>;
+    },
+  ): Promise<string | null> {
+    let wrong = "it did not start";
+    for (let left = tries; left > 0 && running(); left--) {
+      const reason = Credentials.dropped(await look(pid), ids);
+      if (reason === null) return null;
+      wrong = reason;
+      await Bun.sleep(intervalMs);
+    }
+    return wrong;
   },
 
   /** Every process any of whose user ids is `uid`. */
