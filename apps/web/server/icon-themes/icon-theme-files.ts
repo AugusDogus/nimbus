@@ -27,13 +27,17 @@ const manifests = new Map<string, string | null>();
 /**
  * Writes `compiled` to `directory`, which must not exist yet. Everything is written to a
  * sibling first and renamed into place, so a failed install leaves nothing half-written.
+ * `mode` is the new directories' mode: imports under the config root stay private to the server's
+ * user, while the build's bundled sets must be readable by the unprivileged user the image's
+ * server runs as, since the build runs as root.
  */
 async function write(
   directory: string,
   compiled: CompiledIconTheme,
+  mode: 0o750 | 0o755 = 0o750,
 ): Promise<{ manifest: string; bytes: number }> {
   const staging = `${directory}.staging-${randomUUID()}`;
-  await mkdir(staging, { recursive: true, mode: 0o750 });
+  await mkdir(staging, { recursive: true, mode });
   try {
     const manifestJson = JSON.stringify(compiled.manifest);
     const hash = createHash("sha256")

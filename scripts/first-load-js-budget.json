@@ -4,7 +4,7 @@
   "/login": 129000,
   "/pair": 296000,
   "/r/$token": 134000,
-  "/recent": 366000,
+  "/recent": 367000,
   "/reset-password": 129000,
   "/s/$token": 118000,
   "/search": 370000,

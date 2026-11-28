@@ -107,6 +107,7 @@ async function buildBundled(
   const written = await IconThemeFiles.write(
     path.join(root, "material"),
     compiled.value,
+    0o755,
   );
   return { ok: true, value: { bytes: written.bytes } };
 }

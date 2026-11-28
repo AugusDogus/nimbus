@@ -247,5 +247,9 @@ test("the bundled Material set resolves names as VS Code does", async () => {
   expect(await Bun.file(`${root}/material/LICENSE.txt`).text()).toContain(
     "MIT",
   );
+  // The image builds as root and serves as an unprivileged user, who must be able to list it.
+  const { stat } = await import("node:fs/promises");
+  for (const directory of [root, `${root}/material`])
+    expect((await stat(directory)).mode & 0o005).toBe(0o005);
   await Bun.$`rm -rf ${root}`;
 });
