@@ -173,10 +173,12 @@ const maxIcons = 150;
  */
 function firstScreen() {
   const { list, grid } = entryGeometry;
-  const rows = (height: number) => Math.ceil(innerHeight / height) + 1;
+  // reach: how many icons to decode ahead, an upper bound on what fits; no control depends on it
+  const { innerWidth: width, innerHeight: height } = window;
+  const rows = (track: number) => Math.ceil(height / track) + 1;
   const columns = Math.max(
     1,
-    Math.floor((innerWidth + grid.gap) / (grid.minWidth + grid.gap)),
+    Math.floor((width + grid.gap) / (grid.minWidth + grid.gap)),
   );
   return Math.max(
     rows(list.height + list.gap),
@@ -197,14 +199,30 @@ async function loadFolderIcons(manifestUrl: string, folder: string) {
   }
 }
 
+/** At most this long a listing waits for its icons; past it, rows show and icons follow. */
+const maxWaitMs = 4000;
+
 /**
  * Loads the account's set and decodes the icons `entries` use, so rows that show them paint
  * their final icon in their first frame. `entries` come in the order the page shows them; it
  * waits for the first screen's icons and starts the rest. Given the folder they list, the icons it needs come in
  * one response (which the page preloads for its first folder) rather than one request each.
- * See `prepareEntryIcons` in file-icons.tsx.
+ * It waits at most `maxWaitMs`. See `prepareEntryIcons` in file-icons.tsx.
  */
-export async function prepareEntries(
+export function prepareEntries(
+  entries: readonly { type: string; name: string }[],
+  folder?: string,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    prepare(entries, folder),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, maxWaitMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function prepare(
   entries: readonly { type: string; name: string }[],
   folder?: string,
 ): Promise<void> {

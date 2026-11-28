@@ -22,53 +22,33 @@ type IconRuntime = typeof import("./file-icon-theme");
  * `prepareEntryIcons` before they show, so rows never paint an empty slot or swap icons.
  */
 let runtime: IconRuntime | null = null;
-let loading: Promise<IconRuntime> | null = null;
 const listeners = new Set<() => void>();
-
-function load(): Promise<IconRuntime> {
-  loading ??= CodeLoad.load(() => import("./file-icon-theme")).then(
-    (module) => {
-      runtime = module;
-      for (const listener of listeners) listener();
-      return module;
-    },
-    (error: unknown) => {
-      loading = null;
-      throw error;
-    },
-  );
-  return loading;
-}
-load().catch(() => {
+const loading = CodeLoad.load(() => import("./file-icon-theme")).then(
+  (module) => {
+    runtime = module;
+    for (const listener of listeners) listener();
+    return module;
+  },
+);
+loading.catch(() => {
   // The code load notice offers a reload; entries draw an empty slot until then.
 });
 
-/** At most this long a listing waits for its icons; past it, rows show and icons follow. */
-const maxWaitMs = 4000;
-
 /**
  * Resolves once `entries` can draw their final icons at first paint: the icon code, the account's
- * set and every icon they use are loaded and decoded. `folder` is the folder they list, whose
- * icons can then come in one response. It never fails, and a listing never waits for it longer
- * than `maxWaitMs`.
+ * set and every icon the first screen of them uses are loaded and decoded. `folder` is the folder
+ * they list, whose icons then come in one response. It never fails, and a listing waits for it
+ * only so long (see `prepareEntries`).
  */
-export async function prepareEntryIcons(
+export const prepareEntryIcons = (
   entries: readonly { type: string; name: string }[],
   folder?: string,
-): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([
-    load()
-      .then((module) => module.prepareEntries(entries, folder))
-      .catch(() => {
-        // Without the icon code or set, entries draw Nimbus's own icons or an empty slot.
-      }),
-    new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, maxWaitMs);
-    }),
-  ]);
-  clearTimeout(timer);
-}
+) =>
+  loading
+    .then((module) => module.prepareEntries(entries, folder))
+    .catch(() => {
+      // Without the icon code or set, entries draw Nimbus's own icons or an empty slot.
+    });
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
