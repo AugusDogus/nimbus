@@ -2,6 +2,7 @@ import { createContext } from "@nimbus/api/context";
 import { auth } from "@/lib/auth";
 import { fileHref } from "@/app/drive/files/types";
 import { fileListRequest } from "@/lib/file-list-request";
+import { folderIconsUrl } from "@/lib/folder-icons";
 import { Landing } from "@/lib/landing";
 import { parseSignedIn } from "@/lib/session-query";
 import type { Bootstrap } from "@/client/bootstrap";
@@ -103,15 +104,26 @@ export const PageBootstrap = {
       kind: "page",
       data: { session, prefs, me, icons },
       folder: folder !== null,
-      requests:
-        folder === null
+      // A folder's listing waits for its icons, so the icon set's manifest and the folder's
+      // icons load beside it.
+      requests: [
+        ...(folder === null
           ? []
           : [
               fileListRequest(
                 folder,
                 prefs.sortField === "modified" || prefs.sortField === "size",
               ),
-            ],
+            ]),
+        ...(icons.manifest === null
+          ? []
+          : [
+              icons.manifest,
+              ...(folder === null
+                ? []
+                : [folderIconsUrl(icons.manifest, folder)]),
+            ]),
+      ],
     };
   },
 } as const;

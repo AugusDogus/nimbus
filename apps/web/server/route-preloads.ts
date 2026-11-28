@@ -42,6 +42,12 @@ function kindOf(file: string): PageKind {
 }
 
 const routePrefix = "routes/";
+/**
+ * File pages draw each entry's icon with code they import lazily, and hold a listing back until
+ * its icons are ready (file-icons.tsx); fetching it with the page's own chunks keeps that wait
+ * off the page's critical path.
+ */
+const entryIconsModule = "app/drive/files/file-icon-theme.tsx";
 const splitSuffix = "?tsr-split=component";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -139,6 +145,7 @@ export const RoutePreloads = {
           const ancestor = `${parts.slice(0, depth).join("/")}.tsx`;
           if (split.has(ancestor)) collect(ancestor + splitSuffix, files);
         }
+        if (kindOf(file) === "files") collect(entryIconsModule, files);
         return {
           segments: parse(file),
           kind: kindOf(file),

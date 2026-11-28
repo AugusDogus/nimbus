@@ -36,8 +36,11 @@ import { FileIconResolver } from "@/lib/file-icon-resolver";
 import { IconChoice } from "@/lib/icon-choice";
 import { IconManifest } from "@/lib/icon-manifest";
 import { iconChoiceQuery } from "@/lib/icon-choice-query";
+import { queryClient } from "@/lib/trpc";
+import { FolderIcons, folderIconsUrl } from "@/lib/folder-icons";
 import { readInlineJson } from "@/lib/inline-json";
 import { bootstrapElementId } from "@/client/bootstrap";
+import { entryGeometry } from "./entry-layout";
 import type { EntryIconProps } from "./file-icons";
 
 const resolvedScheme = (): "light" | "dark" => {
@@ -133,43 +136,159 @@ function sentWithPage(): IconChoice | undefined {
   return sent ?? undefined;
 }
 
+/** The theme icon's URL for an entry, or null when Nimbus's own icon stands in. */
+function themeIcon(
+  url: string,
+  manifest: IconManifest,
+  scheme: "light" | "dark",
+  type: string,
+  name: string,
+): string | null {
+  const resolver = resolverFor(manifest, scheme);
+  const index = type === "dir" ? resolver.folder(name) : resolver.file(name);
+  const icon = index === null ? undefined : manifest.icons[index];
+  return icon === undefined
+    ? null
+    : `${url.slice(0, url.lastIndexOf("/") + 1)}${icon}`;
+}
+
+const accountChoice = {
+  ...iconChoiceQuery,
+  initialData: sentWithPage,
+  placeholderData: () => IconChoice.cached() ?? undefined,
+};
+
+/** Icons decoded for this page, kept so the browser keeps their decoded pictures too. */
+const decoded = new Map<string, Promise<void>>();
+/**
+ * Pictures that came in a folder's icons response, as blob URLs by icon URL. Rows draw these:
+ * the browser decoded them already, so they paint with the row.
+ */
+const pictures = new Map<string, string>();
+/** Icons decoded ahead for one listing, at most; rows further down rarely use more. */
+const maxIcons = 150;
+/**
+ * How many entries the window can show at once, in list or grid view: the listing waits for
+ * their icons. Icons of the entries after them decode next, without holding the listing.
+ */
+function firstScreen() {
+  const { list, grid } = entryGeometry;
+  const rows = (height: number) => Math.ceil(innerHeight / height) + 1;
+  const columns = Math.max(
+    1,
+    Math.floor((innerWidth + grid.gap) / (grid.minWidth + grid.gap)),
+  );
+  return Math.max(
+    rows(list.height + list.gap),
+    columns * rows(grid.minWidth * grid.aspect + grid.gap),
+  );
+}
+
+/** Fetches a folder's icons in one response, for icons not loaded yet. */
+async function loadFolderIcons(manifestUrl: string, folder: string) {
+  const response = await fetch(folderIconsUrl(manifestUrl, folder), {
+    credentials: "same-origin",
+  });
+  if (!response.ok) return;
+  const base = manifestUrl.slice(0, manifestUrl.lastIndexOf("/") + 1);
+  for (const [name, blob] of FolderIcons.parse(await response.json())) {
+    const url = `${base}${name}`;
+    if (!pictures.has(url)) pictures.set(url, URL.createObjectURL(blob));
+  }
+}
+
+/**
+ * Loads the account's set and decodes the icons `entries` use, so rows that show them paint
+ * their final icon in their first frame. `entries` come in the order the page shows them; it
+ * waits for the first screen's icons and starts the rest. Given the folder they list, the icons it needs come in
+ * one response (which the page preloads for its first folder) rather than one request each.
+ * See `prepareEntryIcons` in file-icons.tsx.
+ */
+export async function prepareEntries(
+  entries: readonly { type: string; name: string }[],
+  folder?: string,
+): Promise<void> {
+  const choice = await queryClient.ensureQueryData(accountChoice);
+  if (choice.manifest === null) return;
+  const manifest = await queryClient.ensureQueryData(
+    manifestQuery(choice.manifest),
+  );
+  const scheme = resolvedScheme();
+  const urls = new Set<string>();
+  const first = new Set<string>();
+  const shown = firstScreen();
+  for (const [position, entry] of entries.entries()) {
+    const icon = themeIcon(
+      choice.manifest,
+      manifest,
+      scheme,
+      entry.type,
+      entry.name,
+    );
+    if (icon !== null) {
+      urls.add(icon);
+      if (position < shown) first.add(icon);
+    }
+    if (urls.size >= maxIcons) break;
+  }
+  if (
+    folder !== undefined &&
+    [...urls].some((url) => !decoded.has(url) && !pictures.has(url))
+  )
+    await loadFolderIcons(choice.manifest, folder).catch(() => {
+      // Each picture then loads on its own.
+    });
+  const awaited: Promise<void>[] = [];
+  for (const url of urls) {
+    let done = decoded.get(url);
+    if (!done) {
+      const image = new Image();
+      image.src = pictures.get(url) ?? url;
+      // A picture that fails draws as the browser draws a broken image; it does not hold the
+      // listing back.
+      done = image.decode().catch(() => undefined);
+      decoded.set(url, done);
+    }
+    if (first.has(url)) awaited.push(done);
+  }
+  await Promise.all(awaited);
+}
+
 /**
  * An entry's icon: its theme's own icon where the theme has a specific one, otherwise Nimbus's.
  * Theme icons are `<img>` elements, never inline markup from the theme, and decorative: the
- * entry's name labels it. Until the set is known it draws nothing rather than an icon that is
- * about to change.
+ * entry's name labels it. Listings wait for `prepareEntries`, so in a row the set, the manifest
+ * and the picture are all ready when it first renders; settings previews draw nothing until
+ * their set loads rather than an icon that is about to change.
  */
 export function EntryIcon({ type, name, className, manifest }: EntryIconProps) {
   const choice = useQuery({
-    ...iconChoiceQuery,
+    ...accountChoice,
     enabled: manifest === undefined,
-    initialData: sentWithPage,
-    placeholderData: () => IconChoice.cached() ?? undefined,
   });
   const url = manifest === undefined ? choice.data?.manifest : manifest;
   const loaded = useQuery(manifestQuery(url ?? null));
   const scheme = useResolvedColorScheme();
   if (url === undefined || (url !== null && loaded.isPending))
     return <span aria-hidden className={className} />;
-  const folder = type === "dir";
-  const resolver = loaded.data ? resolverFor(loaded.data, scheme) : null;
-  const index = resolver
-    ? folder
-      ? resolver.folder(name)
-      : resolver.file(name)
-    : null;
-  const icon = index === null ? undefined : loaded.data?.icons[index];
-  if (url !== null && icon !== undefined)
+  const icon =
+    url !== null && loaded.data
+      ? themeIcon(url, loaded.data, scheme, type, name)
+      : null;
+  if (icon !== null)
     return (
       <img
-        src={`${url.slice(0, url.lastIndexOf("/") + 1)}${icon}`}
+        src={pictures.get(icon) ?? icon}
+        // The icon's own address; `src` may be the decoded copy from the folder's icons.
+        data-icon={icon}
         alt=""
-        decoding="async"
+        // Decoded ahead by `prepareEntries`, so drawing it waits for nothing.
+        decoding="sync"
         draggable={false}
         className={`${className} object-contain`}
       />
     );
-  return folder ? (
+  return type === "dir" ? (
     <Folder
       aria-hidden
       className={`${className} fill-muted text-muted-foreground`}

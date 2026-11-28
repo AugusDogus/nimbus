@@ -25,11 +25,14 @@ async function sampleFolder(page: Page) {
 const entry = (page: Page, name: string) =>
   page.locator(`[data-entry-name="${name}"]`).filter({ visible: true });
 
-/** The theme icon an entry shows, which must have loaded. */
+/**
+ * The theme icon an entry shows, which must have loaded. `data-icon` is the icon's address;
+ * `src` may be the copy decoded from the folder's icons.
+ */
 async function themeIcon(page: Page, name: string, theme: string) {
   const image = entry(page, name).locator("img");
   await expect(image).toHaveAttribute(
-    "src",
+    "data-icon",
     new RegExp(`^/api/icon-themes/${theme}/[a-f0-9]{32}\\.svg$`),
   );
   await expect
@@ -38,7 +41,7 @@ async function themeIcon(page: Page, name: string, theme: string) {
     )
     .toBeGreaterThan(0);
   await expect(image).toHaveAttribute("alt", "");
-  return image.getAttribute("src");
+  return image.getAttribute("data-icon");
 }
 
 test("the default set draws Material icons in list and grid views", async ({
@@ -167,7 +170,7 @@ test("imports an icon set from Open VSX, serves it safely, and removes it", asyn
     await chooseView(page, "List view", isMobile);
     const image = entry(page, "index.ts").locator("img");
     await expect(image).toHaveAttribute(
-      "src",
+      "data-icon",
       /^\/api\/icon-themes\/[0-9a-f-]{36}\/[a-f0-9]{32}\.svg$/,
     );
     // The set's generic page is not specific: Nimbus's own icon stands in.
@@ -176,7 +179,7 @@ test("imports an icon set from Open VSX, serves it safely, and removes it", asyn
     );
     await expect(entry(page, "src").locator("img")).toHaveCount(1);
 
-    const src = (await image.getAttribute("src")) ?? "";
+    const src = (await image.getAttribute("data-icon")) ?? "";
     const response = await page.request.get(src);
     expect(response.status()).toBe(200);
     expect(response.headers()["content-type"]).toBe("image/svg+xml");
@@ -214,4 +217,102 @@ test("imports an icon set from Open VSX, serves it safely, and removes it", asyn
   await expect(
     page.getByRole("button", { name: "Use Material+ file icons", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
+});
+
+/**
+ * Records, from before the page's own scripts run, each row's icon in every animation frame
+ * from the frame the row first shows: the theme image (and whether it has loaded), Nimbus's
+ * own icon, or an empty slot.
+ */
+function recordRowIcons() {
+  const seen: Record<string, string[]> = {};
+  Object.assign(window, { rowIcons: seen });
+  const icon = (row: Element) => {
+    const entry = row.querySelector("[data-entry-name]");
+    const first = entry?.firstElementChild;
+    // A list row's icon is in its first child; a grid card's picture is its second.
+    const slot = (
+      first && /\bsize-5\b/.test(first.getAttribute("class") ?? "")
+        ? first
+        : entry?.children[1]
+    )?.firstElementChild;
+    if (!slot) return "none";
+    if (slot instanceof HTMLImageElement)
+      return `${slot.dataset.icon ?? slot.getAttribute("src")}${
+        slot.complete && slot.naturalWidth > 0 ? "" : " (loading)"
+      }`;
+    if (slot.tagName.toLowerCase() === "svg")
+      return `svg ${slot.getAttribute("class") ?? ""} ${slot.textContent}`;
+    return slot.childElementCount === 0 ? "empty" : "other";
+  };
+  const frame = () => {
+    for (const row of document.querySelectorAll("[data-entry-row]")) {
+      const box = row.getBoundingClientRect();
+      if (box.width === 0 || box.bottom <= 0 || box.top >= innerHeight)
+        continue;
+      const name =
+        row
+          .querySelector("[data-entry-name]")
+          ?.getAttribute("data-entry-name") ?? "";
+      (seen[name] ??= []).push(icon(row));
+    }
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
+test("rows show their final icon in the first frame they appear, on a cold and a warm load", async ({
+  page,
+  isMobile,
+}) => {
+  const folder = await sampleFolder(page);
+  // More types, so the first screen needs several of the set's icons.
+  await page.locator('input[type="file"]').setInputFiles(
+    ["App.tsx", "styles.css", "README.md", "photo-notes.yaml", "main.py"].map(
+      (name) => ({
+        name,
+        mimeType: "text/plain",
+        buffer: Buffer.from(`sample ${name}`),
+      }),
+    ),
+  );
+  await expect(entry(page, "main.py")).toBeVisible();
+  await page.addInitScript(recordRowIcons);
+  const cdp = await page.context().newCDPSession(page);
+  for (const view of ["List view", "Grid view"] as const) {
+    await chooseView(page, view, isMobile);
+    for (const cache of ["cold", "warm"]) {
+      if (cache === "cold") await cdp.send("Network.clearBrowserCache");
+      await page.goto(`/browse/${folder}`);
+      await themeIcon(page, "index.ts", "material");
+      // Let anything that would still change do so.
+      await page.waitForTimeout(500);
+      const rows = await page.evaluate(() => {
+        const recorded: unknown = Reflect.get(window, "rowIcons");
+        if (typeof recorded !== "object" || recorded === null) return [];
+        return Object.entries<unknown>({ ...recorded }).map(
+          ([name, icons]): [string, string[]] => [
+            name,
+            Array.isArray(icons)
+              ? icons.map((icon: unknown) => String(icon))
+              : [],
+          ],
+        );
+      });
+      expect(rows.length, `${view}, ${cache}: rows recorded`).toBeGreaterThan(
+        4,
+      );
+      for (const [name, icons] of rows) {
+        const final = icons.at(-1);
+        expect(
+          icons[0],
+          `${view}, ${cache}: ${name} first showed ${icons[0]}, then ${final}`,
+        ).toBe(final);
+        expect(final, `${view}, ${cache}: ${name}`).not.toMatch(
+          /\(loading\)|^empty$|^none$|^other$/,
+        );
+      }
+    }
+  }
+  await chooseView(page, "List view", isMobile);
 });

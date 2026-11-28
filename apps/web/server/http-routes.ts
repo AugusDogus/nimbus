@@ -15,6 +15,7 @@ import * as filesThumbnail from "./routes/files-thumbnail";
 import * as filesVersion from "./routes/files-version";
 import * as health from "./routes/health";
 import * as iconThemes from "./routes/icon-themes";
+import * as folderIcons from "./routes/folder-icons";
 import * as healthLive from "./routes/health-live";
 import * as mcp from "./routes/mcp";
 import * as mcpConnection from "./routes/mcp-connection";
@@ -79,6 +80,11 @@ const routes = ({ shell, mode }: PageContext): Route[] => [
   route("/api/files/thumbnail", none, filesThumbnail),
   route("/api/files/version", none, filesVersion),
   route("/api/health", none, health),
+  route(
+    "/api/icon-themes/:theme/folder-icons",
+    ([theme = ""]) => ({ theme }),
+    folderIcons,
+  ),
   route(
     "/api/icon-themes/:theme/:file",
     ([theme = "", file = ""]) => ({ theme, file }),
